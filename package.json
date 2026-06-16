@@ -1,0 +1,17 @@
+{
+  "name": "floki-v2",
+  "version": "0.0.1",
+  "description": "Floki-v2 brain-first AI implementation",
+  "main": "src/brain/floki-brain.cjs",
+  "scripts": {
+    "test": "node tests/scaffold-contract-test.cjs",
+    "proof:scaffold": "bash bin/floki-brain-proof.sh"
+  },
+  "keywords": [
+    "ai",
+    "brain",
+    "modular"
+  ],
+  "author": "Floki Team",
+  "license": "MIT"
+}
