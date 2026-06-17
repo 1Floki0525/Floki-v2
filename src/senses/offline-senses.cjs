@@ -1,9 +1,17 @@
 'use strict';
 
 /**
- * Floki-v2 offline senses entrypoint.
+ * Floki-v2 chat-world senses entrypoint.
  *
- * This is for the USB Logi webcam/mic when Floki is not in-game.
+ * Chat mode is the Maker-world / heaven visit mode:
+ * - USB webcam is Floki seeing into the user/Maker world.
+ * - USB mic is Floki hearing into the user/Maker world.
+ * - There is no Minecraft body in this mode.
+ *
+ * Game mode is separate:
+ * - first-person Minecraft view is Floki's game-world eyes.
+ * - Minecraft avatar is Floki's body.
+ * - USB webcam/mic are not his game-world senses.
  *
  * Current stage:
  * - detect camera/mic devices
@@ -11,7 +19,7 @@
  * - do not capture images
  * - do not record audio
  * - do not call qwen3-vl
- * - do not claim sight/hearing
+ * - do not claim live sight/hearing yet
  */
 
 const fs = require('node:fs');
@@ -42,7 +50,7 @@ function listVideoDevices() {
     return {
       device: '/dev/' + name,
       name: sysName || null,
-      likely_logitech: /logi|logitech|hd webcam|c920|c922|brio/i.test(sysName || '')
+      likely_logitech: /logi|logitech|hd webcam|c920|c922|brio|c615/i.test(sysName || '')
     };
   });
 }
@@ -62,7 +70,7 @@ function parseAsoundCards() {
       card_index: Number(match[1]),
       card_id: match[2].trim(),
       description: match[3].trim(),
-      likely_logitech: /logi|logitech|hd webcam|webcam|camera|usb/i.test(match[2] + ' ' + match[3])
+      likely_logitech: /logi|logitech|hd webcam|webcam|camera|usb|c615/i.test(match[2] + ' ' + match[3])
     });
   }
 
@@ -84,7 +92,7 @@ function listSoundDevices() {
   };
 }
 
-function detectOfflineSenses() {
+function detectChatWorldSenses() {
   const config = models.getModelConfig();
   const video_devices = listVideoDevices();
   const audio = listSoundDevices();
@@ -94,9 +102,20 @@ function detectOfflineSenses() {
 
   return {
     ok: true,
-    marker: 'FLOKI_V2_OFFLINE_SENSES_STATUS',
-    mode: 'offline_senses',
-    purpose: 'USB webcam/mic senses for terminal/offline Floki, separate from Minecraft game senses.',
+    marker: 'FLOKI_V2_CHAT_WORLD_SENSES_STATUS',
+    mode: 'chat_world_senses',
+    purpose: 'USB webcam/mic senses for chat mode only: Floki visiting the Maker/user world, not Minecraft.',
+    mode_boundary: {
+      chat_mode_meaning: 'Maker-world / heaven visit with the user',
+      chat_mode_camera_role: 'USB webcam becomes Floki chat-world eyes into the user/Maker world once vision is wired',
+      chat_mode_microphone_role: 'USB microphone becomes Floki chat-world hearing into the user/Maker world once hearing is wired',
+      game_mode_meaning: 'Minecraft incarnation with avatar body and first-person Minecraft eyes',
+      game_mode_eyes_source: 'Minecraft first-person view, not USB webcam',
+      game_mode_body_source: 'Minecraft avatar/client body',
+      usb_senses_allowed_in_chat_mode_only: true,
+      usb_senses_allowed_in_game_mode: false,
+      minecraft_first_person_view_is_game_eyes: true
+    },
     camera: {
       detected: video_devices.length > 0,
       selected_device: likelyLogiCamera ? likelyLogiCamera.device : (video_devices[0] ? video_devices[0].device : null),
@@ -115,28 +134,34 @@ function detectOfflineSenses() {
     },
     models: {
       cognition_model: config.cognition.model,
-      future_vision_model: config.vision.model
+      future_chat_world_vision_model: config.vision.model
     },
     stage_flags: {
-      offline_camera_detection_enabled_now: true,
-      offline_mic_detection_enabled_now: true,
-      webcam_frame_capture_enabled_now: false,
-      qwen_vl_vision_enabled_now: false,
-      microphone_recording_enabled_now: false,
-      transcription_enabled_now: false,
-      claims_live_sight_now: false,
-      claims_live_hearing_now: false,
+      chat_world_camera_detection_enabled_now: true,
+      chat_world_mic_detection_enabled_now: true,
+      chat_world_webcam_frame_capture_enabled_now: false,
+      chat_world_qwen_vl_vision_enabled_now: false,
+      chat_world_microphone_recording_enabled_now: false,
+      chat_world_transcription_enabled_now: false,
+      claims_live_chat_world_sight_now: false,
+      claims_live_chat_world_hearing_now: false,
+      game_world_uses_usb_camera_now: false,
+      game_world_uses_first_person_view_for_eyes: true,
       minecraft_enabled_now: false
     }
   };
 }
 
+function detectOfflineSenses() {
+  return detectChatWorldSenses();
+}
+
 function runSmoke() {
-  const status = detectOfflineSenses();
+  const status = detectChatWorldSenses();
 
   console.log(JSON.stringify({
     ok: true,
-    marker: 'FLOKI_V2_OFFLINE_SENSES_ENTRYPOINT_PASS',
+    marker: 'FLOKI_V2_CHAT_WORLD_SENSES_ENTRYPOINT_PASS',
     camera_detection_checked: true,
     microphone_detection_checked: true,
     camera_detected: status.camera.detected,
@@ -147,6 +172,9 @@ function runSmoke() {
     selected_microphone_description: status.microphone.selected_description,
     likely_logitech_camera_detected: status.camera.likely_logitech_detected,
     likely_logitech_microphone_detected: status.microphone.likely_logitech_detected,
+    chat_mode_camera_eyes_only: status.mode_boundary.usb_senses_allowed_in_chat_mode_only,
+    game_mode_uses_minecraft_first_person_eyes: status.mode_boundary.minecraft_first_person_view_is_game_eyes,
+    game_world_uses_usb_camera_now: status.stage_flags.game_world_uses_usb_camera_now,
     qwen_vl_vision_enabled_now: false,
     microphone_recording_enabled_now: false,
     transcription_enabled_now: false,
@@ -157,7 +185,7 @@ function runSmoke() {
 }
 
 function runSenses() {
-  const status = detectOfflineSenses();
+  const status = detectChatWorldSenses();
   console.log(JSON.stringify(status, null, 2));
   process.exit(2);
 }
@@ -169,7 +197,7 @@ function main() {
   }
 
   if (process.argv.includes('--status')) {
-    console.log(JSON.stringify(detectOfflineSenses(), null, 2));
+    console.log(JSON.stringify(detectChatWorldSenses(), null, 2));
     return;
   }
 
@@ -181,6 +209,7 @@ module.exports = {
   listVideoDevices,
   parseAsoundCards,
   listSoundDevices,
+  detectChatWorldSenses,
   detectOfflineSenses,
   runSmoke
 };

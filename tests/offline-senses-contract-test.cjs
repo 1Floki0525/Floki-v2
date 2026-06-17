@@ -6,11 +6,9 @@ const { spawnSync } = require('node:child_process');
 function parseJsonFromStdout(stdout) {
   const first = stdout.indexOf('{');
   const last = stdout.lastIndexOf('}');
-
   if (first < 0 || last <= first) {
     throw new Error('No JSON object found in senses-smoke stdout: ' + stdout.slice(0, 500));
   }
-
   return JSON.parse(stdout.slice(first, last + 1));
 }
 
@@ -34,9 +32,12 @@ function run() {
   const json = parseJsonFromStdout(result.stdout);
 
   assert.equal(json.ok, true);
-  assert.equal(json.marker, 'FLOKI_V2_OFFLINE_SENSES_ENTRYPOINT_PASS');
+  assert.equal(json.marker, 'FLOKI_V2_CHAT_WORLD_SENSES_ENTRYPOINT_PASS');
   assert.equal(json.camera_detection_checked, true);
   assert.equal(json.microphone_detection_checked, true);
+  assert.equal(json.chat_mode_camera_eyes_only, true);
+  assert.equal(json.game_mode_uses_minecraft_first_person_eyes, true);
+  assert.equal(json.game_world_uses_usb_camera_now, false);
   assert.equal(json.qwen_vl_vision_enabled_now, false);
   assert.equal(json.microphone_recording_enabled_now, false);
   assert.equal(json.transcription_enabled_now, false);
@@ -46,7 +47,7 @@ function run() {
 
   console.log(JSON.stringify({
     ok: true,
-    marker: 'FLOKI_V2_OFFLINE_SENSES_CONTRACT_PASS',
+    marker: 'FLOKI_V2_CHAT_WORLD_SENSES_CONTRACT_PASS',
     camera_detected: json.camera_detected,
     microphone_detected: json.microphone_detected,
     selected_camera_device: json.selected_camera_device,
@@ -55,6 +56,9 @@ function run() {
     selected_microphone_description: json.selected_microphone_description,
     likely_logitech_camera_detected: json.likely_logitech_camera_detected,
     likely_logitech_microphone_detected: json.likely_logitech_microphone_detected,
+    chat_mode_camera_eyes_only: json.chat_mode_camera_eyes_only,
+    game_mode_uses_minecraft_first_person_eyes: json.game_mode_uses_minecraft_first_person_eyes,
+    game_world_uses_usb_camera_now: json.game_world_uses_usb_camera_now,
     qwen_vl_vision_enabled_now: json.qwen_vl_vision_enabled_now,
     claims_live_sight_now: json.claims_live_sight_now,
     claims_live_hearing_now: json.claims_live_hearing_now

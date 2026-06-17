@@ -1,6 +1,6 @@
 {
   "name": "floki-v2",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Floki-v2 brain-first Digital Being implementation",
   "main": "src/brain/floki-brain.cjs",
   "type": "commonjs",
