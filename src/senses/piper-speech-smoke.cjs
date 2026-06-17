@@ -65,8 +65,8 @@ function safeSpeechText(text) {
     throw new Error('speech text cannot be empty');
   }
 
-  if (value.length > 240) {
-    throw new Error('speech text too long for smoke proof');
+  if (value.length > 900) {
+    throw new Error('speech text too long for Piper synthesis proof');
   }
 
   return value;
@@ -123,7 +123,8 @@ function synthesizePiperSpeechToFile(options = {}) {
 
   const text = safeSpeechText(options.text || 'I am Floki. My voice is waking up safely, one proof at a time.');
   const outputId = 'piper_smoke_' + new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
-  const outputFile = options.output_file || path.join(OUTPUT_DIR, outputId + '_' + voiceSize + '.wav');
+  const outputDir = options.output_dir || OUTPUT_DIR;
+  const outputFile = options.output_file || path.join(outputDir, outputId + '_' + voiceSize + '.wav');
 
   fs.mkdirSync(path.dirname(outputFile), { recursive: true });
 

@@ -17,6 +17,7 @@ const { summarizeAffectForMemory } = require('../brain/affect-state-schema.cjs')
 const { statePath } = require('../util/fs-safe.cjs');
 const { newId } = require('../util/ids.cjs');
 const { createChatMemorySubstrate } = require('../chat/chat-memory-substrate.cjs');
+const { synthesizePiperSpeechToFile } = require('./piper-speech-smoke.cjs');
 const { buildWakeGatedUserText } = require('../chat/wake-word-gate.cjs');
 
 const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
@@ -371,6 +372,43 @@ function runBrocaFromCognition(cognition, bridge, options = {}) {
   return speech;
 }
 
+function runPiperWavFromBroca(brocaOutput, options = {}) {
+  if (!brocaOutput || brocaOutput.type !== 'speech' || brocaOutput.source !== 'broca') {
+    throw new Error('Piper WAV synthesis requires a Broca speech output');
+  }
+
+  const text = brocaOutput.payload && typeof brocaOutput.payload.text === 'string'
+    ? brocaOutput.payload.text.trim()
+    : '';
+
+  if (!text) {
+    throw new Error('Piper WAV synthesis requires non-empty Broca text');
+  }
+
+  const synthesizer = options.piper_synthesizer || synthesizePiperSpeechToFile;
+  const piperOutputDir = options.piper_output_dir || path.join(TOOLS_DIR, 'output', 'hearing-to-piper-wav');
+
+  const speech = synthesizer({
+    voice_size: options.voice_size || 'large',
+    text,
+    output_dir: piperOutputDir
+  });
+
+  if (!speech || speech.ok !== true) {
+    throw new Error('Piper WAV synthesis failed');
+  }
+
+  if (speech.speaker_playback_run_now === true) {
+    throw new Error('Piper WAV stage must not play speaker audio');
+  }
+
+  if (speech.piper_speech_run_now !== true) {
+    throw new Error('Piper WAV stage did not run Piper synthesis');
+  }
+
+  return Object.freeze(speech);
+}
+
 async function runHearingToCognitionBridgeProof(options = {}) {
   const guard = hearingToCognitionGuardStatus(options.env || process.env);
 
@@ -494,11 +532,25 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     typeof brocaPayload.text === 'string' &&
     brocaPayload.text.trim().length > 0;
 
-  const ok = cognitionOk && brocaOk;
+  let piperWav = null;
+
+  if (brocaOk) {
+    piperWav = runPiperWavFromBroca(brocaOutput, options);
+  }
+
+  const piperWavOk = piperWav &&
+    piperWav.ok === true &&
+    piperWav.piper_speech_run_now === true &&
+    piperWav.speaker_playback_run_now === false &&
+    typeof piperWav.output_file === 'string' &&
+    piperWav.output_file.length > 0 &&
+    Number(piperWav.output_size_bytes || 0) > 44;
+
+  const ok = cognitionOk && brocaOk && piperWavOk;
 
   const status = Object.freeze({
     ok,
-    marker: ok ? 'FLOKI_V2_WAKE_GATED_MEMORY_AWARE_HEARING_TO_BROCA_PASS' : 'FLOKI_V2_WAKE_GATED_MEMORY_AWARE_HEARING_TO_BROCA_FAIL',
+    marker: ok ? 'FLOKI_V2_WAKE_GATED_MEMORY_AWARE_HEARING_TO_PIPER_WAV_PASS' : 'FLOKI_V2_WAKE_GATED_MEMORY_AWARE_HEARING_TO_PIPER_WAV_FAIL',
     original_heard_text: heard.heard_text,
     heard_text: heardForCognition.heard_text,
     wake_gate_marker: wakeGate.marker,
@@ -534,6 +586,11 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     broca_output_type: brocaOutput && brocaOutput.type ? brocaOutput.type : null,
     broca_output_source: brocaOutput && brocaOutput.source ? brocaOutput.source : null,
     broca_text_response: brocaPayload.text || '',
+    piper_wav_output_file: piperWav && piperWav.output_file ? piperWav.output_file : null,
+    piper_wav_output_ready: piperWav ? piperWav.output_ready === true : false,
+    piper_wav_output_size_bytes: piperWav ? Number(piperWav.output_size_bytes || 0) : 0,
+    piper_voice_size: piperWav && piperWav.voice_size ? piperWav.voice_size : null,
+    piper_voice_name: piperWav && piperWav.voice_name ? piperWav.voice_name : null,
     broca_failure_code: brocaFailure.code || null,
     broca_failure_message: brocaFailure.message || null,
     normalized_model_json: cognitionPayload.normalized_model_json === true,
@@ -552,7 +609,8 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     emotional_reinforcement_used: true,
     broca_enabled_now: brocaOk === true,
     broca_text_response_created_now: brocaOk === true,
-    piper_speech_run_now: false,
+    piper_speech_run_now: piperWav !== null,
+    piper_wav_created_now: piperWavOk === true,
     speaker_playback_run_now: false,
     webcam_opened_now: false,
     yolo_inference_run_now: false,
@@ -615,6 +673,7 @@ module.exports = {
   buildPersistentMemoryContext,
   runCognitionFromHeardText,
   runBrocaFromCognition,
+  runPiperWavFromBroca,
   runHearingToCognitionBridgeProof,
   printHearingToCognitionBridgeProof
 };
