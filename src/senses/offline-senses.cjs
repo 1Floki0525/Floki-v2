@@ -112,8 +112,7 @@ function detectChatWorldSenses() {
       game_mode_meaning: 'Minecraft incarnation with avatar body and first-person Minecraft eyes',
       game_mode_eyes_source: 'Minecraft first-person view, not USB webcam',
       game_mode_body_source: 'Minecraft avatar/client body',
-      usb_senses_allowed_in_chat_mode_only: true,
-      usb_senses_allowed_in_game_mode: false,
+      usb_senses_scope: 'chat_world_only',
       minecraft_first_person_view_is_game_eyes: true
     },
     camera: {
@@ -145,7 +144,6 @@ function detectChatWorldSenses() {
       chat_world_transcription_enabled_now: false,
       claims_live_chat_world_sight_now: false,
       claims_live_chat_world_hearing_now: false,
-      game_world_uses_usb_camera_now: false,
       game_world_uses_first_person_view_for_eyes: true,
       minecraft_enabled_now: false
     }
@@ -172,9 +170,8 @@ function runSmoke() {
     selected_microphone_description: status.microphone.selected_description,
     likely_logitech_camera_detected: status.camera.likely_logitech_detected,
     likely_logitech_microphone_detected: status.microphone.likely_logitech_detected,
-    chat_mode_camera_eyes_only: status.mode_boundary.usb_senses_allowed_in_chat_mode_only,
-    game_mode_uses_minecraft_first_person_eyes: status.mode_boundary.minecraft_first_person_view_is_game_eyes,
-    game_world_uses_usb_camera_now: status.stage_flags.game_world_uses_usb_camera_now,
+    chat_world_camera_scope: status.mode_boundary.usb_senses_scope,
+    game_world_eyes_source: 'minecraft_first_person_view',
     qwen_vl_vision_enabled_now: false,
     microphone_recording_enabled_now: false,
     transcription_enabled_now: false,

@@ -15,7 +15,7 @@ game mode
 = Minecraft incarnation
 = first-person Minecraft view is Floki's eyes
 = Minecraft avatar/client is Floki's body
-= USB webcam/mic are not used as game-world eyes/hearing
+= USB webcam/mic are chat-world only; game-world eyes come from Minecraft first-person view
 ```
 
 ## Commands
@@ -46,7 +46,7 @@ This stage does not:
 - claim live chat-world sight
 - claim live chat-world hearing
 - touch Minecraft
-- use USB webcam as Minecraft/game-world eyes
+- cross-wire chat-world USB camera into the Minecraft eye pipeline
 
 Future stages:
 
