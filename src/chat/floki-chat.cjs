@@ -12,6 +12,7 @@ const { createHippocampus } = require('../../brain/hippocampus/index.cjs');
 const { createPersonality } = require('../../brain/personality/index.cjs');
 const { createPineal } = require('../../brain/pineal/index.cjs');
 const { createFrontal } = require('../../brain/frontal/index.cjs');
+const { createBroca } = require('../../brain/broca/index.cjs');
 const { statePath } = require('../util/fs-safe.cjs');
 const { newId } = require('../util/ids.cjs');
 const models = require('../config/model-config.cjs');
@@ -30,7 +31,8 @@ function createRuntime(options = {}) {
     hippocampus: createHippocampus({ diagnostics_path: diagnosticsPath }),
     personality: createPersonality({ diagnostics_path: diagnosticsPath }),
     pineal: createPineal({ diagnostics_path: diagnosticsPath }),
-    frontal: createFrontal({ diagnostics_path: diagnosticsPath })
+    frontal: createFrontal({ diagnostics_path: diagnosticsPath }),
+    broca: createBroca({ diagnostics_path: diagnosticsPath })
   };
 }
 
@@ -51,9 +53,7 @@ function memoryMatchesForContext(recallOutput) {
 }
 
 async function handleUserText(runtime, text) {
-  const event = makeUserTextEvent(text, {
-    trace_id: runtime.session_id
-  });
+  const event = makeUserTextEvent(text, { trace_id: runtime.session_id });
 
   const routeOutput = runtime.thalamus.routeEvent(event);
   const understandingOutput = runtime.temporal.understandEvent(event);
@@ -65,7 +65,7 @@ async function handleUserText(runtime, text) {
   const memoryOutput = runtime.hippocampus.rememberEvent(event, {
     stream: 'short_term',
     type: 'experience',
-    tags: ['terminal_chat', 'qwen_cognition', understandingOutput.payload.intent_hint],
+    tags: ['terminal_chat', 'qwen_cognition', 'broca_speech', understandingOutput.payload.intent_hint],
     importance: salienceOutput.payload.salience.memory_importance_hint,
     affect: {
       valence: affectSummary.valence,
@@ -93,18 +93,24 @@ async function handleUserText(runtime, text) {
     identity: identityOutput.payload.current
   });
 
+  const speechOutput = runtime.broca.speakFromCognition(cognitionOutput, {
+    parent_event_ids: [event.id],
+    include_stage_truth: true
+  });
+
   return {
-    event: event,
-    routeOutput: routeOutput,
-    understandingOutput: understandingOutput,
-    salienceOutput: salienceOutput,
-    affectOutput: affectOutput,
-    affectSummary: affectSummary,
-    memoryOutput: memoryOutput,
-    personalityOutput: personalityOutput,
-    identityOutput: identityOutput,
-    recallOutput: recallOutput,
-    cognitionOutput: cognitionOutput
+    event,
+    routeOutput,
+    understandingOutput,
+    salienceOutput,
+    affectOutput,
+    affectSummary,
+    memoryOutput,
+    personalityOutput,
+    identityOutput,
+    recallOutput,
+    cognitionOutput,
+    speechOutput
   };
 }
 
@@ -112,9 +118,7 @@ function cognitionJsonFromOutput(cognitionOutput) {
   if (!cognitionOutput || cognitionOutput.type !== 'model_response_summary') {
     return {
       enabled: false,
-      error: cognitionOutput && cognitionOutput.payload && cognitionOutput.payload.failure
-        ? cognitionOutput.payload.failure.message
-        : 'cognition output missing or failed'
+      error: cognitionOutput && cognitionOutput.failure ? cognitionOutput.failure.message : 'cognition output missing or failed'
     };
   }
 
@@ -130,18 +134,37 @@ function cognitionJsonFromOutput(cognitionOutput) {
   };
 }
 
-function buildSmokeJson(runtime, result) {
-  const cognition = cognitionJsonFromOutput(result.cognitionOutput);
+function speechJsonFromOutput(speechOutput) {
+  if (!speechOutput || speechOutput.type !== 'speech') {
+    return {
+      enabled: false,
+      error: speechOutput && speechOutput.failure ? speechOutput.failure.message : 'speech output missing or failed'
+    };
+  }
 
   return {
-    ok: cognition.enabled,
-    marker: cognition.enabled ? 'FLOKI_V2_CHAT_SHELL_PASS' : 'FLOKI_V2_CHAT_SHELL_FAIL',
+    enabled: true,
+    output_id: speechOutput.id,
+    text: speechOutput.payload.text,
+    tone: speechOutput.payload.tone,
+    audience: speechOutput.payload.audience
+  };
+}
+
+function buildSmokeJson(runtime, result) {
+  const cognition = cognitionJsonFromOutput(result.cognitionOutput);
+  const speech = speechJsonFromOutput(result.speechOutput);
+
+  return {
+    ok: cognition.enabled && speech.enabled,
+    marker: cognition.enabled && speech.enabled ? 'FLOKI_V2_CHAT_BROCA_SHELL_PASS' : 'FLOKI_V2_CHAT_BROCA_SHELL_FAIL',
     session_id: runtime.session_id,
     event_id: result.event.id,
     memory_id: result.memoryOutput.payload.record.id,
     personality_output_id: result.personalityOutput.id,
     identity_output_id: result.identityOutput.id,
     cognition_output_id: cognition.output_id || null,
+    speech_output_id: speech.output_id || null,
     salience: {
       urgency: result.salienceOutput.payload.salience.urgency,
       attention_priority: result.salienceOutput.payload.salience.attention_priority,
@@ -155,10 +178,13 @@ function buildSmokeJson(runtime, result) {
       response_intent_for_broca: cognition.response_intent_for_broca,
       normalized_model_json: cognition.normalized_model_json,
       raw_private_reasoning_stored: cognition.raw_private_reasoning_stored
-    } : {
-      error: cognition.error
-    },
-    broca_enabled_now: false,
+    } : { error: cognition.error },
+    speech: speech.enabled ? {
+      text: speech.text,
+      tone: speech.tone,
+      audience: speech.audience
+    } : { error: speech.error },
+    broca_enabled_now: speech.enabled,
     affect_scaffold_enabled_now: true,
     reflective_emotion_enabled_now: cognition.enabled,
     cognition_enabled_now: cognition.enabled,
@@ -176,19 +202,17 @@ function printStatus() {
     vision_model: config.vision.model,
     affect_scaffold_enabled_now: true,
     qwen_cognition_available_in_chat_now: true,
-    broca_enabled_now: false,
+    broca_enabled_now: true,
     minecraft_enabled_now: false
   }, null, 2));
 }
 
 async function runSmoke() {
   const runtime = createRuntime({ smoke: true });
-  const result = await handleUserText(runtime, 'Smoke test: Floki should remember, learn, and form hope before Minecraft embodiment.');
+  const result = await handleUserText(runtime, 'Smoke test: Floki should remember, learn, speak, and form hope before Minecraft embodiment.');
   const json = buildSmokeJson(runtime, result);
   console.log(JSON.stringify(json, null, 2));
-  if (!json.ok) {
-    process.exit(1);
-  }
+  if (!json.ok) process.exit(1);
 }
 
 async function runInteractive() {
@@ -196,7 +220,7 @@ async function runInteractive() {
 
   console.log('FLOKI_V2_TERMINAL_CHAT_READY');
   console.log('session: ' + runtime.session_id);
-  console.log('Current stage: qwen cognition chat shell. Broca speech is not wired yet. Minecraft game mode is separate.');
+  console.log('Current stage: qwen cognition + Broca speech chat shell. Minecraft game mode is separate.');
   console.log('Commands: /help, /status, /exit');
 
   const rl = readline.createInterface({
@@ -223,9 +247,9 @@ async function runInteractive() {
 
       if (text === '/help') {
         console.log('Commands:');
-        console.log('  /status  show chat/cognition status');
+        console.log('  /status  show chat/cognition/Broca status');
         console.log('  /exit    close chat');
-        console.log('Any other text is routed through memory, affect scaffold, personality, identity, and qwen3.5:9b cognition.');
+        console.log('Any other text is routed through memory, affect scaffold, personality, identity, qwen3.5:9b cognition, and Broca speech.');
         rl.prompt();
         return;
       }
@@ -238,23 +262,21 @@ async function runInteractive() {
 
       const result = await handleUserText(runtime, text);
       const cognition = cognitionJsonFromOutput(result.cognitionOutput);
+      const speech = speechJsonFromOutput(result.speechOutput);
+
+      if (speech.enabled) {
+        console.log('floki> ' + speech.text);
+      }
 
       console.log(JSON.stringify({
-        ok: cognition.enabled,
-        marker: cognition.enabled ? 'FLOKI_V2_CHAT_QWEN_COGNITION_RECORDED' : 'FLOKI_V2_CHAT_QWEN_COGNITION_FAILED',
+        ok: cognition.enabled && speech.enabled,
+        marker: cognition.enabled && speech.enabled ? 'FLOKI_V2_CHAT_BROCA_SPEECH_RECORDED' : 'FLOKI_V2_CHAT_BROCA_SPEECH_FAILED',
         event_id: result.event.id,
         memory_id: result.memoryOutput.payload.record.id,
         cognition_output_id: cognition.output_id || null,
-        cognition: cognition.enabled ? {
-          model: cognition.model,
-          safe_thought_summary: cognition.safe_thought_summary,
-          felt_interpretation: cognition.felt_interpretation,
-          response_intent_for_broca: cognition.response_intent_for_broca,
-          raw_private_reasoning_stored: cognition.raw_private_reasoning_stored
-        } : {
-          error: cognition.error
-        },
-        broca_enabled_now: false,
+        speech_output_id: speech.output_id || null,
+        speech: speech.enabled ? speech.text : speech.error,
+        broca_enabled_now: speech.enabled,
         cognition_enabled_now: cognition.enabled,
         reflective_emotion_enabled_now: cognition.enabled,
         minecraft_enabled_now: false
@@ -278,11 +300,7 @@ async function runInteractive() {
 function main() {
   if (process.argv.includes('--smoke')) {
     runSmoke().catch(function(error) {
-      console.error(JSON.stringify({
-        ok: false,
-        marker: 'FLOKI_V2_CHAT_SHELL_FAIL',
-        error: error.message
-      }, null, 2));
+      console.error(JSON.stringify({ ok: false, marker: 'FLOKI_V2_CHAT_BROCA_SHELL_FAIL', error: error.message }, null, 2));
       process.exit(1);
     });
     return;
@@ -294,11 +312,7 @@ function main() {
   }
 
   runInteractive().catch(function(error) {
-    console.error(JSON.stringify({
-      ok: false,
-      marker: 'FLOKI_V2_CHAT_START_FAIL',
-      error: error.message
-    }, null, 2));
+    console.error(JSON.stringify({ ok: false, marker: 'FLOKI_V2_CHAT_START_FAIL', error: error.message }, null, 2));
     process.exit(1);
   });
 }
