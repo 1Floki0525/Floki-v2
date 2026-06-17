@@ -106,7 +106,7 @@ function synthesizePiperSpeechToFile(options = {}) {
     throw new Error('Piper CLI is not executable: ' + PIPER_CLI);
   }
 
-  const voiceSize = options.voice_size || 'small';
+  const voiceSize = options.voice_size || 'large';
   const voice = VOICES[voiceSize];
 
   if (!voice) {

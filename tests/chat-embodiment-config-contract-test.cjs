@@ -19,7 +19,7 @@ function run() {
 
   assert.deepEqual(SUPPORTED_CHAT_VOICE_MODEL_SIZES, ['tiny', 'small', 'med', 'large']);
   assert.deepEqual(status.supported_voice_model_sizes, ['tiny', 'small', 'med', 'large']);
-  assert.equal(status.selected_voice_model_size, 'small');
+  assert.equal(status.selected_voice_model_size, 'large');
 
   assert.equal(status.chat.realm_name, 'maker_realm');
   assert.equal(status.chat.body_source, 'host_machine');
@@ -32,7 +32,7 @@ function run() {
   assert.equal(status.chat.voice_activity_engine, 'vad');
   assert.equal(status.chat.text_to_speech_engine, 'piper');
   assert.equal(status.chat.voice_locale, 'en_US');
-  assert.equal(status.chat.voice_profile, 'us_english_default');
+  assert.equal(status.chat.voice_profile, 'us_english_male_ryan');
   assert.equal(status.chat.runtime_enabled_now, false);
 
   assert.equal(status.game_separation.realm_name, 'minecraft_home_realm');

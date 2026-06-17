@@ -10,17 +10,17 @@ const {
 
 function run() {
   const status = synthesizePiperSpeechToFile({
-    voice_size: 'small',
+    voice_size: 'large',
     text: 'I am Floki. This is a safe voice proof. I am not playing audio through speakers yet.'
   });
 
   assert.equal(status.ok, true);
   assert.equal(status.marker, 'FLOKI_V2_PIPER_SPEECH_SMOKE_PASS');
 
-  assert.equal(status.voice_size, 'small');
-  assert.equal(status.voice_name, 'en_US-amy-medium');
-  assert.equal(status.model_path, VOICES.small.model);
-  assert.equal(status.config_path, VOICES.small.config);
+  assert.equal(status.voice_size, 'large');
+  assert.equal(status.voice_name, 'en_US-ryan-high');
+  assert.equal(status.model_path, VOICES.large.model);
+  assert.equal(status.config_path, VOICES.large.config);
   assert.equal(status.output_file.startsWith(OUTPUT_DIR), true);
   assert.equal(status.output_ready, true);
   assert.equal(status.output_size_bytes > 44, true);

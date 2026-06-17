@@ -7,7 +7,7 @@ This is not speaker playback yet.
 The proof:
 
 - uses the local Piper CLI under .floki-tools
-- uses the small US English Piper voice
+- uses the large US English male Piper Ryan voice
 - writes a WAV file under .floki-tools/output/piper-smoke
 - verifies the output is non-empty
 - verifies RIFF/WAVE headers

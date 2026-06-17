@@ -26,7 +26,7 @@ config/chat.config.yaml
 Current configurable fields:
 
 - embodiment.voice_locale
-- embodiment.voice_profile
+- embodiment.voice_profile default: us_english_male_ryan
 - embodiment.voice_model_size
 
 Supported voice model sizes:

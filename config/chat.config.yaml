@@ -105,8 +105,8 @@ embodiment:
   voice_activity_engine: vad
   text_to_speech_engine: piper
   voice_locale: en_US
-  voice_profile: us_english_default
-  voice_model_size: small
+  voice_profile: us_english_male_ryan
+  voice_model_size: large
   voice_model_sizes:
     tiny: true
     small: true
