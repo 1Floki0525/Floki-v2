@@ -12,6 +12,7 @@ const { createHippocampus } = require('../../brain/hippocampus/index.cjs');
 const { createPersonality } = require('../../brain/personality/index.cjs');
 const { createPineal } = require('../../brain/pineal/index.cjs');
 const { createFrontal } = require('../../brain/frontal/index.cjs');
+const { createBroca } = require('../../brain/broca/index.cjs');
 const { summarizeAffectForMemory } = require('../brain/affect-state-schema.cjs');
 const { statePath } = require('../util/fs-safe.cjs');
 const { newId } = require('../util/ids.cjs');
@@ -139,10 +140,17 @@ function routedHeardText(heard, gate) {
   });
 }
 
-function writeBridgeReport(status) {
-  fs.mkdirSync(BRIDGE_OUTPUT_DIR, { recursive: true });
-  const reportFile = path.join(BRIDGE_OUTPUT_DIR, 'latest-hearing-to-cognition.json');
+function writeBridgeReport(status, options = {}) {
+  if (options.write_report === false) {
+    return null;
+  }
+
+  const outputDir = options.output_dir || BRIDGE_OUTPUT_DIR;
+  const reportFile = options.report_file || path.join(outputDir, 'latest-hearing-to-cognition.json');
+
+  fs.mkdirSync(path.dirname(reportFile), { recursive: true });
   fs.writeFileSync(reportFile, JSON.stringify(status, null, 2) + '\n');
+
   return reportFile;
 }
 
@@ -343,6 +351,26 @@ async function runCognitionFromHeardText(heard, options = {}) {
   });
 }
 
+function runBrocaFromCognition(cognition, bridge, options = {}) {
+  const diagnosticsPath = bridge && bridge.diagnostics_path ? bridge.diagnostics_path : undefined;
+  const broca = createBroca({
+    diagnostics_path: diagnosticsPath,
+    persist_diagnostics: options.persist_broca_diagnostics !== false
+  });
+
+  const speech = broca.speakFromCognition(cognition, {
+    parent_event_ids: bridge && bridge.event && bridge.event.id ? [bridge.event.id] : [],
+    include_chat_truth: options.include_chat_truth === true,
+    include_stage_truth: false,
+    tone: 'plain',
+    audience: 'user'
+  });
+
+  validateBrainOutput(speech);
+
+  return speech;
+}
+
 async function runHearingToCognitionBridgeProof(options = {}) {
   const guard = hearingToCognitionGuardStatus(options.env || process.env);
 
@@ -390,7 +418,7 @@ async function runHearingToCognitionBridgeProof(options = {}) {
 
     return Object.freeze({
       ...status,
-      report_file: writeBridgeReport(status)
+      report_file: writeBridgeReport(status, options)
     });
   }
 
@@ -428,7 +456,7 @@ async function runHearingToCognitionBridgeProof(options = {}) {
 
     return Object.freeze({
       ...status,
-      report_file: writeBridgeReport(status)
+      report_file: writeBridgeReport(status, options)
     });
   }
 
@@ -439,18 +467,38 @@ async function runHearingToCognitionBridgeProof(options = {}) {
   const cognitionInner = cognitionPayload.cognition || {};
   const cognitionFailure = cognition.failure || {};
 
-  const ok = cognition.type === 'model_response_summary' &&
+  const cognitionOk = cognition.type === 'model_response_summary' &&
     cognition.source === 'frontal' &&
     cognitionPayload.raw_private_reasoning_stored === false &&
+    cognitionPayload.normalized_model_json === true &&
+    cognitionPayload.schema_constrained_json === true &&
+    cognitionPayload.model_json_fallback_used !== true &&
     typeof cognitionInner.safe_thought_summary === 'string' &&
     cognitionInner.safe_thought_summary.length > 0 &&
     bridge.persistent_short_recall_count >= 1 &&
     bridge.persistent_long_recall_count >= 1 &&
     bridge.persistent_reinforcement_target.length > 0;
 
+  let brocaOutput = null;
+
+  if (cognitionOk) {
+    brocaOutput = runBrocaFromCognition(cognition, bridge, options);
+  }
+
+  const brocaPayload = brocaOutput && brocaOutput.payload ? brocaOutput.payload : {};
+  const brocaFailure = brocaOutput && brocaOutput.failure ? brocaOutput.failure : {};
+
+  const brocaOk = brocaOutput &&
+    brocaOutput.type === 'speech' &&
+    brocaOutput.source === 'broca' &&
+    typeof brocaPayload.text === 'string' &&
+    brocaPayload.text.trim().length > 0;
+
+  const ok = cognitionOk && brocaOk;
+
   const status = Object.freeze({
     ok,
-    marker: ok ? 'FLOKI_V2_WAKE_GATED_MEMORY_AWARE_HEARING_TO_COGNITION_PASS' : 'FLOKI_V2_WAKE_GATED_MEMORY_AWARE_HEARING_TO_COGNITION_FAIL',
+    marker: ok ? 'FLOKI_V2_WAKE_GATED_MEMORY_AWARE_HEARING_TO_BROCA_PASS' : 'FLOKI_V2_WAKE_GATED_MEMORY_AWARE_HEARING_TO_BROCA_FAIL',
     original_heard_text: heard.heard_text,
     heard_text: heardForCognition.heard_text,
     wake_gate_marker: wakeGate.marker,
@@ -482,6 +530,12 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     safe_thought_summary: cognitionInner.safe_thought_summary || '',
     felt_interpretation: cognitionInner.felt_interpretation || '',
     response_intent_for_broca: cognitionInner.response_intent_for_broca || '',
+    broca_output_id: brocaOutput && brocaOutput.id ? brocaOutput.id : null,
+    broca_output_type: brocaOutput && brocaOutput.type ? brocaOutput.type : null,
+    broca_output_source: brocaOutput && brocaOutput.source ? brocaOutput.source : null,
+    broca_text_response: brocaPayload.text || '',
+    broca_failure_code: brocaFailure.code || null,
+    broca_failure_message: brocaFailure.message || null,
     normalized_model_json: cognitionPayload.normalized_model_json === true,
     schema_constrained_json: cognitionPayload.schema_constrained_json === true,
     json_retry_used: cognitionPayload.json_retry_used === true,
@@ -496,7 +550,8 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     short_term_memory_written: true,
     long_term_memory_recalled: bridge.persistent_long_recall_count >= 1,
     emotional_reinforcement_used: true,
-    broca_enabled_now: false,
+    broca_enabled_now: brocaOk === true,
+    broca_text_response_created_now: brocaOk === true,
     piper_speech_run_now: false,
     speaker_playback_run_now: false,
     webcam_opened_now: false,
@@ -506,7 +561,7 @@ async function runHearingToCognitionBridgeProof(options = {}) {
 
   return Object.freeze({
     ...status,
-    report_file: writeBridgeReport(status)
+    report_file: writeBridgeReport(status, options)
   });
 }
 
@@ -559,6 +614,7 @@ module.exports = {
   summarizePersistentMemoryForCognition,
   buildPersistentMemoryContext,
   runCognitionFromHeardText,
+  runBrocaFromCognition,
   runHearingToCognitionBridgeProof,
   printHearingToCognitionBridgeProof
 };

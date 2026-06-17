@@ -95,6 +95,7 @@ async function run() {
   );
 
   const proof = await runHearingToCognitionBridgeProof({
+    write_report: false,
     env: {
       FLOKI_ALLOW_HEARING_TO_COGNITION: '1'
     },
