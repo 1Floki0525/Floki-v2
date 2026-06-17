@@ -16,6 +16,7 @@ const { summarizeAffectForMemory } = require('../brain/affect-state-schema.cjs')
 const { statePath } = require('../util/fs-safe.cjs');
 const { newId } = require('../util/ids.cjs');
 const { createChatMemorySubstrate } = require('../chat/chat-memory-substrate.cjs');
+const { buildWakeGatedUserText } = require('../chat/wake-word-gate.cjs');
 
 const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
@@ -98,6 +99,43 @@ function latestHeardText(options = {}) {
     hearing_loop_marker: report.marker || null,
     capture_file: report.capture && report.capture.output_file ? report.capture.output_file : null,
     whisper_report_file: report.whisper && report.whisper.report_file ? report.whisper.report_file : null
+  });
+}
+
+function applyWakeGateToHeardText(heard, options = {}) {
+  const gated = buildWakeGatedUserText({
+    text: heard.heard_text,
+    modality: options.modality || process.env.FLOKI_WAKE_INPUT_MODALITY || 'spoken',
+    source: options.source || process.env.FLOKI_WAKE_INPUT_SOURCE || 'user',
+    voice_speaking: options.voice_speaking === true || process.env.FLOKI_VOICE_SPEAKING === '1'
+  });
+
+  return Object.freeze({
+    ok: true,
+    marker: gated.marker,
+    classification: gated.classification,
+    gate_open: gated.classification ? gated.classification.gate_open === true : false,
+    direct_request: gated.classification ? gated.classification.direct_request === true : false,
+    should_reply: gated.classification ? gated.classification.should_reply === true : false,
+    routed_to_cognition: gated.routed_to_cognition === true,
+    original_heard_text: heard.heard_text,
+    user_text_for_cognition: gated.user_text_for_cognition || '',
+    reason: gated.classification ? gated.classification.reason : 'unknown',
+    ears_must_be_muted: gated.classification ? gated.classification.ears_must_be_muted === true : false,
+    chat_mode_only: true
+  });
+}
+
+function routedHeardText(heard, gate) {
+  const text = String(gate.user_text_for_cognition || '').trim();
+
+  return Object.freeze({
+    ...heard,
+    original_heard_text: heard.heard_text,
+    heard_text: text,
+    heard_text_length: text.length,
+    heard_word_count: text ? text.split(/\s+/).filter(Boolean).length : 0,
+    wake_gate_marker: gate.marker
   });
 }
 
@@ -356,10 +394,50 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     });
   }
 
-  const bridge = await runCognitionFromHeardText(heard, options);
+  const wakeGate = applyWakeGateToHeardText(heard, options);
+
+  if (!wakeGate.routed_to_cognition) {
+    const status = Object.freeze({
+      ok: true,
+      marker: 'FLOKI_V2_WAKE_GATED_HEARING_TO_COGNITION_IGNORED',
+      heard_text: heard.heard_text,
+      heard_text_length: heard.heard_text_length,
+      heard_word_count: heard.heard_word_count,
+      source_report_file: heard.report_file,
+      capture_file: heard.capture_file,
+      whisper_report_file: heard.whisper_report_file,
+      wake_gate_marker: wakeGate.marker,
+      wake_gate_open: wakeGate.gate_open,
+      wake_direct_request: wakeGate.direct_request,
+      wake_should_reply: wakeGate.should_reply,
+      wake_reason: wakeGate.reason,
+      ears_must_be_muted: wakeGate.ears_must_be_muted,
+      hearing_to_cognition_run_now: true,
+      qwen_cognition_run_now: false,
+      persistent_memory_used: false,
+      short_term_memory_written: false,
+      long_term_memory_recalled: false,
+      emotional_reinforcement_used: false,
+      broca_enabled_now: false,
+      piper_speech_run_now: false,
+      speaker_playback_run_now: false,
+      webcam_opened_now: false,
+      yolo_inference_run_now: false,
+      chat_mode_only: true
+    });
+
+    return Object.freeze({
+      ...status,
+      report_file: writeBridgeReport(status)
+    });
+  }
+
+  const heardForCognition = routedHeardText(heard, wakeGate);
+  const bridge = await runCognitionFromHeardText(heardForCognition, options);
   const cognition = bridge.cognition;
   const cognitionPayload = cognition.payload || {};
   const cognitionInner = cognitionPayload.cognition || {};
+  const cognitionFailure = cognition.failure || {};
 
   const ok = cognition.type === 'model_response_summary' &&
     cognition.source === 'frontal' &&
@@ -372,10 +450,15 @@ async function runHearingToCognitionBridgeProof(options = {}) {
 
   const status = Object.freeze({
     ok,
-    marker: ok ? 'FLOKI_V2_MEMORY_AWARE_HEARING_TO_COGNITION_PASS' : 'FLOKI_V2_MEMORY_AWARE_HEARING_TO_COGNITION_FAIL',
-    heard_text: heard.heard_text,
-    heard_text_length: heard.heard_text_length,
-    heard_word_count: heard.heard_word_count,
+    marker: ok ? 'FLOKI_V2_WAKE_GATED_MEMORY_AWARE_HEARING_TO_COGNITION_PASS' : 'FLOKI_V2_WAKE_GATED_MEMORY_AWARE_HEARING_TO_COGNITION_FAIL',
+    original_heard_text: heard.heard_text,
+    heard_text: heardForCognition.heard_text,
+    wake_gate_marker: wakeGate.marker,
+    wake_gate_open: wakeGate.gate_open,
+    wake_routed_to_cognition: wakeGate.routed_to_cognition,
+    wake_request_text: wakeGate.user_text_for_cognition,
+    heard_text_length: heardForCognition.heard_text_length,
+    heard_word_count: heardForCognition.heard_word_count,
     source_report_file: heard.report_file,
     capture_file: heard.capture_file,
     whisper_report_file: heard.whisper_report_file,
@@ -393,13 +476,21 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     cognition_model: cognitionPayload.model || null,
     cognition_type: cognition.type,
     cognition_source: cognition.source,
+    cognition_failure_code: cognitionFailure.code || null,
+    cognition_failure_message: cognitionFailure.message || null,
+    cognition_failure_recoverable: typeof cognitionFailure.recoverable === 'boolean' ? cognitionFailure.recoverable : null,
     safe_thought_summary: cognitionInner.safe_thought_summary || '',
     felt_interpretation: cognitionInner.felt_interpretation || '',
     response_intent_for_broca: cognitionInner.response_intent_for_broca || '',
     normalized_model_json: cognitionPayload.normalized_model_json === true,
+    json_retry_used: cognitionPayload.json_retry_used === true,
+    json_retry_first_error: cognitionPayload.json_retry_first_error || null,
+    model_json_fallback_used: cognitionPayload.model_json_fallback_used === true,
+    model_json_fallback_reason: cognitionPayload.model_json_fallback_reason || null,
     raw_private_reasoning_stored: cognitionPayload.raw_private_reasoning_stored === true,
     hearing_to_cognition_run_now: true,
     qwen_cognition_run_now: true,
+    frontal_failure_exposed: cognition.type === 'failure',
     persistent_memory_used: true,
     short_term_memory_written: true,
     long_term_memory_recalled: bridge.persistent_long_recall_count >= 1,
@@ -460,6 +551,8 @@ module.exports = {
   hearingToCognitionAllowed,
   hearingToCognitionGuardStatus,
   latestHeardText,
+  routedHeardText,
+  applyWakeGateToHeardText,
   writeBridgeReport,
   emotionFromAffectSummary,
   summarizePersistentMemoryForCognition,
