@@ -66,7 +66,7 @@ function run() {
   assert.equal(chat.voice_toolchain.voice_locale, 'en_US');
   assert.equal(chat.voice_toolchain.voice_model_sizes.tiny, true);
   assert.equal(chat.voice_toolchain.voice_model_sizes.small, true);
-  assert.equal(chat.voice_toolchain.voice_model_sizes.medium, true);
+  assert.equal(chat.voice_toolchain.voice_model_sizes.med, true);
   assert.equal(chat.voice_toolchain.voice_model_sizes.large, true);
   assert.equal(chat.voice_toolchain.runtime_enabled_now, false);
 

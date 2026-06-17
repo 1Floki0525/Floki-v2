@@ -33,7 +33,7 @@ Supported voice model sizes:
 
 - tiny
 - small
-- medium
+- med
 - large
 
 Because yaml-lite does not support arrays, supported voice model sizes are stored as a map.

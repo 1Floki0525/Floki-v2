@@ -110,6 +110,6 @@ embodiment:
   voice_model_sizes:
     tiny: true
     small: true
-    medium: true
+    med: true
     large: true
   runtime_enabled_now: false

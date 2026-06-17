@@ -10,7 +10,7 @@ const GAME_CONFIG_PATH = path.join(ROOT, 'config', 'game.config.yaml');
 const SUPPORTED_CHAT_VOICE_MODEL_SIZES = Object.freeze([
   'tiny',
   'small',
-  'medium',
+  'med',
   'large'
 ]);
 
@@ -67,7 +67,7 @@ function validateVoiceModelSizes(embodiment) {
   const selected = requireString(embodiment.voice_model_size, null, 'embodiment.voice_model_size');
 
   if (!SUPPORTED_CHAT_VOICE_MODEL_SIZES.includes(selected)) {
-    fail('embodiment.voice_model_size must be one of tiny, small, medium, large');
+    fail('embodiment.voice_model_size must be one of tiny, small, med, large');
   }
 
   if (sizes[selected] !== true) {

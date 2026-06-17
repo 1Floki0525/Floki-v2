@@ -17,8 +17,8 @@ function run() {
   assert.equal(status.marker, 'FLOKI_V2_CHAT_EMBODIMENT_CONFIG_PASS');
   assert.equal(status.config_source_of_truth, 'config/chat.config.yaml');
 
-  assert.deepEqual(SUPPORTED_CHAT_VOICE_MODEL_SIZES, ['tiny', 'small', 'medium', 'large']);
-  assert.deepEqual(status.supported_voice_model_sizes, ['tiny', 'small', 'medium', 'large']);
+  assert.deepEqual(SUPPORTED_CHAT_VOICE_MODEL_SIZES, ['tiny', 'small', 'med', 'large']);
+  assert.deepEqual(status.supported_voice_model_sizes, ['tiny', 'small', 'med', 'large']);
   assert.equal(status.selected_voice_model_size, 'small');
 
   assert.equal(status.chat.realm_name, 'maker_realm');
@@ -61,11 +61,11 @@ function run() {
       voice_model_sizes: {
         tiny: true,
         small: true,
-        medium: true,
+        med: true,
         large: true
       }
     });
-  }, /voice_model_size must be one of tiny, small, medium, large/);
+  }, /voice_model_size must be one of tiny, small, med, large/);
 
   assert.throws(() => {
     validateVoiceModelSizes({
@@ -73,7 +73,7 @@ function run() {
       voice_model_sizes: {
         tiny: true,
         small: false,
-        medium: true,
+        med: true,
         large: true
       }
     });
