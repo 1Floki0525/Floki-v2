@@ -19,11 +19,28 @@ const { newId } = require('../util/ids.cjs');
 const { createChatMemorySubstrate } = require('../chat/chat-memory-substrate.cjs');
 const { synthesizePiperSpeechToFile } = require('./piper-speech-smoke.cjs');
 const { buildWakeGatedUserText } = require('../chat/wake-word-gate.cjs');
+const { createVoiceOutputLock } = require('../chat/voice-output-lock.cjs');
 
 const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const HEARING_LOOP_REPORT = path.join(TOOLS_DIR, 'output', 'chat-hearing-loop', 'latest-chat-hearing-loop.json');
 const BRIDGE_OUTPUT_DIR = path.join(TOOLS_DIR, 'output', 'hearing-to-cognition');
+
+function voiceOutputSpeakingNow(options = {}) {
+  const lock = createVoiceOutputLock({
+    lock_file: options.voice_lock_file
+  });
+
+  const local = {};
+
+  if (typeof options.voice_lock_now_ms === 'number') {
+    local.now_ms = options.voice_lock_now_ms;
+  }
+
+  const ears = lock.isEarsMuted(local);
+
+  return ears.ears_muted_now === true;
+}
 
 function hearingToCognitionAllowed(env = process.env) {
   return env.FLOKI_ALLOW_HEARING_TO_COGNITION === '1';
@@ -105,11 +122,15 @@ function latestHeardText(options = {}) {
 }
 
 function applyWakeGateToHeardText(heard, options = {}) {
+  const voiceSpeaking = options.voice_speaking === true ||
+    process.env.FLOKI_VOICE_SPEAKING === '1' ||
+    voiceOutputSpeakingNow(options);
+
   const gated = buildWakeGatedUserText({
     text: heard.heard_text,
     modality: options.modality || process.env.FLOKI_WAKE_INPUT_MODALITY || 'spoken',
     source: options.source || process.env.FLOKI_WAKE_INPUT_SOURCE || 'user',
-    voice_speaking: options.voice_speaking === true || process.env.FLOKI_VOICE_SPEAKING === '1'
+    voice_speaking: voiceSpeaking
   });
 
   return Object.freeze({
@@ -662,6 +683,7 @@ module.exports = {
   TOOLS_DIR,
   HEARING_LOOP_REPORT,
   BRIDGE_OUTPUT_DIR,
+  voiceOutputSpeakingNow,
   hearingToCognitionAllowed,
   hearingToCognitionGuardStatus,
   latestHeardText,

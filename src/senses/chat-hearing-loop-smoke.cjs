@@ -15,9 +15,25 @@ const {
   runWhisperTranscriptionProof
 } = require('./whisper-transcription-smoke.cjs');
 
+const { createVoiceOutputLock } = require('../chat/voice-output-lock.cjs');
+
 const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const HEARING_OUTPUT_DIR = path.join(TOOLS_DIR, 'output', 'chat-hearing-loop');
+
+function voiceOutputEarsStatus(options = {}) {
+  const lock = createVoiceOutputLock({
+    lock_file: options.voice_lock_file
+  });
+
+  const local = {};
+
+  if (typeof options.voice_lock_now_ms === 'number') {
+    local.now_ms = options.voice_lock_now_ms;
+  }
+
+  return lock.isEarsMuted(local);
+}
 
 function chatHearingLoopAllowed(env = process.env) {
   return env.FLOKI_ALLOW_CHAT_HEARING_LOOP === '1';
@@ -121,6 +137,35 @@ function runChatHearingLoopProof(options = {}) {
       webcam_opened_now: false,
       yolo_inference_run_now: false,
       minecraft_called: false
+    });
+  }
+
+  const ears = voiceOutputEarsStatus(options);
+
+  if (ears.ears_muted_now) {
+    const status = Object.freeze({
+      ok: true,
+      marker: 'FLOKI_V2_CHAT_HEARING_LOOP_EARS_MUTED_WHILE_SPEAKING',
+      ears,
+      voice_output_lock_active: ears.voice_output_lock_active === true,
+      ears_muted_now: true,
+      chat_hearing_loop_run_now: true,
+      microphone_recorded_now: false,
+      vad_audio_analysis_run_now: false,
+      whisper_transcription_run_now: false,
+      qwen_called: false,
+      broca_called: false,
+      piper_speech_run_now: false,
+      speaker_playback_run_now: false,
+      webcam_opened_now: false,
+      yolo_inference_run_now: false,
+      minecraft_called: false,
+      chat_mode_only: true
+    });
+
+    return Object.freeze({
+      ...status,
+      report_file: writeHearingLoopReport(status)
     });
   }
 
@@ -258,6 +303,7 @@ module.exports = {
   ROOT,
   TOOLS_DIR,
   HEARING_OUTPUT_DIR,
+  voiceOutputEarsStatus,
   chatHearingLoopAllowed,
   chatHearingLoopGuardStatus,
   writeHearingLoopReport,
