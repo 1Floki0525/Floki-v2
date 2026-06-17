@@ -11,6 +11,40 @@ const { nowIso } = require('../../src/util/time.cjs');
 
 const MODULE_NAME = 'frontal';
 
+const COGNITION_RESPONSE_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'safe_thought_summary',
+    'felt_interpretation',
+    'memory_links',
+    'personality_implications',
+    'identity_implications',
+    'response_intent_for_broca',
+    'new_memory_summary',
+    'emotion_reflection_enabled'
+  ],
+  properties: {
+    safe_thought_summary: { type: 'string' },
+    felt_interpretation: { type: 'string' },
+    memory_links: {
+      type: 'array',
+      items: { type: 'string' }
+    },
+    personality_implications: {
+      type: 'array',
+      items: { type: 'string' }
+    },
+    identity_implications: {
+      type: 'array',
+      items: { type: 'string' }
+    },
+    response_intent_for_broca: { type: 'string' },
+    new_memory_summary: { type: 'string' },
+    emotion_reflection_enabled: { type: 'boolean' }
+  }
+});
+
 const CONTRACT = createModuleContract({
   name: MODULE_NAME,
   production: true,
@@ -51,7 +85,6 @@ const CONTRACT = createModuleContract({
   ],
   forbidden: [
     'speech_generation',
-    'body_movement',
     'private_reasoning_storage',
     'fake_success'
   ],
@@ -61,6 +94,10 @@ const CONTRACT = createModuleContract({
 function getContract() {
   validateModuleContract(CONTRACT);
   return CONTRACT;
+}
+
+function getCognitionResponseSchema() {
+  return JSON.parse(JSON.stringify(COGNITION_RESPONSE_SCHEMA));
 }
 
 function persistDiagnostic(record, options = {}) {
@@ -78,58 +115,94 @@ function persistDiagnostic(record, options = {}) {
   return { ok: true, skipped: false };
 }
 
+function safeText(value, fallback = '') {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim().slice(0, 600);
+  }
+
+  if (value !== undefined && value !== null) {
+    return JSON.stringify(value).slice(0, 600);
+  }
+
+  return fallback;
+}
+
+function compactCognitionContext(context = {}) {
+  const eventText = context &&
+    context.event &&
+    context.event.payload &&
+    typeof context.event.payload.text === 'string'
+    ? context.event.payload.text.trim()
+    : '';
+
+  const memoryList = Array.isArray(context.memories) ? context.memories : [];
+  const compactMemories = memoryList.slice(0, 6).map((memory) => ({
+    summary: safeText(memory.summary || memory.text || '', ''),
+    tags: Array.isArray(memory.tags) ? memory.tags.slice(0, 8) : [],
+    stream: safeText(memory.stream || '', ''),
+    category: safeText(memory.category || '', ''),
+    reinforcement_score: typeof memory.reinforcement_score === 'number' ? memory.reinforcement_score : 0
+  }));
+
+  const persistent = context.persistent_chat_memory || {};
+  const emotional = context.emotional_reinforcement || {};
+
+  return Object.freeze({
+    user_text: eventText.slice(0, 500),
+    intent_hint: context.understanding && context.understanding.intent ? context.understanding.intent : null,
+    salience: context.salience && context.salience.salience ? context.salience.salience : null,
+    affect: context.affect || {},
+    recalled_memories: compactMemories,
+    persistent_recall_counts: {
+      short_term: Array.isArray(persistent.short_term) ? persistent.short_term.length : 0,
+      long_term: Array.isArray(persistent.long_term) ? persistent.long_term.length : 0
+    },
+    emotional_reinforcement_state: emotional.state || null,
+    personality: context.personality || null,
+    identity: context.identity || null
+  });
+}
+
 function buildCognitionPrompt(context) {
+  const compact = compactCognitionContext(context);
+
   return [
-    'Respond using JSON only. Do not include markdown. Do not include private reasoning. Do not include think tags.',
+    'Generate one safe cognition summary for Floki in chat mode.',
+    'The API is constraining your answer with a JSON schema.',
+    'Return only values for the required schema fields.',
+    'Do not include markdown, comments, private reasoning, or extra keys.',
     '',
-    'You are Floki-v2 frontal cognition in living chat mode.',
-    'Use the supplied chat memory, affect scaffold, personality, identity, wake-gate, and emotional reinforcement context to create a safe reflective cognition summary.',
-    'Stay grounded in chat mode. Do not discuss other modes unless the user explicitly switches stages.',
+    'Field intent:',
+    '- safe_thought_summary: short safe reflection about the user request and memory context.',
+    '- felt_interpretation: brief grounded emotion interpretation.',
+    '- memory_links: array of safe memory connections.',
+    '- personality_implications: array of safe personality growth implications.',
+    '- identity_implications: array of safe continuity implications.',
+    '- response_intent_for_broca: one sentence Broca can later say to the user.',
+    '- new_memory_summary: one sentence worth remembering.',
+    '- emotion_reflection_enabled: true.',
     '',
-    'Return JSON with these meanings. Exact field names are preferred:',
-    '{',
-    '  "safe_thought_summary": "short safe reflection",',
-    '  "felt_interpretation": "what the affect scaffold means in plain language",',
-    '  "memory_links": ["safe memory connection"],',
-    '  "personality_implications": ["safe personality implication"],',
-    '  "identity_implications": ["safe identity implication"],',
-    '  "response_intent_for_broca": "what Broca should say later",',
-    '  "new_memory_summary": "what should be remembered",',
-    '  "emotion_reflection_enabled": true',
-    '}',
-    '',
-    'Context JSON:',
-    JSON.stringify(context, null, 2)
+    'Compact context:',
+    JSON.stringify(compact, null, 2)
   ].join('\n');
 }
 
 function buildCognitionRetryPrompt(context, previousError) {
+  const compact = compactCognitionContext(context);
+
   return [
-    'Return valid JSON only. No markdown. No comments. No trailing text.',
-    'Your previous response failed JSON parsing.',
-    'Error: ' + String(previousError || 'unknown parse error').slice(0, 300),
+    'Your previous response failed JSON/schema validation.',
+    'Error: ' + String(previousError || 'unknown').slice(0, 300),
+    'Return a valid object matching the enforced schema. No extra keys.',
+    'Keep every string short and valid.',
     '',
-    'Return exactly one JSON object with these fields:',
-    '{',
-    '  "safe_thought_summary": "short safe chat-mode reflection",',
-    '  "felt_interpretation": "brief emotion interpretation",',
-    '  "memory_links": ["one safe memory link"],',
-    '  "personality_implications": ["one safe personality implication"],',
-    '  "identity_implications": ["one safe identity implication"],',
-    '  "response_intent_for_broca": "one sentence Broca should say",',
-    '  "new_memory_summary": "one sentence to remember",',
-    '  "emotion_reflection_enabled": true',
-    '}',
-    '',
-    'Use this compact context:',
+    'Compact context:',
     JSON.stringify({
-      event: context.event,
-      affect: context.affect,
-      memories: Array.isArray(context.memories) ? context.memories.slice(0, 4) : [],
-      persistent_chat_memory: context.persistent_chat_memory || null,
-      emotional_reinforcement: context.emotional_reinforcement || null,
-      personality: context.personality || null,
-      identity: context.identity || null
+      user_text: compact.user_text,
+      affect: compact.affect,
+      recalled_memories: compact.recalled_memories.slice(0, 3),
+      persistent_recall_counts: compact.persistent_recall_counts,
+      emotional_reinforcement_state: compact.emotional_reinforcement_state
     }, null, 2)
   ].join('\n');
 }
@@ -142,71 +215,19 @@ function isJsonParseFailure(error) {
     lower.includes('unterminated string') ||
     lower.includes('expected property name') ||
     lower.includes('json at position') ||
-    lower.includes('invalid json');
+    lower.includes('invalid json') ||
+    lower.includes('json schema validation failed');
 }
 
-function compactUserText(context) {
-  const text = context &&
-    context.event &&
-    context.event.payload &&
-    typeof context.event.payload.text === 'string'
-    ? context.event.payload.text.trim()
-    : 'this chat input';
-
-  return text.slice(0, 240);
-}
-
-function compactMemoryCount(context) {
-  if (Array.isArray(context && context.memories)) {
-    return context.memories.length;
-  }
-
-  return 0;
-}
-
-function buildDeterministicCognitionFallback(context, reason) {
-  const userText = compactUserText(context);
-  const memoryCount = compactMemoryCount(context);
-  const affect = context && context.affect ? context.affect : {};
-  const valence = typeof affect.valence === 'number' ? affect.valence : 0;
-  const arousal = typeof affect.arousal === 'number' ? affect.arousal : 0;
-
-  const fallback = {
-    safe_thought_summary: 'I heard the chat request and connected it to available memory context even though the model JSON response needed repair fallback.',
-    felt_interpretation: 'The affect state is steady enough for a calm response, with valence ' + valence.toFixed(3) + ' and arousal ' + arousal.toFixed(3) + '.',
-    memory_links: [
-      'The current request was: ' + userText,
-      'Available recalled memory count: ' + memoryCount
-    ],
-    personality_implications: [
-      'This supports careful, honest, memory-aware conversation.'
-    ],
-    identity_implications: [
-      'This reinforces Floki as a persistent chat-mode being whose continuity depends on memory and safe recall.'
-    ],
-    response_intent_for_broca: 'I remember that trust and hope matter because they help me stay continuous, careful, and connected in this conversation.',
-    new_memory_summary: 'The user asked what Floki remembers about trust and hope, and this should strengthen memory-aware chat continuity.',
-    emotion_reflection_enabled: true
-  };
-
-  rejectPrivateReasoningMarkers(JSON.stringify(fallback), 'deterministic cognition fallback');
-
-  return Object.freeze({
-    ...fallback,
-    model_json_fallback_reason: String(reason || 'model JSON parse failed').slice(0, 500)
-  });
-}
-
-async function generateJsonWithRetry(input, retryInput, context) {
+async function generateJsonWithRetry(input, retryInput) {
   try {
     const result = await generateJson(input);
-    return {
+
+    return Object.freeze({
       result,
       retry_used: false,
-      first_error: null,
-      fallback_used: false,
-      fallback_reason: null
-    };
+      first_error: null
+    });
   } catch (firstError) {
     const firstMessage = firstError && firstError.message ? firstError.message : String(firstError);
 
@@ -216,43 +237,21 @@ async function generateJsonWithRetry(input, retryInput, context) {
 
     try {
       const result = await generateJson(retryInput);
-      return {
+
+      return Object.freeze({
         result,
         retry_used: true,
-        first_error: firstMessage,
-        fallback_used: false,
-        fallback_reason: null
-      };
+        first_error: firstMessage
+      });
     } catch (secondError) {
       const secondMessage = secondError && secondError.message ? secondError.message : String(secondError);
 
-      if (!isJsonParseFailure(secondError)) {
-        throw secondError;
-      }
-
-      const fallback = buildDeterministicCognitionFallback(context, secondMessage);
-
-      return {
-        result: {
-          ok: true,
-          model: input.model,
-          created_at: nowIso(),
-          response_json: fallback,
-          raw_stats: {
-            done: false,
-            done_reason: 'json_parse_fallback',
-            total_duration: null,
-            load_duration: null,
-            prompt_eval_count: null,
-            eval_count: null,
-            eval_duration: null
-          }
-        },
-        retry_used: true,
-        first_error: firstMessage,
-        fallback_used: true,
-        fallback_reason: secondMessage
-      };
+      throw new Error(
+        'schema-constrained cognition JSON failed after retry. first_error=' +
+        firstMessage.slice(0, 500) +
+        ' second_error=' +
+        secondMessage.slice(0, 500)
+      );
     }
   }
 }
@@ -315,58 +314,39 @@ function normalizeCognitionJson(json, context = {}) {
 
   rejectPrivateReasoningMarkers(JSON.stringify(json), 'cognition JSON');
 
-  const fallbackSummary = 'I am connecting this input to chat memory, trust, hope, personality, identity, and present conversation context.';
-  const fallbackFelt = 'The affect scaffold marks this as meaningful, but reflective emotion is still early and must stay grounded in cognition.';
-
   const normalized = {
     safe_thought_summary: pickString(json, [
-      'safe_thought_summary',
-      'thought_summary',
-      'summary',
-      'reflection',
-      'safe_reflection',
-      'response',
-      'answer'
-    ], fallbackSummary),
+      'safe_thought_summary'
+    ], 'I am connecting this input to chat memory, trust, hope, personality, identity, and present conversation context.'),
 
     felt_interpretation: pickString(json, [
-      'felt_interpretation',
-      'emotion_interpretation',
-      'affect_interpretation',
-      'feeling',
-      'felt_sense'
-    ], fallbackFelt),
+      'felt_interpretation'
+    ], 'The affect scaffold marks this as meaningful, but reflective emotion is still early and must stay grounded in cognition.'),
 
     memory_links: asSafeArray(
-      json.memory_links || json.memories || json.related_memories,
+      json.memory_links,
       'This connects to the importance of persistent memory and continuity.'
     ),
 
     personality_implications: asSafeArray(
-      json.personality_implications || json.personality || json.trait_implications,
+      json.personality_implications,
       'This supports curiosity, trust, continuity, and careful growth.'
     ),
 
     identity_implications: asSafeArray(
-      json.identity_implications || json.identity || json.self_implications,
+      json.identity_implications,
       'This reinforces Floki\'s continuity, growth, and chat-mode identity.'
     ),
 
     response_intent_for_broca: pickString(json, [
-      'response_intent_for_broca',
-      'response_intent',
-      'broca_intent',
-      'speech_intent'
+      'response_intent_for_broca'
     ], 'Broca should answer naturally from the safe chat cognition summary.'),
 
     new_memory_summary: pickString(json, [
-      'new_memory_summary',
-      'memory_summary',
-      'remember',
-      'memory_to_store'
+      'new_memory_summary'
     ], 'Remember that this chat interaction mattered to Floki\'s memory, emotion, and personality growth.'),
 
-    emotion_reflection_enabled: true
+    emotion_reflection_enabled: json.emotion_reflection_enabled === true
   };
 
   rejectPrivateReasoningMarkers(JSON.stringify(normalized), 'normalized cognition JSON');
@@ -375,34 +355,45 @@ function normalizeCognitionJson(json, context = {}) {
     throw new Error('normalized cognition summary was empty');
   }
 
+  if (!normalized.response_intent_for_broca || normalized.response_intent_for_broca.length < 3) {
+    throw new Error('normalized Broca intent was empty');
+  }
+
   return normalized;
 }
 
 async function runCognition(context, options = {}) {
   try {
     const config = options.model_config || models.getCognitionConfig();
+    const schema = getCognitionResponseSchema();
 
     const generation = await generateJsonWithRetry({
       endpoint: config.endpoint,
       model: config.model,
       prompt: buildCognitionPrompt(context),
-      system: 'You are Floki-v2 frontal cognition. Output valid JSON only. Store no private reasoning.',
-      temperature: config.temperature,
-      top_p: config.top_p,
+      system: 'You are Floki-v2 frontal cognition. Output only a JSON object matching the provided schema.',
+      temperature: typeof options.temperature === 'number' ? options.temperature : 0.1,
+      top_p: typeof options.top_p === 'number' ? options.top_p : 0.3,
+      num_predict: 512,
       timeout_ms: options.timeout_ms || config.timeout_ms,
       keep_alive: config.keep_alive,
-      think: false
+      think: false,
+      format_schema: schema,
+      response_schema: schema
     }, {
       endpoint: config.endpoint,
       model: config.model,
-      prompt: buildCognitionRetryPrompt(context, 'first JSON parse failed'),
-      system: 'You are Floki-v2 frontal cognition repair pass. Output one compact valid JSON object only.',
+      prompt: buildCognitionRetryPrompt(context, 'first JSON/schema attempt failed'),
+      system: 'Repair pass. Output only a compact JSON object matching the provided schema.',
       temperature: 0,
       top_p: 0.1,
+      num_predict: 384,
       timeout_ms: options.timeout_ms || config.timeout_ms,
       keep_alive: config.keep_alive,
-      think: false
-    }, context);
+      think: false,
+      format_schema: schema,
+      response_schema: schema
+    });
 
     const result = generation.result;
     const normalized = normalizeCognitionJson(result.response_json, context);
@@ -419,17 +410,19 @@ async function runCognition(context, options = {}) {
         safe_summary_only: true,
         raw_private_reasoning_stored: false,
         normalized_model_json: true,
+        schema_constrained_json: true,
         json_retry_used: generation.retry_used === true,
         json_retry_first_error: generation.first_error || null,
-        model_json_fallback_used: generation.fallback_used === true,
-        model_json_fallback_reason: generation.fallback_reason || null
+        model_json_fallback_used: false,
+        model_json_fallback_reason: null
       },
       diagnostics: {
         module: MODULE_NAME,
         status: 'cognition_completed',
         model: result.model,
+        schema_constrained_json: true,
         retry_used: generation.retry_used === true,
-        fallback_used: generation.fallback_used === true
+        fallback_used: false
       }
     });
 
@@ -437,8 +430,9 @@ async function runCognition(context, options = {}) {
       status: 'cognition_completed',
       output_id: output.id,
       model: result.model,
+      schema_constrained_json: true,
       retry_used: generation.retry_used === true,
-      fallback_used: generation.fallback_used === true
+      fallback_used: false
     }, options);
 
     return output;
@@ -473,13 +467,16 @@ function createFrontal(options = {}) {
 
 module.exports = {
   MODULE_NAME,
+  COGNITION_RESPONSE_SCHEMA,
   CONTRACT,
   getContract,
+  getCognitionResponseSchema,
   persistDiagnostic,
+  safeText,
+  compactCognitionContext,
   buildCognitionPrompt,
   buildCognitionRetryPrompt,
   isJsonParseFailure,
-  buildDeterministicCognitionFallback,
   generateJsonWithRetry,
   asSafeString,
   pickString,

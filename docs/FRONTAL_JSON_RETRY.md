@@ -1,34 +1,15 @@
 # Floki-v2 Frontal JSON Retry
 
-Batch 12.12 hardens live chat cognition against malformed model JSON.
+The retry path now uses Ollama schema-constrained JSON.
 
-Observed failure:
+It does not create deterministic cognition success.
 
-FRONTAL_COGNITION_FAILED
-model response was not parseable JSON: Unterminated string in JSON
+If the primary model response fails JSON parsing or schema validation, frontal retries once with a smaller prompt and the same schema.
 
-## Fix
+If the retry also fails, frontal returns an honest failure output.
 
-Frontal now retries once when the model response fails JSON parsing.
+Required fields in a valid cognition pass:
 
-The retry prompt is:
-
-- shorter
-- stricter
-- JSON-only
-- temperature 0
-- top_p 0.1
-
-## Report visibility
-
-The hearing-to-cognition report now exposes:
-
-- cognition_failure_code
-- cognition_failure_message
-- cognition_failure_recoverable
-- json_retry_used
-- json_retry_first_error
-
-## Proof marker
-
-FLOKI_V2_FRONTAL_JSON_RETRY_CONTRACT_PASS
+- normalized_model_json: true
+- schema_constrained_json: true
+- model_json_fallback_used: false
