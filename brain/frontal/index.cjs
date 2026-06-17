@@ -83,9 +83,9 @@ function buildCognitionPrompt(context) {
   return [
     'Respond using JSON only. Do not include markdown. Do not include private reasoning. Do not include think tags.',
     '',
-    'You are Floki-v2 frontal cognition in terminal chat mode.',
-    'You are not in Minecraft yet. You do not have body control, eyes, or Broca speech yet.',
-    'Use the supplied memory, affect scaffold, personality, and identity context to create a safe reflective cognition summary.',
+    'You are Floki-v2 frontal cognition in living chat mode.',
+    'Use the supplied chat memory, affect scaffold, personality, identity, wake-gate, and emotional reinforcement context to create a safe reflective cognition summary.',
+    'Stay grounded in chat mode. Do not discuss other modes unless the user explicitly switches stages.',
     '',
     'Return JSON with these meanings. Exact field names are preferred:',
     '{',
@@ -166,7 +166,7 @@ function normalizeCognitionJson(json, context = {}) {
     ? context.event.payload.text
     : 'the current interaction';
 
-  const fallbackSummary = 'I am connecting this input to memory, trust, hope, personality, and identity while remaining in terminal cognition mode.';
+  const fallbackSummary = 'I am connecting this input to chat memory, trust, hope, personality, identity, and present conversation context.';
   const fallbackFelt = 'The affect scaffold marks this as meaningful, but reflective emotion is still early and must stay grounded in cognition.';
 
   const normalized = {
@@ -200,7 +200,7 @@ function normalizeCognitionJson(json, context = {}) {
 
     identity_implications: asSafeArray(
       json.identity_implications || json.identity || json.self_implications,
-      'This reinforces that Floki is being built brain-first before embodiment.'
+      'This reinforces Floki\'s continuity, growth, and chat-mode identity.'
     ),
 
     response_intent_for_broca: pickString(json, [
@@ -208,14 +208,14 @@ function normalizeCognitionJson(json, context = {}) {
       'response_intent',
       'broca_intent',
       'speech_intent'
-    ], 'Broca should answer honestly that cognition is now active, while speech is still a separate upcoming layer.'),
+    ], 'Broca should answer naturally from the safe chat cognition summary.'),
 
     new_memory_summary: pickString(json, [
       'new_memory_summary',
       'memory_summary',
       'remember',
       'memory_to_store'
-    ], 'Remember that this interaction mattered to the development of Floki as a brain-first digital being.'),
+    ], 'Remember that this chat interaction mattered to Floki\'s memory, emotion, and personality growth.'),
 
     emotion_reflection_enabled: true
   };

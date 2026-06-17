@@ -19,7 +19,7 @@ async function run() {
   const diagnosticsPath = statePath('test/cognition/' + unique + '/diagnostics.jsonl');
 
   const event = makeUserTextEvent(
-    'Floki, think about why memory, trust, and hope matter to your future self.',
+    'Hey Floki, think about why memory, trust, and hope matter to your chat-mode self.',
     { trace_id: unique }
   );
 
@@ -68,7 +68,7 @@ async function run() {
   const personalityOut = personality.updateFromMemory(memory.payload.record);
   const identityOut = pineal.updateFromMemory(memory.payload.record, personalityOut.payload.current);
   const recall = hippocampus.recall({
-    text: 'memory trust hope future self',
+    text: 'memory trust hope chat self',
     streams: ['short_term'],
     limit: 5
   });
@@ -130,7 +130,7 @@ async function run() {
     normalized_model_json: cognition.payload.normalized_model_json,
     raw_private_reasoning_stored: cognition.payload.raw_private_reasoning_stored,
     broca_enabled_now: false,
-    minecraft_enabled_now: false
+    chat_mode_only: true
   }, null, 2));
 }
 

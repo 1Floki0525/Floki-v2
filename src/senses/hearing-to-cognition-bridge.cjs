@@ -15,6 +15,7 @@ const { createFrontal } = require('../../brain/frontal/index.cjs');
 const { summarizeAffectForMemory } = require('../brain/affect-state-schema.cjs');
 const { statePath } = require('../util/fs-safe.cjs');
 const { newId } = require('../util/ids.cjs');
+const { createChatMemorySubstrate } = require('../chat/chat-memory-substrate.cjs');
 
 const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
@@ -35,6 +36,10 @@ function hearingToCognitionGuardStatus(env = process.env) {
     required_env: 'FLOKI_ALLOW_HEARING_TO_COGNITION=1',
     hearing_to_cognition_run_now: false,
     qwen_cognition_run_now: false,
+    persistent_memory_used: false,
+    short_term_memory_written: false,
+    long_term_memory_recalled: false,
+    emotional_reinforcement_used: false,
     broca_enabled_now: false,
     piper_speech_run_now: false,
     speaker_playback_run_now: false,
@@ -43,7 +48,7 @@ function hearingToCognitionGuardStatus(env = process.env) {
     chat_mode_only: true,
     reason: allowed
       ? 'Hearing-to-cognition bridge is explicitly allowed for this one proof run.'
-      : 'Hearing-to-cognition is guarded. Run npm run proof:hearing-to-cognition to pass latest heard_text into cognition once.'
+      : 'Hearing-to-cognition is guarded. Run npm run proof:hearing-to-cognition to pass latest heard_text into memory-aware cognition once.'
   });
 }
 
@@ -103,6 +108,101 @@ function writeBridgeReport(status) {
   return reportFile;
 }
 
+function emotionFromAffectSummary(affectSummary) {
+  return Object.freeze({
+    valence: Number(affectSummary.valence || 0),
+    arousal: Number(affectSummary.arousal || 0),
+    trust: Number(affectSummary.trust || 0),
+    fear: Number(affectSummary.fear || 0),
+    curiosity: Number(affectSummary.curiosity || 0),
+    hope: Number(affectSummary.hope || 0),
+    confidence: Number(affectSummary.confidence || 0),
+    frustration: Number(affectSummary.frustration || 0),
+    attachment: Number(affectSummary.attachment || 0),
+    uncertainty: Number(affectSummary.uncertainty || 0)
+  });
+}
+
+function summarizePersistentMemoryForCognition(recallContext) {
+  const shortTerm = Array.isArray(recallContext.short_term_matches)
+    ? recallContext.short_term_matches
+    : [];
+
+  const longTerm = Array.isArray(recallContext.long_term_matches)
+    ? recallContext.long_term_matches
+    : [];
+
+  function compact(match) {
+    const memory = match.memory || match;
+
+    return {
+      memory_id: memory.id,
+      stream: memory.stream,
+      category: memory.category,
+      summary: memory.summary || memory.text || '',
+      tags: Array.isArray(memory.tags) ? memory.tags : [],
+      emotion: memory.emotion || {},
+      reinforcement_score: Number(memory.reinforcement_score || 0),
+      score: Number(match.score || 0)
+    };
+  }
+
+  return Object.freeze({
+    substrate_version: recallContext.substrate_version,
+    short_term: shortTerm.map(compact).slice(0, 6),
+    long_term: longTerm.map(compact).slice(0, 6),
+    emotional_state: recallContext.emotional_state || {},
+    recall_ready_for_cognition: recallContext.recall_ready_for_cognition === true
+  });
+}
+
+function buildPersistentMemoryContext(heard, affectSummary, options = {}) {
+  const substrate = createChatMemorySubstrate({
+    base_dir: options.memory_base_dir
+  });
+
+  substrate.ensureReady();
+
+  const emotion = emotionFromAffectSummary(affectSummary);
+
+  const shortMemory = substrate.rememberShortTerm({
+    text: heard.heard_text,
+    summary: 'User addressed Floki in chat: ' + heard.heard_text,
+    tags: ['chat', 'hearing', 'whisper_transcript', 'hearing_to_cognition', 'user_utterance'],
+    importance: Number(options.importance || 0.78),
+    emotion,
+    category: 'relationship_history',
+    source: 'chat_hearing_loop'
+  });
+
+  const reinforcement = substrate.reinforce({
+    target_type: 'conversation_habit',
+    target_key: 'respond_when_addressed_by_wake_phrase',
+    signal: Number(options.reinforcement_signal || 0.2),
+    reason: 'A heard chat utterance should reinforce careful response when Floki is addressed.',
+    emotion
+  });
+
+  const consolidation = substrate.consolidate({
+    min_importance: Number(options.min_consolidation_importance || 0.7)
+  });
+
+  const recallContext = substrate.recallContext({
+    text: heard.heard_text,
+    limit: Number(options.recall_limit || 8)
+  });
+
+  return Object.freeze({
+    substrate,
+    short_memory: shortMemory,
+    reinforcement: reinforcement.event,
+    reinforcement_state: reinforcement.emotional_state,
+    consolidation,
+    recall_context: recallContext,
+    cognition_memory_context: summarizePersistentMemoryForCognition(recallContext)
+  });
+}
+
 async function runCognitionFromHeardText(heard, options = {}) {
   const unique = newId('hear_cog').replace(/[^a-z0-9_]/g, '_');
   const diagnosticsPath = statePath('test/hearing-to-cognition/' + unique + '/diagnostics.jsonl');
@@ -143,6 +243,8 @@ async function runCognitionFromHeardText(heard, options = {}) {
   const affect = emotions.applyAffectDelta(affectDelta);
   const affectSummary = summarizeAffectForMemory(affect.payload.state);
 
+  const persistentMemory = buildPersistentMemoryContext(heard, affectSummary, options);
+
   const memory = hippocampus.rememberEvent(event, {
     stream: 'short_term',
     type: 'experience',
@@ -156,23 +258,31 @@ async function runCognitionFromHeardText(heard, options = {}) {
 
   const personalityOut = personality.updateFromMemory(memory.payload.record);
   const identityOut = pineal.updateFromMemory(memory.payload.record, personalityOut.payload.current);
-  const recall = hippocampus.recall({
-    text: heard.heard_text,
-    streams: ['short_term'],
-    limit: 5
-  });
+
+  const cognitionMemories = persistentMemory.cognition_memory_context.short_term
+    .concat(persistentMemory.cognition_memory_context.long_term)
+    .slice(0, 10)
+    .map((memoryRecord) => ({
+      memory_id: memoryRecord.memory_id,
+      stream: memoryRecord.stream,
+      category: memoryRecord.category,
+      summary: memoryRecord.summary,
+      tags: memoryRecord.tags,
+      affect: memoryRecord.emotion,
+      reinforcement_score: memoryRecord.reinforcement_score
+    }));
 
   const cognition = await frontal.runCognition({
     event,
     understanding: understanding.payload,
     salience: salience.payload,
     affect: affectSummary,
-    memories: recall.payload.matches.map((match) => ({
-      memory_id: match.record.id,
-      summary: match.record.content.summary,
-      tags: match.record.tags,
-      affect: match.record.affect
-    })),
+    memories: cognitionMemories,
+    persistent_chat_memory: persistentMemory.cognition_memory_context,
+    emotional_reinforcement: {
+      event: persistentMemory.reinforcement,
+      state: persistentMemory.reinforcement_state
+    },
     personality: personalityOut.payload.current,
     identity: identityOut.payload.current
   });
@@ -184,7 +294,13 @@ async function runCognitionFromHeardText(heard, options = {}) {
     cognition,
     diagnostics_path: diagnosticsPath,
     memory_id: memory.payload.record.id,
-    recall_count: recall.payload.matches.length,
+    persistent_short_memory_id: persistentMemory.short_memory.id,
+    persistent_reinforcement_target: persistentMemory.reinforcement.target_id,
+    persistent_reinforcement_score: persistentMemory.reinforcement.resulting_score,
+    persistent_consolidation_promoted_count: persistentMemory.consolidation.promoted_count,
+    persistent_short_recall_count: persistentMemory.cognition_memory_context.short_term.length,
+    persistent_long_recall_count: persistentMemory.cognition_memory_context.long_term.length,
+    persistent_memory_context: persistentMemory.cognition_memory_context,
     trace_id: unique
   });
 }
@@ -199,6 +315,10 @@ async function runHearingToCognitionBridgeProof(options = {}) {
       guard,
       hearing_to_cognition_run_now: false,
       qwen_cognition_run_now: false,
+      persistent_memory_used: false,
+      short_term_memory_written: false,
+      long_term_memory_recalled: false,
+      emotional_reinforcement_used: false,
       broca_enabled_now: false,
       piper_speech_run_now: false,
       speaker_playback_run_now: false,
@@ -218,6 +338,10 @@ async function runHearingToCognitionBridgeProof(options = {}) {
       heard,
       hearing_to_cognition_run_now: true,
       qwen_cognition_run_now: false,
+      persistent_memory_used: false,
+      short_term_memory_written: false,
+      long_term_memory_recalled: false,
+      emotional_reinforcement_used: false,
       broca_enabled_now: false,
       piper_speech_run_now: false,
       speaker_playback_run_now: false,
@@ -241,11 +365,14 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     cognition.source === 'frontal' &&
     cognitionPayload.raw_private_reasoning_stored === false &&
     typeof cognitionInner.safe_thought_summary === 'string' &&
-    cognitionInner.safe_thought_summary.length > 0;
+    cognitionInner.safe_thought_summary.length > 0 &&
+    bridge.persistent_short_recall_count >= 1 &&
+    bridge.persistent_long_recall_count >= 1 &&
+    bridge.persistent_reinforcement_target.length > 0;
 
   const status = Object.freeze({
     ok,
-    marker: ok ? 'FLOKI_V2_HEARING_TO_COGNITION_BRIDGE_PASS' : 'FLOKI_V2_HEARING_TO_COGNITION_BRIDGE_FAIL',
+    marker: ok ? 'FLOKI_V2_MEMORY_AWARE_HEARING_TO_COGNITION_PASS' : 'FLOKI_V2_MEMORY_AWARE_HEARING_TO_COGNITION_FAIL',
     heard_text: heard.heard_text,
     heard_text_length: heard.heard_text_length,
     heard_word_count: heard.heard_word_count,
@@ -256,7 +383,12 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     trace_id: bridge.trace_id,
     diagnostics_path: bridge.diagnostics_path,
     memory_id: bridge.memory_id,
-    recall_count: bridge.recall_count,
+    persistent_short_memory_id: bridge.persistent_short_memory_id,
+    persistent_reinforcement_target: bridge.persistent_reinforcement_target,
+    persistent_reinforcement_score: bridge.persistent_reinforcement_score,
+    persistent_consolidation_promoted_count: bridge.persistent_consolidation_promoted_count,
+    persistent_short_recall_count: bridge.persistent_short_recall_count,
+    persistent_long_recall_count: bridge.persistent_long_recall_count,
     cognition_output_id: cognition.id,
     cognition_model: cognitionPayload.model || null,
     cognition_type: cognition.type,
@@ -268,6 +400,10 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     raw_private_reasoning_stored: cognitionPayload.raw_private_reasoning_stored === true,
     hearing_to_cognition_run_now: true,
     qwen_cognition_run_now: true,
+    persistent_memory_used: true,
+    short_term_memory_written: true,
+    long_term_memory_recalled: bridge.persistent_long_recall_count >= 1,
+    emotional_reinforcement_used: true,
     broca_enabled_now: false,
     piper_speech_run_now: false,
     speaker_playback_run_now: false,
@@ -297,10 +433,14 @@ if (require.main === module) {
   printHearingToCognitionBridgeProof().catch((error) => {
     console.error(JSON.stringify({
       ok: false,
-      marker: 'FLOKI_V2_HEARING_TO_COGNITION_BRIDGE_FAIL',
+      marker: 'FLOKI_V2_MEMORY_AWARE_HEARING_TO_COGNITION_FAIL',
       error: error.message,
       hearing_to_cognition_run_now: true,
       qwen_cognition_run_now: false,
+      persistent_memory_used: false,
+      short_term_memory_written: false,
+      long_term_memory_recalled: false,
+      emotional_reinforcement_used: false,
       broca_enabled_now: false,
       piper_speech_run_now: false,
       speaker_playback_run_now: false,
@@ -321,6 +461,9 @@ module.exports = {
   hearingToCognitionGuardStatus,
   latestHeardText,
   writeBridgeReport,
+  emotionFromAffectSummary,
+  summarizePersistentMemoryForCognition,
+  buildPersistentMemoryContext,
   runCognitionFromHeardText,
   runHearingToCognitionBridgeProof,
   printHearingToCognitionBridgeProof

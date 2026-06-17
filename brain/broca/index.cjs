@@ -172,8 +172,8 @@ function composeSpeech(cognitionOutput, context = {}) {
     text = primary + ' I feel this as ' + felt.charAt(0).toLowerCase() + felt.slice(1);
   }
 
-  if (context.include_stage_truth !== false) {
-    text += ' I am speaking through Broca now, but I still do not have Minecraft body control or live eyes yet.';
+  if (context.include_chat_truth === true) {
+    text += ' I am answering from chat-mode cognition, memory, and emotion context.';
   }
 
   return cleanSpeechText(text);
@@ -193,7 +193,7 @@ function speakFromCognition(cognitionOutput, context = {}, options = {}) {
         status: 'speech_created',
         model_source: cognitionOutput && cognitionOutput.payload ? cognitionOutput.payload.model : null,
         broca_enabled_now: true,
-        minecraft_enabled_now: false
+        chat_mode_only: true
       }
     });
 
