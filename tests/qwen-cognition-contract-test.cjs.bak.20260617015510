@@ -1,0 +1,74 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const { makeUserTextEvent } = require('../src/brain/brain-event-schema.cjs');
+const { validateBrainOutput } = require('../src/brain/brain-output-schema.cjs');
+const { createTemporal } = require('../brain/temporal/index.cjs');
+const { createAmygdala } = require('../brain/amygdala/index.cjs');
+const { createEmotionsBase } = require('../brain/emotions_base/index.cjs');
+const { createHippocampus } = require('../brain/hippocampus/index.cjs');
+const { createPersonality } = require('../brain/personality/index.cjs');
+const { createPineal } = require('../brain/pineal/index.cjs');
+const { createFrontal } = require('../brain/frontal/index.cjs');
+const { summarizeAffectForMemory } = require('../src/brain/affect-state-schema.cjs');
+const { statePath } = require('../src/util/fs-safe.cjs');
+const { newId } = require('../src/util/ids.cjs');
+
+async function run() {
+  const unique = newId('cogtest').replace(/[^a-z0-9_]/g, '_');
+  const event = makeUserTextEvent('Floki, think about why memory, trust, and hope matter to your future self.', { trace_id: unique });
+  const temporal = createTemporal({ diagnostics_path: statePath('test/cognition/' + unique + '/diagnostics.jsonl') });
+  const amygdala = createAmygdala({ diagnostics_path: statePath('test/cognition/' + unique + '/diagnostics.jsonl') });
+  const emotions = createEmotionsBase({ affect_path: statePath('test/cognition/' + unique + '/affect.json'), diagnostics_path: statePath('test/cognition/' + unique + '/diagnostics.jsonl') });
+  const hippocampus = createHippocampus({ memory_paths: { short_term: statePath('test/cognition/' + unique + '/short-term.jsonl'), episodic: statePath('test/cognition/' + unique + '/episodic.jsonl'), semantic: statePath('test/cognition/' + unique + '/semantic.jsonl'), autobiographical: statePath('test/cognition/' + unique + '/autobiographical.jsonl') }, diagnostics_path: statePath('test/cognition/' + unique + '/diagnostics.jsonl') });
+  const personality = createPersonality({ personality_path: statePath('test/cognition/' + unique + '/personality.json'), diagnostics_path: statePath('test/cognition/' + unique + '/diagnostics.jsonl') });
+  const pineal = createPineal({ identity_path: statePath('test/cognition/' + unique + '/identity.json'), diagnostics_path: statePath('test/cognition/' + unique + '/diagnostics.jsonl') });
+  const frontal = createFrontal({ diagnostics_path: statePath('test/cognition/' + unique + '/diagnostics.jsonl') });
+
+  const understanding = temporal.understandEvent(event);
+  const salience = amygdala.computeSalience(event);
+  const affectDelta = emotions.affectDeltaFromSalience(salience);
+  const affect = emotions.applyAffectDelta(affectDelta);
+  const affectSummary = summarizeAffectForMemory(affect.payload.state);
+  const memory = hippocampus.rememberEvent(event, { stream: 'short_term', type: 'identity', tags: ['cognition_test', 'memory', 'trust', 'hope'], importance: salience.payload.salience.memory_importance_hint, affect: { valence: affectSummary.valence, arousal: affectSummary.arousal } });
+  const personalityOut = personality.updateFromMemory(memory.payload.record);
+  const identityOut = pineal.updateFromMemory(memory.payload.record, personalityOut.payload.current);
+  const recall = hippocampus.recall({ text: 'memory trust hope future self', streams: ['short_term'], limit: 5 });
+
+  const cognition = await frontal.runCognition({
+    event,
+    understanding: understanding.payload,
+    salience: salience.payload,
+    affect: affectSummary,
+    memories: recall.payload.matches.map((m) => ({ memory_id: m.record.id, summary: m.record.content.summary, tags: m.record.tags, affect: m.record.affect })),
+    personality: personalityOut.payload.current,
+    identity: identityOut.payload.current
+  });
+
+  validateBrainOutput(cognition);
+  assert.equal(cognition.type, 'model_response_summary');
+  assert.equal(cognition.source, 'frontal');
+  assert.equal(cognition.payload.model, 'qwen3.5:9b');
+  assert.equal(cognition.payload.raw_private_reasoning_stored, false);
+  assert.equal(cognition.payload.cognition.emotion_reflection_enabled, true);
+  assert.equal(typeof cognition.payload.cognition.safe_thought_summary, 'string');
+  assert.ok(cognition.payload.cognition.safe_thought_summary.length > 0);
+
+  console.log(JSON.stringify({
+    ok: true,
+    marker: 'FLOKI_V2_QWEN_COGNITION_CONTRACT_PASS',
+    model: cognition.payload.model,
+    cognition_output_id: cognition.id,
+    safe_thought_summary: cognition.payload.cognition.safe_thought_summary,
+    felt_interpretation: cognition.payload.cognition.felt_interpretation,
+    response_intent_for_broca: cognition.payload.cognition.response_intent_for_broca,
+    raw_private_reasoning_stored: cognition.payload.raw_private_reasoning_stored,
+    broca_enabled_now: false,
+    minecraft_enabled_now: false
+  }, null, 2));
+}
+
+run().catch((error) => {
+  console.error(JSON.stringify({ ok: false, marker: 'FLOKI_V2_QWEN_COGNITION_CONTRACT_FAIL', error: error.message }, null, 2));
+  process.exit(1);
+});

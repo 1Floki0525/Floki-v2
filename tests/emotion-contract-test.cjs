@@ -1,0 +1,137 @@
+'use strict';
+
+/**
+ * Floki-v2 emotion contract test.
+ *
+ * Proves:
+ * - amygdala computes salience/appraisal
+ * - emotions_base persists affect
+ * - affect can weight memory importance
+ * - private-reasoning markers are rejected
+ * - neither module speaks
+ */
+
+const assert = require('node:assert/strict');
+
+const { validateModuleContract } = require('../src/brain/module-contract.cjs');
+const { makeUserTextEvent } = require('../src/brain/brain-event-schema.cjs');
+const { validateBrainOutput } = require('../src/brain/brain-output-schema.cjs');
+const { statePath } = require('../src/util/fs-safe.cjs');
+const { newId } = require('../src/util/ids.cjs');
+const { summarizeAffectForMemory, validateAffectState } = require('../src/brain/affect-state-schema.cjs');
+const { createAmygdala } = require('../brain/amygdala/index.cjs');
+const { createEmotionsBase } = require('../brain/emotions_base/index.cjs');
+const { createHippocampus } = require('../brain/hippocampus/index.cjs');
+
+function run() {
+  const uniqueTag = newId('emotiontest').replace(/[^a-z0-9_]/g, '_');
+
+  const amygdala = createAmygdala({
+    diagnostics_path: statePath(`test/emotion/${uniqueTag}/diagnostics.jsonl`)
+  });
+
+  const emotionsBase = createEmotionsBase({
+    affect_path: statePath(`test/emotion/${uniqueTag}/affect.json`),
+    diagnostics_path: statePath(`test/emotion/${uniqueTag}/diagnostics.jsonl`)
+  });
+
+  const hippocampus = createHippocampus({
+    memory_paths: {
+      short_term: statePath(`test/emotion/${uniqueTag}/short-term.jsonl`),
+      episodic: statePath(`test/emotion/${uniqueTag}/episodic.jsonl`),
+      semantic: statePath(`test/emotion/${uniqueTag}/semantic.jsonl`),
+      autobiographical: statePath(`test/emotion/${uniqueTag}/autobiographical.jsonl`)
+    },
+    diagnostics_path: statePath(`test/emotion/${uniqueTag}/diagnostics.jsonl`)
+  });
+
+  validateModuleContract(amygdala.contract);
+  validateModuleContract(emotionsBase.contract);
+
+  assert.equal(amygdala.contract.module, 'amygdala');
+  assert.equal(emotionsBase.contract.module, 'emotions_base');
+
+  const event = makeUserTextEvent('Floki, this is new and important. You can trust me. We are building your memory and hope.', {
+    trace_id: uniqueTag
+  });
+
+  const salienceOutput = amygdala.computeSalience(event);
+  validateBrainOutput(salienceOutput);
+
+  assert.equal(salienceOutput.type, 'salience');
+  assert.equal(salienceOutput.source, 'amygdala');
+  assert.ok(salienceOutput.payload.salience.attention_priority > 0);
+  assert.ok(salienceOutput.payload.salience.memory_importance_hint > 0.35);
+  assert.ok(salienceOutput.payload.appraisal.social_warmth > 0);
+  assert.ok(salienceOutput.payload.appraisal.hope > 0);
+
+  const affectDelta = emotionsBase.affectDeltaFromSalience(salienceOutput);
+  validateAffectState(affectDelta);
+
+  const affectOutput = emotionsBase.applyAffectDelta(affectDelta);
+  validateBrainOutput(affectOutput);
+
+  assert.equal(affectOutput.type, 'affect_delta');
+  assert.equal(affectOutput.source, 'emotions_base');
+  assert.ok(affectOutput.payload.current.arousal >= 0);
+  assert.ok(affectOutput.payload.current.dominant_emotions.length >= 1);
+
+  const affectSummary = summarizeAffectForMemory(affectOutput.payload.state);
+
+  const memoryOutput = hippocampus.rememberEvent(event, {
+    stream: 'short_term',
+    type: 'experience',
+    tags: [
+      'emotion_test',
+      uniqueTag,
+      `mood:${affectSummary.mood}`,
+      ...affectSummary.dominant_emotions.map((emotion) => `emotion:${emotion.name}`)
+    ],
+    importance: salienceOutput.payload.salience.memory_importance_hint,
+    affect: {
+      valence: affectSummary.valence,
+      arousal: affectSummary.arousal
+    }
+  });
+
+  validateBrainOutput(memoryOutput);
+  assert.equal(memoryOutput.type, 'memory_write');
+  assert.equal(memoryOutput.payload.record.importance, salienceOutput.payload.salience.memory_importance_hint);
+  assert.equal(memoryOutput.payload.record.affect.valence, affectSummary.valence);
+  assert.equal(memoryOutput.payload.record.affect.arousal, affectSummary.arousal);
+  assert.ok(memoryOutput.payload.record.tags.some((tag) => tag.startsWith('emotion:')));
+
+  const unsafeEvent = {
+    ...event,
+    payload: {
+      text: '<think>unsafe</think>'
+    }
+  };
+
+  const unsafeSalience = amygdala.safeComputeSalience(unsafeEvent);
+  validateBrainOutput(unsafeSalience);
+  assert.equal(unsafeSalience.type, 'failure');
+  assert.equal(unsafeSalience.failure.code, 'AMYGDALA_UNSAFE_CONTENT');
+
+  assert.notEqual(salienceOutput.type, 'speech');
+  assert.notEqual(affectOutput.type, 'speech');
+  assert.notEqual(memoryOutput.type, 'speech');
+
+  console.log(JSON.stringify({
+    ok: true,
+    marker: 'FLOKI_V2_AFFECT_SCAFFOLD_CONTRACT_PASS',
+    amygdala_module: amygdala.contract.module,
+    emotions_module: emotionsBase.contract.module,
+    salience_output_id: salienceOutput.id,
+    affect_output_id: affectOutput.id,
+    memory_id: memoryOutput.payload.memory_id,
+    mood: affectSummary.mood,
+    dominant_emotions: affectSummary.dominant_emotions,
+    unsafe_content_rejected: unsafeSalience.failure.code,
+    affect_scaffold_enabled_now: true,
+    reflective_emotion_enabled_now: false,
+    speech_created_by_emotion_modules: false
+  }, null, 2));
+}
+
+run();

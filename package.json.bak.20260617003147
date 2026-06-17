@@ -1,0 +1,38 @@
+{
+  "name": "floki-v2",
+  "version": "0.7.8",
+  "description": "Floki-v2 brain-first Digital Being implementation",
+  "main": "src/brain/floki-brain.cjs",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node tests/foundation-contract-test.cjs && node tests/thalamus-contract-test.cjs && node tests/hippocampus-contract-test.cjs && node tests/lifecycle-contract-test.cjs && node tests/emotion-contract-test.cjs && node tests/personality-identity-contract-test.cjs",
+    "proof:foundation": "node tests/foundation-contract-test.cjs",
+    "proof:runtime": "bash bin/floki-runtime-proof.sh",
+    "proof:thalamus": "node tests/thalamus-contract-test.cjs",
+    "proof:hippocampus": "node tests/hippocampus-contract-test.cjs",
+    "proof:lifecycle": "node tests/lifecycle-contract-test.cjs",
+    "proof:emotion": "node tests/emotion-contract-test.cjs",
+    "proof:self": "node tests/personality-identity-contract-test.cjs",
+    "proof:chat-shell": "bash bin/floki-start.sh chat-smoke",
+    "proof:affect": "node tests/emotion-contract-test.cjs"
+  },
+  "engines": {
+    "node": ">=24 <27",
+    "npm": ">=11"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "keywords": [
+    "ai",
+    "digital-being",
+    "brain",
+    "cognition",
+    "memory",
+    "emotion",
+    "personality",
+    "identity",
+    "dreaming"
+  ],
+  "author": "Binary-God",
+  "license": "MIT"
+}

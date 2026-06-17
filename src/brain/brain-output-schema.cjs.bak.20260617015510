@@ -1,0 +1,212 @@
+'use strict';
+
+/**
+ * Floki-v2 brain output schema.
+ *
+ * Brain outputs are module-to-module outputs or final Broca speech outputs.
+ *
+ * Rule:
+ * - Broca is the only module allowed to create user-visible speech.
+ * - Other modules may produce intent, affect, memory, plans, diagnostics, or inhibition.
+ * - Outputs must not expose hidden reasoning.
+ */
+
+const { nowIso, assertIsoString } = require('../util/time.cjs');
+const { outputId, isSafeId } = require('../util/ids.cjs');
+
+const OUTPUT_TYPES = Object.freeze([
+  'route',
+  'understanding',
+  'salience',
+  'affect_delta',
+  'memory_write',
+  'memory_recall',
+  'personality_delta',
+  'identity_delta',
+  'goal_state',
+  'plan',
+  'inhibition',
+  'action_intent',
+  'motor_sequence',
+  'speech',
+  'vision_observation',
+  'diagnostic',
+  'failure'
+]);
+
+const OUTPUT_SOURCES = Object.freeze([
+  'thalamus',
+  'frontal',
+  'hippocampus',
+  'amygdala',
+  'emotions_base',
+  'personality',
+  'broca',
+  'temporal',
+  'occipital',
+  'cerebellum',
+  'pineal',
+  'test'
+]);
+
+const SPEECH_ALLOWED_SOURCE = 'broca';
+
+function assertPlainObject(value, fieldName) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`${fieldName} must be a plain object`);
+  }
+}
+
+function containsBannedReasoningMarker(value) {
+  const serialized = JSON.stringify(value).toLowerCase();
+  return [
+    '<think>',
+    '</think>',
+    'chain_of_thought',
+    'hidden_reasoning',
+    'raw_reasoning',
+    'scratchpad'
+  ].some((marker) => serialized.includes(marker));
+}
+
+function createBrainOutput(input) {
+  assertPlainObject(input, 'brain output input');
+
+  const createdAt = input.created_at || nowIso();
+  assertIsoString(createdAt, 'created_at');
+
+  const output = {
+    id: input.id || outputId(),
+    type: input.type,
+    source: input.source,
+    created_at: createdAt,
+    parent_event_ids: Array.isArray(input.parent_event_ids) ? input.parent_event_ids.slice() : [],
+    parent_output_ids: Array.isArray(input.parent_output_ids) ? input.parent_output_ids.slice() : [],
+    payload: input.payload || {},
+    diagnostics: input.diagnostics || {},
+    failure: input.failure || null
+  };
+
+  validateBrainOutput(output);
+  return output;
+}
+
+function validateBrainOutput(output) {
+  assertPlainObject(output, 'brain output');
+
+  if (!isSafeId(output.id)) {
+    throw new TypeError('brain output id must be a safe Floki-v2 output ID');
+  }
+
+  if (!OUTPUT_TYPES.includes(output.type)) {
+    throw new TypeError(`invalid brain output type: ${output.type}`);
+  }
+
+  if (!OUTPUT_SOURCES.includes(output.source)) {
+    throw new TypeError(`invalid brain output source: ${output.source}`);
+  }
+
+  assertIsoString(output.created_at, 'created_at');
+
+  if (!Array.isArray(output.parent_event_ids)) {
+    throw new TypeError('parent_event_ids must be an array');
+  }
+
+  if (!Array.isArray(output.parent_output_ids)) {
+    throw new TypeError('parent_output_ids must be an array');
+  }
+
+  for (const eventId of output.parent_event_ids) {
+    if (!isSafeId(eventId)) {
+      throw new TypeError(`invalid parent event id: ${eventId}`);
+    }
+  }
+
+  for (const parentOutputId of output.parent_output_ids) {
+    if (!isSafeId(parentOutputId)) {
+      throw new TypeError(`invalid parent output id: ${parentOutputId}`);
+    }
+  }
+
+  assertPlainObject(output.payload, 'payload');
+  assertPlainObject(output.diagnostics, 'diagnostics');
+
+  if (containsBannedReasoningMarker(output.payload) || containsBannedReasoningMarker(output.diagnostics)) {
+    throw new Error('brain output contains banned hidden-reasoning marker');
+  }
+
+  if (output.type === 'speech' && output.source !== SPEECH_ALLOWED_SOURCE) {
+    throw new Error('only Broca may produce speech outputs');
+  }
+
+  if (output.failure !== null) {
+    assertPlainObject(output.failure, 'failure');
+
+    if (typeof output.failure.code !== 'string' || output.failure.code.trim() === '') {
+      throw new TypeError('failure.code must be a non-empty string');
+    }
+
+    if (typeof output.failure.message !== 'string' || output.failure.message.trim() === '') {
+      throw new TypeError('failure.message must be a non-empty string');
+    }
+  }
+
+  return true;
+}
+
+function makeFailureOutput(source, code, message, options = {}) {
+  if (!OUTPUT_SOURCES.includes(source)) {
+    throw new TypeError(`invalid failure source: ${source}`);
+  }
+
+  if (typeof code !== 'string' || code.trim() === '') {
+    throw new TypeError('failure code must be a non-empty string');
+  }
+
+  if (typeof message !== 'string' || message.trim() === '') {
+    throw new TypeError('failure message must be a non-empty string');
+  }
+
+  return createBrainOutput({
+    type: 'failure',
+    source,
+    parent_event_ids: options.parent_event_ids || [],
+    parent_output_ids: options.parent_output_ids || [],
+    payload: options.payload || {},
+    diagnostics: options.diagnostics || {},
+    failure: {
+      code,
+      message,
+      recoverable: options.recoverable !== false
+    }
+  });
+}
+
+function makeSpeechOutput(text, options = {}) {
+  if (typeof text !== 'string' || text.trim() === '') {
+    throw new TypeError('speech output requires non-empty text');
+  }
+
+  return createBrainOutput({
+    type: 'speech',
+    source: 'broca',
+    parent_event_ids: options.parent_event_ids || [],
+    parent_output_ids: options.parent_output_ids || [],
+    payload: {
+      text,
+      tone: options.tone || 'plain',
+      audience: options.audience || 'user'
+    },
+    diagnostics: options.diagnostics || {}
+  });
+}
+
+module.exports = {
+  OUTPUT_TYPES,
+  OUTPUT_SOURCES,
+  SPEECH_ALLOWED_SOURCE,
+  createBrainOutput,
+  validateBrainOutput,
+  makeFailureOutput,
+  makeSpeechOutput
+};
