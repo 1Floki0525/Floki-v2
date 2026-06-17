@@ -1,11 +1,11 @@
 {
   "name": "floki-v2",
-  "version": "0.12.7",
+  "version": "0.12.8",
   "description": "Floki-v2 brain-first Digital Being implementation",
   "main": "src/brain/floki-brain.cjs",
   "type": "commonjs",
   "scripts": {
-    "test": "node tests/core-brain-config-contract-test.cjs && node tests/core-brain-registry-hardening-contract-test.cjs && node tests/core-brain-module-health-contract-test.cjs && node tests/core-brain-mode-isolation-contract-test.cjs && node tests/core-brain-yaml-model-source-contract-test.cjs && node tests/core-brain-status-contract-test.cjs && node tests/chat-embodiment-config-contract-test.cjs && node tests/chat-toolchain-readiness-contract-test.cjs && node tests/piper-speech-smoke-contract-test.cjs && node tests/piper-speaker-playback-guard-contract-test.cjs && node tests/microphone-capture-guard-contract-test.cjs && node tests/vad-speech-detection-guard-contract-test.cjs && node tests/whisper-transcription-guard-contract-test.cjs && node tests/chat-hearing-loop-guard-contract-test.cjs && node tests/hearing-to-cognition-guard-contract-test.cjs && node tests/game-core-brain-entrypoint-contract-test.cjs && node tests/foundation-contract-test.cjs && node tests/thalamus-contract-test.cjs && node tests/hippocampus-contract-test.cjs && node tests/lifecycle-contract-test.cjs && node tests/emotion-contract-test.cjs && node tests/personality-identity-contract-test.cjs && node tests/qwen-cognition-contract-test.cjs && node tests/broca-contract-test.cjs && node tests/offline-senses-contract-test.cjs",
+    "test": "node tests/core-brain-config-contract-test.cjs && node tests/core-brain-registry-hardening-contract-test.cjs && node tests/core-brain-module-health-contract-test.cjs && node tests/core-brain-mode-isolation-contract-test.cjs && node tests/core-brain-yaml-model-source-contract-test.cjs && node tests/core-brain-status-contract-test.cjs && node tests/chat-embodiment-config-contract-test.cjs && node tests/chat-toolchain-readiness-contract-test.cjs && node tests/piper-speech-smoke-contract-test.cjs && node tests/piper-speaker-playback-guard-contract-test.cjs && node tests/microphone-capture-guard-contract-test.cjs && node tests/vad-speech-detection-guard-contract-test.cjs && node tests/whisper-transcription-guard-contract-test.cjs && node tests/chat-hearing-loop-guard-contract-test.cjs && node tests/hearing-to-cognition-guard-contract-test.cjs && node tests/chat-mode-living-contract-test.cjs && node tests/game-core-brain-entrypoint-contract-test.cjs && node tests/foundation-contract-test.cjs && node tests/thalamus-contract-test.cjs && node tests/hippocampus-contract-test.cjs && node tests/lifecycle-contract-test.cjs && node tests/emotion-contract-test.cjs && node tests/personality-identity-contract-test.cjs && node tests/qwen-cognition-contract-test.cjs && node tests/broca-contract-test.cjs && node tests/offline-senses-contract-test.cjs",
     "proof:foundation": "node tests/foundation-contract-test.cjs",
     "proof:runtime": "bash bin/floki-runtime-proof.sh",
     "proof:thalamus": "node tests/thalamus-contract-test.cjs",
@@ -42,7 +42,8 @@
     "proof:chat-hearing-loop": "FLOKI_ALLOW_CHAT_HEARING_LOOP=1 node src/senses/chat-hearing-loop-smoke.cjs",
     "proof:chat-hearing-loop-guard": "node tests/chat-hearing-loop-guard-contract-test.cjs",
     "proof:hearing-to-cognition": "FLOKI_ALLOW_HEARING_TO_COGNITION=1 node src/senses/hearing-to-cognition-bridge.cjs",
-    "proof:hearing-to-cognition-guard": "node tests/hearing-to-cognition-guard-contract-test.cjs"
+    "proof:hearing-to-cognition-guard": "node tests/hearing-to-cognition-guard-contract-test.cjs",
+    "proof:chat-mode-living-contract": "node tests/chat-mode-living-contract-test.cjs"
   },
   "engines": {
     "node": ">=24 <27",
