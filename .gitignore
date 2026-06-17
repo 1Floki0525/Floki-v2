@@ -5,3 +5,15 @@ state/
 reports/
 *.tmp
 *.log
+
+# Floki-v2 local/transient files
+.env
+.env.*
+!.env.example
+*.bak.*
+*.tmp
+*.log
+state/
+reports/
+bin/floki-fast-patch-*.cjs
+brain/thalamum.disabled.*/
