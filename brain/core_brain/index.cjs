@@ -272,12 +272,12 @@ function validateCoreBrainConfig(config) {
     throw new Error('core brain config requires policies section');
   }
 
-  if (config.models.cognition.model !== 'qwen3.5:9b') {
-    throw new Error('chat/game config cognition model must be qwen3.5:9b, got ' + config.models.cognition.model);
+  if (typeof config.models.cognition.model !== 'string' || config.models.cognition.model.trim() === '') {
+    throw new Error('chat/game config cognition model must be a non-empty YAML/env value');
   }
 
-  if (config.models.vision.model !== 'qwen3-vl:4b') {
-    throw new Error('chat/game config vision model must be qwen3-vl:4b, got ' + config.models.vision.model);
+  if (typeof config.models.vision.model !== 'string' || config.models.vision.model.trim() === '') {
+    throw new Error('chat/game config vision model must be a non-empty YAML/env value');
   }
 
   if (config.policies.usb_camera_as_game_world_eyes !== false) {
