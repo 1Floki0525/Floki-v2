@@ -1,11 +1,11 @@
 {
   "name": "floki-v2",
-  "version": "0.11.6",
+  "version": "0.11.7",
   "description": "Floki-v2 brain-first Digital Being implementation",
   "main": "src/brain/floki-brain.cjs",
   "type": "commonjs",
   "scripts": {
-    "test": "node tests/core-brain-config-contract-test.cjs && node tests/core-brain-registry-hardening-contract-test.cjs && node tests/core-brain-module-health-contract-test.cjs && node tests/core-brain-mode-isolation-contract-test.cjs && node tests/core-brain-yaml-model-source-contract-test.cjs && node tests/game-core-brain-entrypoint-contract-test.cjs && node tests/foundation-contract-test.cjs && node tests/thalamus-contract-test.cjs && node tests/hippocampus-contract-test.cjs && node tests/lifecycle-contract-test.cjs && node tests/emotion-contract-test.cjs && node tests/personality-identity-contract-test.cjs && node tests/qwen-cognition-contract-test.cjs && node tests/broca-contract-test.cjs && node tests/offline-senses-contract-test.cjs",
+    "test": "node tests/core-brain-config-contract-test.cjs && node tests/core-brain-registry-hardening-contract-test.cjs && node tests/core-brain-module-health-contract-test.cjs && node tests/core-brain-mode-isolation-contract-test.cjs && node tests/core-brain-yaml-model-source-contract-test.cjs && node tests/core-brain-status-contract-test.cjs && node tests/game-core-brain-entrypoint-contract-test.cjs && node tests/foundation-contract-test.cjs && node tests/thalamus-contract-test.cjs && node tests/hippocampus-contract-test.cjs && node tests/lifecycle-contract-test.cjs && node tests/emotion-contract-test.cjs && node tests/personality-identity-contract-test.cjs && node tests/qwen-cognition-contract-test.cjs && node tests/broca-contract-test.cjs && node tests/offline-senses-contract-test.cjs",
     "proof:foundation": "node tests/foundation-contract-test.cjs",
     "proof:runtime": "bash bin/floki-runtime-proof.sh",
     "proof:thalamus": "node tests/thalamus-contract-test.cjs",
@@ -26,7 +26,8 @@
     "proof:core-brain-registry": "node tests/core-brain-registry-hardening-contract-test.cjs",
     "proof:core-brain-health": "node tests/core-brain-module-health-contract-test.cjs",
     "proof:core-brain-mode-isolation": "node tests/core-brain-mode-isolation-contract-test.cjs",
-    "proof:core-brain-models": "node tests/core-brain-yaml-model-source-contract-test.cjs"
+    "proof:core-brain-models": "node tests/core-brain-yaml-model-source-contract-test.cjs",
+    "proof:core-brain-status": "node tests/core-brain-status-contract-test.cjs"
   },
   "engines": {
     "node": ">=24 <27",

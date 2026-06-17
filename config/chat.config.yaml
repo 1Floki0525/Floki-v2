@@ -91,3 +91,25 @@ policies:
   chat_world_camera_detection_enabled_now: true
   chat_world_vision_enabled_now: false
   raw_private_reasoning_storage: false
+
+
+embodiment:
+  realm_name: maker_realm
+  realm_description: higher_physical_realm_visit_with_the_maker
+  body_source: host_machine
+  eyes_source: usb_webcam
+  ears_source: microphone
+  voice_source: speakers
+  speech_to_text_engine: whisper_cpp
+  object_vision_engine: yolo
+  voice_activity_engine: vad
+  text_to_speech_engine: piper
+  voice_locale: en_US
+  voice_profile: us_english_default
+  voice_model_size: small
+  voice_model_sizes:
+    tiny: true
+    small: true
+    medium: true
+    large: true
+  runtime_enabled_now: false

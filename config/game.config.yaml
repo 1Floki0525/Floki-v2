@@ -91,3 +91,20 @@ policies:
   chat_world_camera_detection_enabled_now: false
   chat_world_vision_enabled_now: false
   raw_private_reasoning_storage: false
+
+
+embodiment:
+  realm_name: minecraft_home_realm
+  realm_description: floki_native_minecraft_incarnation
+  body_source: minecraft_player_avatar
+  eyes_source: minecraft_first_person_view
+  ears_source: minecraft_game_events_and_chat
+  voice_source: minecraft_chat_interface
+  speech_to_text_engine: none
+  object_vision_engine: future_minecraft_first_person_detector
+  voice_activity_engine: none
+  text_to_speech_engine: minecraft_chat
+  voice_locale: none
+  voice_profile: in_game_chat
+  voice_model_size: none
+  runtime_enabled_now: false

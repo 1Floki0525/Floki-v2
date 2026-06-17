@@ -65,6 +65,12 @@ case "$COMMAND" in
     exit "$?"
     ;;
 
+  brain-status)
+    MODE="${2:-chat}"
+    node src/brain/core-brain-status.cjs "$MODE"
+    exit "$?"
+    ;;
+
   status)
     node src/game/floki-game.cjs --status
     exit "$?"
@@ -86,6 +92,7 @@ echo "  bin/floki-start.sh game-smoke    prove game entrypoint is guarded until 
 echo "  bin/floki-start.sh senses        chat-mode USB webcam/mic senses when wired"
 echo "  bin/floki-start.sh senses-smoke  prove chat-world senses are guarded/detect-only"
 echo "  bin/floki-start.sh senses-status show detected chat-world camera/mic devices"
+echo "  bin/floki-start.sh brain-status [chat|game] show core brain config/runtime status"
 echo "  bin/floki-start.sh status        show current game-mode readiness"
 echo ""
 echo "Current stage:"
