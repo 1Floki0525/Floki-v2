@@ -35,8 +35,15 @@ function run() {
   assert.equal(json.marker, 'FLOKI_V2_CHAT_WORLD_SENSES_ENTRYPOINT_PASS');
   assert.equal(json.camera_detection_checked, true);
   assert.equal(json.microphone_detection_checked, true);
-  assert.equal(json.chat_world_camera_scope, 'chat_world_only');
-  assert.equal(json.game_world_eyes_source, 'minecraft_first_person_view');
+  assert.equal(json.maker_realm_eyes_source, 'usb_webcam');
+  assert.equal(json.maker_realm_ears_source, 'microphone');
+  assert.equal(json.maker_realm_voice_source, 'speakers');
+  assert.equal(json.minecraft_home_realm_eyes_source, 'minecraft_first_person_view');
+  assert.equal(json.minecraft_home_realm_voice_source, 'minecraft_chat_interface');
+  assert.equal(json.webcam_scope, 'maker_realm_chat_eyes');
+  assert.equal(json.microphone_scope, 'maker_realm_chat_ears');
+  assert.equal(json.speaker_scope, 'maker_realm_chat_voice');
+  assert.equal(json.minecraft_first_person_view_scope, 'future_game_realm_eyes');
   assert.equal(json.qwen_vl_vision_enabled_now, false);
   assert.equal(json.microphone_recording_enabled_now, false);
   assert.equal(json.transcription_enabled_now, false);
@@ -55,8 +62,15 @@ function run() {
     selected_microphone_description: json.selected_microphone_description,
     likely_logitech_camera_detected: json.likely_logitech_camera_detected,
     likely_logitech_microphone_detected: json.likely_logitech_microphone_detected,
-    chat_world_camera_scope: json.chat_world_camera_scope,
-    game_world_eyes_source: json.game_world_eyes_source,
+    maker_realm_eyes_source: json.maker_realm_eyes_source,
+    maker_realm_ears_source: json.maker_realm_ears_source,
+    maker_realm_voice_source: json.maker_realm_voice_source,
+    minecraft_home_realm_eyes_source: json.minecraft_home_realm_eyes_source,
+    minecraft_home_realm_voice_source: json.minecraft_home_realm_voice_source,
+    webcam_scope: json.webcam_scope,
+    microphone_scope: json.microphone_scope,
+    speaker_scope: json.speaker_scope,
+    minecraft_first_person_view_scope: json.minecraft_first_person_view_scope,
     qwen_vl_vision_enabled_now: json.qwen_vl_vision_enabled_now,
     claims_live_sight_now: json.claims_live_sight_now,
     claims_live_hearing_now: json.claims_live_hearing_now

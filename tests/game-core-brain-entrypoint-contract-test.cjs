@@ -40,8 +40,16 @@ function assertGameGuard(json) {
   assert.equal(json.cognition_model, 'qwen3.5:9b');
   assert.equal(json.vision_model, 'qwen3-vl:4b');
   assert.equal(json.vision_mode_scope, 'game_world_first_person_only');
-  assert.equal(json.game_world_eyes_source, 'minecraft_first_person_view');
-  assert.equal(json.chat_world_camera_scope, 'not_loaded_in_game');
+  assert.equal(json.minecraft_home_realm_eyes_source, 'minecraft_first_person_view');
+  assert.equal(json.minecraft_home_realm_body_source, 'minecraft_player_avatar');
+  assert.equal(json.minecraft_home_realm_voice_source, 'minecraft_chat_interface');
+  assert.equal(json.maker_realm_eyes_source, 'not_loaded_in_game');
+  assert.equal(json.maker_realm_ears_source, 'not_loaded_in_game');
+  assert.equal(json.maker_realm_voice_source, 'not_loaded_in_game');
+  assert.equal(json.webcam_scope, 'not_game_eyes');
+  assert.equal(json.microphone_scope, 'not_game_ears');
+  assert.equal(json.speaker_scope, 'not_game_voice');
+  assert.equal(json.minecraft_first_person_view_scope, 'game_realm_eyes');
   assert.equal(json.usb_camera_as_game_world_eyes, false);
   assert.equal(json.minecraft_enabled_now, false);
   assert.equal(json.body_movement_enabled_now, false);
@@ -75,8 +83,16 @@ function run() {
     cognition_model: status.cognition_model,
     vision_model: status.vision_model,
     vision_mode_scope: status.vision_mode_scope,
-    game_world_eyes_source: status.game_world_eyes_source,
-    chat_world_camera_scope: status.chat_world_camera_scope,
+    minecraft_home_realm_eyes_source: status.minecraft_home_realm_eyes_source,
+    minecraft_home_realm_body_source: status.minecraft_home_realm_body_source,
+    minecraft_home_realm_voice_source: status.minecraft_home_realm_voice_source,
+    maker_realm_eyes_source: status.maker_realm_eyes_source,
+    maker_realm_ears_source: status.maker_realm_ears_source,
+    maker_realm_voice_source: status.maker_realm_voice_source,
+    webcam_scope: status.webcam_scope,
+    microphone_scope: status.microphone_scope,
+    speaker_scope: status.speaker_scope,
+    minecraft_first_person_view_scope: status.minecraft_first_person_view_scope,
     usb_camera_as_game_world_eyes: status.usb_camera_as_game_world_eyes,
     minecraft_enabled_now: status.minecraft_enabled_now,
     body_movement_enabled_now: status.body_movement_enabled_now,
