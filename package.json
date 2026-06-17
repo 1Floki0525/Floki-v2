@@ -1,11 +1,11 @@
 {
   "name": "floki-v2",
-  "version": "0.11.4",
+  "version": "0.11.5",
   "description": "Floki-v2 brain-first Digital Being implementation",
   "main": "src/brain/floki-brain.cjs",
   "type": "commonjs",
   "scripts": {
-    "test": "node tests/core-brain-config-contract-test.cjs && node tests/core-brain-registry-hardening-contract-test.cjs && node tests/core-brain-module-health-contract-test.cjs && node tests/core-brain-mode-isolation-contract-test.cjs && node tests/foundation-contract-test.cjs && node tests/thalamus-contract-test.cjs && node tests/hippocampus-contract-test.cjs && node tests/lifecycle-contract-test.cjs && node tests/emotion-contract-test.cjs && node tests/personality-identity-contract-test.cjs && node tests/qwen-cognition-contract-test.cjs && node tests/broca-contract-test.cjs && node tests/offline-senses-contract-test.cjs",
+    "test": "node tests/core-brain-config-contract-test.cjs && node tests/core-brain-registry-hardening-contract-test.cjs && node tests/core-brain-module-health-contract-test.cjs && node tests/core-brain-mode-isolation-contract-test.cjs && node tests/game-core-brain-entrypoint-contract-test.cjs && node tests/foundation-contract-test.cjs && node tests/thalamus-contract-test.cjs && node tests/hippocampus-contract-test.cjs && node tests/lifecycle-contract-test.cjs && node tests/emotion-contract-test.cjs && node tests/personality-identity-contract-test.cjs && node tests/qwen-cognition-contract-test.cjs && node tests/broca-contract-test.cjs && node tests/offline-senses-contract-test.cjs",
     "proof:foundation": "node tests/foundation-contract-test.cjs",
     "proof:runtime": "bash bin/floki-runtime-proof.sh",
     "proof:thalamus": "node tests/thalamus-contract-test.cjs",
@@ -15,7 +15,7 @@
     "proof:self": "node tests/personality-identity-contract-test.cjs",
     "proof:chat-shell": "node tests/chat-cognition-shell-contract-test.cjs",
     "proof:affect": "node tests/emotion-contract-test.cjs",
-    "proof:game-entrypoint": "bash bin/floki-start.sh game-smoke",
+    "proof:game-entrypoint": "node tests/game-core-brain-entrypoint-contract-test.cjs",
     "proof:qwen-cognition": "node tests/qwen-cognition-contract-test.cjs",
     "proof:chat-smoke-raw": "bash bin/floki-start.sh chat-smoke",
     "proof:broca": "node tests/broca-contract-test.cjs",
