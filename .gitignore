@@ -17,3 +17,6 @@ state/
 reports/
 bin/floki-fast-patch-*.cjs
 brain/thalamum.disabled.*/
+
+.floki-tools/
+yolo*.pt
