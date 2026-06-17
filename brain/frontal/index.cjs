@@ -231,7 +231,7 @@ function normalizeCognitionJson(json, context = {}) {
 
 async function runCognition(context, options = {}) {
   try {
-    const config = models.getCognitionConfig();
+    const config = options.model_config || models.getCognitionConfig();
 
     const result = await generateJson({
       endpoint: config.endpoint,

@@ -11,11 +11,6 @@ const {
   createCoreBrain
 } = require('../brain/core_brain/index.cjs');
 
-function assertNoMissingModules(config) {
-  const missing = missingRequiredModules(config);
-  assert.deepEqual(missing, []);
-}
-
 function run() {
   const chat = loadCoreBrainConfig('chat');
   const game = loadCoreBrainConfig('game');
@@ -31,7 +26,7 @@ function run() {
   assert.equal(chat.models.vision.model, 'qwen3-vl:4b');
   assert.equal(game.models.vision.model, 'qwen3-vl:4b');
 
-  assertNoMissingModules(chat);
+  assert.deepEqual(missingRequiredModules(chat), []);
 
   assert.equal(chat.modules.game_world_body.enabled, false);
   assert.equal(chat.modules.game_world_eyes.enabled, false);
@@ -71,6 +66,8 @@ function run() {
     chat_required_modules: CHAT_REQUIRED_MODULES,
     chat_enabled_modules: enabled,
     chat_disabled_modules: core.disabled_module_names,
+    registered_module_names: core.registered_module_names,
+    unregistered_known_module_names: core.unregistered_known_module_names,
     game_enabled_modules: enabledModuleNames(game.modules),
     cognition_model_from_chat_yaml: chat.models.cognition.model,
     vision_model_from_chat_yaml: chat.models.vision.model,
