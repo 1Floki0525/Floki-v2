@@ -17,6 +17,7 @@ const { summarizeAffectForMemory } = require('../brain/affect-state-schema.cjs')
 const { statePath } = require('../util/fs-safe.cjs');
 const { newId } = require('../util/ids.cjs');
 const { createChatMemorySubstrate } = require('../chat/chat-memory-substrate.cjs');
+const { retrieveDreamMemoryContext } = require('../chat/dream-recall.cjs');
 const { synthesizePiperSpeechToFile } = require('./piper-speech-smoke.cjs');
 const { buildWakeGatedUserText } = require('../chat/wake-word-gate.cjs');
 const { createVoiceOutputLock } = require('../chat/voice-output-lock.cjs');
@@ -244,6 +245,7 @@ function summarizePersistentMemoryForCognition(recallContext) {
     short_term: shortTerm.map(compact).slice(0, 6),
     long_term: longTerm.map(compact).slice(0, 6),
     emotional_state: recallContext.emotional_state || {},
+    dream_memory_context: recallContext.dream_memory_context || null,
     recall_ready_for_cognition: recallContext.recall_ready_for_cognition === true
   });
 }
@@ -283,6 +285,15 @@ function buildPersistentMemoryContext(heard, affectSummary, options = {}) {
     text: heard.heard_text,
     limit: Number(options.recall_limit || 8)
   });
+  const dreamMemoryContext = retrieveDreamMemoryContext({
+    ...options,
+    user_text: heard.heard_text,
+    memory_substrate: substrate
+  });
+  const cognitionMemoryContext = Object.freeze({
+    ...summarizePersistentMemoryForCognition(recallContext),
+    dream_memory_context: dreamMemoryContext
+  });
 
   return Object.freeze({
     substrate,
@@ -291,7 +302,7 @@ function buildPersistentMemoryContext(heard, affectSummary, options = {}) {
     reinforcement_state: reinforcement.emotional_state,
     consolidation,
     recall_context: recallContext,
-    cognition_memory_context: summarizePersistentMemoryForCognition(recallContext)
+    cognition_memory_context: cognitionMemoryContext
   });
 }
 
@@ -415,6 +426,7 @@ async function runCognitionFromHeardText(heard, options = {}) {
     persistent_short_recall_count: persistentMemory.cognition_memory_context.short_term.length,
     persistent_long_recall_count: persistentMemory.cognition_memory_context.long_term.length,
     persistent_memory_context: persistentMemory.cognition_memory_context,
+    dream_memory_context: persistentMemory.cognition_memory_context.dream_memory_context,
     trace_id: unique
   });
 }
@@ -571,6 +583,7 @@ async function runHearingToCognitionBridgeProof(options = {}) {
   const cognitionPayload = cognition.payload || {};
   const cognitionInner = cognitionPayload.cognition || {};
   const cognitionFailure = cognition.failure || {};
+  const dreamMemoryContext = bridge.dream_memory_context || {};
 
   const cognitionOk = cognition.type === 'model_response_summary' &&
     cognition.source === 'frontal' &&
@@ -644,6 +657,11 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     persistent_consolidation_promoted_count: bridge.persistent_consolidation_promoted_count,
     persistent_short_recall_count: bridge.persistent_short_recall_count,
     persistent_long_recall_count: bridge.persistent_long_recall_count,
+    dream_retrieval_run_now: dreamMemoryContext.dream_retrieval_run_now === true,
+    dream_memory_context_used: dreamMemoryContext.dream_memory_context_used === true,
+    dream_file_reference_available: dreamMemoryContext.dream_file_reference_available === true,
+    invented_dream: dreamMemoryContext.invented_dream === true,
+    latest_dream_file: dreamMemoryContext.latest_dream_file || null,
     cognition_output_id: cognition.id,
     cognition_model: cognitionPayload.model || null,
     cognition_type: cognition.type,

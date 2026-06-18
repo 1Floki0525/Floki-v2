@@ -155,6 +155,7 @@ function compactCognitionContext(context = {}) {
 
   const persistent = context.persistent_chat_memory || {};
   const emotional = context.emotional_reinforcement || {};
+  const dreamMemory = persistent.dream_memory_context || {};
 
   return Object.freeze({
     user_text: eventText.slice(0, 500),
@@ -165,6 +166,19 @@ function compactCognitionContext(context = {}) {
     persistent_recall_counts: {
       short_term: Array.isArray(persistent.short_term) ? persistent.short_term.length : 0,
       long_term: Array.isArray(persistent.long_term) ? persistent.long_term.length : 0
+    },
+    dream_memory_context: {
+      dream_recall_question: dreamMemory.dream_recall_question === true,
+      has_dreams: dreamMemory.has_dreams === true,
+      dream_file_reference_available: dreamMemory.dream_file_reference_available === true,
+      latest_dream_file: dreamMemory.latest_dream_file || null,
+      recent_dreams: Array.isArray(dreamMemory.recent_dreams)
+        ? dreamMemory.recent_dreams.slice(0, 3)
+        : [],
+      dream_memory_matches: Array.isArray(dreamMemory.dream_memory_matches)
+        ? dreamMemory.dream_memory_matches.slice(0, 3)
+        : [],
+      invented_dream: false
     },
     emotional_reinforcement_state: emotional.state || null,
     personality: context.personality || null,
@@ -189,6 +203,10 @@ function buildCognitionPrompt(context) {
     '- identity_implications: array of safe continuity implications.',
     '- response_intent_for_broca: one sentence Broca can later say to the user.',
     ...BROCA_FIRST_PERSON_FIELD_INSTRUCTIONS,
+    '- If the user asks about dreams, use dream_memory_context as self-continuity.',
+    '- If dream_memory_context.has_dreams is false, be honest that I do not have a saved dream yet.',
+    '- If dream files or dream memories exist, answer from them; do not invent dreams.',
+    '- Keep dream recall first-person: say "I dreamed..." or "I remember the dream as...".',
     '- new_memory_summary: one sentence worth remembering.',
     '- emotion_reflection_enabled: true.',
     '',
@@ -215,6 +233,7 @@ function buildCognitionRetryPrompt(context, previousError) {
       affect: compact.affect,
       recalled_memories: compact.recalled_memories.slice(0, 3),
       persistent_recall_counts: compact.persistent_recall_counts,
+      dream_memory_context: compact.dream_memory_context,
       emotional_reinforcement_state: compact.emotional_reinforcement_state
     }, null, 2)
   ].join('\n');
