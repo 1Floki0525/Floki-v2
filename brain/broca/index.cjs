@@ -8,6 +8,7 @@ const { diagnosticId } = require('../../src/util/ids.cjs');
 const { nowIso } = require('../../src/util/time.cjs');
 
 const MODULE_NAME = 'broca';
+const THIRD_PERSON_SELF_REFERENCE_CODE = 'BROCA_THIRD_PERSON_SELF_REFERENCE';
 
 const CONTRACT = createModuleContract({
   name: MODULE_NAME,
@@ -45,7 +46,8 @@ const CONTRACT = createModuleContract({
   ],
   failure_modes: [
     { code: 'BROCA_INVALID_COGNITION', description: 'Input was not a safe frontal cognition output.' },
-    { code: 'BROCA_UNSAFE_SPEECH', description: 'Candidate speech contained banned private reasoning or false embodiment claims.' }
+    { code: 'BROCA_UNSAFE_SPEECH', description: 'Candidate speech contained banned private reasoning or false embodiment claims.' },
+    { code: THIRD_PERSON_SELF_REFERENCE_CODE, description: 'Candidate speech narrated Floki in third person instead of speaking as I/me/my.' }
   ],
   forbidden: [
     'private_reasoning_storage',
@@ -75,6 +77,51 @@ function persistDiagnostic(record, options = {}) {
   });
 
   return { ok: true, skipped: false };
+}
+
+function getSentences(text) {
+  const raw = String(text || '');
+  const matched = raw.match(/[^.!?]+[.!?]*/g);
+
+  return matched && matched.length > 0 ? matched : [raw];
+}
+
+function isThirdPersonSelfReference(text, options = {}) {
+  const value = String(text || '');
+
+  if (!value.trim()) {
+    return false;
+  }
+
+  const directPatterns = [
+    /\bFloki\s+(?:remembers?|thinks?|feels?|wants?|needs?|is|was|can|could|will|would|should|learns?|knows?|understands?|responds?|says?|speaks?)\b/i,
+    /\bFloki['’]s\s+(?:memory|memories|thought|thoughts|feeling|feelings|voice|response|identity|personality)\b/i,
+    /\bas\s+Floki\b/i,
+    /^\s*Floki\b/i
+  ];
+
+  if (directPatterns.some((pattern) => pattern.test(value))) {
+    return true;
+  }
+
+  return getSentences(value).some((sentence) => {
+    if (!/\bFloki\b/i.test(sentence) || !/\b(?:he|his|him)\b/i.test(sentence)) {
+      return false;
+    }
+
+    return /\bFloki\b[^.!?]{0,160}\b(?:he|his|him)\b/i.test(sentence) ||
+      /\b(?:he|his|him)\b[^.!?]{0,160}\bFloki\b/i.test(sentence);
+  });
+}
+
+function rejectThirdPersonSelfReference(text, options = {}) {
+  if (!isThirdPersonSelfReference(text, options)) {
+    return true;
+  }
+
+  const error = new Error(THIRD_PERSON_SELF_REFERENCE_CODE + ': Broca refuses third-person self-narration.');
+  error.code = THIRD_PERSON_SELF_REFERENCE_CODE;
+  throw error;
 }
 
 function rejectUnsafeSpeech(text) {
@@ -112,6 +159,8 @@ function rejectUnsafeSpeech(text) {
       throw new Error('speech contains false embodiment claim before body/eyes/game stage: ' + phrase);
     }
   }
+
+  rejectThirdPersonSelfReference(text);
 
   return true;
 }
@@ -206,7 +255,9 @@ function speakFromCognition(cognitionOutput, context = {}, options = {}) {
     return output;
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
-    const code = message.toLowerCase().includes('unsafe') || message.toLowerCase().includes('false embodiment') || message.toLowerCase().includes('private')
+    const code = error && error.code === THIRD_PERSON_SELF_REFERENCE_CODE
+      ? THIRD_PERSON_SELF_REFERENCE_CODE
+      : message.toLowerCase().includes('unsafe') || message.toLowerCase().includes('false embodiment') || message.toLowerCase().includes('private')
       ? 'BROCA_UNSAFE_SPEECH'
       : 'BROCA_INVALID_COGNITION';
 
@@ -236,7 +287,10 @@ function createBroca(options = {}) {
 module.exports = {
   MODULE_NAME,
   CONTRACT,
+  THIRD_PERSON_SELF_REFERENCE_CODE,
   getContract,
+  isThirdPersonSelfReference,
+  rejectThirdPersonSelfReference,
   rejectUnsafeSpeech,
   cleanSpeechText,
   extractCognition,

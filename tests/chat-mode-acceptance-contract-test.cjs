@@ -49,6 +49,7 @@ async function run() {
     schema_constrained_json: true,
     model_json_fallback_used: false,
     broca_enabled_now: true,
+    broca_text_response: 'I remember that trust and hope matter to me.',
     piper_speech_run_now: true,
     piper_wav_created_now: true,
     speaker_playback_run_now: true,
@@ -122,6 +123,10 @@ async function run() {
   assert.equal(proof.persistent_memory_used, true);
   assert.equal(proof.emotional_reinforcement_used, true);
   assert.equal(proof.broca_enabled_now, true);
+  assert.equal(proof.broca_text_response, 'I remember that trust and hope matter to me.');
+  assert.equal(proof.first_person_voice_verified, true);
+  assert.equal(proof.third_person_self_reference_blocked, true);
+  assert.equal(proof.broca_text_response.includes('Floki remembers'), false);
   assert.equal(proof.piper_speech_run_now, true);
   assert.equal(proof.piper_wav_created_now, true);
   assert.equal(proof.speaker_playback_run_now, true);
@@ -141,6 +146,9 @@ async function run() {
     microphone_recorded_now: proof.microphone_recorded_now,
     wake_routed_to_cognition: proof.wake_routed_to_cognition,
     qwen_cognition_run_now: proof.qwen_cognition_run_now,
+    broca_text_response: proof.broca_text_response,
+    first_person_voice_verified: proof.first_person_voice_verified,
+    third_person_self_reference_blocked: proof.third_person_self_reference_blocked,
     piper_wav_created_now: proof.piper_wav_created_now,
     speaker_playback_run_now: proof.speaker_playback_run_now,
     self_echo_blocked: proof.self_echo_blocked,

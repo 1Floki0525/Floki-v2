@@ -9,6 +9,11 @@ const { runMicrophoneCaptureProof } = require('../senses/microphone-capture-smok
 const { runVadSpeechDetectionProof } = require('../senses/vad-speech-detection.cjs');
 const { runSpokenReplyOnce } = require('../senses/spoken-reply-once.cjs');
 const { runChatModeLoop } = require('../senses/chat-mode-loop.cjs');
+const {
+  THIRD_PERSON_SELF_REFERENCE_CODE,
+  isThirdPersonSelfReference,
+  rejectThirdPersonSelfReference
+} = require('../../brain/broca/index.cjs');
 
 const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
@@ -72,6 +77,29 @@ function readJson(filePath) {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch (_error) {
     return null;
+  }
+}
+
+function pickBrocaText(...records) {
+  for (const record of records) {
+    if (record && typeof record.broca_text_response === 'string' && record.broca_text_response.trim()) {
+      return record.broca_text_response.trim();
+    }
+  }
+
+  return '';
+}
+
+function hasFirstPersonVoice(text) {
+  return /\b(?:i|me|my|mine|we|our|ours)\b/i.test(String(text || ''));
+}
+
+function canonicalThirdPersonSelfReferenceBlocked() {
+  try {
+    rejectThirdPersonSelfReference('Floki remembers that trust and hope matter.');
+    return false;
+  } catch (error) {
+    return error && error.code === THIRD_PERSON_SELF_REFERENCE_CODE;
   }
 }
 
@@ -164,6 +192,14 @@ async function runChatModeAcceptanceProof(options = {}) {
   const spokenBridge = spoken && spoken.bridge_report_file ? readJson(spoken.bridge_report_file) : null;
   const loopTurn = loop && Array.isArray(loop.turns) && loop.turns.length > 0 ? loop.turns[0] : {};
   const statusAfter = statusRunner();
+  const brocaTextResponse = pickBrocaText(spoken, spokenBridge, loop, loopTurn);
+  const brocaTextHasThirdPersonSelfReference = isThirdPersonSelfReference(brocaTextResponse);
+  const firstPersonVoiceVerified = brocaTextResponse.length > 0 &&
+    hasFirstPersonVoice(brocaTextResponse) &&
+    brocaTextHasThirdPersonSelfReference === false;
+  const thirdPersonSelfReferenceBlocked = brocaTextResponse.length > 0 &&
+    brocaTextHasThirdPersonSelfReference === false &&
+    canonicalThirdPersonSelfReferenceBlocked();
 
   const piperWav = spoken && spoken.piper_wav_output_file
     ? spoken.piper_wav_output_file
@@ -177,7 +213,9 @@ async function runChatModeAcceptanceProof(options = {}) {
     loop && loop.ok === true &&
     selfEcho.ok === true &&
     npmTest.ok === true &&
-    piperWavExists;
+    piperWavExists &&
+    firstPersonVoiceVerified === true &&
+    thirdPersonSelfReferenceBlocked === true;
 
   const status = Object.freeze({
     ok,
@@ -208,6 +246,7 @@ async function runChatModeAcceptanceProof(options = {}) {
       ? spoken.hearing_report_file
       : loop && loop.hearing_report_file ? loop.hearing_report_file : null,
     piper_wav_output_file: piperWav,
+    broca_text_response: brocaTextResponse,
     spoken_reply_report_file: spoken && spoken.report_file ? spoken.report_file : null,
     loop_report_file: loop && loop.report_file ? loop.report_file : null,
     microphone_recorded_now: microphone && microphone.microphone_recorded_now === true,
@@ -229,6 +268,8 @@ async function runChatModeAcceptanceProof(options = {}) {
     emotional_reinforcement_used: spokenBridge ? spokenBridge.emotional_reinforcement_used === true : true,
     broca_enabled_now: (spoken && spoken.broca_enabled_now === true) ||
       (loop && loop.broca_enabled_now === true),
+    first_person_voice_verified: firstPersonVoiceVerified,
+    third_person_self_reference_blocked: thirdPersonSelfReferenceBlocked,
     piper_speech_run_now: (spoken && spoken.piper_speech_run_now === true) ||
       (loop && loop.piper_speech_run_now === true),
     piper_wav_created_now: piperWavExists,

@@ -11,6 +11,15 @@ const { nowIso } = require('../../src/util/time.cjs');
 
 const MODULE_NAME = 'frontal';
 
+const BROCA_FIRST_PERSON_FIELD_INSTRUCTIONS = Object.freeze([
+  '- response_intent_for_broca must be one sentence written as direct first-person speech from Floki to the user.',
+  '- Use I/me/my/we where appropriate.',
+  '- Do not write about Floki in third person.',
+  '- Do not begin with "Floki...".',
+  '- Do not use "Floki remembers/thinks/feels/wants/is/can/will/should...".',
+  '- The sentence should be directly speakable by Broca.'
+]);
+
 const COGNITION_RESPONSE_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,
@@ -179,6 +188,7 @@ function buildCognitionPrompt(context) {
     '- personality_implications: array of safe personality growth implications.',
     '- identity_implications: array of safe continuity implications.',
     '- response_intent_for_broca: one sentence Broca can later say to the user.',
+    ...BROCA_FIRST_PERSON_FIELD_INSTRUCTIONS,
     '- new_memory_summary: one sentence worth remembering.',
     '- emotion_reflection_enabled: true.',
     '',
@@ -195,6 +205,9 @@ function buildCognitionRetryPrompt(context, previousError) {
     'Error: ' + String(previousError || 'unknown').slice(0, 300),
     'Return a valid object matching the enforced schema. No extra keys.',
     'Keep every string short and valid.',
+    '',
+    'For response_intent_for_broca:',
+    ...BROCA_FIRST_PERSON_FIELD_INSTRUCTIONS,
     '',
     'Compact context:',
     JSON.stringify({
@@ -340,7 +353,7 @@ function normalizeCognitionJson(json, context = {}) {
 
     response_intent_for_broca: pickString(json, [
       'response_intent_for_broca'
-    ], 'Broca should answer naturally from the safe chat cognition summary.'),
+    ], 'I can answer naturally from my safe chat cognition summary.'),
 
     new_memory_summary: pickString(json, [
       'new_memory_summary'
