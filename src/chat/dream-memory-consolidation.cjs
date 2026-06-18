@@ -14,6 +14,7 @@ const {
 const { appendJsonlSync, readJsonlSync } = require('../util/jsonl.cjs');
 const { newId } = require('../util/ids.cjs');
 const { rejectPrivateReasoningMarkers } = require('../model/ollama-client.cjs');
+const { isThirdPersonSelfReference } = require('../../brain/broca/index.cjs');
 
 const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
 const DREAM_MEMORY_OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'output', 'dream-memory-consolidation');
@@ -77,6 +78,14 @@ function assertSafeText(value, fieldName) {
   return text;
 }
 
+function assertSafeDreamMemoryText(value, fieldName) {
+  const text = assertSafeText(value, fieldName);
+  if (isThirdPersonSelfReference(text) || /\bFloki\s+dreamed\b/i.test(text)) {
+    throw new Error(fieldName + ' contains third-person self narration');
+  }
+  return text;
+}
+
 function dateTagFromIso(iso) {
   return new Date(iso).toISOString().slice(0, 10);
 }
@@ -97,9 +106,10 @@ function listDreamRecords(options = {}) {
   }
 
   const records = readJsonlSync(indexFile);
+  const maxScan = Math.max(1, Math.min(1000, Number(options.max_scan || options.scan_limit || 500)));
   return records
     .filter((record) => record && typeof record === 'object')
-    .slice(-Math.max(1, Math.min(50, Number(options.limit || 10))));
+    .slice(-maxScan);
 }
 
 function loadDreamMaterial(record) {
@@ -132,16 +142,16 @@ function buildDreamMemoryEntry(material, options = {}) {
   const dreamJson = metadata.dream_json || {};
   const createdAt = metadata.created_at || material.record.created_at || nowIso(options);
   const dateTag = dateTagFromIso(createdAt);
-  const title = assertSafeText(metadata.title || material.record.title || dreamJson.title, 'dream title');
-  const rememberedAs = assertSafeText(
+  const title = assertSafeDreamMemoryText(metadata.title || material.record.title || dreamJson.title, 'dream title');
+  const rememberedAs = assertSafeDreamMemoryText(
     dreamJson.remembered_as || metadata.remembered_as || material.record.remembered_as,
     'remembered_as'
   );
-  const summary = assertSafeText(
+  const summary = assertSafeDreamMemoryText(
     dreamJson.consolidation_summary || metadata.consolidation_summary || rememberedAs,
     'dream summary'
   );
-  const emotionalTone = assertSafeText(
+  const emotionalTone = assertSafeDreamMemoryText(
     dreamJson.emotional_tone || metadata.emotional_tone || material.record.emotional_tone || 'quietly meaningful',
     'emotional_tone'
   );
@@ -205,6 +215,23 @@ function writeDreamMemory(entry, options = {}) {
   });
   substrate.ensureReady();
 
+  const existing = existsSync(substrate.paths.long_term_jsonl)
+    ? readJsonlSync(substrate.paths.long_term_jsonl).find((memory) => {
+      if (!memory || memory.source !== 'dream_memory_consolidation') {
+        return false;
+      }
+      if (entry.source_event_id && memory.source_event_id === entry.source_event_id) {
+        return true;
+      }
+      const dreamFile = entry.dream_memory_metadata && entry.dream_memory_metadata.dream_txt_file;
+      return dreamFile && typeof memory.text === 'string' && memory.text.includes(dreamFile);
+    })
+    : null;
+
+  if (existing) {
+    return existing;
+  }
+
   return substrate.rememberLongTerm({
     category: entry.category,
     text: entry.text,
@@ -220,8 +247,9 @@ function writeDreamMemory(entry, options = {}) {
 
 function appendDreamMemoryIndex(record, options = {}) {
   const indexFile = getDreamMemoryIndexFile(options);
+  const appender = options.dream_memory_index_appender || appendJsonlSync;
   ensureParentDirSync(indexFile);
-  appendJsonlSync(indexFile, {
+  appender(indexFile, {
     ...record,
     dream_root: getDreamRoot(options),
     chat_mode_only: true,
@@ -267,13 +295,19 @@ function runDreamMemoryConsolidationOnce(options = {}) {
   }
 
   const existing = existingDreamMemoryKeys(options);
+  const availableRecords = listDreamRecords(options);
   const materials = [];
-  for (const record of listDreamRecords(options)) {
+  const consolidationLimit = Math.max(1, Math.min(50, Number(options.limit || 10)));
+  const records = availableRecords.slice().reverse();
+  for (const record of records) {
     const key = record.dream_metadata_file || record.dream_txt_file;
     if (!options.include_already_consolidated && existing.has(key)) {
       continue;
     }
     materials.push(loadDreamMaterial(record));
+    if (materials.length >= consolidationLimit) {
+      break;
+    }
   }
 
   const writtenMemories = [];
@@ -301,7 +335,8 @@ function runDreamMemoryConsolidationOnce(options = {}) {
     indexRecords.push(indexRecord);
   }
 
-  const ok = writtenMemories.length > 0 || options.allow_no_new_dreams === true;
+  const allAvailableDreamsAlreadyConsolidated = availableRecords.length > 0 && materials.length === 0;
+  const ok = writtenMemories.length > 0 || allAvailableDreamsAlreadyConsolidated || options.allow_no_new_dreams === true;
   const status = Object.freeze({
     ok,
     marker: ok ? 'FLOKI_V2_DREAM_MEMORY_CONSOLIDATION_PASS' : 'FLOKI_V2_DREAM_MEMORY_CONSOLIDATION_FAIL',
@@ -311,6 +346,7 @@ function runDreamMemoryConsolidationOnce(options = {}) {
     dream_memory_index_appended: indexRecords.length > 0,
     persistent_chat_memory_updated: writtenMemories.length > 0,
     dream_memory_index_file: getDreamMemoryIndexFile(options),
+    all_available_dreams_already_consolidated: allAvailableDreamsAlreadyConsolidated,
     dream_root: dreamRoot,
     cold_storage_dream_path_used: dreamRoot === path.resolve(DEFAULT_DREAM_ROOT),
     chat_mode_only: true,
@@ -356,6 +392,7 @@ module.exports = {
   dreamMemoryConsolidationGuardStatus,
   getDreamMemoryIndexFile,
   getDreamIndexFile,
+  assertSafeDreamMemoryText,
   listDreamRecords,
   loadDreamMaterial,
   buildDreamMemoryEntry,
