@@ -61,8 +61,10 @@ Replay reports must set `microphone_capture_replay_used:true` and must not claim
 ## Non-Negotiables
 
 - Chat mode only.
+- Ears are normally on: Floki should keep listening and transcribing ambient speech like a normal person hears the room.
 - No microphone capture while the voice output lock is active.
-- No Qwen call unless the wake gate routes the request.
+- No Qwen call or spoken reply unless the wake gate routes a `Hey Floki` request.
+- Background speech may be heard/transcribed, but it must not route to cognition/reply without the wake phrase.
 - No speaker playback unless Broca and Piper produced real output.
 - No model JSON fallback as success.
 - No generated runtime artifacts committed.

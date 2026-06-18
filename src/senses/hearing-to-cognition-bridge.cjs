@@ -164,6 +164,26 @@ function routedHeardText(heard, gate) {
   });
 }
 
+function assertWakeRoutedHeardText(heard) {
+  if (!heard || typeof heard !== 'object') {
+    throw new Error('wake-routed heard text is required before cognition');
+  }
+
+  if (heard.wake_gate_marker !== 'FLOKI_V2_WAKE_WORD_GATE_ROUTED') {
+    throw new Error('Qwen cognition requires wake-gated routed heard text');
+  }
+
+  if (!String(heard.original_heard_text || '').trim()) {
+    throw new Error('wake-gated cognition requires original heard text provenance');
+  }
+
+  if (!String(heard.heard_text || '').trim()) {
+    throw new Error('wake-gated cognition requires non-empty routed request text');
+  }
+
+  return true;
+}
+
 function writeBridgeReport(status, options = {}) {
   if (options.write_report === false) {
     return null;
@@ -276,6 +296,8 @@ function buildPersistentMemoryContext(heard, affectSummary, options = {}) {
 }
 
 async function runCognitionFromHeardText(heard, options = {}) {
+  assertWakeRoutedHeardText(heard);
+
   const unique = newId('hear_cog').replace(/[^a-z0-9_]/g, '_');
   const diagnosticsPath = statePath('test/hearing-to-cognition/' + unique + '/diagnostics.jsonl');
 
@@ -692,6 +714,7 @@ module.exports = {
   hearingToCognitionGuardStatus,
   latestHeardText,
   routedHeardText,
+  assertWakeRoutedHeardText,
   applyWakeGateToHeardText,
   writeBridgeReport,
   emotionFromAffectSummary,

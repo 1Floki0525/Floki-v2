@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { createVoiceOutputLock } = require('../chat/voice-output-lock.cjs');
 
 const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
 const OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'input', 'microphone-smoke');
@@ -37,6 +38,20 @@ function microphoneCaptureGuardStatus(env = process.env) {
       ? 'Microphone capture is explicitly allowed for this one proof run.'
       : 'Microphone capture is guarded. Run npm run proof:microphone-capture to allow one explicit short recording proof.'
   });
+}
+
+function microphoneVoiceLockStatus(options = {}) {
+  const lock = createVoiceOutputLock({
+    lock_file: options.voice_lock_file
+  });
+
+  const local = {};
+
+  if (typeof options.voice_lock_now_ms === 'number') {
+    local.now_ms = options.voice_lock_now_ms;
+  }
+
+  return lock.isEarsMuted(local);
 }
 
 function wavStatus(filePath) {
@@ -145,6 +160,27 @@ function runMicrophoneCaptureProof(options = {}) {
     });
   }
 
+  const ears = microphoneVoiceLockStatus(options);
+
+  if (ears.ears_muted_now === true) {
+    return Object.freeze({
+      ok: false,
+      marker: 'FLOKI_V2_MICROPHONE_CAPTURE_BLOCKED_BY_VOICE_LOCK',
+      guard,
+      ears,
+      voice_output_lock_active: true,
+      ears_muted_now: true,
+      microphone_recorded_now: false,
+      speaker_playback_run_now: false,
+      whisper_transcription_run_now: false,
+      yolo_inference_run_now: false,
+      vad_audio_analysis_run_now: false,
+      webcam_opened_now: false,
+      minecraft_called: false,
+      chat_mode_only: true
+    });
+  }
+
   const arecord = commandReady('arecord');
 
   if (!arecord.ready) {
@@ -233,6 +269,7 @@ module.exports = {
   commandReady,
   microphoneCaptureAllowed,
   microphoneCaptureGuardStatus,
+  microphoneVoiceLockStatus,
   wavStatus,
   buildArecordArgs,
   runMicrophoneCaptureProof,
