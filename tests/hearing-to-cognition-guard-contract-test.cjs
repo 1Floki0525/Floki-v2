@@ -28,8 +28,9 @@ async function run() {
   assert.equal(guard.chat_mode_only, true);
 
   const blocked = await runHearingToCognitionBridgeProof({
+    write_report: false,
     env: {},
-    report_file: '/tmp/floki-hearing-cognition-should-not-read.json'
+    hearing_report_file: '/tmp/floki-hearing-cognition-should-not-read.json'
   });
 
   assert.equal(blocked.ok, false);

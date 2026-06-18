@@ -180,9 +180,15 @@ function runWhisperStdoutAttempt(inputFile, modelFile) {
   });
 }
 
-function writeWhisperReport(status) {
-  fs.mkdirSync(WHISPER_OUTPUT_DIR, { recursive: true });
-  const reportFile = path.join(WHISPER_OUTPUT_DIR, 'latest-whisper-transcription.json');
+function writeWhisperReport(status, options = {}) {
+  if (options.write_report === false) {
+    return null;
+  }
+
+  const outputDir = options.output_dir || WHISPER_OUTPUT_DIR;
+  const reportFile = options.report_file || path.join(outputDir, 'latest-whisper-transcription.json');
+
+  fs.mkdirSync(path.dirname(reportFile), { recursive: true });
   fs.writeFileSync(reportFile, JSON.stringify(status, null, 2) + '\n');
   return reportFile;
 }
@@ -291,7 +297,7 @@ function runWhisperTranscriptionProof(options = {}) {
     minecraft_called: false
   });
 
-  const reportFile = writeWhisperReport(status);
+  const reportFile = writeWhisperReport(status, options);
 
   return Object.freeze({
     ...status,
@@ -331,6 +337,7 @@ module.exports = {
   textLooksLikeSpeech,
   runWhisperTxtAttempt,
   runWhisperStdoutAttempt,
+  writeWhisperReport,
   runWhisperTranscriptionProof,
   printWhisperTranscriptionProof
 };

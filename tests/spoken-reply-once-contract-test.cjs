@@ -37,6 +37,7 @@ async function run() {
     hearingRan = true;
 
     assert.equal(options.env.FLOKI_ALLOW_CHAT_HEARING_LOOP, '1');
+    assert.equal(options.report_file, hearingReport);
 
     fs.mkdirSync(path.dirname(hearingReport), { recursive: true });
     fs.writeFileSync(hearingReport, JSON.stringify({
@@ -64,7 +65,7 @@ async function run() {
     bridgeRan = true;
 
     assert.equal(options.env.FLOKI_ALLOW_HEARING_TO_COGNITION, '1');
-    assert.equal(options.report_file, hearingReport);
+    assert.equal(options.hearing_report_file, hearingReport);
 
     const bridge = Object.freeze({
       ok: true,
@@ -130,7 +131,7 @@ async function run() {
     env: {
       FLOKI_ALLOW_HEARING_TO_COGNITION: '1'
     },
-    report_file: hearingReport
+    hearing_report_file: hearingReport
   });
 
   assert.equal(ensurePiperWavReady(bridgePass), wavFile);
@@ -142,6 +143,7 @@ async function run() {
     hearing_runner: fakeHearingRunner,
     bridge_runner: fakeBridgeRunner,
     locked_playback_runner: fakeLockedPlaybackRunner,
+    hearing_report_file: hearingReport,
     report_file: spokenReport,
     voice_lock_file: path.join(baseDir, 'voice-output-lock.json'),
     write_bridge_report: false

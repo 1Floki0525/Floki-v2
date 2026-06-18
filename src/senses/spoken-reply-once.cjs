@@ -147,8 +147,10 @@ async function runSpokenReplyOnce(options = {}) {
     rate: options.rate,
     channels: options.channels,
     whisper_model_size: options.whisper_model_size,
+    input_file: options.input_file,
     voice_lock_file: options.voice_lock_file,
-    voice_lock_now_ms: options.voice_lock_now_ms
+    voice_lock_now_ms: options.voice_lock_now_ms,
+    report_file: options.hearing_report_file
   });
 
   if (!hearing || hearing.ok !== true) {
@@ -158,6 +160,7 @@ async function runSpokenReplyOnce(options = {}) {
       reason: 'hearing loop failed before cognition',
       hearing,
       microphone_recorded_now: hearing ? hearing.microphone_recorded_now === true : false,
+      microphone_capture_replay_used: hearing ? hearing.microphone_capture_replay_used === true : false,
       vad_audio_analysis_run_now: hearing ? hearing.vad_audio_analysis_run_now === true : false,
       whisper_transcription_run_now: hearing ? hearing.whisper_transcription_run_now === true : false,
       wake_gate_checked_now: false,
@@ -184,7 +187,8 @@ async function runSpokenReplyOnce(options = {}) {
       ...process.env,
       FLOKI_ALLOW_HEARING_TO_COGNITION: '1'
     },
-    report_file: hearing.report_file,
+    hearing_report_file: hearing.report_file,
+    bridge_report_file: options.bridge_report_file,
     modality: 'spoken',
     source: 'user',
     voice_lock_file: options.voice_lock_file,
@@ -224,6 +228,8 @@ async function runSpokenReplyOnce(options = {}) {
     hearing_report_file: hearing.report_file || null,
     bridge_report_file: bridge.report_file || null,
     heard_text: bridge.original_heard_text || hearing.heard_text || '',
+    capture_file: hearing.capture && hearing.capture.output_file ? hearing.capture.output_file : null,
+    whisper_report_file: hearing.whisper && hearing.whisper.report_file ? hearing.whisper.report_file : null,
     wake_request_text: bridge.wake_request_text || '',
     wake_gate_marker: bridge.wake_gate_marker || null,
     wake_gate_open: bridge.wake_gate_open === true,
@@ -241,6 +247,7 @@ async function runSpokenReplyOnce(options = {}) {
     piper_voice_name: bridge.piper_voice_name || null,
     locked_playback: lockedPlayback,
     microphone_recorded_now: hearing.microphone_recorded_now === true,
+    microphone_capture_replay_used: hearing.microphone_capture_replay_used === true,
     vad_audio_analysis_run_now: hearing.vad_audio_analysis_run_now === true,
     whisper_transcription_run_now: hearing.whisper_transcription_run_now === true,
     wake_gate_checked_now: true,

@@ -99,7 +99,7 @@ async function run() {
     env: {
       FLOKI_ALLOW_HEARING_TO_COGNITION: '1'
     },
-    report_file: reportFile,
+    hearing_report_file: reportFile,
     modality: 'spoken',
     source: 'background'
   });

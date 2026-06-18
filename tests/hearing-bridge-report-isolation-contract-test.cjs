@@ -64,13 +64,14 @@ async function run() {
     path.join(baseDir, 'fake-input'),
     'background speech without the wake phrase'
   );
+  const separateBridgeReport = path.join(baseDir, 'separate-bridge-output.json');
 
   const proof = await runHearingToCognitionBridgeProof({
     write_report: false,
     env: {
       FLOKI_ALLOW_HEARING_TO_COGNITION: '1'
     },
-    report_file: fakeHearingReport,
+    hearing_report_file: fakeHearingReport,
     modality: 'spoken',
     source: 'background'
   });
@@ -82,10 +83,29 @@ async function run() {
   assert.equal(proof.persistent_memory_used, false);
   assert.equal(proof.broca_enabled_now, false);
 
+  const separate = await runHearingToCognitionBridgeProof({
+    env: {
+      FLOKI_ALLOW_HEARING_TO_COGNITION: '1'
+    },
+    hearing_report_file: fakeHearingReport,
+    bridge_report_file: separateBridgeReport,
+    modality: 'spoken',
+    source: 'background'
+  });
+
+  assert.equal(separate.ok, true);
+  assert.equal(separate.marker, 'FLOKI_V2_WAKE_GATED_HEARING_TO_COGNITION_IGNORED');
+  assert.equal(separate.source_report_file, fakeHearingReport);
+  assert.equal(separate.report_file, separateBridgeReport);
+  assert.equal(fs.existsSync(fakeHearingReport), true);
+  assert.equal(fs.existsSync(separateBridgeReport), true);
+  assert.notEqual(fakeHearingReport, separateBridgeReport);
+
   console.log(JSON.stringify({
     ok: true,
     marker: 'FLOKI_V2_HEARING_BRIDGE_REPORT_ISOLATION_PASS',
     explicit_report_supported: true,
+    separate_input_output_reports_supported: true,
     write_report_false_supported: true,
     contract_proofs_do_not_clobber_latest_live_report: true,
     fake_contract_input_stays_test_only: true,

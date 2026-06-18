@@ -77,7 +77,9 @@ function readJson(filePath) {
 }
 
 function latestHeardText(options = {}) {
-  const reportFile = options.report_file || process.env.FLOKI_HEARING_REPORT || HEARING_LOOP_REPORT;
+  const reportFile = options.hearing_report_file ||
+    process.env.FLOKI_HEARING_REPORT ||
+    HEARING_LOOP_REPORT;
 
   if (!fs.existsSync(reportFile)) {
     return Object.freeze({
@@ -168,7 +170,9 @@ function writeBridgeReport(status, options = {}) {
   }
 
   const outputDir = options.output_dir || BRIDGE_OUTPUT_DIR;
-  const reportFile = options.report_file || path.join(outputDir, 'latest-hearing-to-cognition.json');
+  const reportFile = options.bridge_report_file ||
+    options.report_file ||
+    path.join(outputDir, 'latest-hearing-to-cognition.json');
 
   fs.mkdirSync(path.dirname(reportFile), { recursive: true });
   fs.writeFileSync(reportFile, JSON.stringify(status, null, 2) + '\n');
