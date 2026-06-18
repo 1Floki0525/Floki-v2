@@ -19,4 +19,21 @@ bin/floki-fast-patch-*.cjs
 brain/thalamum.disabled.*/
 
 .floki-tools/
+floki-media/
+data/youtube-transcripts/
+data/knowledge-corpus/
+*.wav
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.webm
+*.mp3
+*.flac
+*.m4a
+*.ogg
+cookies.txt
+docs/cookies.txt
 yolo*.pt
+
+floki-media
