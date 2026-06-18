@@ -7,6 +7,7 @@ const { spawnSync } = require('node:child_process');
 const { createRuntime, handleUserText } = require('./floki-chat.cjs');
 const { cognitionJsonFromOutput, speechJsonFromOutput, loadCoreBrainConfig } = require('../../brain/core_brain/index.cjs');
 const { appendChatTranscriptTurn, appendPrivateThoughtRecord, assertPublicTranscriptText, readChatTranscriptTail, getTranscriptPaths } = require('./chat-transcript.cjs');
+const { buildVisionStatus } = require('../vision/vision-status.cjs');
 
 const { PROJECT_ROOT: ROOT, getTimeoutConfig } = require('../../src/config/floki-config.cjs');
 
@@ -57,6 +58,7 @@ function stopSpeechLoop() {
 function printStatus(startStatus) {
   const config = loadCoreBrainConfig('chat');
   const paths = getTranscriptPaths();
+  const visionStatus = buildVisionStatus({ active_mode: 'chat' });
   console.log(JSON.stringify({
     ok: true,
     marker: 'FLOKI_V2_LIVE_CHAT_INTERFACE_STATUS',
@@ -74,6 +76,13 @@ function printStatus(startStatus) {
     cognition_model: config.models.cognition.model,
     broca_enabled_now: true,
     piper_spoken_replies_recorded_to_chat_interface: true,
+    vision_status: visionStatus,
+    chat_mode_uses_webcam_eyes: visionStatus.chat_mode_uses_webcam_eyes,
+    game_mode_uses_first_person_game_view: visionStatus.game_mode_uses_first_person_game_view,
+    pineal_mind_eye_used_for_dreams: visionStatus.pineal_mind_eye_used_for_dreams,
+    webcam_used_as_game_world_eyes: false,
+    desktop_automation_used_for_sight: false,
+    mineflayer_used: false,
     minecraft_enabled_now: false,
     chat_mode_only: true,
     game_mode_started: false

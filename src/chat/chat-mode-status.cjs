@@ -10,6 +10,7 @@ const { buildChatToolchainReadinessStatus } = require('../senses/chat-toolchain-
 const { speakerPlaybackGuardStatus } = require('../senses/piper-speaker-playback.cjs');
 const { VOICES } = require('../senses/piper-speech-smoke.cjs');
 const { getCognitionConfig } = require('../config/model-config.cjs');
+const { buildVisionStatus } = require('../vision/vision-status.cjs');
 
 const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
 const CHAT_MODE_STATUS_VERSION = 'floki-v2-chat-mode-status-v1';
@@ -129,6 +130,7 @@ function buildChatModeStatus(options = {}) {
   const latestLoop = fileSummary(LATEST_REPORTS.loop_report_file);
   const loopRuntimePid = statePath('chat/runtime/chat-mode-loop.pid');
   const chatModeActive = fs.existsSync(loopRuntimePid);
+  const visionStatus = buildVisionStatus({ active_mode: 'chat' });
 
   const ok = toolchain.ok === true &&
     toolchain.whisper.cli_ready === true &&
@@ -208,6 +210,7 @@ function buildChatModeStatus(options = {}) {
     latest_hearing_report: latestHearing.path,
     latest_spoken_reply_report: latestSpokenReply.path,
     latest_loop_report: latestLoop.path,
+    vision_status: visionStatus,
     chat_mode_active: chatModeActive,
     chat_mode_runtime_pid_file: loopRuntimePid,
     game_mode_explicitly_out_of_scope: true,
@@ -215,6 +218,12 @@ function buildChatModeStatus(options = {}) {
     minecraft_called: false,
     body_movement_enabled_now: false,
     webcam_opened_now: false,
+    chat_mode_uses_webcam_eyes: visionStatus.chat_mode_uses_webcam_eyes,
+    game_mode_uses_first_person_game_view: visionStatus.game_mode_uses_first_person_game_view,
+    pineal_mind_eye_used_for_dreams: visionStatus.pineal_mind_eye_used_for_dreams,
+    webcam_used_as_game_world_eyes: false,
+    desktop_automation_used_for_sight: false,
+    mineflayer_used: false,
     chat_mode_only: true
   });
 }

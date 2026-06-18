@@ -8,6 +8,7 @@ models:
     model_default: qwen3.5:4b
     endpoint_env: FLOKI_COGNITION_ENDPOINT
     endpoint_default: http://127.0.0.1:11434
+    mode_scope: chat_cognition
     temperature: 0.55
     top_p: 0.9
     timeout_ms: 120000
@@ -89,8 +90,70 @@ policies:
   game_world_eyes_enabled_now: false
   usb_camera_as_game_world_eyes: false
   chat_world_camera_detection_enabled_now: true
-  chat_world_vision_enabled_now: false
+  chat_world_vision_enabled_now: true
   raw_private_reasoning_storage: false
+
+vision:
+  external_eyes_enabled: true
+  chat_external_eyes_source: webcam
+  game_external_eyes_source: minecraft_first_person
+  inner_vision_source: pineal_mind_eye
+  target_capture_fps: 40
+  frame_width: 1280
+  frame_height: 720
+  webcam_device_env: FLOKI_WEBCAM_DEVICE
+  webcam_device_default: /dev/video0
+  webcam_backend: v4l2
+  webcam_capture_command: ffmpeg
+  frame_buffer_size: 120
+  frame_retention_seconds: 3
+  capture_timeout_grace_ms: 2000
+  vlm_inference_enabled: true
+  vlm_inference_every_n_frames: 40
+  vlm_inference_min_interval_ms: 1000
+  vision_model_env: FLOKI_VISION_MODEL
+  vision_endpoint_env: FLOKI_VISION_ENDPOINT
+  observation_summary_enabled: true
+  raw_frame_storage_enabled: false
+  public_frame_logging_enabled: false
+  private_observation_log_enabled: true
+  webcam_capture_allow_env: FLOKI_ALLOW_WEBCAM_CAPTURE
+  chat_vision_allow_env: FLOKI_ALLOW_CHAT_VISION
+
+chat_world_vision:
+  enabled: true
+  source: webcam
+  target_fps: 40
+  sight_scope: maker_world_external
+  used_as_game_world_eyes: false
+  nonblocking_audio_loop: true
+  self_echo_prevention: true
+
+game_world_vision:
+  enabled: false
+  source: minecraft_first_person
+  target_fps: 40
+  sight_scope: minecraft_world_external
+  starts_only_with_game_mode: true
+
+pineal_vision:
+  enabled: true
+  source: generated_inner_dreamscape
+  used_while_sleeping: true
+  used_while_dreaming: true
+  used_while_reflecting: true
+  pause_external_eyes_while_sleeping: true
+  public_transcript_visible: false
+  spoken_aloud: false
+  derive_from_memories: true
+  derive_from_youtube_transcripts: true
+  derive_from_conversations: true
+  derive_from_minecraft_experience: true
+  derive_from_emotions: true
+  derive_from_personality: true
+  derive_from_beliefs: true
+  private_inner_vision_subdir: inner-vision
+  private_inner_vision_log_name: pineal-inner-vision.private.jsonl
 
 embodiment:
   realm_name: maker_realm

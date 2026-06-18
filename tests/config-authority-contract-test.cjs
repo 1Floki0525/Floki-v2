@@ -23,6 +23,10 @@ const REQUIRED_SECTIONS = [
   'models',
   'modules',
   'policies',
+  'vision',
+  'chat_world_vision',
+  'game_world_vision',
+  'pineal_vision',
   'embodiment',
   'paths',
   'sleep',
@@ -55,6 +59,10 @@ function run() {
   assert.equal(typeof cfg.getKnowledgeConfig, 'function', 'getKnowledgeConfig must be exported');
   assert.equal(typeof cfg.getLiveChatConfig, 'function', 'getLiveChatConfig must be exported');
   assert.equal(typeof cfg.getLifeClockConfig, 'function', 'getLifeClockConfig must be exported');
+  assert.equal(typeof cfg.getVisionConfig, 'function', 'getVisionConfig must be exported');
+  assert.equal(typeof cfg.getChatWorldVisionConfig, 'function', 'getChatWorldVisionConfig must be exported');
+  assert.equal(typeof cfg.getGameWorldVisionConfig, 'function', 'getGameWorldVisionConfig must be exported');
+  assert.equal(typeof cfg.getPinealVisionConfig, 'function', 'getPinealVisionConfig must be exported');
   assert.equal(typeof cfg.getFlokiConfig, 'function', 'getFlokiConfig must be exported');
   assert.equal(typeof cfg.resolveProjectPath, 'function', 'resolveProjectPath must be exported');
   assert.equal(typeof cfg.resolveStatePath, 'function', 'resolveStatePath must be exported');
@@ -119,6 +127,23 @@ function run() {
   const accessorChatLifeClock = cfg.getLifeClockConfig('chat');
   assert.equal(typeof accessorChatLifeClock.ticks_per_second, 'number');
 
+  const accessorVision = cfg.getVisionConfig('chat');
+  assert.equal(accessorVision.target_capture_fps, 40);
+  assert.equal(typeof accessorVision.webcam_device_env, 'string');
+  assert.equal(typeof accessorVision.vision_model_env, 'string');
+
+  const accessorChatWorldVision = cfg.getChatWorldVisionConfig('chat');
+  assert.equal(accessorChatWorldVision.source, 'webcam');
+  assert.equal(accessorChatWorldVision.used_as_game_world_eyes, false);
+
+  const accessorGameWorldVision = cfg.getGameWorldVisionConfig('game');
+  assert.equal(accessorGameWorldVision.source, 'minecraft_first_person');
+  assert.equal(accessorGameWorldVision.enabled, false);
+
+  const accessorPinealVision = cfg.getPinealVisionConfig('chat');
+  assert.equal(accessorPinealVision.source, 'generated_inner_dreamscape');
+  assert.equal(accessorPinealVision.public_transcript_visible, false);
+
   const viaGetFlokiConfig = cfg.getFlokiConfig('game');
   assert.equal(viaGetFlokiConfig.mode, 'game');
   assert.ok(viaGetFlokiConfig.models, 'getFlokiConfig must return models');
@@ -130,6 +155,10 @@ function run() {
   assert.ok(viaGetFlokiConfig.knowledge, 'getFlokiConfig must return knowledge');
   assert.ok(viaGetFlokiConfig.live_chat, 'getFlokiConfig must return live_chat');
   assert.ok(viaGetFlokiConfig.life_clock, 'getFlokiConfig must return life_clock');
+  assert.ok(viaGetFlokiConfig.vision, 'getFlokiConfig must return vision');
+  assert.ok(viaGetFlokiConfig.chat_world_vision, 'getFlokiConfig must return chat_world_vision');
+  assert.ok(viaGetFlokiConfig.game_world_vision, 'getFlokiConfig must return game_world_vision');
+  assert.ok(viaGetFlokiConfig.pineal_vision, 'getFlokiConfig must return pineal_vision');
 
   console.log(JSON.stringify({
     ok: true,

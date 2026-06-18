@@ -108,6 +108,10 @@ function loadFlokiConfig(mode) {
     }),
     modules: Object.freeze(raw.modules || {}),
     policies: Object.freeze(raw.policies || {}),
+    vision: buildVisionSection(raw.vision, mode),
+    chat_world_vision: buildChatWorldVisionSection(raw.chat_world_vision, mode),
+    game_world_vision: buildGameWorldVisionSection(raw.game_world_vision, mode),
+    pineal_vision: buildPinealVisionSection(raw.pineal_vision, mode),
     embodiment: Object.freeze(raw.embodiment || {}),
     paths: buildPathsSection(raw.paths, mode),
     sleep: buildSleepSection(raw.sleep, mode),
@@ -135,15 +139,97 @@ function buildModelSection(section, mode, label) {
   requireString(endpoint, 'models.' + label + '.endpoint');
 
   return Object.freeze({
-    provider: requireString(section.provider || 'ollama', 'models.' + label + '.provider'),
+    provider: requireString(section.provider, 'models.' + label + '.provider'),
     model,
     endpoint,
     enabled_now: section.enabled_now === true,
-    mode_scope: section.mode_scope || '',
-    temperature: typeof section.temperature === 'number' ? section.temperature : 0.5,
-    top_p: typeof section.top_p === 'number' ? section.top_p : 0.9,
-    timeout_ms: typeof section.timeout_ms === 'number' ? section.timeout_ms : 120000,
-    keep_alive: section.keep_alive || '24h'
+    mode_scope: requireString(section.mode_scope, 'models.' + label + '.mode_scope'),
+    temperature: requireNumber(section.temperature, 'models.' + label + '.temperature'),
+    top_p: requireNumber(section.top_p, 'models.' + label + '.top_p'),
+    timeout_ms: requireNumber(section.timeout_ms, 'models.' + label + '.timeout_ms'),
+    keep_alive: requireString(section.keep_alive, 'models.' + label + '.keep_alive')
+  });
+}
+
+function buildVisionSection(section, mode) {
+  if (!section) failMissingYamlKey(mode, 'vision');
+
+  return Object.freeze({
+    external_eyes_enabled: requireBoolean(section.external_eyes_enabled, 'vision.external_eyes_enabled'),
+    chat_external_eyes_source: requireString(section.chat_external_eyes_source, 'vision.chat_external_eyes_source'),
+    game_external_eyes_source: requireString(section.game_external_eyes_source, 'vision.game_external_eyes_source'),
+    inner_vision_source: requireString(section.inner_vision_source, 'vision.inner_vision_source'),
+    target_capture_fps: requireNumber(section.target_capture_fps, 'vision.target_capture_fps'),
+    frame_width: requireNumber(section.frame_width, 'vision.frame_width'),
+    frame_height: requireNumber(section.frame_height, 'vision.frame_height'),
+    webcam_device_env: requireString(section.webcam_device_env, 'vision.webcam_device_env'),
+    webcam_device_default: requireString(section.webcam_device_default, 'vision.webcam_device_default'),
+    webcam_backend: requireString(section.webcam_backend, 'vision.webcam_backend'),
+    webcam_capture_command: requireString(section.webcam_capture_command, 'vision.webcam_capture_command'),
+    frame_buffer_size: requireNumber(section.frame_buffer_size, 'vision.frame_buffer_size'),
+    frame_retention_seconds: requireNumber(section.frame_retention_seconds, 'vision.frame_retention_seconds'),
+    capture_timeout_grace_ms: requireNumber(section.capture_timeout_grace_ms, 'vision.capture_timeout_grace_ms'),
+    vlm_inference_enabled: requireBoolean(section.vlm_inference_enabled, 'vision.vlm_inference_enabled'),
+    vlm_inference_every_n_frames: requireNumber(section.vlm_inference_every_n_frames, 'vision.vlm_inference_every_n_frames'),
+    vlm_inference_min_interval_ms: requireNumber(section.vlm_inference_min_interval_ms, 'vision.vlm_inference_min_interval_ms'),
+    vision_model_env: requireString(section.vision_model_env, 'vision.vision_model_env'),
+    vision_endpoint_env: requireString(section.vision_endpoint_env, 'vision.vision_endpoint_env'),
+    observation_summary_enabled: requireBoolean(section.observation_summary_enabled, 'vision.observation_summary_enabled'),
+    raw_frame_storage_enabled: requireBoolean(section.raw_frame_storage_enabled, 'vision.raw_frame_storage_enabled'),
+    public_frame_logging_enabled: requireBoolean(section.public_frame_logging_enabled, 'vision.public_frame_logging_enabled'),
+    private_observation_log_enabled: requireBoolean(section.private_observation_log_enabled, 'vision.private_observation_log_enabled'),
+    webcam_capture_allow_env: requireString(section.webcam_capture_allow_env, 'vision.webcam_capture_allow_env'),
+    chat_vision_allow_env: requireString(section.chat_vision_allow_env, 'vision.chat_vision_allow_env')
+  });
+}
+
+function buildChatWorldVisionSection(section, mode) {
+  if (!section) failMissingYamlKey(mode, 'chat_world_vision');
+
+  return Object.freeze({
+    enabled: requireBoolean(section.enabled, 'chat_world_vision.enabled'),
+    source: requireString(section.source, 'chat_world_vision.source'),
+    target_fps: requireNumber(section.target_fps, 'chat_world_vision.target_fps'),
+    sight_scope: requireString(section.sight_scope, 'chat_world_vision.sight_scope'),
+    used_as_game_world_eyes: requireBoolean(section.used_as_game_world_eyes, 'chat_world_vision.used_as_game_world_eyes'),
+    nonblocking_audio_loop: requireBoolean(section.nonblocking_audio_loop, 'chat_world_vision.nonblocking_audio_loop'),
+    self_echo_prevention: requireBoolean(section.self_echo_prevention, 'chat_world_vision.self_echo_prevention')
+  });
+}
+
+function buildGameWorldVisionSection(section, mode) {
+  if (!section) failMissingYamlKey(mode, 'game_world_vision');
+
+  return Object.freeze({
+    enabled: requireBoolean(section.enabled, 'game_world_vision.enabled'),
+    source: requireString(section.source, 'game_world_vision.source'),
+    target_fps: requireNumber(section.target_fps, 'game_world_vision.target_fps'),
+    sight_scope: requireString(section.sight_scope, 'game_world_vision.sight_scope'),
+    starts_only_with_game_mode: requireBoolean(section.starts_only_with_game_mode, 'game_world_vision.starts_only_with_game_mode')
+  });
+}
+
+function buildPinealVisionSection(section, mode) {
+  if (!section) failMissingYamlKey(mode, 'pineal_vision');
+
+  return Object.freeze({
+    enabled: requireBoolean(section.enabled, 'pineal_vision.enabled'),
+    source: requireString(section.source, 'pineal_vision.source'),
+    used_while_sleeping: requireBoolean(section.used_while_sleeping, 'pineal_vision.used_while_sleeping'),
+    used_while_dreaming: requireBoolean(section.used_while_dreaming, 'pineal_vision.used_while_dreaming'),
+    used_while_reflecting: requireBoolean(section.used_while_reflecting, 'pineal_vision.used_while_reflecting'),
+    pause_external_eyes_while_sleeping: requireBoolean(section.pause_external_eyes_while_sleeping, 'pineal_vision.pause_external_eyes_while_sleeping'),
+    public_transcript_visible: requireBoolean(section.public_transcript_visible, 'pineal_vision.public_transcript_visible'),
+    spoken_aloud: requireBoolean(section.spoken_aloud, 'pineal_vision.spoken_aloud'),
+    derive_from_memories: requireBoolean(section.derive_from_memories, 'pineal_vision.derive_from_memories'),
+    derive_from_youtube_transcripts: requireBoolean(section.derive_from_youtube_transcripts, 'pineal_vision.derive_from_youtube_transcripts'),
+    derive_from_conversations: requireBoolean(section.derive_from_conversations, 'pineal_vision.derive_from_conversations'),
+    derive_from_minecraft_experience: requireBoolean(section.derive_from_minecraft_experience, 'pineal_vision.derive_from_minecraft_experience'),
+    derive_from_emotions: requireBoolean(section.derive_from_emotions, 'pineal_vision.derive_from_emotions'),
+    derive_from_personality: requireBoolean(section.derive_from_personality, 'pineal_vision.derive_from_personality'),
+    derive_from_beliefs: requireBoolean(section.derive_from_beliefs, 'pineal_vision.derive_from_beliefs'),
+    private_inner_vision_subdir: requireString(section.private_inner_vision_subdir, 'pineal_vision.private_inner_vision_subdir'),
+    private_inner_vision_log_name: requireString(section.private_inner_vision_log_name, 'pineal_vision.private_inner_vision_log_name')
   });
 }
 
@@ -297,6 +383,22 @@ function getLifeClockConfig(mode) {
   return loadFlokiConfig(mode).life_clock;
 }
 
+function getVisionConfig(mode) {
+  return loadFlokiConfig(mode).vision;
+}
+
+function getChatWorldVisionConfig(mode) {
+  return loadFlokiConfig(mode).chat_world_vision;
+}
+
+function getGameWorldVisionConfig(mode) {
+  return loadFlokiConfig(mode).game_world_vision;
+}
+
+function getPinealVisionConfig(mode) {
+  return loadFlokiConfig(mode).pineal_vision;
+}
+
 function resolveProjectPath(relativePath) {
   if (typeof relativePath !== 'string' || relativePath.trim() === '') {
     throw new TypeError('relativePath must be a non-empty string');
@@ -344,6 +446,10 @@ module.exports = {
   getKnowledgeConfig,
   getLiveChatConfig,
   getLifeClockConfig,
+  getVisionConfig,
+  getChatWorldVisionConfig,
+  getGameWorldVisionConfig,
+  getPinealVisionConfig,
   resolveProjectPath,
   resolveStatePath,
   resolveToolPath,
@@ -379,11 +485,11 @@ if (typeof module.exports.getFlokiConfig !== 'function') {
     if (typeof model !== 'string' || model.trim() === '') throw new Error(label + '.model must be configured in YAML/env');
     if (typeof endpoint !== 'string' || endpoint.trim() === '') throw new Error(label + '.endpoint must be configured in YAML/env');
     return Object.freeze({
-      provider: section.provider || 'ollama',
+      provider: requireString(section.provider, label + '.provider'),
       model,
       endpoint,
       enabled_now: section.enabled_now === true,
-      mode_scope: section.mode_scope || '',
+      mode_scope: requireString(section.mode_scope, label + '.mode_scope'),
       temperature: section.temperature,
       top_p: section.top_p,
       timeout_ms: section.timeout_ms,
@@ -427,6 +533,10 @@ if (typeof module.exports.getFlokiConfig !== 'function') {
       }),
       modules: Object.freeze(_requiredObject(raw.modules, 'modules')),
       policies: Object.freeze(_requiredObject(raw.policies, 'policies')),
+      vision: Object.freeze(_requiredObject(raw.vision, 'vision')),
+      chat_world_vision: Object.freeze(_requiredObject(raw.chat_world_vision, 'chat_world_vision')),
+      game_world_vision: Object.freeze(_requiredObject(raw.game_world_vision, 'game_world_vision')),
+      pineal_vision: Object.freeze(_requiredObject(raw.pineal_vision, 'pineal_vision')),
       embodiment: Object.freeze(_requiredObject(raw.embodiment, 'embodiment')),
       paths: _normalizePaths(raw.paths),
       sleep: Object.freeze(_requiredObject(raw.sleep, 'sleep')),

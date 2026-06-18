@@ -9,6 +9,7 @@ const {
   speechJsonFromOutput,
   buildChatSmokeJson
 } = require('../../brain/core_brain/index.cjs');
+const { buildVisionStatus } = require('../vision/vision-status.cjs');
 
 function createRuntime(options = {}) {
   return createCoreBrain({
@@ -30,6 +31,7 @@ function buildSmokeJson(runtime, result) {
 
 function printStatus() {
   const config = loadCoreBrainConfig('chat');
+  const visionStatus = buildVisionStatus({ active_mode: 'chat' });
 
   console.log(JSON.stringify({
     ok: true,
@@ -40,6 +42,13 @@ function printStatus() {
     enabled_modules: Object.keys(config.modules).filter((name) => config.modules[name].enabled),
     cognition_model: config.models.cognition.model,
     vision_model: config.models.vision.model,
+    vision_status: visionStatus,
+    chat_mode_uses_webcam_eyes: visionStatus.chat_mode_uses_webcam_eyes,
+    game_mode_uses_first_person_game_view: visionStatus.game_mode_uses_first_person_game_view,
+    pineal_mind_eye_used_for_dreams: visionStatus.pineal_mind_eye_used_for_dreams,
+    webcam_used_as_game_world_eyes: false,
+    desktop_automation_used_for_sight: false,
+    mineflayer_used: false,
     affect_scaffold_enabled_now: true,
     qwen_cognition_available_in_chat_now: true,
     broca_enabled_now: true,
