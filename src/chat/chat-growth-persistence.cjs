@@ -9,7 +9,7 @@ const { newId } = require('../util/ids.cjs');
 const { runWhisperTranscriptionProof } = require('../senses/whisper-transcription-smoke.cjs');
 const { runHearingToCognitionBridgeProof } = require('../senses/hearing-to-cognition-bridge.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const CHAT_GROWTH_OUTPUT_DIR = path.join(TOOLS_DIR, 'output', 'chat-growth-persistence');
 const KNOWN_WAKE_AUDIO_FIXTURE = path.join(

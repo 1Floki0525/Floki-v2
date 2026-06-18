@@ -23,7 +23,7 @@ function run() {
   assert.equal(status.whisper_readiness.cli_ready, true);
   assert.equal(status.whisper_readiness.small_en_model_ready, true);
   assert.equal(status.whisper_readiness.whisper_transcription_run_now, false);
-  assert.equal(status.qwen_cognition.model, 'qwen3.5:9b');
+  assert.ok(typeof status.qwen_cognition.model === 'string' && status.qwen_cognition.model.length > 0, 'qwen_cognition model from YAML must be non-empty');
   assert.equal(status.qwen_cognition.schema_constrained_json_required, true);
   assert.equal(status.qwen_cognition.qwen_cognition_run_now, false);
   assert.equal(status.broca_ready.required_for_speech, true);

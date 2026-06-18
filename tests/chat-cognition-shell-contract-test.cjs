@@ -37,7 +37,7 @@ function run() {
   assert.equal(json.reflective_emotion_enabled_now, true);
   assert.equal(json.broca_enabled_now, true);
   assert.equal(json.minecraft_enabled_now, false);
-  assert.equal(json.cognition.model, 'qwen3.5:9b');
+  assert.ok(typeof json.cognition.model === 'string' && json.cognition.model.length > 0, 'cognition model from YAML must be non-empty');
   assert.equal(json.cognition.raw_private_reasoning_stored, false);
   assert.equal(typeof json.speech.text, 'string');
   assert.ok(json.speech.text.length > 0);

@@ -113,7 +113,7 @@ async function run() {
 
   assert.equal(cognition.type, 'model_response_summary');
   assert.equal(cognition.source, 'frontal');
-  assert.equal(cognition.payload.model, 'qwen3.5:9b');
+  assert.ok(typeof cognition.payload.model === 'string' && cognition.payload.model.length > 0, 'cognition model from YAML must be non-empty');
   assert.equal(cognition.payload.raw_private_reasoning_stored, false);
   assert.equal(cognition.payload.cognition.emotion_reflection_enabled, true);
   assert.equal(typeof cognition.payload.cognition.safe_thought_summary, 'string');

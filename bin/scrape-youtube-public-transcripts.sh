@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-ROOT="/media/binary-god/1tb-ssd/Floki-v2"
-FLOKI_MEDIA_ROOT="/media/binary-god/2tb-ssd/Floki-media"
-DEFAULT_COOKIES="/media/binary-god/1tb-ssd/Floki/docs/cookies.txt"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+FLOKI_MEDIA_ROOT="$(node -e "const c=require('./src/config/floki-config.cjs');console.log(c.getPathConfig('chat').media_root)" 2>/dev/null || echo '/media/binary-god/2tb-ssd/Floki-media')"
+DEFAULT_COOKIES="$ROOT/docs/cookies.txt"
 
 CHANNEL_URL="$1"
 CHANNEL_FOLDER_ARG="$2"

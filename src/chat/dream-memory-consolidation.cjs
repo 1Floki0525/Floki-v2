@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { createChatMemorySubstrate } = require('./chat-memory-substrate.cjs');
-const { DEFAULT_DREAM_ROOT, getDreamRoot } = require('./dream-engine.cjs');
+const { dreamRootFallback, getDreamRoot } = require('./dream-engine.cjs');
 const {
   ensureParentDirSync,
   existsSync,
@@ -16,7 +16,7 @@ const { newId } = require('../util/ids.cjs');
 const { rejectPrivateReasoningMarkers } = require('../model/ollama-client.cjs');
 const { isThirdPersonSelfReference } = require('../../brain/broca/index.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
 const DREAM_MEMORY_OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'output', 'dream-memory-consolidation');
 
 function nowIso(options = {}) {
@@ -283,7 +283,7 @@ function runDreamMemoryConsolidationOnce(options = {}) {
       dream_memories_written: 0,
       dream_memory_index_appended: false,
       persistent_chat_memory_updated: false,
-      cold_storage_dream_path_used: dreamRoot === path.resolve(DEFAULT_DREAM_ROOT),
+      cold_storage_dream_path_used: dreamRoot === path.resolve(dreamRootFallback),
       dream_root: dreamRoot,
       chat_mode_only: true,
       game_mode_started: false
@@ -348,7 +348,7 @@ function runDreamMemoryConsolidationOnce(options = {}) {
     dream_memory_index_file: getDreamMemoryIndexFile(options),
     all_available_dreams_already_consolidated: allAvailableDreamsAlreadyConsolidated,
     dream_root: dreamRoot,
-    cold_storage_dream_path_used: dreamRoot === path.resolve(DEFAULT_DREAM_ROOT),
+    cold_storage_dream_path_used: dreamRoot === path.resolve(dreamRootFallback),
     chat_mode_only: true,
     game_mode_started: false
   });

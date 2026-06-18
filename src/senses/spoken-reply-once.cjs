@@ -21,7 +21,7 @@ const {
 
 const { appendChatTranscriptTurn, appendPrivateThoughtRecord, assertPublicTranscriptText } = require('../chat/chat-transcript.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const SPOKEN_REPLY_OUTPUT_DIR = path.join(TOOLS_DIR, 'output', 'spoken-reply-once');
 

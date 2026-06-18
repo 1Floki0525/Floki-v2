@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT, getTimeoutConfig } = require('../config/floki-config.cjs');
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const VENV_DIR = path.join(TOOLS_DIR, 'venv-chat-embodiment');
 const PYTHON = path.join(VENV_DIR, 'bin', 'python');
@@ -111,7 +111,7 @@ function runPythonVad(inputFile) {
   const result = spawnSync(PYTHON, ['-c', script, inputFile], {
     cwd: ROOT,
     encoding: 'utf8',
-    timeout: 120000,
+    timeout: getTimeoutConfig('chat').vad_ms,
     env: {
       ...process.env,
       PYTHONUNBUFFERED: '1'

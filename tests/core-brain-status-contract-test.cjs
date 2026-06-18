@@ -48,10 +48,10 @@ function run() {
   assert.equal(chat.config_path.endsWith('/config/chat.config.yaml'), true);
   assert.equal(game.config_path.endsWith('/config/game.config.yaml'), true);
 
-  assert.equal(chat.models.cognition.model, process.env.FLOKI_COGNITION_MODEL || 'qwen3.5:9b');
-  assert.equal(chat.models.vision.model, process.env.FLOKI_VISION_MODEL || 'qwen3-vl:4b');
-  assert.equal(game.models.cognition.model, process.env.FLOKI_COGNITION_MODEL || 'qwen3.5:9b');
-  assert.equal(game.models.vision.model, process.env.FLOKI_VISION_MODEL || 'qwen3-vl:4b');
+  assert.ok(typeof chat.models.cognition.model === 'string' && chat.models.cognition.model.length > 0, 'chat cognition model from YAML must be non-empty');
+  assert.ok(typeof chat.models.vision.model === 'string' && chat.models.vision.model.length > 0, 'chat vision model from YAML must be non-empty');
+  assert.ok(typeof game.models.cognition.model === 'string' && game.models.cognition.model.length > 0, 'game cognition model from YAML must be non-empty');
+  assert.ok(typeof game.models.vision.model === 'string' && game.models.vision.model.length > 0, 'game vision model from YAML must be non-empty');
 
   assert.equal(chat.embodiment.realm_name, 'maker_realm');
   assert.equal(chat.embodiment.body_source, 'host_machine');

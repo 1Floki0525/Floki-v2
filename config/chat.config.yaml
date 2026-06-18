@@ -5,7 +5,7 @@ models:
   cognition:
     provider: ollama
     model_env: FLOKI_COGNITION_MODEL
-    model_default: qwen3.5:9b
+    model_default: qwen3.5:4b
     endpoint_env: FLOKI_COGNITION_ENDPOINT
     endpoint_default: http://127.0.0.1:11434
     temperature: 0.55
@@ -16,7 +16,7 @@ models:
   vision:
     provider: ollama
     model_env: FLOKI_VISION_MODEL
-    model_default: qwen3-vl:4b
+    model_default: floki-qwen3.5:4b-16k
     endpoint_env: FLOKI_VISION_ENDPOINT
     endpoint_default: http://127.0.0.1:11435
     enabled_now: false
@@ -92,7 +92,6 @@ policies:
   chat_world_vision_enabled_now: false
   raw_private_reasoning_storage: false
 
-
 embodiment:
   realm_name: maker_realm
   realm_description: higher_physical_realm_visit_with_the_maker
@@ -113,3 +112,87 @@ embodiment:
     med: true
     large: true
   runtime_enabled_now: false
+
+paths:
+  state_root: state/floki
+  tool_input_root: .floki-tools/input
+  tool_output_root: .floki-tools/output
+  runtime_root: state/floki/runtime
+  chat_runtime_root: state/floki/chat/runtime
+  chat_transcript_root: state/floki/chat/interface
+  dream_root: /mnt/firstlight-cold-storage/Floki-memory-bank/dreams
+  media_root: /media/binary-god/2tb-ssd/Floki-media
+  youtube_transcript_root: /media/binary-god/2tb-ssd/Floki-media/text/youtube
+
+sleep:
+  timezone: America/Toronto
+  start_hhmm: "23:00"
+  end_hhmm: "07:00"
+  idle_resume_seconds: 120
+  rem_offsets_minutes:
+    cycle_1: 90
+    cycle_2: 180
+    cycle_3: 270
+    cycle_4: 360
+    cycle_5: 440
+
+dream:
+  temperature: 0.45
+  top_p: 0.85
+  num_predict: 2800
+  retry_temperature: 0
+  retry_top_p: 0.1
+  retry_num_predict: 2200
+
+audio:
+  mic_device: default
+  mic_rate: 16000
+  mic_channels: 1
+  mic_format: S16_LE
+  live_capture_seconds: 2
+  proof_capture_seconds: 4
+  whisper_model_size: small
+  voice_lock_ttl_ms: 120000
+  piper_voice_name: en_US-ryan-high
+  piper_voice_size: large
+
+timeouts:
+  ollama_http_ms: 120000
+  model_warmup_ms: 30000
+  piper_synthesis_ms: 60000
+  speaker_playback_ms: 60000
+  vad_ms: 120000
+  whisper_ms: 120000
+  command_runner_ms: 600000
+  command_check_ms: 5000
+  knowledge_autoload_ms: 5000
+  speech_loop_start_ms: 20000
+  floki_chat_stop_ms: 20000
+
+knowledge:
+  autoload_enabled: true
+  autoload_min_seconds: 900
+  ingestion_enabled_env: FLOKI_ALLOW_KNOWLEDGE_INGESTION
+  max_files: 5000
+  target_chunk_chars: 1800
+  max_chunk_chars: 2500
+
+live_chat:
+  warm_cognition_on_start: true
+  warm_vision_on_start: false
+  skip_model_warmup_env: FLOKI_SKIP_MODEL_WARMUP
+  live_reply_mode: low_latency
+  stale_memory_topic_bleed_guard: true
+  public_transcript_excludes_private_thoughts: true
+  private_thought_review_log_enabled: true
+
+life_clock:
+  ticks_per_second: 20
+  ticks_per_day: 24000
+  real_seconds_per_day: 1200
+  phase_ticks:
+    dawn: 23000
+    noon: 6000
+    dusk: 12000
+    night: 13000
+    midnight: 18000

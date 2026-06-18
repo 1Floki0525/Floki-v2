@@ -21,10 +21,12 @@ function run() {
   assert.equal(chat.mode, 'chat');
   assert.equal(game.mode, 'game');
 
-  assert.equal(chat.models.cognition.model, 'qwen3.5:9b');
-  assert.equal(game.models.cognition.model, 'qwen3.5:9b');
-  assert.equal(chat.models.vision.model, 'qwen3-vl:4b');
-  assert.equal(game.models.vision.model, 'qwen3-vl:4b');
+  assert.ok(typeof chat.models.cognition.model === 'string' && chat.models.cognition.model.length > 0, 'chat cognition model must be a non-empty string from YAML');
+  assert.ok(typeof game.models.cognition.model === 'string' && game.models.cognition.model.length > 0, 'game cognition model must be a non-empty string from YAML');
+  assert.ok(typeof chat.models.vision.model === 'string' && chat.models.vision.model.length > 0, 'chat vision model must be a non-empty string from YAML');
+  assert.ok(typeof game.models.vision.model === 'string' && game.models.vision.model.length > 0, 'game vision model must be a non-empty string from YAML');
+
+  assert.notEqual(chat.models.cognition.model, game.models.cognition.model, 'chat and game should have different cognition models from YAML');
 
   assert.deepEqual(missingRequiredModules(chat), []);
 

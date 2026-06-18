@@ -13,12 +13,25 @@ const {
 const { appendJsonlSync } = require('../util/jsonl.cjs');
 const { runDreamEngineOnce } = require('./dream-engine.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT, getSleepConfig } = require('../config/floki-config.cjs');
 const SLEEP_CYCLE_OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'output', 'sleep-cycle');
-const DEFAULT_TIMEZONE = 'America/Toronto';
-const DEFAULT_SLEEP_START_HHMM = '23:00';
-const DEFAULT_SLEEP_END_HHMM = '07:00';
-const DEFAULT_IDLE_RESUME_SECONDS = 120;
+
+function getSleepDefaults(mode) {
+  const cfg = getSleepConfig(mode || 'chat');
+  return Object.freeze({
+    timezone: cfg.timezone,
+    start_hhmm: cfg.start_hhmm,
+    end_hhmm: cfg.end_hhmm,
+    idle_resume_seconds: cfg.idle_resume_seconds,
+    rem_offsets_minutes: cfg.rem_offsets_minutes
+  });
+}
+
+const DEFAULTS = getSleepDefaults('chat');
+const yamlTimezone = DEFAULTS.timezone;
+const sleepStartFallback = DEFAULTS.start_hhmm;
+const sleepEndFallback = DEFAULTS.end_hhmm;
+const DEFAULT_IDLE_RESUME_SECONDS = DEFAULTS.idle_resume_seconds;
 const DEFAULT_REM_OFFSETS_MINUTES = Object.freeze([90, 180, 270, 360, 440]);
 const DEFAULT_STATE_FILE = statePath('chat/sleep/sleep-cycle-state.json');
 const DEFAULT_EVENTS_FILE = statePath('chat/sleep/sleep-events.jsonl');
@@ -72,9 +85,9 @@ function parseHHMM(value, fallback) {
 function getScheduleConfig(options = {}) {
   const env = options.env || process.env;
   return Object.freeze({
-    timezone: options.timezone || env.FLOKI_SLEEP_TIMEZONE || DEFAULT_TIMEZONE,
-    start: parseHHMM(options.sleep_start_hhmm || env.FLOKI_SLEEP_START_HHMM, DEFAULT_SLEEP_START_HHMM),
-    end: parseHHMM(options.sleep_end_hhmm || env.FLOKI_SLEEP_END_HHMM, DEFAULT_SLEEP_END_HHMM),
+    timezone: options.timezone || env.FLOKI_SLEEP_TIMEZONE || yamlTimezone,
+    start: parseHHMM(options.sleep_start_hhmm || env.FLOKI_SLEEP_START_HHMM, sleepStartFallback),
+    end: parseHHMM(options.sleep_end_hhmm || env.FLOKI_SLEEP_END_HHMM, sleepEndFallback),
     idle_resume_seconds: Number(options.idle_resume_seconds || env.FLOKI_SLEEP_IDLE_RESUME_SECONDS || DEFAULT_IDLE_RESUME_SECONDS)
   });
 }
@@ -544,9 +557,9 @@ if (require.main === module) {
 module.exports = {
   ROOT,
   SLEEP_CYCLE_OUTPUT_DIR,
-  DEFAULT_TIMEZONE,
-  DEFAULT_SLEEP_START_HHMM,
-  DEFAULT_SLEEP_END_HHMM,
+  yamlTimezone,
+  sleepStartFallback,
+  sleepEndFallback,
   DEFAULT_IDLE_RESUME_SECONDS,
   sleepCycleAllowed,
   sleepCycleGuardStatus,

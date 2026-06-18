@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT, getPathConfig } = require('../config/floki-config.cjs');
 const DEFAULT_TRANSCRIPT_DIR = path.join(ROOT, 'state', 'floki', 'chat', 'interface');
 
 const PRIVATE_THOUGHT_PATTERNS = Object.freeze([

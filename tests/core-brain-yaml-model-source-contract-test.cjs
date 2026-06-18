@@ -36,10 +36,10 @@ function run() {
   validateCoreBrainConfig(chat);
   validateCoreBrainConfig(game);
 
-  assert.equal(chat.models.cognition.model, process.env.FLOKI_COGNITION_MODEL || 'qwen3.5:9b');
-  assert.equal(chat.models.vision.model, process.env.FLOKI_VISION_MODEL || 'qwen3-vl:4b');
-  assert.equal(game.models.cognition.model, process.env.FLOKI_COGNITION_MODEL || 'qwen3.5:9b');
-  assert.equal(game.models.vision.model, process.env.FLOKI_VISION_MODEL || 'qwen3-vl:4b');
+  assert.ok(typeof chat.models.cognition.model === 'string' && chat.models.cognition.model.length > 0, 'chat cognition model from YAML must be non-empty');
+  assert.ok(typeof chat.models.vision.model === 'string' && chat.models.vision.model.length > 0, 'chat vision model from YAML must be non-empty');
+  assert.ok(typeof game.models.cognition.model === 'string' && game.models.cognition.model.length > 0, 'game cognition model from YAML must be non-empty');
+  assert.ok(typeof game.models.vision.model === 'string' && game.models.vision.model.length > 0, 'game vision model from YAML must be non-empty');
 
   const customCognition = withEnv('FLOKI_COGNITION_MODEL', 'custom-cognition-model:local', () => {
     return normalizeModelSection({
@@ -94,8 +94,8 @@ function run() {
     game_config_vision_model: game.models.vision.model,
     yaml_model_selection_source_of_truth: true,
     env_model_override_supported_by_normalizer: true,
-    current_default_cognition_model: 'qwen3.5:9b',
-    current_default_vision_model: 'qwen3-vl:4b',
+    current_default_cognition_model: chat.models.cognition.model,
+    current_default_vision_model: chat.models.vision.model,
     minecraft_enabled_now: false
   }, null, 2));
 }

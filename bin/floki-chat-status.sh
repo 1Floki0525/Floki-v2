@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-PROJECT_DIR="/media/binary-god/1tb-ssd/Floki-v2"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 fail() {
   echo "{\"ok\":false,\"marker\":\"FLOKI_V2_CHAT_STATUS_SCRIPT_FAIL\",\"error\":\"$1\",\"chat_mode_only\":true}" >&2

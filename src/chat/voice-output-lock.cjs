@@ -6,9 +6,19 @@ const path = require('node:path');
 const { statePath } = require('../util/fs-safe.cjs');
 const { newId } = require('../util/ids.cjs');
 const { nowIso } = require('../util/time.cjs');
+const { getAudioConfig } = require('../config/floki-config.cjs');
 
 const VOICE_OUTPUT_LOCK_VERSION = 'floki-v2-voice-output-lock-v1';
-const DEFAULT_TTL_MS = 120000;
+
+function getDefaultTtlMs() {
+  try {
+    return getAudioConfig('chat').voice_lock_ttl_ms;
+  } catch (_e) {
+    return 120000;
+  }
+}
+
+const DEFAULT_TTL_MS = getDefaultTtlMs();
 
 function defaultLockFile() {
   return statePath('chat/voice/voice-output-lock.json');

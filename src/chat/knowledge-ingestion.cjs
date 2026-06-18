@@ -17,8 +17,8 @@ const {
   readJsonlSync
 } = require('../util/jsonl.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
-const FLOKI_MEDIA_ROOT = '/media/binary-god/2tb-ssd/Floki-media';
+const { PROJECT_ROOT: ROOT, getPathConfig } = require('../config/floki-config.cjs');
+const FLOKI_MEDIA_ROOT = getPathConfig('chat').media_root;
 const KNOWLEDGE_INGESTION_OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'output', 'knowledge-ingestion');
 
 const SUPPORTED_TEXT_EXTENSIONS = Object.freeze([

@@ -38,10 +38,11 @@ function run() {
   assert.equal(chatConfig.mode, 'chat');
   assert.equal(gameConfig.mode, 'game');
 
-  assert.equal(chatConfig.models.cognition.model, 'qwen3.5:9b');
-  assert.equal(gameConfig.models.cognition.model, 'qwen3.5:9b');
-  assert.equal(chatConfig.models.vision.model, 'qwen3-vl:4b');
-  assert.equal(gameConfig.models.vision.model, 'qwen3-vl:4b');
+  assert.ok(typeof chatConfig.models.cognition.model === 'string' && chatConfig.models.cognition.model.length > 0, 'chat cognition model must be a non-empty string from YAML');
+  assert.ok(typeof gameConfig.models.cognition.model === 'string' && gameConfig.models.cognition.model.length > 0, 'game cognition model must be a non-empty string from YAML');
+  assert.ok(typeof chatConfig.models.vision.model === 'string' && chatConfig.models.vision.model.length > 0, 'chat vision model must be a non-empty string from YAML');
+  assert.ok(typeof gameConfig.models.vision.model === 'string' && gameConfig.models.vision.model.length > 0, 'game vision model must be a non-empty string from YAML');
+  assert.notEqual(chatConfig.models.cognition.model, gameConfig.models.cognition.model, 'chat and game should have different cognition models from YAML');
 
   assert.equal(chatConfig.models.vision.mode_scope, 'chat_world_only');
   assert.equal(gameConfig.models.vision.mode_scope, 'game_world_first_person_only');

@@ -3,7 +3,7 @@
 const path = require('node:path');
 const { loadYamlFile } = require('../config/yaml-lite.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
 const CHAT_CONFIG_PATH = path.join(ROOT, 'config', 'chat.config.yaml');
 const GAME_CONFIG_PATH = path.join(ROOT, 'config', 'game.config.yaml');
 

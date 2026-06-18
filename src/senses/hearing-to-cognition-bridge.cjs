@@ -22,7 +22,7 @@ const { synthesizePiperSpeechToFile } = require('./piper-speech-smoke.cjs');
 const { buildWakeGatedUserText } = require('../chat/wake-word-gate.cjs');
 const { createVoiceOutputLock } = require('../chat/voice-output-lock.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const HEARING_LOOP_REPORT = path.join(TOOLS_DIR, 'output', 'chat-hearing-loop', 'latest-chat-hearing-loop.json');
 const BRIDGE_OUTPUT_DIR = path.join(TOOLS_DIR, 'output', 'hearing-to-cognition');

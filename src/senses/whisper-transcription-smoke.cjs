@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT, getTimeoutConfig } = require('../config/floki-config.cjs');
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const WHISPER_CLI = path.join(TOOLS_DIR, 'repos', 'whisper.cpp', 'build', 'bin', 'whisper-cli');
 const WHISPER_MODEL_DIR = path.join(TOOLS_DIR, 'repos', 'whisper.cpp', 'models');
@@ -129,7 +129,7 @@ function runWhisperTxtAttempt(inputFile, modelFile, outputBase) {
   const result = spawnSync(WHISPER_CLI, args, {
     cwd: ROOT,
     encoding: 'utf8',
-    timeout: 120000
+    timeout: getTimeoutConfig('chat').whisper_ms
   });
 
   const fileText = readTextFile(outputTxt);
@@ -162,7 +162,7 @@ function runWhisperStdoutAttempt(inputFile, modelFile) {
   const result = spawnSync(WHISPER_CLI, args, {
     cwd: ROOT,
     encoding: 'utf8',
-    timeout: 120000
+    timeout: getTimeoutConfig('chat').whisper_ms
   });
 
   const stdout = String(result.stdout || '');
@@ -223,7 +223,9 @@ function runWhisperTranscriptionProof(options = {}) {
     });
   }
 
-  const modelSize = options.model_size || process.env.FLOKI_WHISPER_MODEL_SIZE || 'small';
+  const { getAudioConfig } = require('../config/floki-config.cjs');
+  const audioConfig = getAudioConfig('chat');
+  const modelSize = options.model_size || process.env.FLOKI_WHISPER_MODEL_SIZE || audioConfig.whisper_model_size;
   const modelFile = whisperModelPath(modelSize);
 
   if (!fileReady(modelFile)) {

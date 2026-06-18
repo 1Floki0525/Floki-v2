@@ -7,7 +7,7 @@ const path = require('node:path');
 const { statePath } = require('../src/util/fs-safe.cjs');
 const { appendChatTranscriptTurn, appendPrivateThoughtRecord, readChatTranscriptTail, readPrivateThoughtTail, getTranscriptPaths } = require('../src/chat/chat-transcript.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../src/config/floki-config.cjs');
 
 function run() {
   const transcriptDir = statePath('test/live-chat-interface/transcript-' + Date.now());

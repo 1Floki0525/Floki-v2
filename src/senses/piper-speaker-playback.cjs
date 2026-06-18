@@ -12,6 +12,8 @@ const {
   createVoiceOutputLock
 } = require('../chat/voice-output-lock.cjs');
 
+const { getTimeoutConfig } = require('../config/floki-config.cjs');
+
 function playbackAllowed(env = process.env) {
   return env.FLOKI_ALLOW_SPEAKER_PLAYBACK === '1';
 }
@@ -31,7 +33,7 @@ function speakerPlaybackGuardStatus(env = process.env) {
 function commandReady(command) {
   const result = spawnSync('bash', ['-lc', 'command -v ' + command], {
     encoding: 'utf8',
-    timeout: 5000
+    timeout: getTimeoutConfig('chat').command_check_ms
   });
 
   return Object.freeze({
@@ -55,7 +57,7 @@ function playWavWithAplay(filePath) {
 
   const result = spawnSync('aplay', [filePath], {
     encoding: 'utf8',
-    timeout: 60000
+    timeout: getTimeoutConfig('chat').speaker_playback_ms
   });
 
   return Object.freeze({

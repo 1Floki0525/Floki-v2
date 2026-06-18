@@ -10,7 +10,7 @@ const {
   buildChatToolchainReadinessStatus
 } = require('./chat-toolchain-readiness.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT, getTimeoutConfig } = require('../config/floki-config.cjs');
 const OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'output', 'piper-smoke');
 
 const VOICES = Object.freeze({
@@ -137,7 +137,7 @@ function synthesizePiperSpeechToFile(options = {}) {
     cwd: ROOT,
     input: text + '\n',
     encoding: 'utf8',
-    timeout: 60000
+    timeout: getTimeoutConfig('chat').piper_synthesis_ms
   });
 
   const wav = wavStatus(outputFile);

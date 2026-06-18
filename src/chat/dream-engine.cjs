@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const { getCognitionConfig } = require('../config/model-config.cjs');
 const { createChatMemorySubstrate } = require('./chat-memory-substrate.cjs');
+const { retrieveKnowledgeContext } = require('./knowledge-context.cjs');
 const {
   ensureDirSync,
   ensureParentDirSync,
@@ -16,11 +17,30 @@ const { appendJsonlSync, readJsonlSync } = require('../util/jsonl.cjs');
 const { generateJson, rejectPrivateReasoningMarkers } = require('../model/ollama-client.cjs');
 const { isThirdPersonSelfReference } = require('../../brain/broca/index.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT, getPathConfig, getDreamConfig, getSleepConfig } = require('../config/floki-config.cjs');
 const DREAM_ENGINE_OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'output', 'dream-engine');
-const DEFAULT_DREAM_ROOT = '/mnt/firstlight-cold-storage/Floki-memory-bank/dreams';
-const DEFAULT_SLEEP_WINDOW_START = '23:00';
-const DEFAULT_SLEEP_WINDOW_END = '07:00';
+
+function getDreamRootFromYaml(mode) {
+  return getPathConfig(mode || 'chat').dream_root;
+}
+
+function yamlDreamRoot() {
+  return getDreamRootFromYaml('chat');
+}
+
+function yamlSleepWindowStart() {
+  const { getSleepConfig } = require('../config/floki-config.cjs');
+  return getSleepConfig('chat').start_hhmm;
+}
+
+function yamlSleepWindowEnd() {
+  const { getSleepConfig } = require('../config/floki-config.cjs');
+  return getSleepConfig('chat').end_hhmm;
+}
+
+const dreamRootFallback = yamlDreamRoot();
+const sleepWindowStartFallback = yamlSleepWindowStart();
+const sleepWindowEndFallback = yamlSleepWindowEnd();
 const DREAM_ENGINE_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,
@@ -100,7 +120,7 @@ function dreamEngineGuardStatus(env = process.env) {
 }
 
 function getDreamRoot(options = {}) {
-  return path.resolve(options.dream_root || process.env.FLOKI_DREAM_ROOT || DEFAULT_DREAM_ROOT);
+  return path.resolve(options.dream_root || process.env.FLOKI_DREAM_ROOT || dreamRootFallback);
 }
 
 function safeArray(value, limit = 8) {
@@ -138,8 +158,8 @@ function loadLatestJsonl(filePath, limit = 6) {
 function buildDreamContext(options = {}) {
   const createdAt = nowIso(options);
   const remCycleNumber = Number(options.rem_cycle_number || 1);
-  const sleepWindowStart = options.sleep_window_start || DEFAULT_SLEEP_WINDOW_START;
-  const sleepWindowEnd = options.sleep_window_end || DEFAULT_SLEEP_WINDOW_END;
+  const sleepWindowStart = options.sleep_window_start || sleepWindowStartFallback;
+  const sleepWindowEnd = options.sleep_window_end || sleepWindowEndFallback;
   const daySummary = String(options.day_summary || 'No separate day summary was supplied. Use available chat memories and affect state.').trim();
   const substrate = options.memory_substrate || createChatMemorySubstrate({
     base_dir: options.memory_base_dir
@@ -160,7 +180,10 @@ function buildDreamContext(options = {}) {
     limitedArray(recall.short_term_matches || [], 8).map((match) => compactMemoryMatch(match).summary),
     limitedArray(recall.long_term_matches || [], 8).map((match) => compactMemoryMatch(match).summary)
   ).filter(Boolean).slice(0, 16);
-  const knowledgeSources = safeArray(options.knowledge_sources, 12);
+  const retrievedKnowledge = retrieveKnowledgeContext(query, options);
+  const knowledgeSources = safeArray(options.knowledge_sources, 12).concat(
+    retrievedKnowledge.knowledge_matches.map((match) => [match.title, match.channel_folder, match.summary].filter(Boolean).join(' — '))
+  ).filter(Boolean).slice(0, 16);
 
   return Object.freeze({
     created_at: createdAt,
@@ -180,6 +203,7 @@ function buildDreamContext(options = {}) {
     persistent_memory_used: true,
     emotional_reinforcement_used: true,
     knowledge_context_used: knowledgeSources.length > 0,
+    knowledge_chunk_count_total: retrievedKnowledge.knowledge_chunk_count_total,
     chat_mode_only: true,
     game_mode_started: false
   });
@@ -395,14 +419,15 @@ async function callDreamGenerator(prompt, context, options = {}) {
   }
 
   const config = options.model_config || getCognitionConfig();
+  const dreamConfig = getDreamConfig(options.mode || 'chat');
   const request = {
     endpoint: config.endpoint,
     model: config.model,
     prompt,
     system: 'You are Floki-v2 dream generation in chat mode. Output only schema-constrained JSON.',
-    temperature: typeof options.temperature === 'number' ? options.temperature : 0.45,
-    top_p: typeof options.top_p === 'number' ? options.top_p : 0.85,
-    num_predict: Number(options.num_predict || 2800),
+    temperature: typeof options.temperature === 'number' ? options.temperature : dreamConfig.temperature,
+    top_p: typeof options.top_p === 'number' ? options.top_p : dreamConfig.top_p,
+    num_predict: Number(options.num_predict || dreamConfig.num_predict),
     timeout_ms: options.timeout_ms || config.timeout_ms,
     keep_alive: config.keep_alive,
     think: false,
@@ -422,6 +447,7 @@ async function callDreamGenerator(prompt, context, options = {}) {
     }
     firstError = error && error.message ? error.message : String(error);
     retryUsed = true;
+    const retryDreamConfig = getDreamConfig(options.mode || 'chat');
     result = await generateJson({
       ...request,
       prompt: [
@@ -435,9 +461,9 @@ async function callDreamGenerator(prompt, context, options = {}) {
         JSON.stringify(context, null, 2)
       ].join('\n'),
       system: 'Repair pass. Output only compact schema-constrained JSON.',
-      temperature: 0,
-      top_p: 0.1,
-      num_predict: Number(options.retry_num_predict || 2200)
+      temperature: retryDreamConfig.retry_temperature,
+      top_p: retryDreamConfig.retry_top_p,
+      num_predict: Number(options.retry_num_predict || retryDreamConfig.retry_num_predict)
     });
   }
 
@@ -484,11 +510,12 @@ async function generateValidatedDream(prompt, context, options = {}) {
       'Dream context:',
       JSON.stringify(context, null, 2)
     ].join('\n');
+    const validationRetryConfig = getDreamConfig(options.mode || 'chat');
     const repaired = await callDreamGenerator(retryPrompt, context, {
       ...options,
-      temperature: 0,
-      top_p: 0.1,
-      num_predict: Number(options.validation_retry_num_predict || 2200)
+      temperature: validationRetryConfig.retry_temperature,
+      top_p: validationRetryConfig.retry_top_p,
+      num_predict: Number(options.validation_retry_num_predict || validationRetryConfig.retry_num_predict)
     });
 
     return Object.freeze({
@@ -536,9 +563,9 @@ async function runDreamEngineOnce(options = {}) {
       dream_index_appended: false,
       dream_root: getDreamRoot(options),
       rem_cycle_number: Number(options.rem_cycle_number || 1),
-      sleep_window_start: options.sleep_window_start || DEFAULT_SLEEP_WINDOW_START,
-      sleep_window_end: options.sleep_window_end || DEFAULT_SLEEP_WINDOW_END,
-      cold_storage_dream_path_used: getDreamRoot(options) === path.resolve(DEFAULT_DREAM_ROOT),
+      sleep_window_start: options.sleep_window_start || sleepWindowStartFallback,
+      sleep_window_end: options.sleep_window_end || sleepWindowEndFallback,
+      cold_storage_dream_path_used: getDreamRoot(options) === path.resolve(dreamRootFallback),
       persistent_memory_used: false,
       emotional_reinforcement_used: false,
       knowledge_context_used: false,
@@ -612,7 +639,7 @@ async function runDreamEngineOnce(options = {}) {
     rem_cycle_number: dreamJson.rem_cycle_number,
     sleep_window_start: context.sleep_window_start,
     sleep_window_end: context.sleep_window_end,
-    cold_storage_dream_path_used: getDreamRoot(options) === path.resolve(DEFAULT_DREAM_ROOT),
+    cold_storage_dream_path_used: getDreamRoot(options) === path.resolve(dreamRootFallback),
     persistent_memory_used: context.persistent_memory_used === true,
     emotional_reinforcement_used: context.emotional_reinforcement_used === true,
     knowledge_context_used: context.knowledge_context_used === true,
@@ -656,7 +683,7 @@ if (require.main === module) {
 module.exports = {
   ROOT,
   DREAM_ENGINE_OUTPUT_DIR,
-  DEFAULT_DREAM_ROOT,
+  dreamRootFallback,
   DREAM_ENGINE_SCHEMA,
   dreamEngineAllowed,
   dreamEngineGuardStatus,

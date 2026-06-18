@@ -4,14 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createVoiceOutputLock } = require('../chat/voice-output-lock.cjs');
-
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT, getTimeoutConfig } = require('../config/floki-config.cjs');
 const OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'input', 'microphone-smoke');
 
 function commandReady(command) {
   const result = spawnSync('bash', ['-lc', 'command -v ' + command], {
     encoding: 'utf8',
-    timeout: 5000
+    timeout: getTimeoutConfig('chat').command_check_ms
   });
 
   return Object.freeze({
@@ -92,11 +91,13 @@ function wavStatus(filePath) {
 }
 
 function buildArecordArgs(options = {}) {
-  const device = options.device || process.env.FLOKI_MIC_DEVICE || 'default';
-  const seconds = Number(options.seconds || process.env.FLOKI_MIC_CAPTURE_SECONDS || 3);
-  const rate = Number(options.rate || process.env.FLOKI_MIC_RATE || 16000);
-  const channels = Number(options.channels || process.env.FLOKI_MIC_CHANNELS || 1);
-  const format = options.format || process.env.FLOKI_MIC_FORMAT || 'S16_LE';
+  const { getAudioConfig } = require('../config/floki-config.cjs');
+  const audioConfig = getAudioConfig('chat');
+  const device = options.device || process.env.FLOKI_MIC_DEVICE || audioConfig.mic_device;
+  const seconds = Number(options.seconds || process.env.FLOKI_MIC_CAPTURE_SECONDS || audioConfig.proof_capture_seconds);
+  const rate = Number(options.rate || process.env.FLOKI_MIC_RATE || audioConfig.mic_rate);
+  const channels = Number(options.channels || process.env.FLOKI_MIC_CHANNELS || audioConfig.mic_channels);
+  const format = options.format || process.env.FLOKI_MIC_FORMAT || audioConfig.mic_format;
   const outputFile = options.output_file;
 
   if (!outputFile) {

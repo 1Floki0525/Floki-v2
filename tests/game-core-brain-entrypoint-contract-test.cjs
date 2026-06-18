@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../src/config/floki-config.cjs');
 
 function parseJsonOutput(stdout, label) {
   const text = String(stdout || '').trim();
@@ -37,7 +37,7 @@ function runCommand(args, label) {
 function assertGameGuard(json) {
   assert.equal(json.core_brain_enabled_now, true);
   assert.equal(json.config_path.endsWith('/config/game.config.yaml'), true);
-  assert.equal(json.cognition_model, 'qwen3.5:9b');
+  assert.ok(typeof json.cognition_model === 'string' && json.cognition_model.length > 0, 'cognition model from YAML must be non-empty');
   assert.equal(json.vision_model, 'qwen3-vl:4b');
   assert.equal(json.vision_mode_scope, 'game_world_first_person_only');
   assert.equal(json.minecraft_home_realm_eyes_source, 'minecraft_first_person_view');

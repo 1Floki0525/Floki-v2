@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-PROJECT_DIR="/media/binary-god/1tb-ssd/Floki-v2"
-SCRIPT_PATH="$PROJECT_DIR/bin/floki-chat-start.sh"
+SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/floki-chat-start.sh"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME_DIR="$PROJECT_DIR/state/floki/chat/runtime"
 PID_FILE="$RUNTIME_DIR/chat-mode-loop.pid"
 STOP_FILE="$RUNTIME_DIR/chat-mode-loop.stop"
@@ -51,7 +51,16 @@ runner_active() {
 run_loop_once() {
   export FLOKI_ALLOW_CHAT_MODE_LOOP=1
   export FLOKI_CHAT_MODE_LOOP_TURNS="${FLOKI_CHAT_MODE_LOOP_TURNS:-1}"
-  export FLOKI_HEARING_CAPTURE_SECONDS="${FLOKI_HEARING_CAPTURE_SECONDS:-6}"
+
+  # Read defaults from YAML config via Node helper
+  cd "$PROJECT_DIR" || fail "could not cd into project"
+  WHISPER_MODEL_DEFAULT="$(node -e "const c=require('./src/config/floki-config.cjs');console.log(c.getAudioConfig('chat').whisper_model_size)" 2>/dev/null || echo 'small')"
+  HEARING_SECONDS_DEFAULT="$(node -e "const c=require('./src/config/floki-config.cjs');console.log(c.getAudioConfig('chat').proof_capture_seconds)" 2>/dev/null || echo '2')"
+  LIVE_REPLY_MODE_DEFAULT="$(node -e "const c=require('./src/config/floki-config.cjs');console.log(c.getLiveChatConfig('chat').live_reply_mode)" 2>/dev/null || echo '1')"
+
+  export FLOKI_HEARING_CAPTURE_SECONDS="${FLOKI_HEARING_CAPTURE_SECONDS:-$HEARING_SECONDS_DEFAULT}"
+  export FLOKI_WHISPER_MODEL_SIZE="${FLOKI_WHISPER_MODEL_SIZE:-$WHISPER_MODEL_DEFAULT}"
+  export FLOKI_CHAT_LIVE_REPLY_MODE="${FLOKI_CHAT_LIVE_REPLY_MODE:-$LIVE_REPLY_MODE_DEFAULT}"
 
   if [ "${FLOKI_CHAT_MODE_USE_KNOWN_AUDIO:-0}" = "1" ] && [ -f "$KNOWN_AUDIO" ] && [ -z "$FLOKI_HEARING_INPUT_WAV" ]; then
     export FLOKI_HEARING_INPUT_WAV="$KNOWN_AUDIO"

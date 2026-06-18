@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-PROJECT_DIR="/media/binary-god/1tb-ssd/Floki-v2"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 KNOWN_AUDIO="$PROJECT_DIR/.floki-tools/input/microphone-smoke/microphone_smoke_20260617204048.wav"
 
 fail() {

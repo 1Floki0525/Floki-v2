@@ -25,7 +25,7 @@ const { createPineal } = require('../pineal/index.cjs');
 const { createFrontal } = require('../frontal/index.cjs');
 const { createBroca } = require('../broca/index.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../../src/config/floki-config.cjs');
 const CONFIG_VERSION = 'floki-v2-core-brain-config-v1';
 
 const CHAT_REQUIRED_MODULES = Object.freeze([

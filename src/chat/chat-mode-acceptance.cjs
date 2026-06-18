@@ -15,7 +15,7 @@ const {
   rejectThirdPersonSelfReference
 } = require('../../brain/broca/index.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT, getTimeoutConfig } = require('../config/floki-config.cjs');
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const ACCEPTANCE_OUTPUT_DIR = path.join(TOOLS_DIR, 'output', 'chat-mode-acceptance');
 const KNOWN_WAKE_AUDIO_FIXTURE = path.join(
@@ -51,10 +51,11 @@ function chatModeAcceptanceGuardStatus(env = process.env) {
 }
 
 function runCommand(command, args, options = {}) {
+  const timeouts = getTimeoutConfig('chat');
   const result = spawnSync(command, args, {
     cwd: ROOT,
     encoding: 'utf8',
-    timeout: options.timeout_ms || 600000,
+    timeout: options.timeout_ms || timeouts.command_runner_ms,
     maxBuffer: options.max_buffer || 1024 * 1024 * 50,
     env: {
       ...process.env,

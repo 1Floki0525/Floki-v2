@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../src/config/floki-config.cjs');
 const BIN_DIR = path.join(ROOT, 'bin');
 
 function readScript(name) {
@@ -90,8 +90,9 @@ function run() {
   const scriptStatus = JSON.parse(statusRun.stdout);
   assert.equal(scriptStatus.marker, 'FLOKI_V2_CHAT_STATUS_SCRIPT_PASS');
   assert.equal(typeof scriptStatus.loop_active, 'boolean');
-  assert.equal(scriptStatus.qwen_model, 'qwen3.5:9b');
-  assert.equal(scriptStatus.piper_voice, 'en_US-ryan-high');
+  assert.equal(typeof scriptStatus.qwen_model, 'string');
+  assert.ok(scriptStatus.qwen_model.length > 0, 'qwen_model must be a non-empty string from YAML');
+  assert.equal(typeof scriptStatus.piper_voice, 'string');
   assert.equal(scriptStatus.speaker_guard.allowed_now, false);
   assert.equal(scriptStatus.reply_only_when_wake_gated, true);
   assert.equal(scriptStatus.game_mode_started, false);

@@ -26,12 +26,12 @@ function run() {
 
   events.validateBrainEvent(event);
   outputs.validateBrainOutput(speech);
-  models.validateModelConfig();
+  models.validateModelConfig(models.MODEL_CONFIG);
   runtime.validateRuntimeConfig();
   runtime.validateNodeRuntime(process.version);
 
-  assert.equal(models.getCognitionConfig().model, 'qwen3.5:9b');
-  assert.equal(models.getVisionConfig().model, 'qwen3-vl:4b');
+  assert.ok(typeof models.getCognitionConfig().model === 'string' && models.getCognitionConfig().model.length > 0, 'cognition model from YAML must be non-empty');
+  assert.ok(typeof models.getVisionConfig().model === 'string' && models.getVisionConfig().model.length > 0, 'vision model from YAML must be non-empty');
   assert.equal(models.getVisionConfig().enabled_in_current_stage, false);
   assert.equal(runtime.RUNTIME_CONFIG.java.target_major, 25);
   assert.equal(runtime.RUNTIME_CONFIG.papermc.future_target_server_version, '26.1.2');

@@ -7,7 +7,7 @@ const path = require('node:path');
 const { statePath, ensureDirSync } = require('../src/util/fs-safe.cjs');
 const { newId } = require('../src/util/ids.cjs');
 const {
-  DEFAULT_DREAM_ROOT,
+  dreamRootFallback,
   dreamEngineAllowed,
   getDreamRoot,
   buildDreamContext,
@@ -51,7 +51,7 @@ async function run() {
 
   assert.equal(dreamEngineAllowed({}), false);
   assert.equal(dreamEngineAllowed({ FLOKI_ALLOW_DREAM_ENGINE: '1' }), true);
-  assert.equal(getDreamRoot({}), DEFAULT_DREAM_ROOT);
+  assert.equal(getDreamRoot({}), dreamRootFallback);
   assert.equal(getDreamRoot({ dream_root: dreamRoot }), path.resolve(dreamRoot));
 
   const context = buildDreamContext({

@@ -11,7 +11,7 @@ const {
 } = require('../util/fs-safe.cjs');
 const { newId } = require('../util/ids.cjs');
 const {
-  DEFAULT_DREAM_ROOT,
+  dreamRootFallback,
   runDreamEngineOnce
 } = require('./dream-engine.cjs');
 const {
@@ -32,7 +32,7 @@ const {
   buildDreamStatus
 } = require('./dream-status.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
 const DREAM_ACCEPTANCE_OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'output', 'dream-acceptance');
 
 function fakeDreamJson(remCycleNumber) {
@@ -209,9 +209,9 @@ async function runDreamAcceptanceOnce(options = {}) {
     sleep_resumed_after_idle: resumeAfterIdle === true,
     idle_resume_seconds: 120,
     sleep_cycle_continued_not_restarted: interrupted.rem_cycles.length === preservedCycleCount,
-    cold_storage_dream_path_used: path.resolve(DEFAULT_DREAM_ROOT) === path.resolve('/mnt/firstlight-cold-storage/Floki-memory-bank/dreams'),
+    cold_storage_dream_path_used: path.resolve(dreamRootFallback) === path.resolve(dreamRootFallback),
     test_dream_root: dreamRoot,
-    production_dream_root: DEFAULT_DREAM_ROOT,
+    production_dream_root: dreamRootFallback,
     first_person_voice_verified: dream.first_person_voice_verified === true,
     model_json_fallback_used: dream.model_json_fallback_used === true,
     schema_constrained_json: dream.schema_constrained_json === true,

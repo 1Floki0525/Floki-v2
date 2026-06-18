@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-PROJECT_DIR="/media/binary-god/1tb-ssd/Floki-v2"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 if [ "$#" -gt 0 ]; then
   COMMAND="$1"

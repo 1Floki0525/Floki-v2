@@ -11,7 +11,7 @@ const {
   createVoiceOutputLock
 } = require('../chat/voice-output-lock.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const CHAT_MODE_LOOP_OUTPUT_DIR = path.join(TOOLS_DIR, 'output', 'chat-mode-loop');
 const DEFAULT_TURNS = 1;

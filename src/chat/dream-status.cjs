@@ -11,12 +11,12 @@ const {
 } = require('../util/fs-safe.cjs');
 const { readJsonlSync } = require('../util/jsonl.cjs');
 const {
-  DEFAULT_DREAM_ROOT,
+  dreamRootFallback,
   getDreamRoot
 } = require('./dream-engine.cjs');
 const {
   SLEEP_CYCLE_OUTPUT_DIR,
-  DEFAULT_TIMEZONE,
+  yamlTimezone,
   DEFAULT_IDLE_RESUME_SECONDS,
   getSleepWindowForDate,
   isWithinSleepWindow,
@@ -27,7 +27,7 @@ const {
   getDreamMemoryIndexFile
 } = require('./dream-memory-consolidation.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
 const DREAM_STATUS_OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'output', 'dream-status');
 
 function nowDate(options = {}) {
@@ -159,7 +159,7 @@ function idleRemainingSeconds(state, now) {
 function buildDreamStatus(options = {}) {
   const env = options.env || process.env;
   const now = nowDate(options);
-  const timezone = options.timezone || env.FLOKI_SLEEP_TIMEZONE || DEFAULT_TIMEZONE;
+  const timezone = options.timezone || env.FLOKI_SLEEP_TIMEZONE || yamlTimezone;
   const sleepWindow = getSleepWindowForDate(now, options);
   const within = isWithinSleepWindow(now, options);
   const dreamRoot = getDreamRoot(options);
@@ -206,7 +206,7 @@ function buildDreamStatus(options = {}) {
     dream_memory_count_indexed: latest.dream_memory_count_indexed,
     dream_root: dreamRoot,
     cold_storage_available: coldStorageAvailable,
-    cold_storage_dream_path_used: path.resolve(dreamRoot) === path.resolve(DEFAULT_DREAM_ROOT),
+    cold_storage_dream_path_used: path.resolve(dreamRoot) === path.resolve(dreamRootFallback),
     dream_index_file: latest.dream_index_file,
     dream_memory_index_file: latest.dream_memory_index_file,
     sleep_state_file_loaded: Boolean(state),

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-PROJECT_DIR="/media/binary-god/1tb-ssd/Floki-v2"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME_DIR="$PROJECT_DIR/state/floki/chat/runtime"
 PID_FILE="$RUNTIME_DIR/chat-mode-loop.pid"
 STOP_FILE="$RUNTIME_DIR/chat-mode-loop.stop"

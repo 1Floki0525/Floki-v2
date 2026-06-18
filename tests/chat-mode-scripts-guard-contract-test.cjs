@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../src/config/floki-config.cjs');
 const START = path.join(ROOT, 'bin', 'floki-chat-start.sh');
 const STOP = path.join(ROOT, 'bin', 'floki-chat-stop.sh');
 const PROOF = path.join(ROOT, 'bin', 'floki-chat-proof.sh');

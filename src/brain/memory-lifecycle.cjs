@@ -19,6 +19,7 @@
 
 const { nowIso } = require('../util/time.cjs');
 const { newId } = require('../util/ids.cjs');
+const { getModelConfig } = require('../config/floki-config.cjs');
 const {
   validateMemoryRecord,
   normalizeTags,
@@ -200,7 +201,7 @@ function createDreamSeed(input = {}) {
     stage: MEMORY_LIFECYCLE_CONFIG.stage,
     ready_for_vivid_generation: false,
     reason_not_vivid_yet: 'Cognition, emotions_base, amygdala, personality, pineal, and frontal dream synthesis are not fully wired yet.',
-    future_generation_model: 'qwen3.5:4b',
+    future_generation_model: getModelConfig('chat').cognition.model,
     safe_summary_only: true,
     ingredients: {
       day_event_count: dayEvents.length,

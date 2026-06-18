@@ -11,7 +11,7 @@ const { speakerPlaybackGuardStatus } = require('../senses/piper-speaker-playback
 const { VOICES } = require('../senses/piper-speech-smoke.cjs');
 const { getCognitionConfig } = require('../config/model-config.cjs');
 
-const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
+const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
 const CHAT_MODE_STATUS_VERSION = 'floki-v2-chat-mode-status-v1';
 
 const LATEST_REPORTS = Object.freeze({

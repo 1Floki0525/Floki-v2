@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-PROJECT_DIR="/media/binary-god/1tb-ssd/Floki-v2"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 fail() {
   echo "FLOKI_V2_RUNTIME_PROOF_FAIL: $1" >&2

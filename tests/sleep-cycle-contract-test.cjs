@@ -7,7 +7,7 @@ const path = require('node:path');
 const { statePath, ensureDirSync } = require('../src/util/fs-safe.cjs');
 const { newId } = require('../src/util/ids.cjs');
 const {
-  DEFAULT_TIMEZONE,
+  yamlTimezone,
   getSleepWindowForDate,
   isWithinSleepWindow,
   buildRemSchedule,
@@ -26,9 +26,9 @@ async function run() {
   ensureDirSync(baseDir);
 
   const windowAtNight = getSleepWindowForDate(new Date('2026-06-18T03:30:00.000Z'), {
-    timezone: DEFAULT_TIMEZONE
+    timezone: yamlTimezone
   });
-  assert.equal(windowAtNight.timezone, DEFAULT_TIMEZONE);
+  assert.equal(windowAtNight.timezone, yamlTimezone);
   assert.equal(windowAtNight.sleep_date, '2026-06-17');
   assert.equal(windowAtNight.start_hhmm, '23:00');
   assert.equal(windowAtNight.end_hhmm, '07:00');
