@@ -19,6 +19,8 @@ const {
   recordWakeActivityIfSleeping
 } = require('../chat/sleep-cycle.cjs');
 
+const { appendChatTranscriptTurn, appendPrivateThoughtRecord, assertPublicTranscriptText } = require('../chat/chat-transcript.cjs');
+
 const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const SPOKEN_REPLY_OUTPUT_DIR = path.join(TOOLS_DIR, 'output', 'spoken-reply-once');
@@ -67,6 +69,29 @@ function writeSpokenReplyReport(status, options = {}) {
   fs.writeFileSync(reportFile, JSON.stringify(status, null, 2) + '\n');
 
   return reportFile;
+}
+
+function appendSpokenReplyTranscript(status, reportFile, options = {}) {
+  if (!status || status.ok !== true || options.write_transcript === false) return [];
+  const transcriptOptions = options.transcript_options || {};
+  const written = [];
+  const common = {
+    source: 'spoken_reply_once',
+    report_file: reportFile || null,
+    hearing_report_file: status.hearing_report_file || null,
+    bridge_report_file: status.bridge_report_file || null,
+    spoken_reply_report_file: reportFile || null
+  };
+  if (status.heard_text) {
+    written.push(appendChatTranscriptTurn({ ...common, role: 'user', text: status.heard_text, input_modality: 'spoken', output_modality: 'none', spoken_aloud: false }, transcriptOptions));
+  }
+  if (status.broca_text_response) {
+    written.push(appendChatTranscriptTurn({ ...common, role: 'floki', text: status.broca_text_response, input_modality: 'spoken', output_modality: 'spoken', spoken_aloud: status.speaker_playback_run_now === true, piper_wav_output_file: status.piper_wav_output_file || null }, transcriptOptions));
+  }
+  if (status.safe_thought_summary) {
+    written.push(appendPrivateThoughtRecord({ source: 'spoken_reply_once', text: status.safe_thought_summary, report_file: reportFile || null }, transcriptOptions));
+  }
+  return written.filter((entry) => entry && entry.written === true);
 }
 
 function ensurePiperWavReady(bridgeStatus) {
@@ -214,6 +239,7 @@ async function runSpokenReplyOnce(options = {}) {
     : null;
 
   const wavFile = ensurePiperWavReady(bridge);
+  assertPublicTranscriptText(bridge.broca_text_response || '', 'spoken reply before Piper playback');
 
   if (!fs.existsSync(wavFile)) {
     throw new Error('Piper WAV file missing before speaker playback: ' + wavFile);
@@ -284,9 +310,17 @@ async function runSpokenReplyOnce(options = {}) {
     chat_mode_only: true
   });
 
+  const reportFile = writeSpokenReplyReport(status, options);
+  const transcriptEntries = appendSpokenReplyTranscript(status, reportFile, options);
+
   return Object.freeze({
     ...status,
-    report_file: writeSpokenReplyReport(status, options)
+    report_file: reportFile,
+    transcript_entries_written: transcriptEntries.length,
+    transcript_jsonl_file: transcriptEntries.find((entry) => entry.transcript_jsonl_file) ? transcriptEntries.find((entry) => entry.transcript_jsonl_file).transcript_jsonl_file : null,
+    transcript_text_file: transcriptEntries.find((entry) => entry.transcript_text_file) ? transcriptEntries.find((entry) => entry.transcript_text_file).transcript_text_file : null,
+    private_thought_entries_written: transcriptEntries.filter((entry) => entry.private_thought_jsonl_file).length,
+    private_thought_jsonl_file: transcriptEntries.find((entry) => entry.private_thought_jsonl_file) ? transcriptEntries.find((entry) => entry.private_thought_jsonl_file).private_thought_jsonl_file : null
   });
 }
 

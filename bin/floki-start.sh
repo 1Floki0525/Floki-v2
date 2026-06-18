@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 
 PROJECT_DIR="/media/binary-god/1tb-ssd/Floki-v2"
-COMMAND="$1"
+
+if [ "$#" -gt 0 ]; then
+  COMMAND="$1"
+  shift
+else
+  COMMAND=""
+fi
 
 fail() {
   echo "FLOKI_V2_START_FAIL: $1" >&2
@@ -17,7 +23,6 @@ cd "$PROJECT_DIR" || fail "Could not cd into $PROJECT_DIR"
 if [ -s "$HOME/.nvm/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"
   . "$HOME/.nvm/nvm.sh"
-
   if [ -f "$PROJECT_DIR/.nvmrc" ]; then
     nvm use >/dev/null 2>&1
   else
@@ -31,72 +36,75 @@ fi
 
 case "$COMMAND" in
   chat)
-    node src/chat/floki-chat.cjs
+    node src/chat/floki-live-chat-interface.cjs "$@"
     exit "$?"
     ;;
-
+  text-chat)
+    node src/chat/floki-chat.cjs "$@"
+    exit "$?"
+    ;;
   chat-smoke)
     node src/chat/floki-chat.cjs --smoke
     exit "$?"
     ;;
-
-  game)
-    node src/game/floki-game.cjs
+  chat-loop-start)
+    bash bin/floki-chat-start.sh "$@"
     exit "$?"
     ;;
-
+  chat-loop-stop)
+    bash bin/floki-chat-stop.sh "$@"
+    exit "$?"
+    ;;
+  chat-loop-status)
+    bash bin/floki-chat-status.sh "$@"
+    exit "$?"
+    ;;
+  game)
+    node src/game/floki-game.cjs "$@"
+    exit "$?"
+    ;;
   game-smoke)
     node src/game/floki-game.cjs --smoke
     exit "$?"
     ;;
-
   senses)
-    node src/senses/offline-senses.cjs
+    node src/senses/offline-senses.cjs "$@"
     exit "$?"
     ;;
-
   senses-smoke)
     node src/senses/offline-senses.cjs --smoke
     exit "$?"
     ;;
-
   senses-status)
     node src/senses/offline-senses.cjs --status
     exit "$?"
     ;;
-
   brain-status)
-    MODE="${2:-chat}"
+    MODE="${1:-chat}"
     node src/brain/core-brain-status.cjs "$MODE"
     exit "$?"
     ;;
-
   status)
     node src/game/floki-game.cjs --status
     exit "$?"
     ;;
-
   "")
     ;;
-
   *)
     echo "FLOKI_V2_START_UNKNOWN_COMMAND: $COMMAND" >&2
     ;;
 esac
 
 echo "Floki-v2 start commands:"
-echo "  bin/floki-start.sh chat          open terminal chat mode"
-echo "  bin/floki-start.sh chat-smoke    run terminal chat smoke proof"
-echo "  bin/floki-start.sh game          start Minecraft/in-game mode when wired"
-echo "  bin/floki-start.sh game-smoke    prove game entrypoint is guarded until wired"
-echo "  bin/floki-start.sh senses        chat-mode USB webcam/mic senses when wired"
-echo "  bin/floki-start.sh senses-smoke  prove chat-world senses are guarded/detect-only"
-echo "  bin/floki-start.sh senses-status show detected chat-world camera/mic devices"
-echo "  bin/floki-start.sh brain-status [chat|game] show core brain config/runtime status"
-echo "  bin/floki-start.sh status        show current game-mode readiness"
+echo "  bin/floki-start.sh chat              live chat: typed text + spoken wake-word input"
+echo "  bin/floki-start.sh text-chat         old typed-only terminal chat"
+echo "  bin/floki-start.sh chat-loop-start   start background spoken wake-word listener"
+echo "  bin/floki-start.sh chat-loop-stop    stop background spoken wake-word listener"
+echo "  bin/floki-start.sh chat-loop-status  show background spoken listener status"
 echo ""
 echo "Current stage:"
-echo "  chat mode works with qwen cognition + Broca speech"
-echo "  game mode exists but is guarded until Minecraft body/eyes/bridge are wired"
-echo "  senses mode is chat-world only: USB camera/mic for Maker-world visits, not game-world eyes"
+echo "  chat mode accepts typed text and spoken wake-word input"
+echo "  public transcript excludes private thoughts"
+echo "  private thought summaries are recorded only in private review/memory logs"
+echo "  game mode remains guarded"
 exit 0
