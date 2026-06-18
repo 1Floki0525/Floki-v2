@@ -15,6 +15,10 @@ const {
   runPlaybackWithVoiceLock
 } = require('./piper-speaker-playback.cjs');
 
+const {
+  recordWakeActivityIfSleeping
+} = require('../chat/sleep-cycle.cjs');
+
 const ROOT = '/media/binary-god/1tb-ssd/Floki-v2';
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const SPOKEN_REPLY_OUTPUT_DIR = path.join(TOOLS_DIR, 'output', 'spoken-reply-once');
@@ -198,6 +202,17 @@ async function runSpokenReplyOnce(options = {}) {
     write_report: options.write_bridge_report !== false
   });
 
+  const sleepInterruptionRecorder = options.sleep_interruption_recorder || recordWakeActivityIfSleeping;
+  const sleepInterruption = bridge && bridge.wake_routed_to_cognition === true
+    ? sleepInterruptionRecorder({
+      env: options.env || process.env,
+      now: options.sleep_now || options.now,
+      state_file: options.sleep_state_file,
+      events_file: options.sleep_events_file,
+      reason: 'wake_gated_spoken_reply'
+    })
+    : null;
+
   const wavFile = ensurePiperWavReady(bridge);
 
   if (!fs.existsSync(wavFile)) {
@@ -241,6 +256,8 @@ async function runSpokenReplyOnce(options = {}) {
     safe_thought_summary: bridge.safe_thought_summary || '',
     broca_text_response: bridge.broca_text_response || '',
     piper_wav_output_file: wavFile,
+    sleep_interruption: sleepInterruption,
+    sleep_interrupted_by_wake: sleepInterruption ? sleepInterruption.sleep_interrupted_by_wake === true : false,
     piper_wav_output_ready: bridge.piper_wav_output_ready === true,
     piper_wav_output_size_bytes: Number(bridge.piper_wav_output_size_bytes || 0),
     piper_voice_size: bridge.piper_voice_size || null,

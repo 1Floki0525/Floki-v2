@@ -269,6 +269,53 @@ function shouldResumeSleepAfterIdle(state, now, options = {}) {
   return elapsed >= idleSeconds;
 }
 
+function recordWakeActivityIfSleeping(options = {}) {
+  const env = options.env || process.env;
+  if (!sleepCycleAllowed(env)) {
+    return Object.freeze({
+      ok: true,
+      sleep_interrupted_by_wake: false,
+      sleep_cycle_active: false,
+      reason: 'sleep_cycle_guarded',
+      chat_mode_only: true,
+      game_mode_started: false
+    });
+  }
+
+  const now = nowDate(options);
+  if (!isWithinSleepWindow(now, options)) {
+    return Object.freeze({
+      ok: true,
+      sleep_interrupted_by_wake: false,
+      sleep_cycle_active: false,
+      reason: 'outside_sleep_window',
+      chat_mode_only: true,
+      game_mode_started: false
+    });
+  }
+
+  const sleepWindow = getSleepWindowForDate(now, options);
+  let state = loadSleepCycleState(options);
+  if (!state || state.current_sleep_date !== sleepWindow.sleep_date || state.completed === true) {
+    state = createSleepCycleState({ ...options, sleep_window: sleepWindow });
+  }
+  const interrupted = markAwakeInterruption(state, options.reason || 'wake_gated_user_activity', options);
+  saveSleepCycleState(interrupted, options);
+
+  return Object.freeze({
+    ok: true,
+    sleep_interrupted_by_wake: true,
+    sleep_cycle_active: true,
+    current_sleep_date: interrupted.current_sleep_date,
+    sleep_window_start: interrupted.sleep_window_start,
+    sleep_window_end: interrupted.sleep_window_end,
+    last_user_activity_at: interrupted.last_user_activity_at,
+    rem_cycles_preserved_after_interruption: Array.isArray(interrupted.rem_cycles),
+    chat_mode_only: true,
+    game_mode_started: false
+  });
+}
+
 function countCycles(state, status) {
   return (state.rem_cycles || []).filter((cycle) => cycle.status === status).length;
 }
@@ -511,6 +558,7 @@ module.exports = {
   saveSleepCycleState,
   markAwakeInterruption,
   shouldResumeSleepAfterIdle,
+  recordWakeActivityIfSleeping,
   runSleepCycleTick,
   printSleepCycleProof
 };

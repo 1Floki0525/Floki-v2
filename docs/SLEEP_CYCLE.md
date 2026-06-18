@@ -42,3 +42,7 @@ state/floki/chat/sleep/sleep-events.jsonl
 Each due REM cycle calls the dream engine once. If the dream engine fails or is
 not explicitly allowed when a live REM dream is due, the cycle is marked failed
 instead of being faked as success.
+
+Wake-gated chat input during the sleep window interrupts the active sleep state.
+After `idle_resume_seconds` with no new user activity, the scheduler resumes the
+same sleep window. Completed REM cycles remain complete and are not repeated.
