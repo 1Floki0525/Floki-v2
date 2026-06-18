@@ -295,41 +295,56 @@ function buildPersistentMemoryContext(heard, affectSummary, options = {}) {
   });
 }
 
+function resolveBridgeBrainStatePaths(unique, options = {}) {
+  const baseDir = options.brain_state_base_dir || options.isolated_state_base_dir || null;
+  const memoryBase = baseDir ? path.join(baseDir, 'memories') : null;
+
+  return Object.freeze({
+    diagnostics_path: options.diagnostics_path || (baseDir ? path.join(baseDir, 'diagnostics.jsonl') : statePath('diagnostics.jsonl')),
+    affect_path: options.affect_path || (baseDir ? path.join(baseDir, 'affect.json') : statePath('affect.json')),
+    personality_path: options.personality_path || (baseDir ? path.join(baseDir, 'personality.json') : statePath('personality.json')),
+    identity_path: options.identity_path || (baseDir ? path.join(baseDir, 'identity.json') : statePath('identity.json')),
+    hippocampus_memory_paths: options.hippocampus_memory_paths || options.memory_paths || (memoryBase ? {
+      short_term: path.join(memoryBase, 'short-term.jsonl'),
+      episodic: path.join(memoryBase, 'episodic.jsonl'),
+      semantic: path.join(memoryBase, 'semantic.jsonl'),
+      autobiographical: path.join(memoryBase, 'autobiographical.jsonl')
+    } : null),
+    state_scope: baseDir ? 'isolated_contract_state' : 'persistent_chat_state',
+    trace_id: unique
+  });
+}
+
 async function runCognitionFromHeardText(heard, options = {}) {
   assertWakeRoutedHeardText(heard);
 
   const unique = newId('hear_cog').replace(/[^a-z0-9_]/g, '_');
-  const diagnosticsPath = statePath('test/hearing-to-cognition/' + unique + '/diagnostics.jsonl');
+  const brainState = resolveBridgeBrainStatePaths(unique, options);
 
   const event = makeUserTextEvent(heard.heard_text, {
     trace_id: unique,
     notes: 'Chat-mode microphone transcript from guarded chat hearing loop.'
   });
 
-  const temporal = createTemporal({ diagnostics_path: diagnosticsPath });
-  const amygdala = createAmygdala({ diagnostics_path: diagnosticsPath });
+  const temporal = createTemporal({ diagnostics_path: brainState.diagnostics_path });
+  const amygdala = createAmygdala({ diagnostics_path: brainState.diagnostics_path });
   const emotions = createEmotionsBase({
-    affect_path: statePath('test/hearing-to-cognition/' + unique + '/affect.json'),
-    diagnostics_path: diagnosticsPath
+    affect_path: brainState.affect_path,
+    diagnostics_path: brainState.diagnostics_path
   });
   const hippocampus = createHippocampus({
-    memory_paths: {
-      short_term: statePath('test/hearing-to-cognition/' + unique + '/short-term.jsonl'),
-      episodic: statePath('test/hearing-to-cognition/' + unique + '/episodic.jsonl'),
-      semantic: statePath('test/hearing-to-cognition/' + unique + '/semantic.jsonl'),
-      autobiographical: statePath('test/hearing-to-cognition/' + unique + '/autobiographical.jsonl')
-    },
-    diagnostics_path: diagnosticsPath
+    memory_paths: brainState.hippocampus_memory_paths || undefined,
+    diagnostics_path: brainState.diagnostics_path
   });
   const personality = createPersonality({
-    personality_path: statePath('test/hearing-to-cognition/' + unique + '/personality.json'),
-    diagnostics_path: diagnosticsPath
+    personality_path: brainState.personality_path,
+    diagnostics_path: brainState.diagnostics_path
   });
   const pineal = createPineal({
-    identity_path: statePath('test/hearing-to-cognition/' + unique + '/identity.json'),
-    diagnostics_path: diagnosticsPath
+    identity_path: brainState.identity_path,
+    diagnostics_path: brainState.diagnostics_path
   });
-  const frontal = createFrontal({ diagnostics_path: diagnosticsPath });
+  const frontal = createFrontal({ diagnostics_path: brainState.diagnostics_path });
 
   const understanding = temporal.understandEvent(event);
   const salience = amygdala.computeSalience(event);
@@ -386,7 +401,12 @@ async function runCognitionFromHeardText(heard, options = {}) {
   return Object.freeze({
     event,
     cognition,
-    diagnostics_path: diagnosticsPath,
+    diagnostics_path: brainState.diagnostics_path,
+    affect_path: brainState.affect_path,
+    personality_path: brainState.personality_path,
+    identity_path: brainState.identity_path,
+    hippocampus_memory_paths: brainState.hippocampus_memory_paths,
+    brain_state_scope: brainState.state_scope,
     memory_id: memory.payload.record.id,
     persistent_short_memory_id: persistentMemory.short_memory.id,
     persistent_reinforcement_target: persistentMemory.reinforcement.target_id,
@@ -612,6 +632,11 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     user_event_id: bridge.event.id,
     trace_id: bridge.trace_id,
     diagnostics_path: bridge.diagnostics_path,
+    affect_path: bridge.affect_path,
+    personality_path: bridge.personality_path,
+    identity_path: bridge.identity_path,
+    hippocampus_memory_paths: bridge.hippocampus_memory_paths,
+    brain_state_scope: bridge.brain_state_scope,
     memory_id: bridge.memory_id,
     persistent_short_memory_id: bridge.persistent_short_memory_id,
     persistent_reinforcement_target: bridge.persistent_reinforcement_target,
@@ -720,6 +745,7 @@ module.exports = {
   emotionFromAffectSummary,
   summarizePersistentMemoryForCognition,
   buildPersistentMemoryContext,
+  resolveBridgeBrainStatePaths,
   runCognitionFromHeardText,
   runBrocaFromCognition,
   runPiperWavFromBroca,
