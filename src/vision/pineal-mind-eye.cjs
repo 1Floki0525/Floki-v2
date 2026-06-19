@@ -57,6 +57,9 @@ function createPinealMindEyeScene(options = {}) {
   if (pineal.enabled !== true) {
     throw new Error('pineal_vision.enabled must be true for mind-eye scene generation');
   }
+  if (pineal.public_transcript_visible === true || pineal.spoken_aloud === true) {
+    throw new Error('pineal mind-eye must remain private and must not enter public transcript or speech');
+  }
 
   return Object.freeze({
     created_at: options.created_at || new Date().toISOString(),
@@ -73,8 +76,8 @@ function createPinealMindEyeScene(options = {}) {
     beliefs_used: pineal.derive_from_beliefs === true,
     internal_reality: true,
     external_world_observation: false,
-    public_transcript_visible: pineal.public_transcript_visible,
-    spoken_aloud: pineal.spoken_aloud,
+    public_transcript_visible: false,
+    spoken_aloud: false,
     private_inner_vision: true,
     chat_mode_only: mode !== 'game',
     game_mode_started: false

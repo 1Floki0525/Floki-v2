@@ -15,6 +15,7 @@ function run() {
   appendChatTranscriptTurn({ role: 'floki', text: 'I am here, listening, and I feel steady today.', input_modality: 'spoken', output_modality: 'spoken', spoken_aloud: true, source: 'spoken_reply_once' }, { transcript_dir: transcriptDir, now: '2026-06-18T16:00:01.000Z' });
   appendPrivateThoughtRecord({ text: 'I noticed trust and warmth in the interaction.', source: 'contract_test' }, { transcript_dir: transcriptDir, now: '2026-06-18T16:00:02.000Z' });
   assert.throws(() => appendChatTranscriptTurn({ role: 'floki', text: 'safe_thought_summary: hidden reasoning leaked', input_modality: 'text', output_modality: 'text', source: 'contract_test' }, { transcript_dir: transcriptDir }), /private thought\/reasoning marker/);
+  assert.throws(() => appendChatTranscriptTurn({ role: 'floki', text: 'raw_reasoning: scratchpad leaked', input_modality: 'text', output_modality: 'text', source: 'contract_test' }, { transcript_dir: transcriptDir }), /private thought\/reasoning marker/);
   const paths = getTranscriptPaths({ transcript_dir: transcriptDir });
   assert.equal(fs.existsSync(paths.transcript_jsonl_file), true);
   assert.equal(fs.existsSync(paths.transcript_text_file), true);

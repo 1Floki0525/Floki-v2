@@ -10,15 +10,23 @@ function scoreMode(mode, requested) {
 }
 
 function isExact(mode, requested) {
+  const fpsMatches = requested.require_exact_target_fps === true
+    ? Number(mode.fps) === Number(requested.target_fps)
+    : Number(mode.fps) >= Number(requested.target_fps);
+
   return mode.pixel_format === requested.preferred_pixel_format &&
     mode.width === requested.target_width &&
     mode.height === requested.target_height &&
-    Number(mode.fps) >= Number(requested.target_fps);
+    fpsMatches;
 }
 
 function isYamlAllowedFallback(mode, requested) {
   const resolutionOk = requested.allow_resolution_fallback === true || (mode.width === requested.target_width && mode.height === requested.target_height);
-  const fpsOk = requested.allow_fps_fallback === true || Number(mode.fps) >= Number(requested.target_fps);
+  const fpsOk = requested.allow_fps_fallback === true || (
+    requested.require_exact_target_fps === true
+      ? Number(mode.fps) === Number(requested.target_fps)
+      : Number(mode.fps) >= Number(requested.target_fps)
+  );
   const pixelOk = mode.pixel_format === requested.preferred_pixel_format || mode.pixel_format === requested.fallback_pixel_format;
   return resolutionOk && fpsOk && pixelOk;
 }

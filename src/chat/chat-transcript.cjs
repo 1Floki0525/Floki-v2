@@ -15,6 +15,9 @@ const PRIVATE_THOUGHT_PATTERNS = Object.freeze([
   /reasoning[-_ ]trace/i,
   /internal[-_ ]thought/i,
   /hidden[-_ ]thought/i,
+  /hidden[-_ ]reasoning/i,
+  /raw[-_ ]reasoning/i,
+  /scratchpad/i,
   /safe[-_ ]thought[-_ ]summary/i,
   /thought_summary/i
 ]);

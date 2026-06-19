@@ -28,6 +28,8 @@ function run() {
   assert.equal(status.external_world_observation, false);
   assert.equal(status.public_transcript_visible, false);
   assert.equal(status.spoken_aloud, false);
+  assert.equal(status.scene.public_transcript_visible, false);
+  assert.equal(status.scene.spoken_aloud, false);
   assert.equal(status.webcam_used, false);
   assert.equal(status.minecraft_first_person_used, false);
   assert.equal(status.private_inner_vision_written, true);
@@ -42,6 +44,8 @@ function run() {
     external_world_observation: false,
     public_transcript_visible: false,
     spoken_aloud: false,
+    scene_public_transcript_visible: false,
+    scene_spoken_aloud: false,
     private_inner_vision_written: true,
     chat_mode_only: true,
     game_mode_started: false

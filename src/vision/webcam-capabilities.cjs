@@ -125,9 +125,13 @@ function nearestFortyFpsModes(modes, target) {
 
 function exactTargetSupported(modes, target) {
   return modes.some(function(mode) {
+    const fpsMatches = target.require_exact_target_fps === true
+      ? Number(mode.fps) === Number(target.target_fps)
+      : Number(mode.fps) >= Number(target.target_fps);
+
     return mode.width === target.target_width &&
       mode.height === target.target_height &&
-      Number(mode.fps) >= Number(target.target_fps) &&
+      fpsMatches &&
       mode.pixel_format === target.preferred_pixel_format;
   });
 }
@@ -154,7 +158,10 @@ function capabilityStatusFromText(text, options) {
     exact_target_supported: exact,
     nearest_40fps_modes: nearest,
     recommended_mode: exact ? parsed.supported_modes.find(function(item) {
-      return item.width === capture.target_width && item.height === capture.target_height && item.pixel_format === capture.preferred_pixel_format && Number(item.fps) >= capture.target_fps;
+      const fpsMatches = capture.require_exact_target_fps === true
+        ? Number(item.fps) === Number(capture.target_fps)
+        : Number(item.fps) >= Number(capture.target_fps);
+      return item.width === capture.target_width && item.height === capture.target_height && item.pixel_format === capture.preferred_pixel_format && fpsMatches;
     }) : nearest[0] || null,
     capability_probe_run_now: false,
     target_from_yaml: true,

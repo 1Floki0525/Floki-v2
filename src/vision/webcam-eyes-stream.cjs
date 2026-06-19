@@ -578,6 +578,137 @@ function buildFfmpegArgs(capture, selectedMode) {
   return args;
 }
 
+function configuredTargetMode(capture) {
+  return Object.freeze({
+    pixel_format: capture.preferred_pixel_format,
+    raw_pixel_format: String(capture.preferred_pixel_format || '').toUpperCase(),
+    width: Number(capture.target_width),
+    height: Number(capture.target_height),
+    fps: Number(capture.target_fps),
+    source: 'yaml_configured_target'
+  });
+}
+
+function parseV4l2Control(text, name) {
+  const line = String(text || '').split(/\r?\n/)
+    .find((item) => item.trim().startsWith(String(name) + ' '));
+
+  if (!line) return null;
+
+  const valueMatch = line.match(/\bvalue=([^\s]+)/);
+  const numericValue = valueMatch ? Number(valueMatch[1]) : NaN;
+
+  return Object.freeze({
+    name,
+    value: valueMatch ? valueMatch[1] : null,
+    numeric_value: Number.isFinite(numericValue) ? numericValue : null,
+    line: line.trim()
+  });
+}
+
+function parseNominalFps(text) {
+  const fpsMatch = String(text || '').match(/Frames per second:\s*([0-9.]+)/i);
+  if (!fpsMatch) return null;
+  const fps = Number(fpsMatch[1]);
+  return Number.isFinite(fps) ? fps : null;
+}
+
+function exposureLimitedFpsEstimate(control) {
+  if (!control || !Number.isFinite(Number(control.numeric_value)) || Number(control.numeric_value) <= 0) {
+    return null;
+  }
+
+  return 10000 / Number(control.numeric_value);
+}
+
+function redactLiveProofText(value, capture) {
+  let text = String(value || '');
+  const replacements = [
+    capture && capture.device,
+    ROOT
+  ].filter(Boolean);
+
+  for (const item of replacements) {
+    text = text.split(String(item)).join(
+      item === ROOT ? '<floki-project-root>' : '<webcam-device-from-yaml-or-env>'
+    );
+  }
+
+  return text;
+}
+
+function probeV4l2RuntimeStatus(capture) {
+  const allResult = spawnSync(capture.v4l2_ctl_bin, ['--device', capture.device, '--all'], {
+    encoding: 'utf8'
+  });
+  const controlsResult = spawnSync(capture.v4l2_ctl_bin, ['--device', capture.device, '--list-ctrls'], {
+    encoding: 'utf8'
+  });
+  const controlsText = String(controlsResult.stdout || '');
+  const exposureTime = parseV4l2Control(controlsText, 'exposure_time_absolute');
+
+  return Object.freeze({
+    ok: !allResult.error && allResult.status === 0 && !controlsResult.error && controlsResult.status === 0,
+    marker: 'FLOKI_V2_WEBCAM_V4L2_RUNTIME_STATUS',
+    device: capture.device,
+    nominal_fps: parseNominalFps(allResult.stdout),
+    auto_exposure: parseV4l2Control(controlsText, 'auto_exposure'),
+    exposure_dynamic_framerate: parseV4l2Control(controlsText, 'exposure_dynamic_framerate'),
+    exposure_time_absolute: exposureTime,
+    exposure_limited_fps_estimate: exposureLimitedFpsEstimate(exposureTime),
+    all_exit_status: allResult.status,
+    controls_exit_status: controlsResult.status,
+    all_error: allResult.error ? allResult.error.message : null,
+    controls_error: controlsResult.error ? controlsResult.error.message : null
+  });
+}
+
+function liveMeasurementModeFromSelection(selection, capture) {
+  if (selection && selection.ok === true && selection.selected_mode) {
+    return Object.freeze({
+      selected_mode: selection.selected_mode,
+      configured_mode_attempted: false,
+      metadata_selection_failed: false,
+      metadata_failure_reason: null
+    });
+  }
+
+  return Object.freeze({
+    selected_mode: configuredTargetMode(capture),
+    configured_mode_attempted: true,
+    metadata_selection_failed: true,
+    metadata_failure_reason: selection && selection.fallback_reason
+      ? selection.fallback_reason
+      : 'capability metadata did not provide a selectable exact target mode'
+  });
+}
+
+function liveFailureReason(measured, capture, runtimeStatus) {
+  if (measured.ok !== true) {
+    return 'ffmpeg failed while measuring configured webcam capture';
+  }
+
+  const measuredFpsValue = Number(measured.measured_fps);
+  const minFps = Number(capture.min_measured_fps);
+  const dynamicFps = runtimeStatus &&
+    runtimeStatus.exposure_dynamic_framerate &&
+    Number(runtimeStatus.exposure_dynamic_framerate.numeric_value) === 1;
+  const exposureEstimate = runtimeStatus
+    ? Number(runtimeStatus.exposure_limited_fps_estimate)
+    : NaN;
+
+  if (
+    Number.isFinite(measuredFpsValue) &&
+    Number.isFinite(exposureEstimate) &&
+    dynamicFps &&
+    measuredFpsValue < minFps
+  ) {
+    return 'camera_low_light_dynamic_framerate_below_yaml_min_measured_fps';
+  }
+
+  return 'measured FPS below YAML min_measured_fps or ffmpeg failed';
+}
+
 function parseLatestFrameFromChunk(chunk) {
   const text = String(chunk || '');
   let latest = null;
@@ -672,7 +803,7 @@ function runFfmpegMeasured(capture, selectedMode) {
   });
 }
 
-async function runLiveProof(modeInput) {
+async function runLiveProof(modeInput, options = {}) {
   const mode = modeInput || 'chat';
 
   if (!webcamCaptureAllowed({ mode, env: process.env })) {
@@ -700,7 +831,10 @@ async function runLiveProof(modeInput) {
     device_source: resolved.source
   });
 
-  const capability = probeCapabilities(mode);
+  const capabilityRunner = typeof options.probe_capabilities === 'function'
+    ? options.probe_capabilities
+    : probeCapabilities;
+  const capability = capabilityRunner(mode);
 
   if (!capability.capability_probe_run_now) {
     return Object.freeze({
@@ -722,27 +856,22 @@ async function runLiveProof(modeInput) {
     capture_config: captureWithDevice
   });
 
-  if (!selection.ok) {
-    return Object.freeze({
-      ok: false,
-      marker: 'FLOKI_V2_WEBCAM_EYES_LIVE_40FPS_FAIL',
-      failure: selection.fallback_reason,
-      capability,
-      selection,
-      live_capture_run_now: false,
-      webcam_opened_now: false,
-      frame_capture_run_now: false,
-      desktop_screenshot_run_now: false,
-      public_transcript_visible: false,
-      chat_mode_only: mode === 'chat',
-      game_mode_started: false
-    });
-  }
-
-  const measured = await runFfmpegMeasured(captureWithDevice, selection.selected_mode);
+  const liveMode = liveMeasurementModeFromSelection(selection, captureWithDevice);
+  const v4l2StatusRunner = typeof options.v4l2_status_runner === 'function'
+    ? options.v4l2_status_runner
+    : probeV4l2RuntimeStatus;
+  const v4l2RuntimeStatusBefore = v4l2StatusRunner(captureWithDevice);
+  const measurementRunner = typeof options.measurement_runner === 'function'
+    ? options.measurement_runner
+    : runFfmpegMeasured;
+  const measured = await measurementRunner(captureWithDevice, liveMode.selected_mode);
+  const v4l2RuntimeStatusAfter = v4l2StatusRunner(captureWithDevice);
   const fpsPass =
     measured.ok === true &&
     Number(measured.measured_fps) >= Number(captureWithDevice.min_measured_fps);
+  const failure = fpsPass
+    ? null
+    : liveFailureReason(measured, captureWithDevice, v4l2RuntimeStatusAfter || v4l2RuntimeStatusBefore);
 
   return Object.freeze({
     ok: fpsPass,
@@ -757,16 +886,27 @@ async function runLiveProof(modeInput) {
       fps: captureWithDevice.target_fps,
       pixel_format: captureWithDevice.preferred_pixel_format
     },
-    selected_mode: selection.selected_mode,
+    selected_mode: liveMode.selected_mode,
+    capability,
+    selection,
     exact_match: selection.exact_match,
     fallback_used: selection.fallback_used,
+    configured_mode_attempted: liveMode.configured_mode_attempted,
+    metadata_selection_failed: liveMode.metadata_selection_failed,
+    metadata_failure_reason: liveMode.metadata_failure_reason,
+    capability_exact_target_supported: capability.exact_target_supported === true,
+    v4l2_runtime_status_before: v4l2RuntimeStatusBefore,
+    v4l2_runtime_status_after: v4l2RuntimeStatusAfter,
     min_measured_fps: captureWithDevice.min_measured_fps,
     measured_fps: measured.measured_fps,
     measuredFps: measured.measured_fps,
     frames_measured: measured.frames_measured,
     ffmpeg_exit_status: measured.ffmpeg_exit_status,
     ffmpeg_args_shape: measured.ffmpeg_args_shape,
-    failure: fpsPass ? null : 'measured FPS below YAML min_measured_fps or ffmpeg failed',
+    ffmpeg_stderr_tail: measured.stderr_tail
+      ? redactLiveProofText(measured.stderr_tail, captureWithDevice)
+      : null,
+    failure,
     live_capture_run_now: true,
     webcam_opened_now: true,
     frame_capture_run_now: true,
@@ -866,6 +1006,14 @@ module.exports = {
 
   ffmpegPixelFormat,
   buildFfmpegArgs,
+  configuredTargetMode,
+  parseV4l2Control,
+  parseNominalFps,
+  exposureLimitedFpsEstimate,
+  redactLiveProofText,
+  probeV4l2RuntimeStatus,
+  liveFailureReason,
+  liveMeasurementModeFromSelection,
   parseLatestFrameFromChunk,
   runFfmpegMeasured,
   runLiveProof,
