@@ -1,35 +1,138 @@
 'use strict';
 
+const fs = require('node:fs');
 const readline = require('node:readline');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const { createRuntime, handleUserText } = require('./floki-chat.cjs');
 const { cognitionJsonFromOutput, speechJsonFromOutput, loadCoreBrainConfig } = require('../../brain/core_brain/index.cjs');
 const { appendChatTranscriptTurn, appendPrivateThoughtRecord, assertPublicTranscriptText, readChatTranscriptTail, getTranscriptPaths } = require('./chat-transcript.cjs');
 const { buildVisionStatus } = require('../vision/vision-status.cjs');
 
-const { PROJECT_ROOT: ROOT, getTimeoutConfig } = require('../../src/config/floki-config.cjs');
+const { PROJECT_ROOT: ROOT, getTimeoutConfig, getPathConfig } = require('../../src/config/floki-config.cjs');
 
 function jsonStatus(ok, marker, extra = {}) {
   return Object.freeze({ ok, marker, ...extra, chat_mode_only: true, game_mode_started: false });
 }
 
+function trimOutput(value, maxLength = 4000) {
+  const text = String(value || '').trim();
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength) + '\n...[truncated]';
+}
+
+function knowledgeAutoloadPaths() {
+  const paths = getPathConfig('chat');
+  const runtimeDir = paths.chat_runtime_root;
+  const script = path.join(ROOT, 'bin', 'floki-knowledge-autoload.sh');
+  const logFile = path.join(runtimeDir, 'knowledge-autoload.background.log');
+
+  return Object.freeze({
+    runtime_dir: runtimeDir,
+    script,
+    log_file: logFile
+  });
+}
+
+function startKnowledgeAutoloadBackground(reason, syncResult = {}) {
+  const paths = knowledgeAutoloadPaths();
+
+  fs.mkdirSync(paths.runtime_dir, { recursive: true });
+
+  const out = fs.openSync(paths.log_file, 'a');
+  const err = fs.openSync(paths.log_file, 'a');
+
+  const child = spawn('bash', [paths.script], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      FLOKI_KNOWLEDGE_AUTOLOAD_BACKGROUND: '1'
+    },
+    detached: true,
+    stdio: ['ignore', out, err]
+  });
+
+  child.unref();
+
+  return jsonStatus(true, 'FLOKI_V2_KNOWLEDGE_AUTOLOAD_BACKGROUND_START_PASS', {
+    reason,
+    background_pid: child.pid,
+    script: paths.script,
+    log_file: paths.log_file,
+    sync_status: syncResult.status ?? null,
+    sync_signal: syncResult.signal ?? null,
+    sync_error: syncResult.error ? syncResult.error.message : null,
+    sync_timed_out: syncResult.error && syncResult.error.code === 'ETIMEDOUT',
+    sync_stdout: trimOutput(syncResult.stdout),
+    sync_stderr: trimOutput(syncResult.stderr)
+  });
+}
+
 function startKnowledgeAutoload() {
-  if (process.env.FLOKI_KNOWLEDGE_AUTOLOAD_DISABLED === '1') return jsonStatus(true, 'FLOKI_V2_KNOWLEDGE_AUTOLOAD_DISABLED');
+  if (process.env.FLOKI_KNOWLEDGE_AUTOLOAD_DISABLED === '1') {
+    return jsonStatus(true, 'FLOKI_V2_KNOWLEDGE_AUTOLOAD_DISABLED');
+  }
+
+  const paths = knowledgeAutoloadPaths();
+
+  if (!fs.existsSync(paths.script)) {
+    return jsonStatus(false, 'FLOKI_V2_KNOWLEDGE_AUTOLOAD_START_FAIL', {
+      reason: 'autoload script is missing',
+      script: paths.script
+    });
+  }
+
   const timeouts = getTimeoutConfig('chat');
-  const child = spawnSync('bash', [path.join(ROOT, 'bin', 'floki-knowledge-autoload.sh')], {
+  const configuredTimeout = Number(timeouts.knowledge_autoload_ms || 0);
+
+  /*
+   * The YAML timeout is intentionally short for contracts, but live startup must
+   * not fail just because nvm/bootstrap/corpus ingestion takes longer than 5s.
+   * Try a bounded sync run first so RECENTLY_RAN / NO_CORPUS / PASS can display
+   * immediately. If it times out, start the same script in the background and
+   * report background-start honestly instead of pretending ingestion completed.
+   */
+  const syncTimeout = Number(process.env.FLOKI_KNOWLEDGE_AUTOLOAD_SYNC_TIMEOUT_MS || Math.max(configuredTimeout, 30000));
+
+  const child = spawnSync('bash', [paths.script], {
     cwd: ROOT,
     env: process.env,
     encoding: 'utf8',
-    timeout: timeouts.knowledge_autoload_ms
+    timeout: syncTimeout
   });
-  return jsonStatus(child.status === 0, child.status === 0 ? 'FLOKI_V2_KNOWLEDGE_AUTOLOAD_START_PASS' : 'FLOKI_V2_KNOWLEDGE_AUTOLOAD_START_FAIL', {
+
+  if (child.status === 0) {
+    return jsonStatus(true, 'FLOKI_V2_KNOWLEDGE_AUTOLOAD_START_PASS', {
+      status: child.status,
+      signal: child.signal || null,
+      error: null,
+      timeout_ms: syncTimeout,
+      stdout: trimOutput(child.stdout),
+      stderr: trimOutput(child.stderr)
+    });
+  }
+
+  if (child.error && child.error.code === 'ETIMEDOUT') {
+    return startKnowledgeAutoloadBackground('sync autoload timed out; continuing in background', child);
+  }
+
+  if (child.status === null && child.signal) {
+    return startKnowledgeAutoloadBackground('sync autoload ended without status; continuing in background', child);
+  }
+
+  return jsonStatus(false, 'FLOKI_V2_KNOWLEDGE_AUTOLOAD_START_FAIL', {
     status: child.status,
-    stdout: String(child.stdout || '').trim(),
-    stderr: String(child.stderr || '').trim()
+    signal: child.signal || null,
+    error: child.error ? child.error.message : null,
+    error_code: child.error ? child.error.code : null,
+    timeout_ms: syncTimeout,
+    stdout: trimOutput(child.stdout),
+    stderr: trimOutput(child.stderr),
+    script: paths.script
   });
 }
+
 function startSpeechLoop(options = {}) {
   if (options.no_speech === true) return jsonStatus(true, 'FLOKI_V2_LIVE_CHAT_SPEECH_LOOP_DISABLED');
   const timeouts = getTimeoutConfig('chat');
@@ -41,17 +144,21 @@ function startSpeechLoop(options = {}) {
   });
   return jsonStatus(result.status === 0, result.status === 0 ? 'FLOKI_V2_LIVE_CHAT_SPEECH_LOOP_START_PASS' : 'FLOKI_V2_LIVE_CHAT_SPEECH_LOOP_START_FAIL', {
     status: result.status,
-    stdout: String(result.stdout || '').trim(),
-    stderr: String(result.stderr || '').trim()
+    signal: result.signal || null,
+    error: result.error ? result.error.message : null,
+    stdout: trimOutput(result.stdout),
+    stderr: trimOutput(result.stderr)
   });
 }
 
 function stopSpeechLoop() {
   const result = spawnSync('bash', [path.join(ROOT, 'bin', 'floki-chat-stop.sh')], { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: getTimeoutConfig('chat').floki_chat_stop_ms });
-  return jsonStatus(result.status === 0, result.status === 0 ? 'FLOKI_V2_LIVE_CHAT_SPEECH_LOOP_STOP_PASS' : 'FLOKI_V2_LIVE_CHAT_SPEECH_LOOP_STOP_FAIL', {
+  return jsonStatus(result.status === 0, result.status === 0 ? 'FLOKI_V2_LIVE_CHAT_SPEECH_LOOP_STOP_PASS' : 'FLOKI_V2_LIVE_CHAT_SPEECH_LOOP_FAIL', {
     status: result.status,
-    stdout: String(result.stdout || '').trim(),
-    stderr: String(result.stderr || '').trim()
+    signal: result.signal || null,
+    error: result.error ? result.error.message : null,
+    stdout: trimOutput(result.stdout),
+    stderr: trimOutput(result.stderr)
   });
 }
 
@@ -118,7 +225,7 @@ async function runLiveChatInterface(options = {}) {
   const runtime = createRuntime();
   const noSpeech = process.argv.includes('--no-speech') || options.no_speech === true;
   const knowledgeAutoloadStatus = startKnowledgeAutoload();
-const startStatus = startSpeechLoop({ no_speech: noSpeech });
+  const startStatus = startSpeechLoop({ no_speech: noSpeech });
   const paths = getTranscriptPaths();
   const seenTranscriptIds = loadSeenTranscriptIds();
   console.log('FLOKI_V2_LIVE_CHAT_INTERFACE_READY');
@@ -128,7 +235,7 @@ const startStatus = startSpeechLoop({ no_speech: noSpeech });
   console.log('Private thought review log: ' + paths.private_thought_text_file);
   console.log('Commands: /help, /status, /transcript, /speech-start, /speech-stop, /exit');
   console.log('Knowledge autoload: ' + JSON.stringify(knowledgeAutoloadStatus));
-console.log(JSON.stringify(startStatus, null, 2));
+  console.log(JSON.stringify(startStatus, null, 2));
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: 'you> ' });
   const poll = setInterval(() => {
     for (const entry of readChatTranscriptTail(120)) {
@@ -165,4 +272,13 @@ if (require.main === module) {
   });
 }
 
-module.exports = { ROOT, startSpeechLoop, stopSpeechLoop, printStatus, handleTypedText, runLiveChatInterface };
+module.exports = {
+  ROOT,
+  startKnowledgeAutoload,
+  startKnowledgeAutoloadBackground,
+  startSpeechLoop,
+  stopSpeechLoop,
+  printStatus,
+  handleTypedText,
+  runLiveChatInterface
+};
