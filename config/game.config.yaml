@@ -64,18 +64,6 @@ modules:
     enabled: true
     required: true
 
-  chat_world_senses:
-    enabled: false
-    required: false
-
-  chat_world_vision:
-    enabled: false
-    required: false
-
-  chat_world_hearing:
-    enabled: false
-    required: false
-
   game_world_eyes:
     enabled: false
     required: false
@@ -89,22 +77,15 @@ policies:
   body_enabled_now: false
   game_world_eyes_enabled_now: false
   usb_camera_as_game_world_eyes: false
-  chat_world_camera_detection_enabled_now: false
-  chat_world_vision_enabled_now: false
   raw_private_reasoning_storage: false
 
 vision:
   external_eyes_enabled: true
-  chat_external_eyes_source: webcam
-  game_external_eyes_source: minecraft_first_person
+  external_eyes_source: minecraft_first_person
   inner_vision_source: pineal_mind_eye
   target_capture_fps: 40
   frame_width: 1280
   frame_height: 720
-  webcam_device_env: FLOKI_WEBCAM_DEVICE
-  webcam_device_default: /dev/video0
-  webcam_backend: v4l2
-  webcam_capture_command: ffmpeg
   frame_buffer_size: 120
   frame_retention_seconds: 3
   capture_timeout_grace_ms: 2000
@@ -117,26 +98,6 @@ vision:
   raw_frame_storage_enabled: false
   public_frame_logging_enabled: false
   private_observation_log_enabled: true
-  webcam_capture_allow_env: FLOKI_ALLOW_WEBCAM_CAPTURE
-  chat_vision_allow_env: FLOKI_ALLOW_CHAT_VISION
-  vlm_ssh_tunnel_enabled: false
-  vlm_ssh_tunnel_target: disabled
-  vlm_ssh_tunnel_local_host: 127.0.0.1
-  vlm_ssh_tunnel_local_port: 11435
-  vlm_ssh_tunnel_remote_host: 127.0.0.1
-  vlm_ssh_tunnel_remote_port: 11434
-  vlm_ssh_tunnel_socket_name: chat-vision-ssh-tunnel.sock
-  vlm_ssh_tunnel_required_model: qwen3-vl:4b
-  vlm_ssh_tunnel_check_timeout_ms: 8000
-
-chat_world_vision:
-  enabled: false
-  source: webcam
-  target_fps: 40
-  sight_scope: maker_world_external
-  used_as_game_world_eyes: false
-  nonblocking_audio_loop: true
-  self_echo_prevention: true
 
 game_world_vision:
   enabled: false
@@ -185,8 +146,6 @@ paths:
   tool_input_root: .floki-tools/input
   tool_output_root: .floki-tools/output
   runtime_root: state/floki/runtime
-  chat_runtime_root: state/floki/chat/runtime
-  chat_transcript_root: state/floki/chat/interface
   dream_root: /mnt/firstlight-cold-storage/Floki-memory-bank/dreams
   media_root: /media/binary-god/2tb-ssd/Floki-media
   youtube_transcript_root: /media/binary-god/2tb-ssd/Floki-media/text/youtube
@@ -213,18 +172,6 @@ dream:
   retry_top_p: 0.1
   retry_num_predict: 2200
 
-audio:
-  mic_device: default
-  mic_rate: 16000
-  mic_channels: 1
-  mic_format: S16_LE
-  live_capture_seconds: 2
-  proof_capture_seconds: 4
-  whisper_model_size: small
-  voice_lock_ttl_ms: 120000
-  piper_voice_name: en_US-ryan-high
-  piper_voice_size: large
-
 timeouts:
   ollama_http_ms: 120000
   model_warmup_ms: 30000
@@ -246,15 +193,6 @@ knowledge:
   target_chunk_chars: 1800
   max_chunk_chars: 2500
 
-live_chat:
-  warm_cognition_on_start: true
-  warm_vision_on_start: false
-  skip_model_warmup_env: FLOKI_SKIP_MODEL_WARMUP
-  live_reply_mode: low_latency
-  stale_memory_topic_bleed_guard: true
-  public_transcript_excludes_private_thoughts: true
-  private_thought_review_log_enabled: true
-
 life_clock:
   ticks_per_second: 20
   ticks_per_day: 24000
@@ -265,24 +203,3 @@ life_clock:
     dusk: 12000
     night: 13000
     midnight: 18000
-
-webcam_capture:
-  capability_probe_enabled: true
-  require_exact_target_fps: true
-  target_fps: 40
-  target_width: 1280
-  target_height: 720
-  preferred_pixel_format: mjpeg
-  fallback_pixel_format: yuyv422
-  allow_resolution_fallback: false
-  allow_fps_fallback: false
-  measurement_warmup_frames: 20
-  measurement_frames: 120
-  min_measured_fps: 40
-  ffmpeg_bin: ffmpeg
-  v4l2_ctl_bin: v4l2-ctl
-  ffmpeg_loglevel: warning
-  ffmpeg_input_format: v4l2
-  ffmpeg_output_format: "null"
-  frame_transport: pipe
-  raw_frame_storage_enabled: false

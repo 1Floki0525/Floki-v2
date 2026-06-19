@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { PROJECT_ROOT, getVisionConfig } = require('../src/config/floki-config.cjs');
+const { PROJECT_ROOT, getVisionConfig, getChatWorldVisionConfig, getGameWorldVisionConfig } = require('../src/config/floki-config.cjs');
 const { resolveVisionSource } = require('../src/vision/vision-source-router.cjs');
 
 function assertNoRuntimeHardcoding() {
@@ -33,6 +33,9 @@ function run() {
 
   const vision = getVisionConfig('chat');
   assert.equal(vision.target_capture_fps, 40);
+  assert.equal(vision.external_eyes_source, 'webcam');
+  assert.throws(() => getGameWorldVisionConfig('chat'), /game-mode only/);
+  assert.throws(() => getChatWorldVisionConfig('game'), /chat-mode only/);
 
   const chat = resolveVisionSource({ mode: 'chat' });
   assert.equal(chat.marker, 'FLOKI_V2_VISION_SOURCE_ROUTER_PASS');
@@ -44,6 +47,7 @@ function run() {
   assert.equal(game.current_source, 'minecraft_first_person');
   assert.equal(game.external_world_observation, true);
   assert.equal(game.minecraft_first_person_used_as_chat_webcam_eyes, false);
+  assert.equal(getGameWorldVisionConfig('game').source, 'minecraft_first_person');
 
   for (const mode of ['sleep', 'dream', 'reflection', 'thinking']) {
     const routed = resolveVisionSource({ mode });

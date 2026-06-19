@@ -280,7 +280,7 @@ function validateCoreBrainConfig(config) {
     throw new Error('chat/game config vision model must be a non-empty YAML/env value');
   }
 
-  if (config.policies.usb_camera_as_game_world_eyes !== false) {
+  if (config.policies.usb_camera_as_game_world_eyes === true) {
     throw new Error('USB camera must never be configured as game-world eyes');
   }
 
@@ -299,21 +299,21 @@ function validateCoreBrainConfig(config) {
   }
 
   if (config.mode === 'chat') {
-    if (config.modules.game_world_body.enabled === true) {
+    if (config.modules.game_world_body && config.modules.game_world_body.enabled === true) {
       throw new Error('chat mode must not enable game_world_body');
     }
 
-    if (config.modules.game_world_eyes.enabled === true) {
+    if (config.modules.game_world_eyes && config.modules.game_world_eyes.enabled === true) {
       throw new Error('chat mode must not enable game_world_eyes');
     }
   }
 
   if (config.mode === 'game') {
-    if (config.modules.chat_world_vision.enabled === true) {
+    if (config.modules.chat_world_vision && config.modules.chat_world_vision.enabled === true) {
       throw new Error('game mode must not enable chat_world_vision');
     }
 
-    if (config.modules.chat_world_hearing.enabled === true) {
+    if (config.modules.chat_world_hearing && config.modules.chat_world_hearing.enabled === true) {
       throw new Error('game mode must not enable chat_world_hearing');
     }
   }

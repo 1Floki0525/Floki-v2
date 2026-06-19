@@ -326,6 +326,10 @@ async function callVisionModel(frameBuffer, options = {}) {
   if (typeof runner === 'function') {
     return runner(frameBuffer, options);
   }
+  const timeoutSignal = AbortSignal.timeout(models.vision.timeout_ms);
+  const signal = options.abort_signal
+    ? AbortSignal.any([timeoutSignal, options.abort_signal])
+    : timeoutSignal;
   const response = await fetch(models.vision.endpoint + '/api/generate', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -340,7 +344,7 @@ async function callVisionModel(frameBuffer, options = {}) {
       },
       keep_alive: models.vision.keep_alive
     }),
-    signal: AbortSignal.timeout(models.vision.timeout_ms)
+    signal
   });
   if (!response.ok) {
     throw new Error('vision endpoint returned HTTP ' + String(response.status));
@@ -564,6 +568,7 @@ async function runChatWebcamVisionService(options = {}) {
   };
   let stopping = false;
   let inFlightInference = false;
+  let inferenceAbortController = null;
   let fatalError = null;
   let pipeBuffer = Buffer.alloc(0);
   let latestFrame = null;
@@ -579,6 +584,9 @@ async function runChatWebcamVisionService(options = {}) {
 
   const requestStop = () => {
     stopping = true;
+    if (inferenceAbortController) {
+      inferenceAbortController.abort();
+    }
     if (ffmpeg && ffmpeg.pid && state.ffmpeg_process_alive) {
       ffmpeg.kill('SIGTERM');
     }
@@ -589,6 +597,7 @@ async function runChatWebcamVisionService(options = {}) {
   const heartbeat = setInterval(() => publish(), HEARTBEAT_MS);
 
   async function maybeInfer(frame) {
+    if (stopping) return;
     const nowMs = Date.now();
     const minInterval = Number(vision.vlm_inference_min_interval_ms || 1000);
     const enoughTime = !state.last_vlm_inference_at_ms || nowMs - state.last_vlm_inference_at_ms >= minInterval;
@@ -597,15 +606,17 @@ async function runChatWebcamVisionService(options = {}) {
     const dueFrame = everyFrames > 0 && state.total_frames_received % everyFrames === 0;
     if (inFlightInference || (!firstObservation && (!dueFrame || !enoughTime))) return;
     inFlightInference = true;
+    inferenceAbortController = new AbortController();
     state.last_vlm_inference_at_ms = nowMs;
     state.last_vlm_inference_timestamp = nowIso();
     publish();
     try {
-      const result = await callVisionModel(frame, options);
+      const result = await callVisionModel(frame, { ...options, abort_signal: inferenceAbortController.signal });
       if (stopping) return;
       writeLatestObservation(result, paths, state);
       publish();
     } catch (error) {
+      if (stopping) return;
       fatalError = error.message;
       publish({
         ok: false,
@@ -615,6 +626,7 @@ async function runChatWebcamVisionService(options = {}) {
       requestStop();
       process.exitCode = 1;
     } finally {
+      inferenceAbortController = null;
       inFlightInference = false;
     }
   }
@@ -634,7 +646,7 @@ async function runChatWebcamVisionService(options = {}) {
       state.last_frame_at_ms = nowMs;
       state.last_frame_timestamp = nowIso();
       state.first_frame_received = true;
-      maybeInfer(latestFrame);
+      if (!stopping) maybeInfer(latestFrame);
     }
     publish();
   });

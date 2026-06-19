@@ -151,13 +151,12 @@ function run() {
   cfg.clearConfigCache();
   const gameSleep = cfg.getSleepConfig('game');
   const gameDream = cfg.getDreamConfig('game');
-  const gameAudio = cfg.getAudioConfig('game');
   const gameTimeouts = cfg.getTimeoutConfig('game');
   const gameLifeClock = cfg.getLifeClockConfig('game');
 
   assert.equal(typeof gameSleep.timezone, 'string', 'game sleep.timezone must come from YAML');
   assert.equal(typeof gameDream.temperature, 'number', 'game dream.temperature must come from YAML');
-  assert.equal(typeof gameAudio.mic_rate, 'number', 'game audio.mic_rate must come from YAML');
+  assert.throws(() => cfg.getAudioConfig('game'), /chat-mode only/, 'game config must not expose chat microphone/audio runtime');
   assert.equal(typeof gameTimeouts.ollama_http_ms, 'number', 'game timeouts.ollama_http_ms must come from YAML');
   assert.equal(typeof gameLifeClock.ticks_per_second, 'number', 'game life_clock.ticks_per_second must come from YAML');
 
@@ -184,6 +183,7 @@ function run() {
     life_clock_ticks_from_yaml: chatLifeClock.ticks_per_second === 20,
     life_clock_phase_ticks_from_yaml: typeof chatLifeClock.phase_ticks.dawn === 'number',
     game_config_sections_also_from_yaml: typeof gameSleep.timezone === 'string',
+    game_chat_audio_absent: true,
     chat_mode_only: true,
     game_mode_started: false
   }, null, 2));

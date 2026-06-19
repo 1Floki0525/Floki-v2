@@ -13,8 +13,8 @@ function buildGameVisionSourceStatus(options = {}) {
   const gameModeStarted = options.game_mode_started === true;
   const enabledNow = gameVision.enabled === true && gameModeStarted;
 
-  if (gameVision.source !== vision.game_external_eyes_source) {
-    throw new Error('game_world_vision.source must match vision.game_external_eyes_source');
+  if (gameVision.source !== vision.external_eyes_source) {
+    throw new Error('game_world_vision.source must match vision.external_eyes_source');
   }
   if (gameVision.source !== 'minecraft_first_person') {
     throw new Error('game vision source must be minecraft_first_person');

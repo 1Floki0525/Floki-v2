@@ -68,35 +68,14 @@ modules:
     enabled: true
     required: false
 
-  chat_world_vision:
-    enabled: false
-    required: false
-
-  chat_world_hearing:
-    enabled: false
-    required: false
-
-  game_world_eyes:
-    enabled: false
-    required: false
-
-  game_world_body:
-    enabled: false
-    required: false
-
 policies:
-  minecraft_enabled_now: false
-  body_enabled_now: false
-  game_world_eyes_enabled_now: false
-  usb_camera_as_game_world_eyes: false
   chat_world_camera_detection_enabled_now: true
   chat_world_vision_enabled_now: true
   raw_private_reasoning_storage: false
 
 vision:
   external_eyes_enabled: true
-  chat_external_eyes_source: webcam
-  game_external_eyes_source: minecraft_first_person
+  external_eyes_source: webcam
   inner_vision_source: pineal_mind_eye
   target_capture_fps: 40
   frame_width: 1280
@@ -137,13 +116,6 @@ chat_world_vision:
   used_as_game_world_eyes: false
   nonblocking_audio_loop: true
   self_echo_prevention: true
-
-game_world_vision:
-  enabled: false
-  source: minecraft_first_person
-  target_fps: 40
-  sight_scope: minecraft_world_external
-  starts_only_with_game_mode: true
 
 pineal_vision:
   enabled: true

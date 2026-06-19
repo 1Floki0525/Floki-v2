@@ -82,7 +82,7 @@ fi
 
 rm -f "$PID_FILE"
 
-nohup node src/chat/sleep-cycle-scheduler.cjs --service >> "$LOG_FILE" 2>&1 &
+setsid node src/chat/sleep-cycle-scheduler.cjs --service </dev/null >> "$LOG_FILE" 2>&1 &
 STARTED_PID="$!"
 echo "$STARTED_PID" > "$PID_FILE"
 

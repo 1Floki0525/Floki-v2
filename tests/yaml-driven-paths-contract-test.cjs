@@ -93,6 +93,8 @@ function run() {
 
   assert.equal(typeof gamePaths.dream_root, 'string', 'game paths.dream_root must be a string');
   assert.ok(gamePaths.dream_root.length > 0, 'game paths.dream_root must be non-empty');
+  assert.equal(Object.prototype.hasOwnProperty.call(gamePaths, 'chat_runtime_root'), false, 'game paths must not expose chat_runtime_root');
+  assert.equal(Object.prototype.hasOwnProperty.call(gamePaths, 'chat_transcript_root'), false, 'game paths must not expose chat_transcript_root');
 
   const statePath = cfg.resolveStatePath('chat', 'test/path');
   assert.ok(path.isAbsolute(statePath), 'resolveStatePath must return absolute path');

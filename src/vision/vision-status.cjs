@@ -17,13 +17,19 @@ function buildVisionStatus(options = {}) {
   const config = loadFlokiConfig(configMode);
   const models = getModelConfig(configMode);
   const vision = getVisionConfig(configMode);
-  const chatVision = getChatWorldVisionConfig(configMode);
-  const gameVision = getGameWorldVisionConfig(configMode);
+  const chatVision = configMode === 'chat' ? getChatWorldVisionConfig(configMode) : null;
+  const gameVision = configMode === 'game' ? getGameWorldVisionConfig(configMode) : null;
   const pinealVision = getPinealVisionConfig(configMode);
   const policies = config.policies || {};
-  const device = resolveWebcamDevice({ env: options.env || process.env, mode: configMode });
+  const device = configMode === 'chat'
+    ? resolveWebcamDevice({ env: options.env || process.env, mode: configMode })
+    : Object.freeze({ device: null, source: null, env_key: null });
   const route = resolveVisionSource({ mode: activeMode, config_mode: configMode });
   const measured = options.webcam_status || {};
+  const webcamEnabled = configMode === 'chat' &&
+    chatVision &&
+    chatVision.enabled === true &&
+    policies.chat_world_vision_enabled_now === true;
 
   return Object.freeze({
     ok: true,
@@ -32,10 +38,8 @@ function buildVisionStatus(options = {}) {
     active_mode: activeMode,
     current_external_eyes_source: route.external_world_observation ? route.current_source : null,
     current_vision_source: route.current_source,
-    webcam_enabled: configMode === 'chat' &&
-      chatVision.enabled === true &&
-      policies.chat_world_vision_enabled_now === true,
-    webcam_configured_fps: chatVision.target_fps,
+    webcam_enabled: webcamEnabled,
+    webcam_configured_fps: chatVision ? chatVision.target_fps : null,
     measured_webcam_fps: typeof measured.measured_fps === 'number' ? measured.measured_fps : null,
     webcam_device: device.device,
     webcam_device_source: device.source,
@@ -48,7 +52,7 @@ function buildVisionStatus(options = {}) {
     vlm_inference_every_n_frames: vision.vlm_inference_every_n_frames,
     vlm_inference_min_interval_ms: vision.vlm_inference_min_interval_ms,
     pineal_mind_eye_enabled: pinealVision.enabled,
-    game_vision_enabled: gameVision.enabled,
+    game_vision_enabled: gameVision ? gameVision.enabled : false,
     external_eyes_enabled: vision.external_eyes_enabled,
     chat_mode_uses_webcam_eyes: route.chat_mode_uses_webcam_eyes,
     game_mode_uses_first_person_game_view: route.game_mode_uses_first_person_game_view,

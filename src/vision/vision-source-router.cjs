@@ -28,20 +28,17 @@ function normalizeMode(mode) {
 }
 
 function assertVisionSourceContract(config, activeMode) {
-  if (config.vision.chat_external_eyes_source !== config.chat_world_vision.source) {
-    throw new Error('vision.chat_external_eyes_source must match chat_world_vision.source');
+  if (activeMode === 'chat' && config.vision.external_eyes_source !== config.chat_world_vision.source) {
+    throw new Error('vision.external_eyes_source must match chat_world_vision.source');
   }
-  if (config.vision.game_external_eyes_source !== config.game_world_vision.source) {
-    throw new Error('vision.game_external_eyes_source must match game_world_vision.source');
+  if (activeMode === 'game' && config.vision.external_eyes_source !== config.game_world_vision.source) {
+    throw new Error('vision.external_eyes_source must match game_world_vision.source');
   }
   if (config.vision.inner_vision_source !== 'pineal_mind_eye') {
     throw new Error('vision.inner_vision_source must be pineal_mind_eye');
   }
-  if (config.chat_world_vision.used_as_game_world_eyes !== false) {
+  if (activeMode === 'chat' && config.chat_world_vision.used_as_game_world_eyes !== false) {
     throw new Error('chat_world_vision.used_as_game_world_eyes must be false');
-  }
-  if (activeMode === 'game' && config.game_world_vision.source === config.chat_world_vision.source) {
-    throw new Error('game mode cannot reuse webcam chat-world eyes');
   }
 }
 
@@ -88,17 +85,22 @@ function sourceForMode(activeMode, config) {
 function resolveVisionSource(options = {}) {
   const activeMode = normalizeMode(options.mode || 'chat');
   const configMode = options.config_mode || configModeForVisionMode(activeMode);
-  const config = Object.freeze({
+  const config = {
     root: loadFlokiConfig(configMode),
     vision: getVisionConfig(configMode),
-    chat_world_vision: getChatWorldVisionConfig(configMode),
-    game_world_vision: getGameWorldVisionConfig(configMode),
     pineal_vision: getPinealVisionConfig(configMode)
-  });
+  };
+  if (activeMode === 'chat') {
+    config.chat_world_vision = getChatWorldVisionConfig(configMode);
+  }
+  if (activeMode === 'game') {
+    config.game_world_vision = getGameWorldVisionConfig(configMode);
+  }
+  const frozenConfig = Object.freeze(config);
 
-  assertVisionSourceContract(config, activeMode);
+  assertVisionSourceContract(frozenConfig, activeMode);
 
-  const source = sourceForMode(activeMode, config);
+  const source = sourceForMode(activeMode, frozenConfig);
 
   return Object.freeze({
     ok: true,
@@ -113,10 +115,10 @@ function resolveVisionSource(options = {}) {
     internal_reality: source.internal_reality,
     public_transcript_visible: source.public_transcript_visible,
     spoken_aloud: source.spoken_aloud,
-    target_capture_fps: config.vision.target_capture_fps,
-    chat_mode_uses_webcam_eyes: config.vision.chat_external_eyes_source === 'webcam',
-    game_mode_uses_first_person_game_view: config.vision.game_external_eyes_source === 'minecraft_first_person',
-    pineal_mind_eye_used_for_dreams: config.vision.inner_vision_source === 'pineal_mind_eye',
+    target_capture_fps: frozenConfig.vision.target_capture_fps,
+    chat_mode_uses_webcam_eyes: true,
+    game_mode_uses_first_person_game_view: true,
+    pineal_mind_eye_used_for_dreams: frozenConfig.vision.inner_vision_source === 'pineal_mind_eye',
     webcam_used_as_game_world_eyes: false,
     minecraft_first_person_used_as_chat_webcam_eyes: false,
     pineal_mind_eye_treated_as_external_reality: false,

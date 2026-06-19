@@ -277,6 +277,12 @@ async function runLiveChatInterface(options = {}) {
   console.log('Knowledge autoload: ' + JSON.stringify(knowledgeAutoloadStatus));
   console.log(JSON.stringify(startStatus, null, 2));
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: 'you> ' });
+  let webcamStopped = false;
+  async function stopOwnedWebcamVision() {
+    if (webcamStopped) return null;
+    webcamStopped = true;
+    return stopChatWebcamVisionService();
+  }
   const poll = setInterval(() => {
     for (const entry of readChatTranscriptTail(120)) {
       if (!entry || !entry.id || seenTranscriptIds.has(entry.id)) continue;
@@ -302,7 +308,7 @@ async function runLiveChatInterface(options = {}) {
       if (text === '/exit' || text === '/quit') {
         clearInterval(poll);
         console.log(JSON.stringify(stopSpeechLoop(), null, 2));
-        console.log(JSON.stringify(await stopChatWebcamVisionService(), null, 2));
+        console.log(JSON.stringify(await stopOwnedWebcamVision(), null, 2));
         rl.close();
         return;
       }
@@ -319,7 +325,17 @@ async function runLiveChatInterface(options = {}) {
     }
     rl.prompt();
   });
-  rl.on('close', () => { clearInterval(poll); console.log('FLOKI_V2_LIVE_CHAT_INTERFACE_CLOSED'); });
+  rl.on('close', () => {
+    clearInterval(poll);
+    if (!webcamStopped) {
+      stopOwnedWebcamVision()
+        .then((status) => { if (status) console.log(JSON.stringify(status, null, 2)); })
+        .catch((error) => console.error(JSON.stringify({ ok: false, marker: 'FLOKI_V2_CHAT_WEBCAM_SERVICE_STOP_ON_CLOSE_FAIL', error: error.message, chat_mode_only: true, game_mode_started: false }, null, 2)))
+        .finally(() => console.log('FLOKI_V2_LIVE_CHAT_INTERFACE_CLOSED'));
+      return;
+    }
+    console.log('FLOKI_V2_LIVE_CHAT_INTERFACE_CLOSED');
+  });
 }
 
 if (require.main === module) {

@@ -11,9 +11,26 @@ const {
   createCoreBrain
 } = require('../brain/core_brain/index.cjs');
 
+function withoutEnv(name, fn) {
+  const had = Object.prototype.hasOwnProperty.call(process.env, name);
+  const old = process.env[name];
+  delete process.env[name];
+  try {
+    return fn();
+  } finally {
+    if (had) process.env[name] = old;
+  }
+}
+
 function run() {
   const chat = loadCoreBrainConfig('chat');
   const game = loadCoreBrainConfig('game');
+  const yamlDefaultModels = withoutEnv('FLOKI_COGNITION_MODEL', () => {
+    return Object.freeze({
+      chat: loadCoreBrainConfig('chat').models.cognition.model,
+      game: loadCoreBrainConfig('game').models.cognition.model
+    });
+  });
 
   validateCoreBrainConfig(chat);
   validateCoreBrainConfig(game);
@@ -26,13 +43,13 @@ function run() {
   assert.ok(typeof chat.models.vision.model === 'string' && chat.models.vision.model.length > 0, 'chat vision model must be a non-empty string from YAML');
   assert.ok(typeof game.models.vision.model === 'string' && game.models.vision.model.length > 0, 'game vision model must be a non-empty string from YAML');
 
-  assert.notEqual(chat.models.cognition.model, game.models.cognition.model, 'chat and game should have different cognition models from YAML');
+  assert.notEqual(yamlDefaultModels.chat, yamlDefaultModels.game, 'chat and game YAML defaults should use different cognition models');
 
   assert.deepEqual(missingRequiredModules(chat), []);
 
   assert.equal(chat.modules.game_world_body.enabled, false);
   assert.equal(chat.modules.game_world_eyes.enabled, false);
-  assert.equal(chat.policies.usb_camera_as_game_world_eyes, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(chat.policies, 'usb_camera_as_game_world_eyes'), false);
 
   assert.equal(game.modules.chat_world_vision.enabled, false);
   assert.equal(game.modules.chat_world_hearing.enabled, false);
@@ -73,7 +90,7 @@ function run() {
     game_enabled_modules: enabledModuleNames(game.modules),
     cognition_model_from_chat_yaml: chat.models.cognition.model,
     vision_model_from_chat_yaml: chat.models.vision.model,
-    usb_camera_as_game_world_eyes: chat.policies.usb_camera_as_game_world_eyes,
+    usb_camera_as_game_world_eyes: false,
     core_brain_enabled_now: true,
     minecraft_enabled_now: false
   }, null, 2));

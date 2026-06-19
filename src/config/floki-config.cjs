@@ -99,7 +99,7 @@ function loadFlokiConfig(mode) {
     if (!raw[section]) failMissingYamlKey(mode, section);
   }
 
-  const config = Object.freeze({
+  const configDraft = {
     schema_version: raw.schema_version,
     mode: raw.mode,
     models: Object.freeze({
@@ -109,21 +109,35 @@ function loadFlokiConfig(mode) {
     modules: Object.freeze(raw.modules || {}),
     policies: Object.freeze(raw.policies || {}),
     vision: buildVisionSection(raw.vision, mode),
-    chat_world_vision: buildChatWorldVisionSection(raw.chat_world_vision, mode),
-    game_world_vision: buildGameWorldVisionSection(raw.game_world_vision, mode),
     pineal_vision: buildPinealVisionSection(raw.pineal_vision, mode),
     embodiment: Object.freeze(raw.embodiment || {}),
     paths: buildPathsSection(raw.paths, mode),
     sleep: buildSleepSection(raw.sleep, mode),
     dream: buildDreamSection(raw.dream, mode),
-    audio: buildAudioSection(raw.audio, mode),
     timeouts: buildTimeoutSection(raw.timeouts, mode),
     knowledge: buildKnowledgeSection(raw.knowledge, mode),
-    live_chat: buildLiveChatSection(raw.live_chat, mode),
     life_clock: buildLifeClockSection(raw.life_clock, mode),
     _raw: raw,
     source_path: configPathForMode(mode)
-  });
+  };
+
+  if (mode === 'chat') {
+    configDraft.chat_world_vision = buildChatWorldVisionSection(raw.chat_world_vision, mode);
+    configDraft.audio = buildAudioSection(raw.audio, mode);
+    configDraft.live_chat = buildLiveChatSection(raw.live_chat, mode);
+    if (raw.game_world_vision !== undefined) {
+      throw new Error('chat config must not contain inactive game_world_vision section');
+    }
+  }
+
+  if (mode === 'game') {
+    configDraft.game_world_vision = buildGameWorldVisionSection(raw.game_world_vision, mode);
+    if (raw.chat_world_vision !== undefined) {
+      throw new Error('game config must not contain inactive chat_world_vision section');
+    }
+  }
+
+  const config = Object.freeze(configDraft);
 
   cache.set(mode, config);
   return config;
@@ -156,16 +170,11 @@ function buildVisionSection(section, mode) {
 
   return Object.freeze({
     external_eyes_enabled: requireBoolean(section.external_eyes_enabled, 'vision.external_eyes_enabled'),
-    chat_external_eyes_source: requireString(section.chat_external_eyes_source, 'vision.chat_external_eyes_source'),
-    game_external_eyes_source: requireString(section.game_external_eyes_source, 'vision.game_external_eyes_source'),
+    external_eyes_source: requireString(section.external_eyes_source, 'vision.external_eyes_source'),
     inner_vision_source: requireString(section.inner_vision_source, 'vision.inner_vision_source'),
     target_capture_fps: requireNumber(section.target_capture_fps, 'vision.target_capture_fps'),
     frame_width: requireNumber(section.frame_width, 'vision.frame_width'),
     frame_height: requireNumber(section.frame_height, 'vision.frame_height'),
-    webcam_device_env: requireString(section.webcam_device_env, 'vision.webcam_device_env'),
-    webcam_device_default: requireString(section.webcam_device_default, 'vision.webcam_device_default'),
-    webcam_backend: requireString(section.webcam_backend, 'vision.webcam_backend'),
-    webcam_capture_command: requireString(section.webcam_capture_command, 'vision.webcam_capture_command'),
     frame_buffer_size: requireNumber(section.frame_buffer_size, 'vision.frame_buffer_size'),
     frame_retention_seconds: requireNumber(section.frame_retention_seconds, 'vision.frame_retention_seconds'),
     capture_timeout_grace_ms: requireNumber(section.capture_timeout_grace_ms, 'vision.capture_timeout_grace_ms'),
@@ -178,17 +187,23 @@ function buildVisionSection(section, mode) {
     raw_frame_storage_enabled: requireBoolean(section.raw_frame_storage_enabled, 'vision.raw_frame_storage_enabled'),
     public_frame_logging_enabled: requireBoolean(section.public_frame_logging_enabled, 'vision.public_frame_logging_enabled'),
     private_observation_log_enabled: requireBoolean(section.private_observation_log_enabled, 'vision.private_observation_log_enabled'),
-    webcam_capture_allow_env: requireString(section.webcam_capture_allow_env, 'vision.webcam_capture_allow_env'),
-    chat_vision_allow_env: requireString(section.chat_vision_allow_env, 'vision.chat_vision_allow_env'),
-    vlm_ssh_tunnel_enabled: requireBoolean(section.vlm_ssh_tunnel_enabled, 'vision.vlm_ssh_tunnel_enabled'),
-    vlm_ssh_tunnel_target: requireString(section.vlm_ssh_tunnel_target, 'vision.vlm_ssh_tunnel_target'),
-    vlm_ssh_tunnel_local_host: requireString(section.vlm_ssh_tunnel_local_host, 'vision.vlm_ssh_tunnel_local_host'),
-    vlm_ssh_tunnel_local_port: requireNumber(section.vlm_ssh_tunnel_local_port, 'vision.vlm_ssh_tunnel_local_port'),
-    vlm_ssh_tunnel_remote_host: requireString(section.vlm_ssh_tunnel_remote_host, 'vision.vlm_ssh_tunnel_remote_host'),
-    vlm_ssh_tunnel_remote_port: requireNumber(section.vlm_ssh_tunnel_remote_port, 'vision.vlm_ssh_tunnel_remote_port'),
-    vlm_ssh_tunnel_socket_name: requireString(section.vlm_ssh_tunnel_socket_name, 'vision.vlm_ssh_tunnel_socket_name'),
-    vlm_ssh_tunnel_required_model: requireString(section.vlm_ssh_tunnel_required_model, 'vision.vlm_ssh_tunnel_required_model'),
-    vlm_ssh_tunnel_check_timeout_ms: requireNumber(section.vlm_ssh_tunnel_check_timeout_ms, 'vision.vlm_ssh_tunnel_check_timeout_ms')
+    ...(mode === 'chat' ? {
+      webcam_device_env: requireString(section.webcam_device_env, 'vision.webcam_device_env'),
+      webcam_device_default: requireString(section.webcam_device_default, 'vision.webcam_device_default'),
+      webcam_backend: requireString(section.webcam_backend, 'vision.webcam_backend'),
+      webcam_capture_command: requireString(section.webcam_capture_command, 'vision.webcam_capture_command'),
+      webcam_capture_allow_env: requireString(section.webcam_capture_allow_env, 'vision.webcam_capture_allow_env'),
+      chat_vision_allow_env: requireString(section.chat_vision_allow_env, 'vision.chat_vision_allow_env'),
+      vlm_ssh_tunnel_enabled: requireBoolean(section.vlm_ssh_tunnel_enabled, 'vision.vlm_ssh_tunnel_enabled'),
+      vlm_ssh_tunnel_target: requireString(section.vlm_ssh_tunnel_target, 'vision.vlm_ssh_tunnel_target'),
+      vlm_ssh_tunnel_local_host: requireString(section.vlm_ssh_tunnel_local_host, 'vision.vlm_ssh_tunnel_local_host'),
+      vlm_ssh_tunnel_local_port: requireNumber(section.vlm_ssh_tunnel_local_port, 'vision.vlm_ssh_tunnel_local_port'),
+      vlm_ssh_tunnel_remote_host: requireString(section.vlm_ssh_tunnel_remote_host, 'vision.vlm_ssh_tunnel_remote_host'),
+      vlm_ssh_tunnel_remote_port: requireNumber(section.vlm_ssh_tunnel_remote_port, 'vision.vlm_ssh_tunnel_remote_port'),
+      vlm_ssh_tunnel_socket_name: requireString(section.vlm_ssh_tunnel_socket_name, 'vision.vlm_ssh_tunnel_socket_name'),
+      vlm_ssh_tunnel_required_model: requireString(section.vlm_ssh_tunnel_required_model, 'vision.vlm_ssh_tunnel_required_model'),
+      vlm_ssh_tunnel_check_timeout_ms: requireNumber(section.vlm_ssh_tunnel_check_timeout_ms, 'vision.vlm_ssh_tunnel_check_timeout_ms')
+    } : {})
   });
 }
 
@@ -250,11 +265,13 @@ function buildPathsSection(section, mode) {
     tool_input_root: requireString(section.tool_input_root, 'paths.tool_input_root'),
     tool_output_root: requireString(section.tool_output_root, 'paths.tool_output_root'),
     runtime_root: requireString(section.runtime_root, 'paths.runtime_root'),
-    chat_runtime_root: requireString(section.chat_runtime_root, 'paths.chat_runtime_root'),
-    chat_transcript_root: requireString(section.chat_transcript_root, 'paths.chat_transcript_root'),
     dream_root: requireString(section.dream_root, 'paths.dream_root'),
     media_root: requireString(section.media_root, 'paths.media_root'),
-    youtube_transcript_root: requireString(section.youtube_transcript_root, 'paths.youtube_transcript_root')
+    youtube_transcript_root: requireString(section.youtube_transcript_root, 'paths.youtube_transcript_root'),
+    ...(mode === 'chat' ? {
+      chat_runtime_root: requireString(section.chat_runtime_root, 'paths.chat_runtime_root'),
+      chat_transcript_root: requireString(section.chat_transcript_root, 'paths.chat_transcript_root')
+    } : {})
   });
 }
 
@@ -375,6 +392,7 @@ function getDreamConfig(mode) {
 }
 
 function getAudioConfig(mode) {
+  if (mode !== 'chat') throw new Error('audio config is chat-mode only');
   return loadFlokiConfig(mode).audio;
 }
 
@@ -387,6 +405,7 @@ function getKnowledgeConfig(mode) {
 }
 
 function getLiveChatConfig(mode) {
+  if (mode !== 'chat') throw new Error('live chat config is chat-mode only');
   return loadFlokiConfig(mode).live_chat;
 }
 
@@ -399,10 +418,12 @@ function getVisionConfig(mode) {
 }
 
 function getChatWorldVisionConfig(mode) {
+  if (mode !== 'chat') throw new Error('chat_world_vision config is chat-mode only');
   return loadFlokiConfig(mode).chat_world_vision;
 }
 
 function getGameWorldVisionConfig(mode) {
+  if (mode !== 'game') throw new Error('game_world_vision config is game-mode only');
   return loadFlokiConfig(mode).game_world_vision;
 }
 
@@ -533,7 +554,7 @@ if (typeof module.exports.getFlokiConfig !== 'function') {
     const filePath = _configPathForMode(mode);
     const raw = _loadFlokiYamlFile(filePath);
     _requiredObject(raw.models, 'models');
-    return Object.freeze({
+    const config = {
       schema_version: raw.schema_version,
       mode: raw.mode || mode,
       source_path: filePath,
@@ -545,19 +566,23 @@ if (typeof module.exports.getFlokiConfig !== 'function') {
       modules: Object.freeze(_requiredObject(raw.modules, 'modules')),
       policies: Object.freeze(_requiredObject(raw.policies, 'policies')),
       vision: Object.freeze(_requiredObject(raw.vision, 'vision')),
-      chat_world_vision: Object.freeze(_requiredObject(raw.chat_world_vision, 'chat_world_vision')),
-      game_world_vision: Object.freeze(_requiredObject(raw.game_world_vision, 'game_world_vision')),
       pineal_vision: Object.freeze(_requiredObject(raw.pineal_vision, 'pineal_vision')),
       embodiment: Object.freeze(_requiredObject(raw.embodiment, 'embodiment')),
       paths: _normalizePaths(raw.paths),
       sleep: Object.freeze(_requiredObject(raw.sleep, 'sleep')),
       dream: Object.freeze(_requiredObject(raw.dream, 'dream')),
-      audio: Object.freeze(_requiredObject(raw.audio, 'audio')),
       timeouts: Object.freeze(_requiredObject(raw.timeouts, 'timeouts')),
       knowledge: Object.freeze(_requiredObject(raw.knowledge, 'knowledge')),
-      live_chat: Object.freeze(_requiredObject(raw.live_chat, 'live_chat')),
       life_clock: Object.freeze(_requiredObject(raw.life_clock, 'life_clock'))
-    });
+    };
+    if (mode === 'chat') {
+      config.chat_world_vision = Object.freeze(_requiredObject(raw.chat_world_vision, 'chat_world_vision'));
+      config.audio = Object.freeze(_requiredObject(raw.audio, 'audio'));
+      config.live_chat = Object.freeze(_requiredObject(raw.live_chat, 'live_chat'));
+    } else if (mode === 'game') {
+      config.game_world_vision = Object.freeze(_requiredObject(raw.game_world_vision, 'game_world_vision'));
+    }
+    return Object.freeze(config);
   };
 }
 // FLOKI_V2_WEBCAM_CAPTURE_CONFIG_AUTHORITY_PATCH
@@ -593,6 +618,9 @@ if (typeof module.exports.getFlokiConfig !== 'function') {
       return config;
     }
     const raw = loadYamlFile(configPathForMode(mode));
+    if (raw.webcam_capture === undefined) {
+      return config;
+    }
     return Object.freeze({
       ...config,
       webcam_capture: requiredObject(raw.webcam_capture, 'webcam_capture')

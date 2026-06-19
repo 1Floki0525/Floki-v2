@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { loadYamlFile } = require('../src/config/yaml-lite.cjs');
 
 const {
   loadCoreBrainConfig,
@@ -28,6 +29,8 @@ function assertPolicy(config, name, expected) {
 function run() {
   const chatConfig = loadCoreBrainConfig('chat');
   const gameConfig = loadCoreBrainConfig('game');
+  const chatRaw = loadYamlFile(chatConfig.source_path);
+  const gameRaw = loadYamlFile(gameConfig.source_path);
 
   validateCoreBrainConfig(chatConfig);
   validateCoreBrainConfig(gameConfig);
@@ -48,24 +51,22 @@ function run() {
   assert.equal(gameConfig.models.vision.mode_scope, 'game_world_first_person_only');
 
   assertModuleEnabled(chatConfig, 'chat_world_senses', true);
-  assertModuleEnabled(chatConfig, 'chat_world_vision', false);
-  assertModuleEnabled(chatConfig, 'chat_world_hearing', false);
-  assertModuleEnabled(chatConfig, 'game_world_eyes', false);
-  assertModuleEnabled(chatConfig, 'game_world_body', false);
-
-  assertModuleEnabled(gameConfig, 'chat_world_senses', false);
-  assertModuleEnabled(gameConfig, 'chat_world_vision', false);
-  assertModuleEnabled(gameConfig, 'chat_world_hearing', false);
   assertModuleEnabled(gameConfig, 'game_world_eyes', false);
   assertModuleEnabled(gameConfig, 'game_world_body', false);
 
-  assertPolicy(chatConfig, 'usb_camera_as_game_world_eyes', false);
+  assert.equal(Object.prototype.hasOwnProperty.call(chatRaw.modules, 'game_world_eyes'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(chatRaw.modules, 'game_world_body'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(gameRaw.modules, 'chat_world_senses'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(gameRaw.modules, 'chat_world_vision'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(gameRaw.modules, 'chat_world_hearing'), false);
+
+  assert.equal(Object.prototype.hasOwnProperty.call(chatConfig.policies, 'usb_camera_as_game_world_eyes'), false);
   assertPolicy(gameConfig, 'usb_camera_as_game_world_eyes', false);
 
   assertPolicy(chatConfig, 'chat_world_camera_detection_enabled_now', true);
-  assertPolicy(gameConfig, 'chat_world_camera_detection_enabled_now', false);
+  assert.equal(Object.prototype.hasOwnProperty.call(gameConfig.policies, 'chat_world_camera_detection_enabled_now'), false);
 
-  assertPolicy(chatConfig, 'game_world_eyes_enabled_now', false);
+  assert.equal(Object.prototype.hasOwnProperty.call(chatConfig.policies, 'game_world_eyes_enabled_now'), false);
   assertPolicy(gameConfig, 'game_world_eyes_enabled_now', false);
 
   const chatCore = createCoreBrain({
