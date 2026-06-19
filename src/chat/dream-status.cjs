@@ -64,7 +64,7 @@ function safeReadJson(filePath, fallback) {
 
   try {
     return readJsonFileSync(filePath, fallback);
-  } catch (error) {
+  } catch (_error) {
     return fallback;
   }
 }
@@ -76,7 +76,7 @@ function readJsonlSafe(filePath) {
 
   try {
     return readJsonlSync(filePath);
-  } catch (error) {
+  } catch (_error) {
     return [];
   }
 }
@@ -88,8 +88,7 @@ function cycleCounts(cycles) {
     total: list.length,
     complete: list.filter((cycle) => cycle.status === 'complete').length,
     pending: list.filter((cycle) => cycle.status === 'pending').length,
-    dreaming: list.filter((cycle) => cycle.status === 'dreaming').length,
-    failed: list.filter((cycle) => cycle.status === 'failed').length
+    dreaming: list.filter((cycle) => cycle.status === 'dreaming').length
   });
 }
 
@@ -195,8 +194,8 @@ function buildDreamStatus(options = {}) {
     idle_resume_seconds: state && state.idle_resume_seconds ? Number(state.idle_resume_seconds) : DEFAULT_IDLE_RESUME_SECONDS,
     rem_cycles_completed_tonight: counts.complete,
     rem_cycles_pending_tonight: counts.pending,
+    rem_cycles_dreaming_now: counts.dreaming,
     rem_cycles_total_tonight: counts.total,
-    rem_cycles_failed_tonight: counts.failed,
     latest_dream_file: latest.latest_dream_file,
     latest_dream_metadata_file: latest.latest_dream_metadata_file,
     latest_dream_title: latest.latest_dream_title,
@@ -252,7 +251,7 @@ if (require.main === module) {
   } catch (error) {
     console.error(JSON.stringify({
       ok: false,
-      marker: 'FLOKI_V2_DREAM_STATUS_FAIL',
+      marker: 'FLOKI_V2_DREAM_STATUS_ERROR',
       error: error.message,
       chat_mode_only: true,
       game_mode_started: false

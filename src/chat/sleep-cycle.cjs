@@ -200,7 +200,10 @@ function buildRemSchedule(sleepWindow, options = {}) {
       status: 'pending',
       dream_txt_file: null,
       dream_metadata_file: null,
-      completed_at: null
+      dreaming_started_at: null,
+      dreaming_process_pid: null,
+      completed_at: null,
+      last_transition_at: null
     }))
     .filter((cycle) => new Date(cycle.scheduled_at).getTime() < endMs)
     .map(Object.freeze);
@@ -254,6 +257,64 @@ function appendSleepEvent(record, options = {}) {
     created_at: record.created_at || new Date().toISOString(),
     chat_mode_only: true,
     game_mode_started: false
+  });
+}
+
+function processIsAlive(pid) {
+  const value = Number(pid);
+  if (!Number.isInteger(value) || value <= 0) return false;
+  try {
+    process.kill(value, 0);
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function recoverStaleDreamingCycles(state, options = {}) {
+  if (!state || !Array.isArray(state.rem_cycles)) {
+    return Object.freeze({ state, recovered: false, recovered_cycles: [] });
+  }
+
+  const alive = options.process_is_alive || processIsAlive;
+  const at = nowDate(options).toISOString();
+  const recoveredCycles = [];
+  const nextCycles = state.rem_cycles.map((cycle) => {
+    if (!cycle || cycle.status !== 'dreaming') return cycle;
+    if (alive(Number(cycle.dreaming_process_pid || 0))) return cycle;
+
+    recoveredCycles.push(cycle.cycle_number);
+    return Object.freeze({
+      ...cycle,
+      status: 'pending',
+      dreaming_started_at: null,
+      dreaming_process_pid: null,
+      last_transition_at: at
+    });
+  });
+
+  if (recoveredCycles.length === 0) {
+    return Object.freeze({ state, recovered: false, recovered_cycles: [] });
+  }
+
+  const nextState = Object.freeze({
+    ...state,
+    rem_cycles: nextCycles,
+    last_transition_at: at
+  });
+
+  for (const cycleNumber of recoveredCycles) {
+    appendSleepEvent({
+      type: 'rem_dream_requeued_after_scheduler_restart',
+      rem_cycle_number: cycleNumber,
+      at
+    }, options);
+  }
+
+  return Object.freeze({
+    state: nextState,
+    recovered: true,
+    recovered_cycles: recoveredCycles
   });
 }
 
@@ -378,6 +439,7 @@ async function runSleepCycleTick(options = {}) {
   const sleepWindow = getSleepWindowForDate(now, options);
   const within = isWithinSleepWindow(now, options);
   let state = loadSleepCycleState(options);
+  let stateDirty = false;
   let interruptedNow = false;
   let resumedAfterIdle = false;
   const dreamFilesWritten = [];
@@ -419,11 +481,19 @@ async function runSleepCycleTick(options = {}) {
 
   if (!state || state.current_sleep_date !== sleepWindow.sleep_date || state.completed === true) {
     state = createSleepCycleState({ ...options, sleep_window: sleepWindow });
+    stateDirty = true;
     appendSleepEvent({ type: 'sleep_window_started', sleep_date: sleepWindow.sleep_date, at: now.toISOString() }, options);
+  }
+
+  const recovered = recoverStaleDreamingCycles(state, options);
+  if (recovered.recovered) {
+    state = recovered.state;
+    stateDirty = true;
   }
 
   if (options.user_activity_reason) {
     state = markAwakeInterruption(state, options.user_activity_reason, options);
+    stateDirty = true;
     interruptedNow = true;
   }
 
@@ -436,10 +506,11 @@ async function runSleepCycleTick(options = {}) {
         last_transition_at: now.toISOString(),
         resumed_after_interruption_count: Number(state.resumed_after_interruption_count || 0) + 1
       });
+      stateDirty = true;
       resumedAfterIdle = true;
       appendSleepEvent({ type: 'sleep_resumed_after_idle', at: now.toISOString() }, options);
     } else {
-      saveSleepCycleState(state, options);
+      if (stateDirty) saveSleepCycleState(state, options);
       const pausedStatus = Object.freeze({
         ok: true,
         marker: 'FLOKI_V2_SLEEP_CYCLE_CONTRACT_PASS',
@@ -496,72 +567,86 @@ async function runSleepCycleTick(options = {}) {
       at: transitionAt
     }, options);
 
+    let dream;
     try {
-      const dream = await dreamRunner({
+      dream = await dreamRunner({
         ...options.dream_options,
         env,
         rem_cycle_number: cycle.cycle_number,
         sleep_window_start: state.sleep_window_start,
         sleep_window_end: state.sleep_window_end
       });
-      if (!dream || dream.ok !== true || !dream.dream_txt_file) {
-        throw new Error(dream && dream.marker ? dream.marker : 'dream engine did not complete');
-      }
-      dreamsGenerated += 1;
-      dreamFilesWritten.push(dream.dream_txt_file);
-      const completedAt = nowDate(options).toISOString();
-      const completedCycle = Object.freeze({
-        ...dreamingCycle,
-        status: 'complete',
-        dream_txt_file: dream.dream_txt_file,
-        dream_metadata_file: dream.dream_metadata_file || null,
-        dreaming_process_pid: null,
-        completed_at: completedAt,
-        last_transition_at: completedAt
-      });
-      state = Object.freeze({
-        ...state,
-        rem_cycles: state.rem_cycles.map((item, index) => index === cycleIndex ? completedCycle : item),
-        last_transition_at: completedAt
-      });
-      saveSleepCycleState(state, options);
-      appendSleepEvent({
-        type: 'rem_dream_completed',
-        rem_cycle_number: cycle.cycle_number,
-        completed_at: completedAt,
-        at: completedAt
-      }, options);
     } catch (error) {
-      const completedAt = nowDate(options).toISOString();
-      const failedCycle = Object.freeze({
-        ...dreamingCycle,
-        status: 'failed',
-        failure_message: error.message,
-        dreaming_process_pid: null,
-        completed_at: completedAt,
-        last_transition_at: completedAt
-      });
+      const errorAt = nowDate(options).toISOString();
       state = Object.freeze({
         ...state,
-        rem_cycles: state.rem_cycles.map((item, index) => index === cycleIndex ? failedCycle : item),
-        last_transition_at: completedAt
+        last_transition_at: errorAt,
+        last_architecture_error_at: errorAt,
+        last_architecture_error: error.message
       });
       saveSleepCycleState(state, options);
       appendSleepEvent({
-        type: 'rem_dream_failed',
+        type: 'rem_dream_architecture_error',
         rem_cycle_number: cycle.cycle_number,
-        failure_message: error.message,
-        completed_at: completedAt,
-        at: completedAt
+        error: error.message,
+        at: errorAt
       }, options);
+      throw error;
     }
-  }
-  saveSleepCycleState(state, options);
 
-  const failedCount = countCycles(state, 'failed');
+    if (!dream || dream.ok !== true || !dream.dream_txt_file) {
+      const error = new Error(dream && dream.marker ? dream.marker : 'dream engine did not complete');
+      const errorAt = nowDate(options).toISOString();
+      state = Object.freeze({
+        ...state,
+        last_transition_at: errorAt,
+        last_architecture_error_at: errorAt,
+        last_architecture_error: error.message
+      });
+      saveSleepCycleState(state, options);
+      appendSleepEvent({
+        type: 'rem_dream_architecture_error',
+        rem_cycle_number: cycle.cycle_number,
+        error: error.message,
+        at: errorAt
+      }, options);
+      throw error;
+    }
+
+    dreamsGenerated += 1;
+    dreamFilesWritten.push(dream.dream_txt_file);
+    const completedAt = nowDate(options).toISOString();
+    const completedCycle = Object.freeze({
+      ...dreamingCycle,
+      status: 'complete',
+      dream_txt_file: dream.dream_txt_file,
+      dream_metadata_file: dream.dream_metadata_file || null,
+      dreaming_process_pid: null,
+      completed_at: completedAt,
+      last_transition_at: completedAt
+    });
+    state = Object.freeze({
+      ...state,
+      rem_cycles: state.rem_cycles.map((item, index) => index === cycleIndex ? completedCycle : item),
+      last_transition_at: completedAt,
+      last_architecture_error_at: null,
+      last_architecture_error: null
+    });
+    saveSleepCycleState(state, options);
+    appendSleepEvent({
+      type: 'rem_dream_completed',
+      rem_cycle_number: cycle.cycle_number,
+      completed_at: completedAt,
+      at: completedAt
+    }, options);
+    stateDirty = false;
+  }
+
+  if (stateDirty) saveSleepCycleState(state, options);
+
   const status = Object.freeze({
-    ok: failedCount === 0,
-    marker: failedCount === 0 ? 'FLOKI_V2_SLEEP_CYCLE_CONTRACT_PASS' : 'FLOKI_V2_SLEEP_CYCLE_FAIL',
+    ok: true,
+    marker: 'FLOKI_V2_SLEEP_CYCLE_CONTRACT_PASS',
     sleep_cycle_active: true,
     sleep_window_start: state.sleep_window_start,
     sleep_window_end: state.sleep_window_end,
@@ -595,7 +680,7 @@ if (require.main === module) {
   printSleepCycleProof().catch((error) => {
     console.error(JSON.stringify({
       ok: false,
-      marker: 'FLOKI_V2_SLEEP_CYCLE_FAIL',
+      marker: 'FLOKI_V2_SLEEP_CYCLE_ERROR',
       error: error.message,
       sleep_cycle_active: false,
       chat_mode_only: true,
@@ -620,6 +705,9 @@ module.exports = {
   createSleepCycleState,
   loadSleepCycleState,
   saveSleepCycleState,
+  appendSleepEvent,
+  processIsAlive,
+  recoverStaleDreamingCycles,
   markAwakeInterruption,
   shouldResumeSleepAfterIdle,
   recordWakeActivityIfSleeping,

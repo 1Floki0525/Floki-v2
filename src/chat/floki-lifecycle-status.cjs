@@ -9,6 +9,9 @@ const {
   buildRemSchedule,
   loadSleepCycleState
 } = require('./sleep-cycle.cjs');
+const {
+  readSchedulerRuntimeStatus
+} = require('./sleep-cycle-scheduler.cjs');
 
 const LIFECYCLE_MARKER = 'FLOKI_V2_LIFECYCLE_STATUS_PASS';
 
@@ -119,6 +122,10 @@ function buildFlokiLifecycleStatus(options = {}) {
     ...options
   });
   const processAlive = options.process_is_alive || processIsAlive;
+  const schedulerStatus = options.scheduler_status || readSchedulerRuntimeStatus({
+    now,
+    process_is_alive: options.scheduler_process_is_alive
+  });
   const sleepWindow = getSleepWindowForDate(now, sleepOptions);
   const withinSleepWindow = isWithinSleepWindow(now, sleepOptions);
   const savedState = options.sleep_cycle_state || loadSleepCycleState(options);
@@ -163,27 +170,17 @@ function buildFlokiLifecycleStatus(options = {}) {
     source_of_truth: stateLoaded ? 'sleep_cycle_state' : 'sleep_window_schedule',
     stale_dreaming_state_detected: currentRem.stale === true,
     stale_rem_cycle_number: currentRem.stale === true && currentRemCycle ? currentRemCycle.cycle_number : null,
-    sleep_cycle_scheduler_running: false,
-    sleep_cycle_scheduler_note: 'No continuous sleep-cycle scheduler was discovered; status is read-only over sleep-cycle state and YAML schedule.',
+    sleep_cycle_scheduler_running: schedulerStatus.active === true,
+    sleep_cycle_scheduler_status: schedulerStatus,
+    sleep_cycle_scheduler_note: schedulerStatus.active === true
+      ? 'Continuous sleep-cycle scheduler is active.'
+      : 'Continuous sleep-cycle scheduler is inactive.',
     chat_mode_only: true,
     game_mode_started: false
   });
 
   if (stateLoaded && (!Array.isArray(savedState.rem_cycles) || !validDateString(savedState.sleep_window_start) || !validDateString(savedState.sleep_window_end))) {
     return buildUnknownStatus('sleep cycle state is missing required window or REM fields', base);
-  }
-
-  if (activeRemVerified) {
-    return Object.freeze({
-      ...base,
-      state: 'rem_dreaming',
-      display_label: DISPLAY_LABELS.rem_dreaming,
-      is_awake: false,
-      is_asleep: true,
-      is_dreaming: true,
-      is_rem_dreaming: true,
-      source_of_truth: 'sleep_cycle_state'
-    });
   }
 
   if (withinSleepWindow && sleepInterrupted) {
@@ -195,6 +192,19 @@ function buildFlokiLifecycleStatus(options = {}) {
       is_asleep: false,
       is_dreaming: false,
       is_rem_dreaming: false,
+      source_of_truth: 'sleep_cycle_state'
+    });
+  }
+
+  if (activeRemVerified) {
+    return Object.freeze({
+      ...base,
+      state: 'rem_dreaming',
+      display_label: DISPLAY_LABELS.rem_dreaming,
+      is_awake: false,
+      is_asleep: true,
+      is_dreaming: true,
+      is_rem_dreaming: true,
       source_of_truth: 'sleep_cycle_state'
     });
   }
@@ -253,9 +263,7 @@ function formatLifecycleHumanSummary(status) {
   if (status.stale_dreaming_state_detected) {
     lines.push('Warning: stale REM dreaming state detected for cycle ' + status.stale_rem_cycle_number);
   }
-  if (status.sleep_cycle_scheduler_running === false) {
-    lines.push('Sleep-cycle scheduler: not running');
-  }
+  lines.push('Sleep-cycle scheduler: ' + (status.sleep_cycle_scheduler_running ? 'active' : 'inactive'));
   return lines.join('\n');
 }
 
