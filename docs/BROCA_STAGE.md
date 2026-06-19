@@ -17,7 +17,7 @@ user text
 -> hippocampus memory/recall
 -> personality
 -> pineal identity
--> frontal qwen3.5:9b cognition
+-> frontal the YAML-configured model cognition
 -> Broca speech
 ```
 

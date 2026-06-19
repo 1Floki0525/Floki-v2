@@ -33,8 +33,9 @@ function run() {
   assert.equal(chatConfig.includes('vlm_ssh_tunnel_target: chris-mccoll'), true);
   assert.equal(chatConfig.includes('vlm_ssh_tunnel_local_port: 11435'), true);
   assert.equal(chatConfig.includes('vlm_ssh_tunnel_remote_port: 11434'), true);
-  assert.equal(typeof chatConfigYaml.vision.vlm_ssh_tunnel_required_model, 'string');
-  assert.ok(chatConfigYaml.vision.vlm_ssh_tunnel_required_model.trim().length > 0);
+  assert.equal(typeof chatConfigYaml.models.vision.model, 'string');
+  assert.ok(chatConfigYaml.models.vision.model.trim().length > 0);
+  assert.equal(Object.prototype.hasOwnProperty.call(chatConfigYaml.vision, 'vlm_ssh_tunnel_required_model'), false);
   assert.equal(chatConfig.includes('vlm_ssh_tunnel_check_timeout_ms: 8000'), true);
   assert.equal(visionStartScript.includes('chris-mccoll'), false);
   assert.equal(visionStartScript.includes('127.0.0.1:11435:127.0.0.1:11434'), false);

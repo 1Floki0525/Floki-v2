@@ -5,19 +5,12 @@ state/
 reports/
 *.tmp
 *.log
-
 # Floki-v2 local/transient files
-.env
 .env.*
 !.env.example
 *.bak.*
-*.tmp
-*.log
-state/
-reports/
 bin/floki-fast-patch-*.cjs
 brain/thalamum.disabled.*/
-
 .floki-tools/
 floki-media/
 data/youtube-transcripts/
@@ -35,13 +28,20 @@ data/knowledge-corpus/
 cookies.txt
 docs/cookies.txt
 yolo*.pt
-
 floki-media
 /floki-media
-
 # Local model files / Modelfiles
 models/
 *.bak
 *.backup
 *.backup.*
 .floki-tools/backups/
+*~
+*.orig
+*.rej
+**/backup/
+**/backups/
+
+# Generated, corrective, and editor debris
+.#*
+#*#

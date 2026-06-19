@@ -67,8 +67,8 @@ Diagnostics are append-only.
 The thalamus must never:
 
 - speak directly
-- call qwen3.5:4b
-- call qwen3-vl:4b
+- call the YAML-configured model
+- call the YAML-configured model
 - expose hidden reasoning
 - store raw hidden reasoning
 - start Minecraft

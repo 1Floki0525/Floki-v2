@@ -7,6 +7,7 @@ const path = require('node:path');
 const {
   PROJECT_ROOT,
   loadFlokiConfig,
+  clearConfigCache,
   getChatWorldVisionConfig,
   getGameWorldVisionConfig
 } = require('../src/config/floki-config.cjs');
@@ -17,22 +18,35 @@ function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object || {}, key);
 }
 
-function resolveConfiguredModel(section) {
-  assert.ok(section && typeof section === 'object', 'model YAML section must exist');
+function yamlModel(section, label) {
+  assert.ok(section && typeof section === 'object', label + ' YAML section must exist');
+  assert.equal(hasOwn(section, 'model_env'), false, label + ' must not declare model_env');
+  assert.equal(hasOwn(section, 'model_default'), false, label + ' must not declare model_default');
+  assert.equal(typeof section.model, 'string', label + '.model must be a string');
+  assert.ok(section.model.trim().length > 0, label + '.model must be non-empty');
+  return section.model.trim();
+}
 
-  const envName = section.model_env;
-  if (
-    typeof envName === 'string' &&
-    envName.trim() &&
-    typeof process.env[envName] === 'string' &&
-    process.env[envName].trim()
-  ) {
-    return process.env[envName].trim();
+function withIgnoredModelEnvironment(fn) {
+  const names = ['FLOKI_COGNITION_MODEL', 'FLOKI_VISION_MODEL'];
+  const previous = new Map();
+  for (const name of names) {
+    previous.set(name, Object.prototype.hasOwnProperty.call(process.env, name)
+      ? process.env[name]
+      : undefined);
+    process.env[name] = 'environment-model-selection-must-be-ignored';
   }
-
-  assert.equal(typeof section.model_default, 'string', 'model_default must be a string');
-  assert.ok(section.model_default.trim().length > 0, 'model_default must be non-empty');
-  return section.model_default.trim();
+  try {
+    clearConfigCache();
+    return fn();
+  } finally {
+    for (const name of names) {
+      const old = previous.get(name);
+      if (old === undefined) delete process.env[name];
+      else process.env[name] = old;
+    }
+    clearConfigCache();
+  }
 }
 
 function run() {
@@ -42,8 +56,12 @@ function run() {
   const gameYamlPath = path.join(PROJECT_ROOT, 'config', 'game.config.yaml');
   const chatRaw = loadYamlFile(chatYamlPath);
   const gameRaw = loadYamlFile(gameYamlPath);
-  const chat = loadFlokiConfig('chat');
-  const game = loadFlokiConfig('game');
+  const loaded = withIgnoredModelEnvironment(() => ({
+    chat: loadFlokiConfig('chat'),
+    game: loadFlokiConfig('game')
+  }));
+  const chat = loaded.chat;
+  const game = loaded.game;
 
   assert.equal(hasOwn(chatRaw, 'chat_world_vision'), true);
   assert.equal(hasOwn(chatRaw, 'game_world_vision'), false);
@@ -68,26 +86,10 @@ function run() {
   assert.equal(hasOwn(chat.vision, 'game_external_eyes_source'), false);
   assert.equal(hasOwn(game.vision, 'chat_external_eyes_source'), false);
 
-  assert.equal(
-    chat.models.cognition.model,
-    resolveConfiguredModel(chatRaw.models.cognition),
-    'chat cognition model must resolve from chat YAML or its named environment override'
-  );
-  assert.equal(
-    game.models.cognition.model,
-    resolveConfiguredModel(gameRaw.models.cognition),
-    'game cognition model must resolve from game YAML or its named environment override'
-  );
-  assert.equal(
-    chat.models.vision.model,
-    resolveConfiguredModel(chatRaw.models.vision),
-    'chat vision model must resolve from chat YAML or its named environment override'
-  );
-  assert.equal(
-    game.models.vision.model,
-    resolveConfiguredModel(gameRaw.models.vision),
-    'game vision model must resolve from game YAML or its named environment override'
-  );
+  assert.equal(chat.models.cognition.model, yamlModel(chatRaw.models.cognition, 'chat cognition'));
+  assert.equal(game.models.cognition.model, yamlModel(gameRaw.models.cognition, 'game cognition'));
+  assert.equal(chat.models.vision.model, yamlModel(chatRaw.models.vision, 'chat vision'));
+  assert.equal(game.models.vision.model, yamlModel(gameRaw.models.vision, 'game vision'));
 
   assert.equal(hasOwn(chat, 'game_world_vision'), false);
   assert.equal(hasOwn(game, 'chat_world_vision'), false);
@@ -109,6 +111,7 @@ function run() {
     cognition_model_relationship_restricted: false,
     vision_model_relationship_restricted: false,
     model_names_hardcoded_by_contract: false,
+    environment_model_override_blocked: true,
     chat_has_chat_world_vision: true,
     chat_has_game_world_vision: false,
     game_has_game_world_vision: true,

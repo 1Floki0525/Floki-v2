@@ -143,7 +143,7 @@ function normalizeModelSection(section, label) {
     throw new TypeError(label + ' model section missing');
   }
 
-  const model = resolveEnvOrDefault(section, 'model_env', 'model_default');
+  const model = section.model;
   const endpoint = resolveEnvOrDefault(section, 'endpoint_env', 'endpoint_default');
 
   if (typeof model !== 'string' || model.trim() === '') {
@@ -278,11 +278,11 @@ function validateCoreBrainConfig(config) {
   }
 
   if (typeof config.models.cognition.model !== 'string' || config.models.cognition.model.trim() === '') {
-    throw new Error('chat/game config cognition model must be a non-empty YAML/env value');
+    throw new Error('chat/game config cognition model must be a non-empty YAML value');
   }
 
   if (typeof config.models.vision.model !== 'string' || config.models.vision.model.trim() === '') {
-    throw new Error('chat/game config vision model must be a non-empty YAML/env value');
+    throw new Error('chat/game config vision model must be a non-empty YAML value');
   }
 
   if (config.policies.usb_camera_as_game_world_eyes === true) {

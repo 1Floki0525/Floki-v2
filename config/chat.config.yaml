@@ -4,8 +4,7 @@ mode: chat
 models:
   cognition:
     provider: ollama
-    model_env: FLOKI_COGNITION_MODEL
-    model_default: floki-qwen3.5:4b-16k
+    model: floki-qwen3.5:4b-16k
     endpoint_env: FLOKI_COGNITION_ENDPOINT
     endpoint_default: http://127.0.0.1:11434
     mode_scope: chat_cognition
@@ -16,8 +15,7 @@ models:
 
   vision:
     provider: ollama
-    model_env: FLOKI_VISION_MODEL
-    model_default: qwen3-vl:4b
+    model: qwen3-vl:4b
     endpoint_env: FLOKI_VISION_ENDPOINT
     endpoint_default: http://127.0.0.1:11435
     enabled_now: false
@@ -94,7 +92,6 @@ vision:
   vlm_inference_max_attempts: 3
   vlm_inference_retry_delay_ms: 500
   vlm_max_consecutive_failures: 5
-  vision_model_env: FLOKI_VISION_MODEL
   vision_endpoint_env: FLOKI_VISION_ENDPOINT
   observation_summary_enabled: true
   raw_frame_storage_enabled: false
@@ -109,7 +106,6 @@ vision:
   vlm_ssh_tunnel_remote_host: 127.0.0.1
   vlm_ssh_tunnel_remote_port: 11434
   vlm_ssh_tunnel_socket_name: chat-vision-ssh-tunnel.sock
-  vlm_ssh_tunnel_required_model: qwen3-vl:4b
   vlm_ssh_tunnel_check_timeout_ms: 8000
 
 chat_world_vision:

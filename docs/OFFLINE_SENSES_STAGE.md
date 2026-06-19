@@ -51,7 +51,7 @@ This stage does not:
 Future stages:
 
 ```text
-Batch 11: chat-world static webcam frame capture -> qwen3-vl:4b observation
+Batch 11: chat-world static webcam frame capture -> the YAML-configured model observation
 Batch 12: chat-world microphone capture/transcription
 Batch 13: live chat-world sensory loop
 Batch later: game-world eyes from Minecraft first-person frame endpoint

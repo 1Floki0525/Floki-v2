@@ -38,7 +38,8 @@ function run() {
   assert.equal(tunnel.target, vision.vlm_ssh_tunnel_target);
   assert.equal(tunnel.local_endpoint, 'http://' + vision.vlm_ssh_tunnel_local_host + ':' + vision.vlm_ssh_tunnel_local_port);
   assert.equal(tunnel.remote_endpoint, 'http://' + vision.vlm_ssh_tunnel_remote_host + ':' + vision.vlm_ssh_tunnel_remote_port);
-  assert.equal(tunnel.required_model, vision.vlm_ssh_tunnel_required_model);
+  assert.equal(tunnel.required_model, models.vision.model);
+  assert.equal(Object.prototype.hasOwnProperty.call(vision, 'vlm_ssh_tunnel_required_model'), false);
   assert.equal(tunnel.check_timeout_ms, vision.vlm_ssh_tunnel_check_timeout_ms);
 
   const jpeg = Buffer.from([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]);

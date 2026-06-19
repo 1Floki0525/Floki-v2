@@ -1,6 +1,6 @@
 # Floki-v2 Cognition Stage
 
-Batch 08 wires qwen3.5:9b as the frontal cognition model.
+Batch 08 wires the YAML-configured model as the frontal cognition model.
 
 Current path:
 
@@ -13,7 +13,7 @@ user text
 -> hippocampus recall
 -> personality state
 -> pineal identity
--> frontal qwen3.5:9b cognition
+-> frontal the YAML-configured model cognition
 -> safe cognition summary
 ```
 

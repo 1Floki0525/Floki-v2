@@ -53,7 +53,7 @@ function chatVisionTunnelConfig(options = {}) {
     remote_port: Number(vision.vlm_ssh_tunnel_remote_port),
     remote_endpoint: 'http://' + vision.vlm_ssh_tunnel_remote_host + ':' + String(vision.vlm_ssh_tunnel_remote_port),
     socket,
-    required_model: vision.vlm_ssh_tunnel_required_model,
+    required_model: getModelConfig('chat').vision.model,
     check_timeout_ms: Number(vision.vlm_ssh_tunnel_check_timeout_ms)
   });
 }

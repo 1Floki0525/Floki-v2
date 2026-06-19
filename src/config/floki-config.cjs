@@ -8,8 +8,8 @@
  * and provides typed accessors for every config section.
  *
  * No module should hardcode operational config values.
- * All runtime settings come from YAML or env overrides
- * declared explicitly in YAML.
+ * Model selection comes only from YAML. Non-model operational settings
+ * may use environment overrides declared explicitly in YAML.
  */
 
 const path = require('node:path');
@@ -146,7 +146,7 @@ function loadFlokiConfig(mode) {
 function buildModelSection(section, mode, label) {
   if (!section) failMissingYamlKey(mode, 'models.' + label);
 
-  const model = resolveEnvOrDefault(section, 'model_env', 'model_default');
+  const model = section.model;
   const endpoint = resolveEnvOrDefault(section, 'endpoint_env', 'endpoint_default');
 
   requireString(model, 'models.' + label + '.model');
@@ -181,7 +181,6 @@ function buildVisionSection(section, mode) {
     vlm_inference_enabled: requireBoolean(section.vlm_inference_enabled, 'vision.vlm_inference_enabled'),
     vlm_inference_every_n_frames: requireNumber(section.vlm_inference_every_n_frames, 'vision.vlm_inference_every_n_frames'),
     vlm_inference_min_interval_ms: requireNumber(section.vlm_inference_min_interval_ms, 'vision.vlm_inference_min_interval_ms'),
-    vision_model_env: requireString(section.vision_model_env, 'vision.vision_model_env'),
     vision_endpoint_env: requireString(section.vision_endpoint_env, 'vision.vision_endpoint_env'),
     observation_summary_enabled: requireBoolean(section.observation_summary_enabled, 'vision.observation_summary_enabled'),
     raw_frame_storage_enabled: requireBoolean(section.raw_frame_storage_enabled, 'vision.raw_frame_storage_enabled'),
@@ -205,7 +204,6 @@ function buildVisionSection(section, mode) {
       vlm_ssh_tunnel_remote_host: requireString(section.vlm_ssh_tunnel_remote_host, 'vision.vlm_ssh_tunnel_remote_host'),
       vlm_ssh_tunnel_remote_port: requireNumber(section.vlm_ssh_tunnel_remote_port, 'vision.vlm_ssh_tunnel_remote_port'),
       vlm_ssh_tunnel_socket_name: requireString(section.vlm_ssh_tunnel_socket_name, 'vision.vlm_ssh_tunnel_socket_name'),
-      vlm_ssh_tunnel_required_model: requireString(section.vlm_ssh_tunnel_required_model, 'vision.vlm_ssh_tunnel_required_model'),
       vlm_ssh_tunnel_check_timeout_ms: requireNumber(section.vlm_ssh_tunnel_check_timeout_ms, 'vision.vlm_ssh_tunnel_check_timeout_ms')
     } : {})
   });
@@ -538,10 +536,10 @@ if (typeof module.exports.getFlokiConfig !== 'function') {
 
   function _normalizeModel(section, label) {
     _requiredObject(section, label);
-    const model = _resolveEnvOrDefault(section, 'model_env', 'model_default');
+    const model = section && section.model;
     const endpoint = _resolveEnvOrDefault(section, 'endpoint_env', 'endpoint_default');
-    if (typeof model !== 'string' || model.trim() === '') throw new Error(label + '.model must be configured in YAML/env');
-    if (typeof endpoint !== 'string' || endpoint.trim() === '') throw new Error(label + '.endpoint must be configured in YAML/env');
+    if (typeof model !== 'string' || model.trim() === '') throw new Error(label + '.model must be configured in YAML');
+    if (typeof endpoint !== 'string' || endpoint.trim() === '') throw new Error(label + '.endpoint must be configured in YAML');
     return Object.freeze({
       provider: requireString(section.provider, label + '.provider'),
       model,

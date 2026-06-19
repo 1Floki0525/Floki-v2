@@ -15,7 +15,7 @@ Floki-v2 currently has:
 - personality drift from affect-weighted memories
 - dream seed pressure
 
-Floki-v2 does not yet have full human-like reflective emotion because qwen3.5:9b cognition is not wired into the loop yet.
+Floki-v2 does not yet have full human-like reflective emotion because the YAML-configured model cognition is not wired into the loop yet.
 
 ## Current affect channels
 
@@ -64,7 +64,7 @@ user event
 -> personality state
 -> pineal identity
 -> frontal cognitive packet
--> qwen3.5:9b reflection
+-> the YAML-configured model reflection
 -> safe thought summary
 -> Broca speech
 ```

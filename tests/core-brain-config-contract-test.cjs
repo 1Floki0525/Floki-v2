@@ -17,29 +17,36 @@ function assertNonEmptyString(value, label) {
   assert.ok(value.trim().length > 0, label + ' must be non-empty');
 }
 
-function resolvedYamlValue(section, envKeyName, defaultKeyName) {
-  assert.ok(section && typeof section === 'object', 'model section must exist');
+function yamlModel(section, label) {
+  assert.ok(section && typeof section === 'object', label + ' YAML section must exist');
+  assert.equal(Object.prototype.hasOwnProperty.call(section, 'model_env'), false, label + ' must not declare model_env');
+  assert.equal(Object.prototype.hasOwnProperty.call(section, 'model_default'), false, label + ' must not declare model_default');
+  assertNonEmptyString(section.model, label + '.model');
+  return section.model.trim();
+}
 
-  const envName = section[envKeyName];
-  const yamlDefault = section[defaultKeyName];
-
-  assertNonEmptyString(yamlDefault, defaultKeyName);
-
-  if (
-    typeof envName === 'string' &&
-    envName.trim() &&
-    typeof process.env[envName] === 'string' &&
-    process.env[envName].trim()
-  ) {
-    return process.env[envName].trim();
+function withIgnoredModelEnvironment(fn) {
+  const oldCognition = process.env.FLOKI_COGNITION_MODEL;
+  const oldVision = process.env.FLOKI_VISION_MODEL;
+  process.env.FLOKI_COGNITION_MODEL = 'environment-model-selection-must-be-ignored';
+  process.env.FLOKI_VISION_MODEL = 'environment-model-selection-must-be-ignored';
+  try {
+    return fn();
+  } finally {
+    if (oldCognition === undefined) delete process.env.FLOKI_COGNITION_MODEL;
+    else process.env.FLOKI_COGNITION_MODEL = oldCognition;
+    if (oldVision === undefined) delete process.env.FLOKI_VISION_MODEL;
+    else process.env.FLOKI_VISION_MODEL = oldVision;
   }
-
-  return yamlDefault.trim();
 }
 
 function run() {
-  const chat = loadCoreBrainConfig('chat');
-  const game = loadCoreBrainConfig('game');
+  const loaded = withIgnoredModelEnvironment(() => ({
+    chat: loadCoreBrainConfig('chat'),
+    game: loadCoreBrainConfig('game')
+  }));
+  const chat = loaded.chat;
+  const game = loaded.game;
 
   const chatYaml = loadYamlFile(chat.source_path);
   const gameYaml = loadYamlFile(game.source_path);
@@ -50,88 +57,21 @@ function run() {
   assert.equal(chat.mode, 'chat');
   assert.equal(game.mode, 'game');
 
-  assertNonEmptyString(
-    chat.models.cognition.model,
-    'chat cognition model'
-  );
-  assertNonEmptyString(
-    game.models.cognition.model,
-    'game cognition model'
-  );
-  assertNonEmptyString(
-    chat.models.vision.model,
-    'chat vision model'
-  );
-  assertNonEmptyString(
-    game.models.vision.model,
-    'game vision model'
-  );
+  assertNonEmptyString(chat.models.cognition.model, 'chat cognition model');
+  assertNonEmptyString(game.models.cognition.model, 'game cognition model');
+  assertNonEmptyString(chat.models.vision.model, 'chat vision model');
+  assertNonEmptyString(game.models.vision.model, 'game vision model');
 
-  /*
-   * There is deliberately no equality or inequality rule here.
-   *
-   * Chat and game may use:
-   * - the same cognition model,
-   * - different cognition models,
-   * - the same vision model,
-   * - different vision models.
-   *
-   * The YAML files are independently authoritative. Optional environment
-   * overrides are honored only when the YAML names an override variable.
-   */
-  const expectedChatCognition = resolvedYamlValue(
-    chatYaml.models.cognition,
-    'model_env',
-    'model_default'
-  );
-  const expectedGameCognition = resolvedYamlValue(
-    gameYaml.models.cognition,
-    'model_env',
-    'model_default'
-  );
-  const expectedChatVision = resolvedYamlValue(
-    chatYaml.models.vision,
-    'model_env',
-    'model_default'
-  );
-  const expectedGameVision = resolvedYamlValue(
-    gameYaml.models.vision,
-    'model_env',
-    'model_default'
-  );
-
-  assert.equal(
-    chat.models.cognition.model,
-    expectedChatCognition,
-    'chat cognition runtime must resolve from chat YAML or its named environment override'
-  );
-  assert.equal(
-    game.models.cognition.model,
-    expectedGameCognition,
-    'game cognition runtime must resolve from game YAML or its named environment override'
-  );
-  assert.equal(
-    chat.models.vision.model,
-    expectedChatVision,
-    'chat vision runtime must resolve from chat YAML or its named environment override'
-  );
-  assert.equal(
-    game.models.vision.model,
-    expectedGameVision,
-    'game vision runtime must resolve from game YAML or its named environment override'
-  );
+  assert.equal(chat.models.cognition.model, yamlModel(chatYaml.models.cognition, 'chat cognition'));
+  assert.equal(game.models.cognition.model, yamlModel(gameYaml.models.cognition, 'game cognition'));
+  assert.equal(chat.models.vision.model, yamlModel(chatYaml.models.vision, 'chat vision'));
+  assert.equal(game.models.vision.model, yamlModel(gameYaml.models.vision, 'game vision'));
 
   assert.deepEqual(missingRequiredModules(chat), []);
 
   assert.equal(chat.modules.game_world_body.enabled, false);
   assert.equal(chat.modules.game_world_eyes.enabled, false);
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(
-      chat.policies,
-      'usb_camera_as_game_world_eyes'
-    ),
-    false
-  );
+  assert.equal(Object.prototype.hasOwnProperty.call(chat.policies, 'usb_camera_as_game_world_eyes'), false);
 
   assert.equal(game.modules.chat_world_vision.enabled, false);
   assert.equal(game.modules.chat_world_hearing.enabled, false);
@@ -145,23 +85,14 @@ function run() {
 
   assert.equal(core.module, 'core_brain');
   assert.equal(core.mode, 'chat');
-  assert.equal(
-    core.config.source_path.endsWith('/config/chat.config.yaml'),
-    true
-  );
+  assert.equal(core.config.source_path.endsWith('/config/chat.config.yaml'), true);
 
   const enabled = enabledModuleNames(chat.modules);
-  const missingFromEnabled = CHAT_REQUIRED_MODULES.filter(
-    (name) => !enabled.includes(name)
-  );
-
+  const missingFromEnabled = CHAT_REQUIRED_MODULES.filter((name) => !enabled.includes(name));
   assert.deepEqual(missingFromEnabled, []);
 
   for (const name of CHAT_REQUIRED_MODULES) {
-    assert.ok(
-      core.requireModule(name),
-      'core_brain failed to instantiate required module: ' + name
-    );
+    assert.ok(core.requireModule(name), 'core_brain failed to instantiate required module: ' + name);
   }
 
   assert.equal(core.getModule('game_world_body'), null);
@@ -187,7 +118,7 @@ function run() {
     vision_model_runtime_game: game.models.vision.model,
     model_names_hardcoded_by_contract: false,
     yaml_model_selection_authoritative: true,
-    environment_override_supported_when_named_by_yaml: true,
+    environment_model_override_blocked: true,
     usb_camera_as_game_world_eyes: false,
     core_brain_enabled_now: true,
     minecraft_enabled_now: false

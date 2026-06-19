@@ -59,8 +59,8 @@ It does not speak, decide goals, call models, move a body, or touch Minecraft.
 The hippocampus must never:
 
 - produce speech
-- call qwen3.5:4b
-- call qwen3-vl:4b
+- call the YAML-configured model
+- call the YAML-configured model
 - store raw private reasoning
 - start Minecraft
 - start PaperMC
