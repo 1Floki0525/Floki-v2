@@ -189,7 +189,21 @@ dream:
   retry_temperature: 0
   retry_top_p: 0.1
   retry_num_predict: 2200
-
+  min_story_words: 220
+  target_story_words: 360
+  max_story_words: 900
+  min_story_sentences: 6
+  min_symbols: 3
+  min_consolidation_words: 18
+  min_reflection_words: 18
+  recent_memory_hours: 36
+  recent_memory_limit: 10
+  long_term_memory_limit: 12
+  knowledge_limit: 6
+  grounding_memory_limit: 6
+  grounding_knowledge_limit: 3
+  recent_dream_avoidance_count: 12
+  quality_regeneration_attempts: 1
 audio:
   mic_device: default
   mic_rate: 16000

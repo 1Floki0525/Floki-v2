@@ -15,7 +15,7 @@ function run() {
   const schema = getCognitionResponseSchema();
 
   const payload = buildGeneratePayload({
-    model: 'qwen3.5:9b',
+    model: 'schema-fixture-model:test',
     prompt: 'Return schema cognition JSON.',
     system: 'Output only schema JSON.',
     format_schema: schema,
@@ -26,7 +26,7 @@ function run() {
     think: false
   });
 
-  assert.equal(payload.model, 'qwen3.5:9b');
+  assert.equal(payload.model, 'schema-fixture-model:test');
   assert.deepEqual(payload.format, schema);
   assert.equal(payload.stream, false);
   assert.equal(payload.think, false);

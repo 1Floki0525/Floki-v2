@@ -45,7 +45,7 @@ function run() {
     return normalizeModelSection({
       provider: 'ollama',
       model_env: 'FLOKI_COGNITION_MODEL',
-      model_default: 'qwen3.5:9b',
+      model_default: 'yaml-cognition-fixture:test',
       endpoint_env: 'FLOKI_COGNITION_ENDPOINT',
       endpoint_default: 'http://127.0.0.1:11434',
       temperature: 0.55,
@@ -61,7 +61,7 @@ function run() {
     return normalizeModelSection({
       provider: 'ollama',
       model_env: 'FLOKI_VISION_MODEL',
-      model_default: 'qwen3-vl:4b',
+      model_default: 'yaml-vision-fixture:test',
       endpoint_env: 'FLOKI_VISION_ENDPOINT',
       endpoint_default: 'http://127.0.0.1:11435',
       enabled_now: false,

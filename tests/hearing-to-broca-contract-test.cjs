@@ -25,7 +25,7 @@ function run() {
     source: 'frontal',
     parent_event_ids: [event.id],
     payload: {
-      model: 'qwen3.5:9b',
+      model: 'hearing-fixture-model:test',
       cognition: {
         safe_thought_summary: 'Trust and hope are connected to memory continuity.',
         felt_interpretation: 'Calm, attentive, and grounded.',

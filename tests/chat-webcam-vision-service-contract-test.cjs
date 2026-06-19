@@ -32,7 +32,7 @@ function run() {
   assert.equal(args.includes('mjpeg'), true);
   assert.equal(args.join(' ').includes('screenshot'), false);
   assert.equal(args.join(' ').includes('xwd'), false);
-  assert.equal(models.vision.model, 'qwen3-vl:4b');
+  assert.ok(typeof models.vision.model === 'string' && models.vision.model.trim().length > 0, 'configured chat vision model must be non-empty');
   const tunnel = chatVisionTunnelConfig({ runtime_dir: '/tmp/floki-chat-webcam-contract-runtime' });
   assert.equal(tunnel.enabled, true);
   assert.equal(tunnel.target, vision.vlm_ssh_tunnel_target);
@@ -124,7 +124,7 @@ function run() {
     ffmpeg_child_held_open: true,
     first_real_frame_required: true,
     first_vlm_observation_required: true,
-    qwen3_vl_model_from_yaml: true,
+    configured_vision_model_from_yaml: true,
     ssh_tunnel_settings_from_yaml: true,
     public_transcript_isolated: true,
     private_observation_context_available: true,

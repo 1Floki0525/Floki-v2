@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 
 const { PROJECT_ROOT: ROOT } = require('../src/config/floki-config.cjs');
+const { loadCoreBrainConfig } = require('../brain/core_brain/index.cjs');
 
 function parseJsonOutput(stdout, label) {
   const text = String(stdout || '').trim();
@@ -34,11 +35,11 @@ function runCommand(args, label) {
   return parseJsonOutput(result.stdout, label);
 }
 
-function assertGameGuard(json) {
+function assertGameGuard(json, gameConfig) {
   assert.equal(json.core_brain_enabled_now, true);
   assert.equal(json.config_path.endsWith('/config/game.config.yaml'), true);
-  assert.ok(typeof json.cognition_model === 'string' && json.cognition_model.length > 0, 'cognition model from YAML must be non-empty');
-  assert.equal(json.vision_model, 'qwen3-vl:4b');
+  assert.equal(json.cognition_model, gameConfig.models.cognition.model);
+  assert.equal(json.vision_model, gameConfig.models.vision.model);
   assert.equal(json.vision_mode_scope, 'game_world_first_person_only');
   assert.equal(json.minecraft_home_realm_eyes_source, 'minecraft_first_person_view');
   assert.equal(json.minecraft_home_realm_body_source, 'minecraft_player_avatar');
@@ -61,17 +62,18 @@ function assertGameGuard(json) {
 }
 
 function run() {
+  const gameConfig = loadCoreBrainConfig('game');
   const smoke = runCommand(['bash', 'bin/floki-start.sh', 'game-smoke'], 'game-smoke');
   assert.equal(smoke.marker, 'FLOKI_V2_GAME_ENTRYPOINT_CONTRACT_PASS');
   assert.equal(smoke.game_command_exists, true);
   assert.equal(smoke.game_mode_guarded_now, true);
-  assertGameGuard(smoke);
+  assertGameGuard(smoke, gameConfig);
 
   const status = runCommand(['bash', 'bin/floki-start.sh', 'status'], 'game-status');
   assert.equal(status.marker, 'FLOKI_V2_GAME_MODE_CORE_BRAIN_GUARDED');
   assert.equal(status.mode, 'game');
   assert.equal(status.allowed_now, false);
-  assertGameGuard(status);
+  assertGameGuard(status, gameConfig);
 
   console.log(JSON.stringify({
     ok: true,

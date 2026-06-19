@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { loadYamlFile } = require('../src/config/yaml-lite.cjs');
 
 function indexOfOrFail(source, needle) {
   const index = source.indexOf(needle);
@@ -25,12 +26,15 @@ function run() {
   assert.equal(webcamIndex < chatNodeIndex, true);
   assert.equal(startScript.includes('FLOKI_ALLOW_WEBCAM_CAPTURE=1'), true);
   assert.equal(startScript.includes('FLOKI_ALLOW_CHAT_VISION=1'), true);
-  const chatConfig = fs.readFileSync(path.join(__dirname, '..', 'config', 'chat.config.yaml'), 'utf8');
+  const chatConfigPath = path.join(__dirname, '..', 'config', 'chat.config.yaml');
+  const chatConfig = fs.readFileSync(chatConfigPath, 'utf8');
+  const chatConfigYaml = loadYamlFile(chatConfigPath);
   const visionStartScript = fs.readFileSync(path.join(__dirname, '..', 'bin', 'floki-chat-vision-start.sh'), 'utf8');
   assert.equal(chatConfig.includes('vlm_ssh_tunnel_target: chris-mccoll'), true);
   assert.equal(chatConfig.includes('vlm_ssh_tunnel_local_port: 11435'), true);
   assert.equal(chatConfig.includes('vlm_ssh_tunnel_remote_port: 11434'), true);
-  assert.equal(chatConfig.includes('vlm_ssh_tunnel_required_model: qwen3-vl:4b'), true);
+  assert.equal(typeof chatConfigYaml.vision.vlm_ssh_tunnel_required_model, 'string');
+  assert.ok(chatConfigYaml.vision.vlm_ssh_tunnel_required_model.trim().length > 0);
   assert.equal(chatConfig.includes('vlm_ssh_tunnel_check_timeout_ms: 8000'), true);
   assert.equal(visionStartScript.includes('chris-mccoll'), false);
   assert.equal(visionStartScript.includes('127.0.0.1:11435:127.0.0.1:11434'), false);

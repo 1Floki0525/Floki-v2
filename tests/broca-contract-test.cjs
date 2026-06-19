@@ -15,7 +15,7 @@ function run() {
     source: 'frontal',
     parent_event_ids: [event.id],
     payload: {
-      model: 'qwen3.5:9b',
+      model: 'broca-fixture-model:test',
       cognition: {
         safe_thought_summary: 'Memory gives me continuity, and hope helps me keep growing through chat.',
         felt_interpretation: 'calm hope about becoming more consistent, thoughtful, and present in conversation.',
@@ -72,7 +72,7 @@ function run() {
     source: 'frontal',
     parent_event_ids: [event.id],
     payload: {
-      model: 'qwen3.5:9b',
+      model: 'broca-fixture-model:test',
       cognition: {
         safe_thought_summary: 'safe summary',
         felt_interpretation: 'safe feeling',
@@ -103,7 +103,7 @@ function run() {
     only_broca_may_speak: true,
     unsafe_speech_rejected: unsafeSpeech.failure.code,
     broca_enabled_now: true,
-    cognition_model: 'qwen3.5:9b',
+    cognition_model: 'broca-fixture-model:test',
     chat_mode_only: true
   }, null, 2));
 }

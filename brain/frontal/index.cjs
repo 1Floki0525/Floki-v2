@@ -57,7 +57,7 @@ const COGNITION_RESPONSE_SCHEMA = Object.freeze({
 const CONTRACT = createModuleContract({
   name: MODULE_NAME,
   production: true,
-  responsibility: 'Builds cognition packets and calls qwen3.5:9b for safe reflective cognition summaries.',
+  responsibility: 'Builds cognition packets and calls the configured cognition model for safe reflective cognition summaries.',
   inputs: [
     {
       name: 'cognition_context',
@@ -85,8 +85,8 @@ const CONTRACT = createModuleContract({
     { path: 'state/floki/diagnostics.jsonl', description: 'Append-only cognition diagnostics.' }
   ],
   diagnostics: [
-    { name: 'cognition_completed', description: 'qwen3.5:9b returned a safe cognition summary.' },
-    { name: 'cognition_failed', description: 'qwen3.5:9b failed or returned unsafe output.' }
+    { name: 'cognition_completed', description: 'the configured cognition model returned a safe cognition summary.' },
+    { name: 'cognition_failed', description: 'the configured cognition model failed or returned unsafe output.' }
   ],
   failure_modes: [
     { code: 'FRONTAL_COGNITION_FAILED', description: 'Model call or validation failed.' },
@@ -97,7 +97,7 @@ const CONTRACT = createModuleContract({
     'private_reasoning_storage',
     'fake_success'
   ],
-  notes: 'Frontal may call qwen3.5:9b, but stores only safe summaries.'
+  notes: 'Frontal may call the configured cognition model, but stores only safe summaries.'
 });
 
 function getContract() {

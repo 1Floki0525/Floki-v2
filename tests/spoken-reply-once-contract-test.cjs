@@ -76,7 +76,7 @@ async function run() {
       wake_gate_marker: 'FLOKI_V2_WAKE_WORD_GATE_ROUTED',
       wake_gate_open: true,
       wake_routed_to_cognition: true,
-      cognition_model: 'qwen3.5:9b',
+      cognition_model: 'spoken-fixture-model:test',
       cognition_type: 'model_response_summary',
       schema_constrained_json: true,
       model_json_fallback_used: false,

@@ -31,6 +31,7 @@ const {
 } = require('../src/brain/memory-lifecycle.cjs');
 
 const { createMemoryRecord } = require('../src/brain/memory-record-schema.cjs');
+const { getModelConfig } = require('../src/config/floki-config.cjs');
 
 function run() {
   validateLifeClockConfig();
@@ -154,7 +155,7 @@ function run() {
 
   assert.equal(dreamSeed.safe_summary_only, true);
   assert.equal(dreamSeed.ready_for_vivid_generation, false);
-  assert.equal(dreamSeed.future_generation_model, 'floki-qwen3.5:4b-16k');
+  assert.equal(dreamSeed.future_generation_model, getModelConfig('chat').cognition.model);
   assert.ok(dreamSeed.dream_pressure > 0);
 
   console.log(JSON.stringify({

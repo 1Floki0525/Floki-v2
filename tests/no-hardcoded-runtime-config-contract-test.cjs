@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { PROJECT_ROOT } = require('../src/config/floki-config.cjs');
+const { loadYamlFile } = require('../src/config/yaml-lite.cjs');
 
 const RUNTIME_SOURCE_DIRS = ['src', 'brain'];
 const RUNTIME_EXTENSIONS = ['.cjs'];
@@ -24,17 +25,50 @@ const FORBIDDEN_ABSOLUTE_PATHS = [
   '/mnt/firstlight-cold-storage/Floki-memory-bank/dreams'
 ];
 
-const FORBIDDEN_MODEL_ASSERTIONS = [
-  "model === 'qwen3.5:9b'",
-  "model === 'qwen3.5:4b'",
-  "model === 'qwen3-vl:4b'",
-  "model !== 'qwen3.5:9b'",
-  "model !== 'qwen3.5:4b'",
-  "model !== 'qwen3-vl:4b'",
-  "'qwen3.5:9b'",
-  "'qwen3.5:4b'",
-  "'qwen3-vl:4b'"
-];
+function configuredModelValues() {
+  const values = new Set();
+
+  for (const mode of ['chat', 'game']) {
+    const raw = loadYamlFile(
+      path.join(PROJECT_ROOT, 'config', mode + '.config.yaml')
+    );
+
+    for (const section of [
+      raw.models && raw.models.cognition,
+      raw.models && raw.models.vision
+    ]) {
+      if (!section || typeof section !== 'object') continue;
+
+      if (
+        typeof section.model_default === 'string' &&
+        section.model_default.trim()
+      ) {
+        values.add(section.model_default.trim());
+      }
+
+      if (
+        typeof section.model_env === 'string' &&
+        section.model_env.trim() &&
+        typeof process.env[section.model_env] === 'string' &&
+        process.env[section.model_env].trim()
+      ) {
+        values.add(process.env[section.model_env].trim());
+      }
+    }
+
+    if (
+      raw.vision &&
+      typeof raw.vision.vlm_ssh_tunnel_required_model === 'string' &&
+      raw.vision.vlm_ssh_tunnel_required_model.trim()
+    ) {
+      values.add(raw.vision.vlm_ssh_tunnel_required_model.trim());
+    }
+  }
+
+  return Array.from(values);
+}
+
+const FORBIDDEN_MODEL_ASSERTIONS = configuredModelValues();
 
 const FORBIDDEN_RUNTIME_DEFAULTS = [
   'DEFAULT_SLEEP_START_HHMM',

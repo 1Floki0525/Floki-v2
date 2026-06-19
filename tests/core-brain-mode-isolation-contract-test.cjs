@@ -10,6 +10,24 @@ const {
   createCoreBrain
 } = require('../brain/core_brain/index.cjs');
 
+function resolveConfiguredModel(section) {
+  assert.ok(section && typeof section === 'object', 'model YAML section must exist');
+
+  const envName = section.model_env;
+  if (
+    typeof envName === 'string' &&
+    envName.trim() &&
+    typeof process.env[envName] === 'string' &&
+    process.env[envName].trim()
+  ) {
+    return process.env[envName].trim();
+  }
+
+  assert.equal(typeof section.model_default, 'string', 'model_default must be a string');
+  assert.ok(section.model_default.trim().length > 0, 'model_default must be non-empty');
+  return section.model_default.trim();
+}
+
 function assertModuleEnabled(config, name, expected) {
   assert.equal(
     config.modules[name].enabled,
@@ -45,7 +63,26 @@ function run() {
   assert.ok(typeof gameConfig.models.cognition.model === 'string' && gameConfig.models.cognition.model.length > 0, 'game cognition model must be a non-empty string from YAML');
   assert.ok(typeof chatConfig.models.vision.model === 'string' && chatConfig.models.vision.model.length > 0, 'chat vision model must be a non-empty string from YAML');
   assert.ok(typeof gameConfig.models.vision.model === 'string' && gameConfig.models.vision.model.length > 0, 'game vision model must be a non-empty string from YAML');
-  assert.notEqual(chatConfig.models.cognition.model, gameConfig.models.cognition.model, 'chat and game should have different cognition models from YAML');
+  assert.equal(
+    chatConfig.models.cognition.model,
+    resolveConfiguredModel(chatRaw.models.cognition),
+    'chat cognition model must resolve from chat YAML or its named environment override'
+  );
+  assert.equal(
+    gameConfig.models.cognition.model,
+    resolveConfiguredModel(gameRaw.models.cognition),
+    'game cognition model must resolve from game YAML or its named environment override'
+  );
+  assert.equal(
+    chatConfig.models.vision.model,
+    resolveConfiguredModel(chatRaw.models.vision),
+    'chat vision model must resolve from chat YAML or its named environment override'
+  );
+  assert.equal(
+    gameConfig.models.vision.model,
+    resolveConfiguredModel(gameRaw.models.vision),
+    'game vision model must resolve from game YAML or its named environment override'
+  );
 
   assert.equal(chatConfig.models.vision.mode_scope, 'chat_world_only');
   assert.equal(gameConfig.models.vision.mode_scope, 'game_world_first_person_only');
@@ -102,6 +139,9 @@ function run() {
     game_config: gameConfig.source_path,
     chat_enabled_modules: chatEnabled,
     game_enabled_modules: gameEnabled,
+    cognition_model_relationship_restricted: false,
+    vision_model_relationship_restricted: false,
+    model_names_hardcoded_by_contract: false,
     maker_realm_eyes_source: 'usb_webcam',
     maker_realm_ears_source: 'microphone',
     maker_realm_voice_source: 'speakers',

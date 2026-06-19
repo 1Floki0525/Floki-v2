@@ -298,7 +298,22 @@ function buildDreamSection(section, mode) {
     num_predict: requireNumber(section.num_predict, 'dream.num_predict'),
     retry_temperature: requireNumber(section.retry_temperature, 'dream.retry_temperature'),
     retry_top_p: requireNumber(section.retry_top_p, 'dream.retry_top_p'),
-    retry_num_predict: requireNumber(section.retry_num_predict, 'dream.retry_num_predict')
+    retry_num_predict: requireNumber(section.retry_num_predict, 'dream.retry_num_predict'),
+    min_story_words: requireNumber(section.min_story_words, 'dream.min_story_words'),
+    target_story_words: requireNumber(section.target_story_words, 'dream.target_story_words'),
+    max_story_words: requireNumber(section.max_story_words, 'dream.max_story_words'),
+    min_story_sentences: requireNumber(section.min_story_sentences, 'dream.min_story_sentences'),
+    min_symbols: requireNumber(section.min_symbols, 'dream.min_symbols'),
+    min_consolidation_words: requireNumber(section.min_consolidation_words, 'dream.min_consolidation_words'),
+    min_reflection_words: requireNumber(section.min_reflection_words, 'dream.min_reflection_words'),
+    recent_memory_hours: requireNumber(section.recent_memory_hours, 'dream.recent_memory_hours'),
+    recent_memory_limit: requireNumber(section.recent_memory_limit, 'dream.recent_memory_limit'),
+    long_term_memory_limit: requireNumber(section.long_term_memory_limit, 'dream.long_term_memory_limit'),
+    knowledge_limit: requireNumber(section.knowledge_limit, 'dream.knowledge_limit'),
+    grounding_memory_limit: requireNumber(section.grounding_memory_limit, 'dream.grounding_memory_limit'),
+    grounding_knowledge_limit: requireNumber(section.grounding_knowledge_limit, 'dream.grounding_knowledge_limit'),
+    recent_dream_avoidance_count: requireNumber(section.recent_dream_avoidance_count, 'dream.recent_dream_avoidance_count'),
+    quality_regeneration_attempts: requireNumber(section.quality_regeneration_attempts, 'dream.quality_regeneration_attempts')
   });
 }
 

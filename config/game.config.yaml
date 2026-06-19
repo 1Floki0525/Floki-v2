@@ -5,7 +5,7 @@ models:
   cognition:
     provider: ollama
     model_env: FLOKI_COGNITION_MODEL
-    model_default: qwen3.5:9b
+    model_default: floki-qwen3.5:4b-16k
     endpoint_env: FLOKI_COGNITION_ENDPOINT
     endpoint_default: http://127.0.0.1:11434
     mode_scope: game_cognition
@@ -171,7 +171,21 @@ dream:
   retry_temperature: 0
   retry_top_p: 0.1
   retry_num_predict: 2200
-
+  min_story_words: 220
+  target_story_words: 360
+  max_story_words: 900
+  min_story_sentences: 6
+  min_symbols: 3
+  min_consolidation_words: 18
+  min_reflection_words: 18
+  recent_memory_hours: 36
+  recent_memory_limit: 10
+  long_term_memory_limit: 12
+  knowledge_limit: 6
+  grounding_memory_limit: 6
+  grounding_knowledge_limit: 3
+  recent_dream_avoidance_count: 12
+  quality_regeneration_attempts: 1
 timeouts:
   ollama_http_ms: 120000
   model_warmup_ms: 30000

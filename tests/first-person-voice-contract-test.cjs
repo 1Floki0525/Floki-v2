@@ -20,7 +20,7 @@ function makeCognitionOutput(responseIntent) {
     type: 'model_response_summary',
     source: 'frontal',
     payload: {
-      model: 'qwen3.5:9b',
+      model: 'voice-fixture-model:test',
       cognition: {
         safe_thought_summary: 'I can answer from memory, trust, hope, and chat-mode continuity.',
         felt_interpretation: '',

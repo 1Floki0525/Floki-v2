@@ -17,6 +17,24 @@ function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object || {}, key);
 }
 
+function resolveConfiguredModel(section) {
+  assert.ok(section && typeof section === 'object', 'model YAML section must exist');
+
+  const envName = section.model_env;
+  if (
+    typeof envName === 'string' &&
+    envName.trim() &&
+    typeof process.env[envName] === 'string' &&
+    process.env[envName].trim()
+  ) {
+    return process.env[envName].trim();
+  }
+
+  assert.equal(typeof section.model_default, 'string', 'model_default must be a string');
+  assert.ok(section.model_default.trim().length > 0, 'model_default must be non-empty');
+  return section.model_default.trim();
+}
+
 function run() {
   assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
 
@@ -50,9 +68,26 @@ function run() {
   assert.equal(hasOwn(chat.vision, 'game_external_eyes_source'), false);
   assert.equal(hasOwn(game.vision, 'chat_external_eyes_source'), false);
 
-  assert.equal(chat.models.cognition.model, 'floki-qwen3.5:4b-16k');
-  assert.notEqual(chat.models.cognition.model, 'qwen3-vl:4b');
-  assert.equal(chat.models.vision.model, 'qwen3-vl:4b');
+  assert.equal(
+    chat.models.cognition.model,
+    resolveConfiguredModel(chatRaw.models.cognition),
+    'chat cognition model must resolve from chat YAML or its named environment override'
+  );
+  assert.equal(
+    game.models.cognition.model,
+    resolveConfiguredModel(gameRaw.models.cognition),
+    'game cognition model must resolve from game YAML or its named environment override'
+  );
+  assert.equal(
+    chat.models.vision.model,
+    resolveConfiguredModel(chatRaw.models.vision),
+    'chat vision model must resolve from chat YAML or its named environment override'
+  );
+  assert.equal(
+    game.models.vision.model,
+    resolveConfiguredModel(gameRaw.models.vision),
+    'game vision model must resolve from game YAML or its named environment override'
+  );
 
   assert.equal(hasOwn(chat, 'game_world_vision'), false);
   assert.equal(hasOwn(game, 'chat_world_vision'), false);
@@ -71,6 +106,9 @@ function run() {
   console.log(JSON.stringify({
     ok: true,
     marker: 'FLOKI_V2_STRICT_MODE_CONFIG_ISOLATION_PASS',
+    cognition_model_relationship_restricted: false,
+    vision_model_relationship_restricted: false,
+    model_names_hardcoded_by_contract: false,
     chat_has_chat_world_vision: true,
     chat_has_game_world_vision: false,
     game_has_game_world_vision: true,
