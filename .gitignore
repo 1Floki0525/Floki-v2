@@ -38,3 +38,6 @@ yolo*.pt
 
 floki-media
 /floki-media
+
+# Local model files / Modelfiles
+models/
