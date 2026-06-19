@@ -119,6 +119,15 @@ vision:
   private_observation_log_enabled: true
   webcam_capture_allow_env: FLOKI_ALLOW_WEBCAM_CAPTURE
   chat_vision_allow_env: FLOKI_ALLOW_CHAT_VISION
+  vlm_ssh_tunnel_enabled: false
+  vlm_ssh_tunnel_target: disabled
+  vlm_ssh_tunnel_local_host: 127.0.0.1
+  vlm_ssh_tunnel_local_port: 11435
+  vlm_ssh_tunnel_remote_host: 127.0.0.1
+  vlm_ssh_tunnel_remote_port: 11434
+  vlm_ssh_tunnel_socket_name: chat-vision-ssh-tunnel.sock
+  vlm_ssh_tunnel_required_model: qwen3-vl:4b
+  vlm_ssh_tunnel_check_timeout_ms: 8000
 
 chat_world_vision:
   enabled: false

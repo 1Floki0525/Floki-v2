@@ -394,7 +394,7 @@ function memoryMatchesForContext(recallOutput) {
   });
 }
 
-async function handleChatText(core, text) {
+async function handleChatText(core, text, options = {}) {
   if (core.mode !== 'chat') {
     throw new Error('handleChatText is only valid for chat mode core_brain');
   }
@@ -445,6 +445,7 @@ async function handleChatText(core, text) {
     salience: salienceOutput.payload,
     affect: affectSummary,
     memories: memoryMatchesForContext(recallOutput),
+    chat_webcam_vision: options.chat_webcam_vision || null,
     personality: personalityOutput.payload.current,
     identity: identityOutput.payload.current,
     core_brain: {
@@ -594,8 +595,8 @@ function createCoreBrain(options = {}) {
     return requireModule(core, name);
   };
 
-  core.handleChatText = function(text) {
-    return handleChatText(core, text);
+  core.handleChatText = function(text, localOptions = {}) {
+    return handleChatText(core, text, localOptions);
   };
 
   return Object.freeze(core);

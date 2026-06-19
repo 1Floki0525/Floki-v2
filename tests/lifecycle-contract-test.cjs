@@ -154,7 +154,7 @@ function run() {
 
   assert.equal(dreamSeed.safe_summary_only, true);
   assert.equal(dreamSeed.ready_for_vivid_generation, false);
-  assert.equal(dreamSeed.future_generation_model, 'qwen3.5:4b');
+  assert.equal(dreamSeed.future_generation_model, 'floki-qwen3.5:4b-16k');
   assert.ok(dreamSeed.dream_pressure > 0);
 
   console.log(JSON.stringify({

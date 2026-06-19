@@ -156,6 +156,7 @@ function compactCognitionContext(context = {}) {
   const persistent = context.persistent_chat_memory || {};
   const emotional = context.emotional_reinforcement || {};
   const dreamMemory = persistent.dream_memory_context || {};
+  const webcamVision = context.chat_webcam_vision || {};
 
   return Object.freeze({
     user_text: eventText.slice(0, 500),
@@ -179,6 +180,14 @@ function compactCognitionContext(context = {}) {
         ? dreamMemory.dream_memory_matches.slice(0, 3)
         : [],
       invented_dream: false
+    },
+    chat_webcam_vision: {
+      available: webcamVision.available === true,
+      source: webcamVision.source || null,
+      sight_scope: webcamVision.sight_scope || null,
+      latest_private_observation_timestamp: webcamVision.latest_private_observation_timestamp || null,
+      observation_summary: safeText(webcamVision.observation_summary || '', '').slice(0, 500),
+      public_transcript_visible: false
     },
     emotional_reinforcement_state: emotional.state || null,
     personality: context.personality || null,

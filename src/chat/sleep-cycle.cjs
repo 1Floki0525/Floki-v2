@@ -578,8 +578,19 @@ async function runSleepCycleTick(options = {}) {
       });
     } catch (error) {
       const errorAt = nowDate(options).toISOString();
+      const requeuedCycle = Object.freeze({
+        ...dreamingCycle,
+        status: 'pending',
+        dreaming_started_at: null,
+        dreaming_process_pid: null,
+        dream_attempt_count: Number(cycle.dream_attempt_count || 0) + 1,
+        last_attempt_error: error.message,
+        last_attempt_at: errorAt,
+        last_transition_at: errorAt
+      });
       state = Object.freeze({
         ...state,
+        rem_cycles: state.rem_cycles.map((item, index) => index === cycleIndex ? requeuedCycle : item),
         last_transition_at: errorAt,
         last_architecture_error_at: errorAt,
         last_architecture_error: error.message
@@ -597,8 +608,19 @@ async function runSleepCycleTick(options = {}) {
     if (!dream || dream.ok !== true || !dream.dream_txt_file) {
       const error = new Error(dream && dream.marker ? dream.marker : 'dream engine did not complete');
       const errorAt = nowDate(options).toISOString();
+      const requeuedCycle = Object.freeze({
+        ...dreamingCycle,
+        status: 'pending',
+        dreaming_started_at: null,
+        dreaming_process_pid: null,
+        dream_attempt_count: Number(cycle.dream_attempt_count || 0) + 1,
+        last_attempt_error: error.message,
+        last_attempt_at: errorAt,
+        last_transition_at: errorAt
+      });
       state = Object.freeze({
         ...state,
+        rem_cycles: state.rem_cycles.map((item, index) => index === cycleIndex ? requeuedCycle : item),
         last_transition_at: errorAt,
         last_architecture_error_at: errorAt,
         last_architecture_error: error.message

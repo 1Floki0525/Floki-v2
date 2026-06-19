@@ -179,7 +179,16 @@ function buildVisionSection(section, mode) {
     public_frame_logging_enabled: requireBoolean(section.public_frame_logging_enabled, 'vision.public_frame_logging_enabled'),
     private_observation_log_enabled: requireBoolean(section.private_observation_log_enabled, 'vision.private_observation_log_enabled'),
     webcam_capture_allow_env: requireString(section.webcam_capture_allow_env, 'vision.webcam_capture_allow_env'),
-    chat_vision_allow_env: requireString(section.chat_vision_allow_env, 'vision.chat_vision_allow_env')
+    chat_vision_allow_env: requireString(section.chat_vision_allow_env, 'vision.chat_vision_allow_env'),
+    vlm_ssh_tunnel_enabled: requireBoolean(section.vlm_ssh_tunnel_enabled, 'vision.vlm_ssh_tunnel_enabled'),
+    vlm_ssh_tunnel_target: requireString(section.vlm_ssh_tunnel_target, 'vision.vlm_ssh_tunnel_target'),
+    vlm_ssh_tunnel_local_host: requireString(section.vlm_ssh_tunnel_local_host, 'vision.vlm_ssh_tunnel_local_host'),
+    vlm_ssh_tunnel_local_port: requireNumber(section.vlm_ssh_tunnel_local_port, 'vision.vlm_ssh_tunnel_local_port'),
+    vlm_ssh_tunnel_remote_host: requireString(section.vlm_ssh_tunnel_remote_host, 'vision.vlm_ssh_tunnel_remote_host'),
+    vlm_ssh_tunnel_remote_port: requireNumber(section.vlm_ssh_tunnel_remote_port, 'vision.vlm_ssh_tunnel_remote_port'),
+    vlm_ssh_tunnel_socket_name: requireString(section.vlm_ssh_tunnel_socket_name, 'vision.vlm_ssh_tunnel_socket_name'),
+    vlm_ssh_tunnel_required_model: requireString(section.vlm_ssh_tunnel_required_model, 'vision.vlm_ssh_tunnel_required_model'),
+    vlm_ssh_tunnel_check_timeout_ms: requireNumber(section.vlm_ssh_tunnel_check_timeout_ms, 'vision.vlm_ssh_tunnel_check_timeout_ms')
   });
 }
 

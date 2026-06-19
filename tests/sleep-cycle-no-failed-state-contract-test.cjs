@@ -47,8 +47,10 @@ async function run() {
   );
 
   const state = loadSleepCycleState({ state_file: stateFile });
-  assert.equal(state.rem_cycles[0].status, 'dreaming');
-  assert.equal(state.rem_cycles[0].dreaming_process_pid, process.pid);
+  assert.equal(state.rem_cycles[0].status, 'pending');
+  assert.equal(state.rem_cycles[0].dreaming_process_pid, null);
+  assert.equal(state.rem_cycles[0].dream_attempt_count, 1);
+  assert.equal(state.rem_cycles[0].last_attempt_error, 'contract architecture error');
   assert.equal(Object.prototype.hasOwnProperty.call(state.rem_cycles[0], 'failure_message'), false);
   assert.equal(state.last_architecture_error, 'contract architecture error');
 

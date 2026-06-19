@@ -138,6 +138,25 @@ async function runSchedulerIteration(options = {}) {
       env,
       write_report: options.write_report !== false
     });
+  } catch (error) {
+    const record = Object.freeze({
+      ok: false,
+      marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_FATAL_ARCHITECTURE_ERROR',
+      pid: process.pid,
+      error: error.message,
+      fatal_architecture_error: true,
+      stopped_at: new Date().toISOString(),
+      chat_mode_only: true,
+      game_mode_started: false
+    });
+    writeRuntimeRecord(paths.status_file, record);
+    writeHeartbeat(paths, {
+      ok: false,
+      phase: 'fatal_architecture_error',
+      fatal_architecture_error: true,
+      error: error.message
+    });
+    throw error;
   } finally {
     clearInterval(refresh);
   }

@@ -48,6 +48,30 @@ start_sleep_scheduler() {
   export FLOKI_ALLOW_SLEEP_CYCLE=1
 }
 
+verify_sleep_scheduler() {
+  SCHEDULER_STATUS_OUTPUT="$(bash bin/floki-sleep-scheduler-status.sh 2>&1)"
+  SCHEDULER_STATUS_CODE="$?"
+
+  if [ "$SCHEDULER_STATUS_CODE" -ne 0 ]; then
+    echo "$SCHEDULER_STATUS_OUTPUT" >&2
+    fail "sleep-cycle scheduler status check failed"
+  fi
+}
+
+start_chat_webcam_vision() {
+  export FLOKI_ALLOW_WEBCAM_CAPTURE=1
+  export FLOKI_ALLOW_CHAT_VISION=1
+  VISION_OUTPUT="$(bash bin/floki-chat-vision-start.sh 2>&1)"
+  VISION_STATUS="$?"
+
+  if [ "$VISION_STATUS" -ne 0 ]; then
+    echo "$VISION_OUTPUT" >&2
+    fail "chat webcam vision did not start"
+  fi
+
+  echo "$VISION_OUTPUT"
+}
+
 if [ ! -d "$PROJECT_DIR" ]; then
   fail "Project directory not found: $PROJECT_DIR"
 fi
@@ -58,6 +82,8 @@ load_node_24
 case "$COMMAND" in
   chat)
     start_sleep_scheduler
+    verify_sleep_scheduler
+    start_chat_webcam_vision
     node src/chat/floki-live-chat-interface.cjs "$@"
     exit "$?"
     ;;
@@ -80,6 +106,18 @@ case "$COMMAND" in
     ;;
   chat-loop-status)
     bash bin/floki-chat-status.sh "$@"
+    exit "$?"
+    ;;
+  chat-vision-start)
+    bash bin/floki-chat-vision-start.sh "$@"
+    exit "$?"
+    ;;
+  chat-vision-stop)
+    bash bin/floki-chat-vision-stop.sh "$@"
+    exit "$?"
+    ;;
+  chat-vision-status)
+    bash bin/floki-chat-vision-status.sh "$@"
     exit "$?"
     ;;
   sleep-start)
@@ -144,6 +182,9 @@ echo "  bin/floki-start.sh text-chat         old typed-only terminal chat"
 echo "  bin/floki-start.sh chat-loop-start   start background spoken wake-word listener"
 echo "  bin/floki-start.sh chat-loop-stop    stop background spoken listener"
 echo "  bin/floki-start.sh chat-loop-status  show background spoken listener status"
+echo "  bin/floki-start.sh chat-vision-start start continuous chat webcam vision"
+echo "  bin/floki-start.sh chat-vision-stop  stop continuous chat webcam vision"
+echo "  bin/floki-start.sh chat-vision-status show continuous chat webcam vision status"
 echo "  bin/floki-start.sh sleep-start       start continuous sleep/REM scheduler"
 echo "  bin/floki-start.sh sleep-stop        stop continuous sleep/REM scheduler"
 echo "  bin/floki-start.sh sleep-status      show continuous sleep/REM scheduler status"

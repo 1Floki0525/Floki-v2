@@ -71,12 +71,35 @@ async function run() {
   assert.equal(inactive.active, false);
   assert.equal(inactive.marker, 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_INACTIVE');
 
+  await assert.rejects(
+    runSchedulerIteration({
+      ...paths,
+      runtime_dir: runtimeDir,
+      write_report: false,
+      tick_runner: async function() {
+        throw new Error('fatal dream architecture error');
+      }
+    }),
+    /fatal dream architecture error/
+  );
+  const fatal = readSchedulerRuntimeStatus({
+    ...paths,
+    runtime_dir: runtimeDir,
+    process_is_alive: (pid) => pid === process.pid,
+    now: new Date()
+  });
+  assert.equal(fatal.last_status.ok, false);
+  assert.equal(fatal.last_status.marker, 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_FATAL_ARCHITECTURE_ERROR');
+  assert.equal(fatal.last_status.fatal_architecture_error, true);
+  assert.equal(fatal.last_status.error, 'fatal dream architecture error');
+
   console.log(JSON.stringify({
     ok: true,
     marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_CONTRACT_PASS',
     serial_tick_execution: true,
     sleep_and_dream_guards_enabled: true,
     active_and_inactive_status_verified: true,
+    fatal_architecture_error_reported: true,
     node_24_required: true,
     chat_mode_only: true,
     game_mode_started: false

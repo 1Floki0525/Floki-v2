@@ -59,7 +59,8 @@ async function runCompletionCase(baseDir) {
 async function runFailureCase(baseDir) {
   const stateFile = path.join(baseDir, 'failed-state.json');
   const eventsFile = path.join(baseDir, 'failed-events.jsonl');
-  const tick = await runSleepCycleTick({
+  let propagated = false;
+  await assert.rejects(runSleepCycleTick({
     env: { FLOKI_ALLOW_SLEEP_CYCLE: '1' },
     now: '2026-06-18T04:31:00.000Z',
     state_file: stateFile,
@@ -68,13 +69,27 @@ async function runFailureCase(baseDir) {
       throw new Error('intentional dream failure');
     },
     write_report: false
-  });
-  assert.equal(tick.ok, false);
-  const failed = loadSleepCycleState({ state_file: stateFile });
-  assert.equal(failed.rem_cycles[0].status, 'failed');
-  assert.equal(failed.rem_cycles[0].failure_message, 'intentional dream failure');
-  assert.equal(failed.rem_cycles[0].dreaming_process_pid, null);
-  assert.equal(fs.readFileSync(eventsFile, 'utf8').includes('rem_dream_failed'), true);
+  }).catch((error) => {
+    propagated = true;
+    throw error;
+  }), /intentional dream failure/);
+  assert.equal(propagated, true);
+
+  const failedAttempt = loadSleepCycleState({ state_file: stateFile });
+  const cycle = failedAttempt.rem_cycles[0];
+  assert.notEqual(cycle.status, 'complete');
+  assert.notEqual(cycle.status, 'failed');
+  assert.equal(cycle.status, 'pending');
+  assert.equal(cycle.dreaming_process_pid, null);
+  assert.equal(cycle.dream_attempt_count, 1);
+  assert.equal(cycle.last_attempt_error, 'intentional dream failure');
+  assert.equal(failedAttempt.last_architecture_error, 'intentional dream failure');
+  assert.equal(Object.prototype.hasOwnProperty.call(cycle, 'failure_message'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(cycle, 'dream_txt_file') && cycle.dream_txt_file !== null, false);
+  const events = fs.readFileSync(eventsFile, 'utf8');
+  assert.equal(events.includes('rem_dream_architecture_error'), true);
+  assert.equal(events.includes('rem_dream_failed'), false);
+  assert.equal(events.includes('rem_dream_completed'), false);
 }
 
 async function run() {
@@ -90,7 +105,11 @@ async function run() {
     marker: 'FLOKI_V2_SLEEP_CYCLE_DURABLE_REM_STATE_PASS',
     dreaming_saved_before_dream_runner_resolved: true,
     successful_dream_completed: true,
-    failed_dream_marked_failed: true,
+    expected_exception_propagated: true,
+    failed_attempt_requeued_pending: true,
+    no_failed_rem_state: true,
+    no_fallback_dream_fabricated: true,
+    no_success_marker_for_failed_attempt: true,
     chat_mode_only: true,
     game_mode_started: false
   }, null, 2));

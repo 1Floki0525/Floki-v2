@@ -23,9 +23,9 @@ function createRuntime(options = {}) {
   });
 }
 
-async function handleUserText(runtime, text) {
+async function handleUserText(runtime, text, options = {}) {
   recordWakeActivityIfSleeping({ reason: 'typed_chat_activity' });
-  return runtime.handleChatText(text);
+  return runtime.handleChatText(text, options);
 }
 
 function buildSmokeJson(runtime, result) {

@@ -15,6 +15,12 @@ const {
   lifecycleTransitionLabel,
   printLifecycleStatus
 } = require('./floki-lifecycle-status.cjs');
+const {
+  readChatWebcamVisionStatus,
+  readLatestPrivateObservation,
+  stopChatWebcamVisionService,
+  formatChatWebcamVisionLines
+} = require('../vision/chat-webcam-vision-service.cjs');
 
 const { PROJECT_ROOT: ROOT, getTimeoutConfig, getPathConfig, getSleepConfig } = require('../../src/config/floki-config.cjs');
 
@@ -171,7 +177,13 @@ function stopSpeechLoop() {
 function printStatus(startStatus) {
   const config = loadCoreBrainConfig('chat');
   const paths = getTranscriptPaths();
-  const visionStatus = buildVisionStatus({ active_mode: 'chat' });
+  const chatWebcamVisionStatus = readChatWebcamVisionStatus();
+  const visionStatus = buildVisionStatus({
+    active_mode: 'chat',
+    webcam_status: {
+      measured_fps: chatWebcamVisionStatus.measured_capture_fps
+    }
+  });
   const lifecycleStatus = buildFlokiLifecycleStatus();
   console.log(JSON.stringify({
     ok: true,
@@ -191,6 +203,7 @@ function printStatus(startStatus) {
     broca_enabled_now: true,
     piper_spoken_replies_recorded_to_chat_interface: true,
     vision_status: visionStatus,
+    chat_webcam_vision_status: chatWebcamVisionStatus,
     lifecycle_status: lifecycleStatus,
     chat_mode_uses_webcam_eyes: visionStatus.chat_mode_uses_webcam_eyes,
     game_mode_uses_first_person_game_view: visionStatus.game_mode_uses_first_person_game_view,
@@ -226,7 +239,9 @@ function lifecycleSignature(status) {
 
 async function handleTypedText(runtime, text) {
   appendChatTranscriptTurn({ role: 'user', text, input_modality: 'text', output_modality: 'none', spoken_aloud: false, source: 'live_chat_interface' });
-  const result = await handleUserText(runtime, text);
+  const result = await handleUserText(runtime, text, {
+    chat_webcam_vision: readLatestPrivateObservation()
+  });
   const cognition = cognitionJsonFromOutput(result.cognitionOutput);
   const speech = speechJsonFromOutput(result.speechOutput);
   const reply = speech.enabled ? speech.text : String(speech.error || 'I could not form a reply.');
@@ -241,6 +256,10 @@ async function runLiveChatInterface(options = {}) {
   const runtime = createRuntime();
   const noSpeech = process.argv.includes('--no-speech') || options.no_speech === true;
   const knowledgeAutoloadStatus = startKnowledgeAutoload();
+  const chatWebcamVisionStatus = readChatWebcamVisionStatus();
+  if (chatWebcamVisionStatus.ready_for_chat !== true) {
+    throw new Error('chat webcam vision is not ready; start chat through bin/floki-start.sh chat');
+  }
   const startStatus = startSpeechLoop({ no_speech: noSpeech });
   const paths = getTranscriptPaths();
   const seenTranscriptIds = loadSeenTranscriptIds();
@@ -249,11 +268,12 @@ async function runLiveChatInterface(options = {}) {
   let lifecycleStatusSignature = lifecycleSignature(lifecycleStatus);
   console.log('FLOKI_V2_LIVE_CHAT_INTERFACE_READY');
   console.log(formatLifecycleStateLine(lifecycleStatus));
+  for (const line of formatChatWebcamVisionLines(chatWebcamVisionStatus)) console.log(line);
   console.log('Text input: type in this terminal.');
   console.log('Spoken input: say wake word, for example: Hey Floki ...');
   console.log('Public transcript: ' + paths.transcript_text_file);
   console.log('Private thought review log: ' + paths.private_thought_text_file);
-  console.log('Commands: /help, /status, /state, /sleep-status, /transcript, /speech-start, /speech-stop, /exit');
+  console.log('Commands: /help, /status, /state, /sleep-status, /vision-status, /eyes-status, /transcript, /speech-start, /speech-stop, /exit');
   console.log('Knowledge autoload: ' + JSON.stringify(knowledgeAutoloadStatus));
   console.log(JSON.stringify(startStatus, null, 2));
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: 'you> ' });
@@ -279,9 +299,16 @@ async function runLiveChatInterface(options = {}) {
     const text = String(line || '').trim();
     try {
       if (!text) { rl.prompt(); return; }
-      if (text === '/exit' || text === '/quit') { clearInterval(poll); console.log(JSON.stringify(stopSpeechLoop(), null, 2)); rl.close(); return; }
-      if (text === '/help') { console.log('Commands: /status, /state, /sleep-status, /transcript, /speech-start, /speech-stop, /exit'); rl.prompt(); return; }
+      if (text === '/exit' || text === '/quit') {
+        clearInterval(poll);
+        console.log(JSON.stringify(stopSpeechLoop(), null, 2));
+        console.log(JSON.stringify(await stopChatWebcamVisionService(), null, 2));
+        rl.close();
+        return;
+      }
+      if (text === '/help') { console.log('Commands: /status, /state, /sleep-status, /vision-status, /eyes-status, /transcript, /speech-start, /speech-stop, /exit'); rl.prompt(); return; }
       if (text === '/status') { printStatus(startStatus); rl.prompt(); return; }
+      if (text === '/vision-status' || text === '/eyes-status') { console.log(JSON.stringify(readChatWebcamVisionStatus(), null, 2)); rl.prompt(); return; }
       if (text === '/state' || text === '/sleep-status') { printLifecycleStatus(); rl.prompt(); return; }
       if (text === '/transcript') { for (const entry of readChatTranscriptTail(30)) console.log((entry.role || 'unknown') + ' [' + (entry.input_modality || entry.output_modality || 'unknown') + ']> ' + entry.text); rl.prompt(); return; }
       if (text === '/speech-start') { console.log(JSON.stringify(startSpeechLoop(), null, 2)); rl.prompt(); return; }
