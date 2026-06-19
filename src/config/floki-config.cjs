@@ -257,7 +257,9 @@ function buildSleepSection(section, mode) {
     start_hhmm: requireString(section.start_hhmm, 'sleep.start_hhmm'),
     end_hhmm: requireString(section.end_hhmm, 'sleep.end_hhmm'),
     idle_resume_seconds: requireNumber(section.idle_resume_seconds, 'sleep.idle_resume_seconds'),
-    rem_offsets_minutes: requireObject(section.rem_offsets_minutes, 'sleep.rem_offsets_minutes')
+    rem_offsets_minutes: requireObject(section.rem_offsets_minutes, 'sleep.rem_offsets_minutes'),
+    lifecycle_status_poll_ms: requireNumber(section.lifecycle_status_poll_ms, 'sleep.lifecycle_status_poll_ms'),
+    lifecycle_transition_notifications_enabled: requireBoolean(section.lifecycle_transition_notifications_enabled, 'sleep.lifecycle_transition_notifications_enabled')
   });
 }
 

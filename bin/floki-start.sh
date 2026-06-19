@@ -84,6 +84,10 @@ case "$COMMAND" in
     node src/brain/core-brain-status.cjs "$MODE"
     exit "$?"
     ;;
+  life-status)
+    node src/chat/floki-lifecycle-status.cjs "$@"
+    exit "$?"
+    ;;
   status)
     node src/game/floki-game.cjs --status
     exit "$?"
@@ -101,6 +105,7 @@ echo "  bin/floki-start.sh text-chat         old typed-only terminal chat"
 echo "  bin/floki-start.sh chat-loop-start   start background spoken wake-word listener"
 echo "  bin/floki-start.sh chat-loop-stop    stop background spoken wake-word listener"
 echo "  bin/floki-start.sh chat-loop-status  show background spoken listener status"
+echo "  bin/floki-start.sh life-status       show awake/sleep/REM lifecycle status"
 echo ""
 echo "Current stage:"
 echo "  chat mode accepts typed text and spoken wake-word input"

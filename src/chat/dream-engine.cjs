@@ -448,7 +448,7 @@ async function callDreamGenerator(prompt, context, options = {}) {
     firstError = error && error.message ? error.message : String(error);
     retryUsed = true;
     const retryDreamConfig = getDreamConfig(options.mode || 'chat');
-    result = await generateJson({
+    const retryRequest = Object.freeze({
       ...request,
       prompt: [
         'Your previous dream response failed JSON/schema validation.',
@@ -465,6 +465,28 @@ async function callDreamGenerator(prompt, context, options = {}) {
       top_p: retryDreamConfig.retry_top_p,
       num_predict: Number(options.retry_num_predict || retryDreamConfig.retry_num_predict)
     });
+    try {
+      result = await generateJson(retryRequest);
+    } catch (retryError) {
+      const secondError = retryError && retryError.message ? retryError.message : String(retryError);
+      result = await generateJson({
+        ...retryRequest,
+        prompt: [
+          'Final repair pass. Return exactly one JSON object and nothing else.',
+          'All string values must be short: 160 characters or fewer.',
+          'Use empty arrays if unsure. Use safe_summary_only true.',
+          'No markdown. No private reasoning. No extra keys.',
+          'Required keys: title, dream_story, emotional_tone, memory_sources, knowledge_sources, symbols, consolidation_summary, remembered_as, first_person_reflection, rem_cycle_number, safe_summary_only.',
+          'Use rem_cycle_number ' + Number(context.rem_cycle_number || options.rem_cycle_number || 1) + '.',
+          'The self voice must be first person: I, me, my.',
+          'Previous errors: ' + firstError.slice(0, 160) + ' | ' + secondError.slice(0, 160),
+          'Context summary: REM cycle ' + Number(context.rem_cycle_number || 1) + ', sleep window ' + context.sleep_window_start + ' to ' + context.sleep_window_end + '.'
+        ].join('\n'),
+        num_predict: Number(options.final_retry_num_predict || 900)
+      });
+      retryUsed = true;
+      firstError = firstError + ' | second retry error: ' + secondError;
+    }
   }
 
   return Object.freeze({

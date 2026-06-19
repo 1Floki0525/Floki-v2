@@ -192,6 +192,8 @@ sleep:
   start_hhmm: "23:00"
   end_hhmm: "07:00"
   idle_resume_seconds: 120
+  lifecycle_status_poll_ms: 1000
+  lifecycle_transition_notifications_enabled: true
   rem_offsets_minutes:
     cycle_1: 90
     cycle_2: 180

@@ -10,6 +10,8 @@ const {
   buildChatSmokeJson
 } = require('../../brain/core_brain/index.cjs');
 const { buildVisionStatus } = require('../vision/vision-status.cjs');
+const { buildFlokiLifecycleStatus, printLifecycleStatus } = require('./floki-lifecycle-status.cjs');
+const { recordWakeActivityIfSleeping } = require('./sleep-cycle.cjs');
 
 function createRuntime(options = {}) {
   return createCoreBrain({
@@ -22,6 +24,7 @@ function createRuntime(options = {}) {
 }
 
 async function handleUserText(runtime, text) {
+  recordWakeActivityIfSleeping({ reason: 'typed_chat_activity' });
   return runtime.handleChatText(text);
 }
 
@@ -32,6 +35,7 @@ function buildSmokeJson(runtime, result) {
 function printStatus() {
   const config = loadCoreBrainConfig('chat');
   const visionStatus = buildVisionStatus({ active_mode: 'chat' });
+  const lifecycleStatus = buildFlokiLifecycleStatus();
 
   console.log(JSON.stringify({
     ok: true,
@@ -43,6 +47,7 @@ function printStatus() {
     cognition_model: config.models.cognition.model,
     vision_model: config.models.vision.model,
     vision_status: visionStatus,
+    lifecycle_status: lifecycleStatus,
     chat_mode_uses_webcam_eyes: visionStatus.chat_mode_uses_webcam_eyes,
     game_mode_uses_first_person_game_view: visionStatus.game_mode_uses_first_person_game_view,
     pineal_mind_eye_used_for_dreams: visionStatus.pineal_mind_eye_used_for_dreams,
@@ -71,7 +76,7 @@ async function runInteractive() {
   console.log('session: ' + runtime.session_id);
   console.log('Current stage: core_brain + qwen cognition + Broca speech. Minecraft game mode is separate.');
   console.log('Config: ' + runtime.config.source_path);
-  console.log('Commands: /help, /status, /exit');
+  console.log('Commands: /help, /status, /state, /sleep-status, /exit');
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -97,8 +102,10 @@ async function runInteractive() {
 
       if (text === '/help') {
         console.log('Commands:');
-        console.log('  /status  show chat/core_brain/cognition/Broca status');
-        console.log('  /exit    close chat');
+        console.log('  /status       show chat/core_brain/cognition/Broca status');
+        console.log('  /state        show awake/sleep/REM lifecycle status');
+        console.log('  /sleep-status show awake/sleep/REM lifecycle status');
+        console.log('  /exit         close chat');
         console.log('Any other text is routed through core_brain using config/chat.config.yaml.');
         rl.prompt();
         return;
@@ -106,6 +113,12 @@ async function runInteractive() {
 
       if (text === '/status') {
         printStatus();
+        rl.prompt();
+        return;
+      }
+
+      if (text === '/state' || text === '/sleep-status') {
+        printLifecycleStatus();
         rl.prompt();
         return;
       }

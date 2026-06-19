@@ -11,6 +11,7 @@ const { speakerPlaybackGuardStatus } = require('../senses/piper-speaker-playback
 const { VOICES } = require('../senses/piper-speech-smoke.cjs');
 const { getCognitionConfig } = require('../config/model-config.cjs');
 const { buildVisionStatus } = require('../vision/vision-status.cjs');
+const { buildFlokiLifecycleStatus } = require('./floki-lifecycle-status.cjs');
 
 const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
 const CHAT_MODE_STATUS_VERSION = 'floki-v2-chat-mode-status-v1';
@@ -131,6 +132,7 @@ function buildChatModeStatus(options = {}) {
   const loopRuntimePid = statePath('chat/runtime/chat-mode-loop.pid');
   const chatModeActive = fs.existsSync(loopRuntimePid);
   const visionStatus = buildVisionStatus({ active_mode: 'chat' });
+  const lifecycleStatus = buildFlokiLifecycleStatus(options.lifecycle_status_options || {});
 
   const ok = toolchain.ok === true &&
     toolchain.whisper.cli_ready === true &&
@@ -211,6 +213,7 @@ function buildChatModeStatus(options = {}) {
     latest_spoken_reply_report: latestSpokenReply.path,
     latest_loop_report: latestLoop.path,
     vision_status: visionStatus,
+    lifecycle_status: lifecycleStatus,
     chat_mode_active: chatModeActive,
     chat_mode_runtime_pid_file: loopRuntimePid,
     game_mode_explicitly_out_of_scope: true,

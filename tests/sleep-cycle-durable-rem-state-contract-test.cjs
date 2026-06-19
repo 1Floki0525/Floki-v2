@@ -1,0 +1,108 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const { statePath, ensureDirSync } = require('../src/util/fs-safe.cjs');
+const { newId } = require('../src/util/ids.cjs');
+const {
+  loadSleepCycleState,
+  runSleepCycleTick
+} = require('../src/chat/sleep-cycle.cjs');
+
+async function waitOneTurn() {
+  await Promise.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+async function runCompletionCase(baseDir) {
+  const stateFile = path.join(baseDir, 'complete-state.json');
+  const eventsFile = path.join(baseDir, 'complete-events.jsonl');
+  let resolveDream;
+  const pending = runSleepCycleTick({
+    env: { FLOKI_ALLOW_SLEEP_CYCLE: '1' },
+    now: '2026-06-18T04:31:00.000Z',
+    state_file: stateFile,
+    events_file: eventsFile,
+    dream_runner: async function() {
+      return new Promise((resolve) => {
+        resolveDream = resolve;
+      });
+    },
+    write_report: false
+  });
+
+  await waitOneTurn();
+  const dreaming = loadSleepCycleState({ state_file: stateFile });
+  assert.equal(dreaming.rem_cycles[0].status, 'dreaming');
+  assert.equal(dreaming.rem_cycles[0].dreaming_started_at, '2026-06-18T04:31:00.000Z');
+  assert.equal(dreaming.rem_cycles[0].dreaming_process_pid, process.pid);
+  assert.equal(dreaming.rem_cycles[0].last_transition_at, '2026-06-18T04:31:00.000Z');
+  assert.equal(fs.readFileSync(eventsFile, 'utf8').includes('rem_dream_started'), true);
+
+  resolveDream({
+    ok: true,
+    marker: 'FLOKI_V2_DREAM_ENGINE_CONTRACT_PASS',
+    dream_txt_file: path.join(baseDir, 'dream-1.txt'),
+    dream_metadata_file: path.join(baseDir, 'dream-1.json')
+  });
+  const tick = await pending;
+  assert.equal(tick.ok, true);
+  const complete = loadSleepCycleState({ state_file: stateFile });
+  assert.equal(complete.rem_cycles[0].status, 'complete');
+  assert.equal(complete.rem_cycles[0].dreaming_process_pid, null);
+  assert.equal(complete.rem_cycles[0].completed_at, '2026-06-18T04:31:00.000Z');
+  assert.equal(fs.readFileSync(eventsFile, 'utf8').includes('rem_dream_completed'), true);
+}
+
+async function runFailureCase(baseDir) {
+  const stateFile = path.join(baseDir, 'failed-state.json');
+  const eventsFile = path.join(baseDir, 'failed-events.jsonl');
+  const tick = await runSleepCycleTick({
+    env: { FLOKI_ALLOW_SLEEP_CYCLE: '1' },
+    now: '2026-06-18T04:31:00.000Z',
+    state_file: stateFile,
+    events_file: eventsFile,
+    dream_runner: async function() {
+      throw new Error('intentional dream failure');
+    },
+    write_report: false
+  });
+  assert.equal(tick.ok, false);
+  const failed = loadSleepCycleState({ state_file: stateFile });
+  assert.equal(failed.rem_cycles[0].status, 'failed');
+  assert.equal(failed.rem_cycles[0].failure_message, 'intentional dream failure');
+  assert.equal(failed.rem_cycles[0].dreaming_process_pid, null);
+  assert.equal(fs.readFileSync(eventsFile, 'utf8').includes('rem_dream_failed'), true);
+}
+
+async function run() {
+  const unique = newId('durable_rem').replace(/[^a-z0-9_]/g, '_');
+  const baseDir = statePath('test/sleep-cycle-durable-rem/' + unique);
+  ensureDirSync(baseDir);
+
+  await runCompletionCase(baseDir);
+  await runFailureCase(baseDir);
+
+  console.log(JSON.stringify({
+    ok: true,
+    marker: 'FLOKI_V2_SLEEP_CYCLE_DURABLE_REM_STATE_PASS',
+    dreaming_saved_before_dream_runner_resolved: true,
+    successful_dream_completed: true,
+    failed_dream_marked_failed: true,
+    chat_mode_only: true,
+    game_mode_started: false
+  }, null, 2));
+}
+
+run().catch((error) => {
+  console.error(JSON.stringify({
+    ok: false,
+    marker: 'FLOKI_V2_SLEEP_CYCLE_DURABLE_REM_STATE_FAIL',
+    error: error.message,
+    chat_mode_only: true,
+    game_mode_started: false
+  }, null, 2));
+  process.exit(1);
+});
