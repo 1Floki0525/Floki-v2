@@ -549,3 +549,42 @@ if (typeof module.exports.getFlokiConfig !== 'function') {
     });
   };
 }
+// FLOKI_V2_WEBCAM_CAPTURE_CONFIG_AUTHORITY_PATCH
+// Expose webcam_capture from YAML through the public config authority.
+// This keeps webcam runtime settings YAML-driven instead of hidden in source.
+(function patchWebcamCaptureConfigAuthority() {
+  const path = require('node:path');
+  const { loadYamlFile } = require('./yaml-lite.cjs');
+
+  const originalGetFlokiConfig = module.exports.getFlokiConfig;
+  if (typeof originalGetFlokiConfig !== 'function') {
+    throw new Error('getFlokiConfig must exist before webcam_capture authority patch');
+  }
+
+  const projectRoot = path.resolve(__dirname, '..', '..');
+
+  function configPathForMode(mode) {
+    if (mode === 'chat') return path.join(projectRoot, 'config', 'chat.config.yaml');
+    if (mode === 'game') return path.join(projectRoot, 'config', 'game.config.yaml');
+    throw new Error('unknown Floki config mode for webcam_capture: ' + mode);
+  }
+
+  function requiredObject(value, label) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('missing required YAML section: ' + label);
+    }
+    return Object.freeze({ ...value });
+  }
+
+  module.exports.getFlokiConfig = function getFlokiConfigWithWebcamCapture(mode = 'chat') {
+    const config = originalGetFlokiConfig(mode);
+    if (config.webcam_capture && typeof config.webcam_capture === 'object') {
+      return config;
+    }
+    const raw = loadYamlFile(configPathForMode(mode));
+    return Object.freeze({
+      ...config,
+      webcam_capture: requiredObject(raw.webcam_capture, 'webcam_capture')
+    });
+  };
+}());

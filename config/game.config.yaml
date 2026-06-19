@@ -254,3 +254,24 @@ life_clock:
     dusk: 12000
     night: 13000
     midnight: 18000
+
+webcam_capture:
+  capability_probe_enabled: true
+  require_exact_target_fps: true
+  target_fps: 40
+  target_width: 1280
+  target_height: 720
+  preferred_pixel_format: mjpeg
+  fallback_pixel_format: yuyv422
+  allow_resolution_fallback: false
+  allow_fps_fallback: false
+  measurement_warmup_frames: 20
+  measurement_frames: 120
+  min_measured_fps: 40
+  ffmpeg_bin: ffmpeg
+  v4l2_ctl_bin: v4l2-ctl
+  ffmpeg_loglevel: warning
+  ffmpeg_input_format: v4l2
+  ffmpeg_output_format: "null"
+  frame_transport: pipe
+  raw_frame_storage_enabled: false
