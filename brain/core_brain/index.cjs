@@ -14,6 +14,10 @@ const { makeUserTextEvent } = require('../../src/brain/brain-event-schema.cjs');
 const { summarizeAffectForMemory } = require('../../src/brain/affect-state-schema.cjs');
 const { statePath } = require('../../src/util/fs-safe.cjs');
 const { newId } = require('../../src/util/ids.cjs');
+const {
+  normalizeChatWebcamVisionContext,
+  buildChatRuntimeCapabilities
+} = require('../../src/vision/chat-webcam-vision-context.cjs');
 
 const { createThalamus } = require('../thalamus/index.cjs');
 const { createTemporal } = require('../temporal/index.cjs');
@@ -25,7 +29,8 @@ const { createPineal } = require('../pineal/index.cjs');
 const { createFrontal } = require('../frontal/index.cjs');
 const { createBroca } = require('../broca/index.cjs');
 
-const { PROJECT_ROOT: ROOT } = require('../../src/config/floki-config.cjs');
+const { PROJECT_ROOT: ROOT, getLiveChatConfig } = require('../../src/config/floki-config.cjs');
+const { createReleaseGate } = require('../../src/chat/public-response-stream.cjs');
 const CONFIG_VERSION = 'floki-v2-core-brain-config-v1';
 
 const CHAT_REQUIRED_MODULES = Object.freeze([
@@ -400,6 +405,10 @@ async function handleChatText(core, text, options = {}) {
   }
 
   const event = makeUserTextEvent(text, { trace_id: core.session_id });
+  const chatWebcamVision = normalizeChatWebcamVisionContext(options.chat_webcam_vision || {});
+  const runtimeCapabilities = buildChatRuntimeCapabilities(chatWebcamVision);
+  const liveChat = getLiveChatConfig('chat');
+  const trace = options.latency_trace || null;
 
   const thalamus = requireModule(core, 'thalamus');
   const temporal = requireModule(core, 'temporal');
@@ -430,13 +439,48 @@ async function handleChatText(core, text, options = {}) {
   });
 
   const personalityOutput = personality.updateFromMemory(memoryOutput.payload.record);
-  const identityOutput = pineal.updateFromMemory(memoryOutput.payload.record, personalityOutput.payload.current);
+  const identityOutput = pineal.updateFromMemory(
+    memoryOutput.payload.record,
+    personalityOutput.payload.current,
+    { runtime_capabilities: runtimeCapabilities }
+  );
 
   const recallOutput = hippocampus.recall({
     text,
     streams: ['short_term', 'episodic', 'semantic', 'autobiographical'],
     limit: 5
   });
+  const memoryMatches = memoryMatchesForContext(recallOutput);
+  if (trace) trace.emit('memory_context_ready', { memory_match_count: memoryMatches.length });
+
+  const brocaContext = {
+    parent_event_ids: [event.id],
+    include_stage_truth: true,
+    chat_webcam_vision: chatWebcamVision,
+    runtime_capabilities: runtimeCapabilities,
+    tone: 'plain',
+    audience: 'user'
+  };
+
+  const releaseGate = createReleaseGate({
+    signal: options.signal,
+    minimum_sentence_characters: Number(liveChat.public_sentence_min_characters || 12),
+    authorize(candidate) {
+      return broca.authorizePublicText(candidate, brocaContext);
+    },
+    on_public_text(payload) {
+      if (trace) trace.emit('first_safe_public_text', { safe_public_text_length: payload.text.length });
+      if (typeof options.on_public_text === 'function') options.on_public_text(payload);
+    },
+    on_first_sentence(payload) {
+      if (trace) trace.emit('first_safe_sentence', { safe_public_text_length: payload.text.length });
+      if (typeof options.on_first_sentence === 'function') options.on_first_sentence(payload);
+    }
+  });
+
+  const streamingEnabled = options.streaming_enabled !== undefined
+    ? options.streaming_enabled === true
+    : liveChat.public_response_streaming_enabled === true;
 
   const cognitionOutput = await frontal.runCognition({
     event,
@@ -444,8 +488,8 @@ async function handleChatText(core, text, options = {}) {
     understanding: understandingOutput.payload,
     salience: salienceOutput.payload,
     affect: affectSummary,
-    memories: memoryMatchesForContext(recallOutput),
-    chat_webcam_vision: options.chat_webcam_vision || null,
+    memories: memoryMatches,
+    chat_webcam_vision: chatWebcamVision,
     personality: personalityOutput.payload.current,
     identity: identityOutput.payload.current,
     core_brain: {
@@ -454,12 +498,64 @@ async function handleChatText(core, text, options = {}) {
       enabled_modules: core.enabled_module_names,
       registry_modules: registeredModuleNames()
     }
+  }, {
+    streaming_enabled: streamingEnabled,
+    timeout_ms: Number(liveChat.stream_timeout_ms || core.config.models.cognition.timeout_ms),
+    num_predict: Number(liveChat.public_response_max_tokens || 220),
+    signal: options.signal,
+    post_json: options.post_json,
+    post_json_stream: options.post_json_stream,
+    released_public_text: releaseGate.authorized_text,
+    on_model_dispatched(info) {
+      if (trace) trace.emit('model_dispatched', {
+        configured_model: info.model,
+        configured_endpoint: info.endpoint,
+        prompt_character_count: info.prompt_character_count,
+        schema_enabled: info.schema_enabled,
+        streaming_enabled: info.streaming_enabled
+      });
+      if (typeof options.on_model_dispatched === 'function') options.on_model_dispatched(info);
+    },
+    on_first_chunk(info) {
+      if (trace) trace.emit('first_response_chunk');
+      if (typeof options.on_first_chunk === 'function') options.on_first_chunk(info);
+    },
+    on_public_candidate(candidate) {
+      releaseGate.release(candidate.text, brocaContext);
+    },
+    on_final_model_output(info) {
+      const stats = info.raw_stats || {};
+      if (trace) trace.emit('final_model_output', {
+        ollama_total_duration: stats.total_duration,
+        ollama_load_duration: stats.load_duration,
+        ollama_prompt_eval_count: stats.prompt_eval_count,
+        ollama_prompt_eval_duration: stats.prompt_eval_duration,
+        ollama_eval_count: stats.eval_count,
+        ollama_eval_duration: stats.eval_duration,
+        ollama_done_reason: stats.done_reason
+      });
+      if (typeof options.on_final_model_output === 'function') options.on_final_model_output(info);
+    },
+    on_schema_valid(info) {
+      if (trace) trace.emit('schema_valid');
+      if (typeof options.on_schema_valid === 'function') options.on_schema_valid(info);
+    }
   });
 
-  const speechOutput = broca.speakFromCognition(cognitionOutput, {
-    parent_event_ids: [event.id],
-    include_stage_truth: true
-  });
+  const speechOutput = broca.speakFromCognition(cognitionOutput, brocaContext);
+  if (speechOutput && speechOutput.type === 'speech') {
+    const finalText = speechOutput.payload && typeof speechOutput.payload.text === 'string'
+      ? speechOutput.payload.text.trim()
+      : '';
+    const releasedText = releaseGate.authorized_text();
+    if (releasedText && finalText !== releasedText) {
+      throw new Error('final Broca speech differs from already released public response');
+    }
+    if (!releaseGate.was_released() && finalText) {
+      releaseGate.release(finalText, brocaContext);
+    }
+    if (trace) trace.emit('broca_ready', { safe_public_text_length: finalText.length });
+  }
 
   return {
     event,
@@ -473,7 +569,12 @@ async function handleChatText(core, text, options = {}) {
     identityOutput,
     recallOutput,
     cognitionOutput,
-    speechOutput
+    speechOutput,
+    chatWebcamVision,
+    runtimeCapabilities,
+    publicResponseReleased: releaseGate.was_released(),
+    publicResponseText: releaseGate.authorized_text(),
+    firstSafeSentence: releaseGate.first_sentence()
   };
 }
 

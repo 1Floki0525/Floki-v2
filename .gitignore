@@ -41,3 +41,7 @@ floki-media
 
 # Local model files / Modelfiles
 models/
+*.bak
+*.backup
+*.backup.*
+.floki-tools/backups/

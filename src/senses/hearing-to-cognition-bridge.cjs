@@ -21,8 +21,14 @@ const { retrieveDreamMemoryContext } = require('../chat/dream-recall.cjs');
 const { synthesizePiperSpeechToFile } = require('./piper-speech-smoke.cjs');
 const { buildWakeGatedUserText } = require('../chat/wake-word-gate.cjs');
 const { createVoiceOutputLock } = require('../chat/voice-output-lock.cjs');
+const { readLatestPrivateObservation } = require('../vision/chat-webcam-vision-service.cjs');
+const {
+  normalizeChatWebcamVisionContext,
+  buildChatRuntimeCapabilities
+} = require('../vision/chat-webcam-vision-context.cjs');
 
-const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
+const { PROJECT_ROOT: ROOT, getLiveChatConfig } = require('../config/floki-config.cjs');
+const { createReleaseGate } = require('../chat/public-response-stream.cjs');
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const HEARING_LOOP_REPORT = path.join(TOOLS_DIR, 'output', 'chat-hearing-loop', 'latest-chat-hearing-loop.json');
 const BRIDGE_OUTPUT_DIR = path.join(TOOLS_DIR, 'output', 'hearing-to-cognition');
@@ -355,7 +361,8 @@ async function runCognitionFromHeardText(heard, options = {}) {
     identity_path: brainState.identity_path,
     diagnostics_path: brainState.diagnostics_path
   });
-  const frontal = createFrontal({ diagnostics_path: brainState.diagnostics_path });
+  const frontalFactory = options.frontal_factory || createFrontal;
+  const frontal = frontalFactory({ diagnostics_path: brainState.diagnostics_path });
 
   const understanding = temporal.understandEvent(event);
   const salience = amygdala.computeSalience(event);
@@ -364,6 +371,12 @@ async function runCognitionFromHeardText(heard, options = {}) {
   const affectSummary = summarizeAffectForMemory(affect.payload.state);
 
   const persistentMemory = buildPersistentMemoryContext(heard, affectSummary, options);
+  const visionReader = options.read_latest_private_observation || readLatestPrivateObservation;
+  const rawChatWebcamVision = options.chat_webcam_vision !== undefined
+    ? options.chat_webcam_vision
+    : visionReader(options.vision_options || {});
+  const chatWebcamVision = normalizeChatWebcamVisionContext(rawChatWebcamVision);
+  const runtimeCapabilities = buildChatRuntimeCapabilities(chatWebcamVision);
 
   const memory = hippocampus.rememberEvent(event, {
     stream: 'short_term',
@@ -377,7 +390,11 @@ async function runCognitionFromHeardText(heard, options = {}) {
   });
 
   const personalityOut = personality.updateFromMemory(memory.payload.record);
-  const identityOut = pineal.updateFromMemory(memory.payload.record, personalityOut.payload.current);
+  const identityOut = pineal.updateFromMemory(
+    memory.payload.record,
+    personalityOut.payload.current,
+    { runtime_capabilities: runtimeCapabilities }
+  );
 
   const cognitionMemories = persistentMemory.cognition_memory_context.short_term
     .concat(persistentMemory.cognition_memory_context.long_term)
@@ -392,6 +409,40 @@ async function runCognitionFromHeardText(heard, options = {}) {
       reinforcement_score: memoryRecord.reinforcement_score
     }));
 
+  const liveChat = getLiveChatConfig('chat');
+  const trace = options.latency_trace || null;
+  if (trace) trace.emit('memory_context_ready', {
+    memory_match_count: cognitionMemories.length
+  });
+  const earlyBroca = createBroca({
+    diagnostics_path: brainState.diagnostics_path,
+    persist_diagnostics: options.persist_broca_diagnostics !== false
+  });
+  const brocaContext = {
+    parent_event_ids: [event.id],
+    include_chat_truth: options.include_chat_truth === true,
+    include_stage_truth: false,
+    tone: 'plain',
+    audience: 'user',
+    chat_webcam_vision: chatWebcamVision,
+    runtime_capabilities: runtimeCapabilities
+  };
+  const releaseGate = createReleaseGate({
+    signal: options.signal,
+    minimum_sentence_characters: Number(liveChat.public_sentence_min_characters || 12),
+    authorize(candidate) {
+      return earlyBroca.authorizePublicText(candidate, brocaContext);
+    },
+    on_public_text(payload) {
+      if (trace) trace.emit('first_safe_public_text', { safe_public_text_length: payload.text.length });
+      if (typeof options.on_public_text === 'function') options.on_public_text(payload);
+    },
+    on_first_sentence(payload) {
+      if (trace) trace.emit('first_safe_sentence', { safe_public_text_length: payload.text.length });
+      if (typeof options.on_first_safe_sentence === 'function') options.on_first_safe_sentence(payload);
+    }
+  });
+
   const cognition = await frontal.runCognition({
     event,
     understanding: understanding.payload,
@@ -403,8 +454,55 @@ async function runCognitionFromHeardText(heard, options = {}) {
       event: persistentMemory.reinforcement,
       state: persistentMemory.reinforcement_state
     },
+    chat_webcam_vision: chatWebcamVision,
     personality: personalityOut.payload.current,
     identity: identityOut.payload.current
+  }, {
+    streaming_enabled: options.streaming_enabled !== undefined
+      ? options.streaming_enabled === true
+      : liveChat.public_response_streaming_enabled === true,
+    timeout_ms: Number(liveChat.stream_timeout_ms || 120000),
+    num_predict: Number(liveChat.public_response_max_tokens || 220),
+    signal: options.signal,
+    post_json: options.post_json,
+    post_json_stream: options.post_json_stream,
+    released_public_text: releaseGate.authorized_text,
+    on_model_dispatched(info) {
+      if (trace) trace.emit('model_dispatched', {
+        configured_model: info.model,
+        configured_endpoint: info.endpoint,
+        prompt_character_count: info.prompt_character_count,
+        schema_enabled: info.schema_enabled,
+        streaming_enabled: info.streaming_enabled
+      });
+      if (typeof options.on_model_dispatched === 'function') options.on_model_dispatched(info);
+    },
+    on_first_chunk(info) {
+      if (trace) trace.emit('first_response_chunk');
+      if (typeof options.on_first_chunk === 'function') options.on_first_chunk(info);
+    },
+    on_public_candidate(candidate) {
+      releaseGate.release(candidate.text, brocaContext);
+    },
+    on_final_model_output(info) {
+      if (trace) {
+        const stats = info.raw_stats || {};
+        trace.emit('final_model_output', {
+          ollama_total_duration: stats.total_duration,
+          ollama_load_duration: stats.load_duration,
+          ollama_prompt_eval_count: stats.prompt_eval_count,
+          ollama_prompt_eval_duration: stats.prompt_eval_duration,
+          ollama_eval_count: stats.eval_count,
+          ollama_eval_duration: stats.eval_duration,
+          ollama_done_reason: stats.done_reason
+        });
+      }
+      if (typeof options.on_final_model_output === 'function') options.on_final_model_output(info);
+    },
+    on_schema_valid(info) {
+      if (trace) trace.emit('schema_valid');
+      if (typeof options.on_schema_valid === 'function') options.on_schema_valid(info);
+    }
   });
 
   validateBrainOutput(cognition);
@@ -427,7 +525,12 @@ async function runCognitionFromHeardText(heard, options = {}) {
     persistent_long_recall_count: persistentMemory.cognition_memory_context.long_term.length,
     persistent_memory_context: persistentMemory.cognition_memory_context,
     dream_memory_context: persistentMemory.cognition_memory_context.dream_memory_context,
-    trace_id: unique
+    chat_webcam_vision: chatWebcamVision,
+    runtime_capabilities: runtimeCapabilities,
+    trace_id: unique,
+    public_response_released_early: releaseGate.was_released(),
+    early_public_response_text: releaseGate.authorized_text(),
+    first_safe_sentence: releaseGate.first_sentence()
   });
 }
 
@@ -443,10 +546,21 @@ function runBrocaFromCognition(cognition, bridge, options = {}) {
     include_chat_truth: options.include_chat_truth === true,
     include_stage_truth: false,
     tone: 'plain',
-    audience: 'user'
+    audience: 'user',
+    chat_webcam_vision: bridge && bridge.chat_webcam_vision ? bridge.chat_webcam_vision : {},
+    runtime_capabilities: bridge && bridge.runtime_capabilities ? bridge.runtime_capabilities : {}
   });
 
   validateBrainOutput(speech);
+  const finalText = speech && speech.payload && typeof speech.payload.text === 'string'
+    ? speech.payload.text.trim()
+    : '';
+  const earlyText = bridge && typeof bridge.early_public_response_text === 'string'
+    ? bridge.early_public_response_text.trim()
+    : '';
+  if (earlyText && finalText !== earlyText) {
+    throw new Error('final spoken Broca response differs from early Broca-authorized response');
+  }
 
   return speech;
 }
@@ -584,6 +698,7 @@ async function runHearingToCognitionBridgeProof(options = {}) {
   const cognitionInner = cognitionPayload.cognition || {};
   const cognitionFailure = cognition.failure || {};
   const dreamMemoryContext = bridge.dream_memory_context || {};
+  const chatWebcamVision = bridge.chat_webcam_vision || {};
 
   const cognitionOk = cognition.type === 'model_response_summary' &&
     cognition.source === 'frontal' &&
@@ -613,18 +728,36 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     brocaPayload.text.trim().length > 0;
 
   let piperWav = null;
+  let earlySpoken = null;
+  const lowLatencyRequested = options.low_latency_spoken === true &&
+    typeof options.get_early_spoken_result === 'function';
+  let lowLatencySpoken = false;
 
-  if (brocaOk) {
+  if (brocaOk && lowLatencyRequested) {
+    earlySpoken = await options.get_early_spoken_result();
+    if (earlySpoken && earlySpoken.speech && earlySpoken.locked_playback) {
+      lowLatencySpoken = true;
+    }
+  }
+
+  if (brocaOk && lowLatencySpoken) {
+    if (String(earlySpoken.text || '').trim() !== String(brocaPayload.text || '').trim()) {
+      throw new Error('early spoken text differs from final Broca response');
+    }
+    piperWav = earlySpoken.speech;
+  } else if (brocaOk) {
     piperWav = runPiperWavFromBroca(brocaOutput, options);
   }
 
   const piperWavOk = piperWav &&
     piperWav.ok === true &&
     piperWav.piper_speech_run_now === true &&
-    piperWav.speaker_playback_run_now === false &&
     typeof piperWav.output_file === 'string' &&
     piperWav.output_file.length > 0 &&
-    Number(piperWav.output_size_bytes || 0) > 44;
+    Number(piperWav.output_size_bytes || 0) > 44 &&
+    (lowLatencySpoken
+      ? earlySpoken.locked_playback.ok === true
+      : piperWav.speaker_playback_run_now === false);
 
   const ok = cognitionOk && brocaOk && piperWavOk;
 
@@ -681,6 +814,10 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     piper_wav_output_size_bytes: piperWav ? Number(piperWav.output_size_bytes || 0) : 0,
     piper_voice_size: piperWav && piperWav.voice_size ? piperWav.voice_size : null,
     piper_voice_name: piperWav && piperWav.voice_name ? piperWav.voice_name : null,
+    low_latency_spoken_enabled: lowLatencySpoken,
+    early_public_response_released: bridge.public_response_released_early === true,
+    first_safe_sentence: bridge.first_safe_sentence || null,
+    early_locked_playback: earlySpoken && earlySpoken.locked_playback ? earlySpoken.locked_playback : null,
     broca_failure_code: brocaFailure.code || null,
     broca_failure_message: brocaFailure.message || null,
     normalized_model_json: cognitionPayload.normalized_model_json === true,
@@ -701,8 +838,15 @@ async function runHearingToCognitionBridgeProof(options = {}) {
     broca_text_response_created_now: brocaOk === true,
     piper_speech_run_now: piperWav !== null,
     piper_wav_created_now: piperWavOk === true,
-    speaker_playback_run_now: false,
+    speaker_playback_run_now: lowLatencySpoken && earlySpoken && earlySpoken.locked_playback
+      ? earlySpoken.locked_playback.speaker_playback_run_now === true
+      : false,
     webcam_opened_now: false,
+    webcam_observation_available: chatWebcamVision.available === true,
+    webcam_observation_fresh: chatWebcamVision.fresh === true,
+    webcam_observation_timestamp: chatWebcamVision.latest_private_observation_timestamp || null,
+    webcam_sight_scope: chatWebcamVision.sight_scope || null,
+    webcam_observation_summary_publicly_logged: false,
     yolo_inference_run_now: false,
     chat_mode_only: true
   });

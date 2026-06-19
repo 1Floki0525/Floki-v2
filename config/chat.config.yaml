@@ -90,6 +90,10 @@ vision:
   vlm_inference_enabled: true
   vlm_inference_every_n_frames: 40
   vlm_inference_min_interval_ms: 1000
+  latest_observation_max_age_ms: 15000
+  vlm_inference_max_attempts: 3
+  vlm_inference_retry_delay_ms: 500
+  vlm_max_consecutive_failures: 5
   vision_model_env: FLOKI_VISION_MODEL
   vision_endpoint_env: FLOKI_VISION_ENDPOINT
   observation_summary_enabled: true
@@ -245,6 +249,13 @@ live_chat:
   stale_memory_topic_bleed_guard: true
   public_transcript_excludes_private_thoughts: true
   private_thought_review_log_enabled: true
+  public_response_streaming_enabled: true
+  first_sentence_tts_enabled: true
+  latency_events_enabled: true
+  public_response_max_tokens: 512
+  stream_timeout_ms: 120000
+  public_sentence_min_characters: 12
+  latency_log_max_bytes: 8388608
 
 life_clock:
   ticks_per_second: 20

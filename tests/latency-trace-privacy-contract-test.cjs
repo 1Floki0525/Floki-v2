@@ -1,0 +1,18 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { EVENT_NAMES, sanitizeExtra, safeEndpointIdentifier, createLatencyTrace } = require('../src/util/latency-trace.cjs');
+const required = ['request_accepted','cached_vision_ready','memory_context_ready','model_dispatched','first_response_chunk','first_safe_public_text','first_safe_sentence','final_model_output','schema_valid','broca_ready','tts_started','tts_ready','playback_started','response_completed','response_interrupted','response_failed'];
+for (const name of required) assert.ok(EVENT_NAMES.includes(name), name);
+assert.equal(safeEndpointIdentifier('http://user:secret@127.0.0.1:11434/private?token=secret'), 'http://127.0.0.1:11434');
+const sanitized = sanitizeExtra({ webcam_observation: 'private room', raw_json: '{secret}', hidden_reasoning: 'secret', safe_public_text_length: 42, error_code: 'X' });
+assert.deepEqual(sanitized, { safe_public_text_length: 42, error_code: 'X' });
+const events = [];
+const trace = createLatencyTrace({ trace_id: 'trace', turn_id: 'turn', configured_model: 'synthetic-model', configured_endpoint: 'http://user:secret@127.0.0.1:11434/path', on_event: (event) => events.push(event) });
+trace.emit('request_accepted', { prompt_character_count: 5, webcam_observation: 'never' });
+trace.emit('model_dispatched');
+trace.emit('response_completed', { completion_status: 'complete' });
+assert.deepEqual(events.map((event) => event.event), ['request_accepted','model_dispatched','response_completed']);
+assert.ok(events.every((event, index) => index === 0 || event.elapsed_ms >= events[index - 1].elapsed_ms));
+assert.ok(!JSON.stringify(events).includes('never'));
+assert.ok(!JSON.stringify(events).includes('secret'));
+console.log('latency-trace-privacy-contract-test PASS');

@@ -188,6 +188,10 @@ function buildVisionSection(section, mode) {
     public_frame_logging_enabled: requireBoolean(section.public_frame_logging_enabled, 'vision.public_frame_logging_enabled'),
     private_observation_log_enabled: requireBoolean(section.private_observation_log_enabled, 'vision.private_observation_log_enabled'),
     ...(mode === 'chat' ? {
+      latest_observation_max_age_ms: requireNumber(section.latest_observation_max_age_ms, 'vision.latest_observation_max_age_ms'),
+      vlm_inference_max_attempts: requireNumber(section.vlm_inference_max_attempts, 'vision.vlm_inference_max_attempts'),
+      vlm_inference_retry_delay_ms: requireNumber(section.vlm_inference_retry_delay_ms, 'vision.vlm_inference_retry_delay_ms'),
+      vlm_max_consecutive_failures: requireNumber(section.vlm_max_consecutive_failures, 'vision.vlm_max_consecutive_failures'),
       webcam_device_env: requireString(section.webcam_device_env, 'vision.webcam_device_env'),
       webcam_device_default: requireString(section.webcam_device_default, 'vision.webcam_device_default'),
       webcam_backend: requireString(section.webcam_backend, 'vision.webcam_backend'),
@@ -375,7 +379,14 @@ function buildLiveChatSection(section, mode) {
     live_reply_mode: requireString(section.live_reply_mode, 'live_chat.live_reply_mode'),
     stale_memory_topic_bleed_guard: requireBoolean(section.stale_memory_topic_bleed_guard, 'live_chat.stale_memory_topic_bleed_guard'),
     public_transcript_excludes_private_thoughts: requireBoolean(section.public_transcript_excludes_private_thoughts, 'live_chat.public_transcript_excludes_private_thoughts'),
-    private_thought_review_log_enabled: requireBoolean(section.private_thought_review_log_enabled, 'live_chat.private_thought_review_log_enabled')
+    private_thought_review_log_enabled: requireBoolean(section.private_thought_review_log_enabled, 'live_chat.private_thought_review_log_enabled'),
+    public_response_streaming_enabled: requireBoolean(section.public_response_streaming_enabled, 'live_chat.public_response_streaming_enabled'),
+    first_sentence_tts_enabled: requireBoolean(section.first_sentence_tts_enabled, 'live_chat.first_sentence_tts_enabled'),
+    latency_events_enabled: requireBoolean(section.latency_events_enabled, 'live_chat.latency_events_enabled'),
+    public_response_max_tokens: requireNumber(section.public_response_max_tokens, 'live_chat.public_response_max_tokens'),
+    stream_timeout_ms: requireNumber(section.stream_timeout_ms, 'live_chat.stream_timeout_ms'),
+    public_sentence_min_characters: requireNumber(section.public_sentence_min_characters, 'live_chat.public_sentence_min_characters'),
+    latency_log_max_bytes: requireNumber(section.latency_log_max_bytes, 'live_chat.latency_log_max_bytes')
   });
 }
 

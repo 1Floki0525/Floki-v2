@@ -276,6 +276,10 @@ function buildOperationalStatus(state, extra = {}) {
     target_fps_met: measuredCaptureFps >= targetFps,
     last_frame_timestamp: state.last_frame_timestamp || null,
     last_vlm_inference_timestamp: state.last_vlm_inference_timestamp || null,
+    consecutive_vlm_failures: Number(state.consecutive_vlm_failures || 0),
+    last_vlm_error: extra.last_vlm_error === undefined
+      ? (state.last_vlm_error || null)
+      : extra.last_vlm_error,
     latest_private_observation_timestamp: state.latest_private_observation_timestamp || null,
     latest_private_observation_file: state.latest_private_observation_file || null,
     service_heartbeat: nowIso(),
@@ -353,6 +357,43 @@ async function callVisionModel(frameBuffer, options = {}) {
   return Object.freeze({ observation_summary: String(json.response || '').trim() });
 }
 
+function isAbortError(error, signal) {
+  return Boolean(
+    (signal && signal.aborted) ||
+    (error && (error.name === 'AbortError' || error.code === 'ABORT_ERR'))
+  );
+}
+
+async function callVisionModelWithRetry(frameBuffer, options = {}) {
+  const vision = getVisionConfig('chat');
+  const maxAttempts = Math.max(1, Number(
+    options.max_attempts || vision.vlm_inference_max_attempts
+  ));
+  const retryDelayMs = Math.max(0, Number(
+    options.retry_delay_ms === undefined
+      ? vision.vlm_inference_retry_delay_ms
+      : options.retry_delay_ms
+  ));
+  const singleAttempt = options.single_attempt_runner || callVisionModel;
+  const sleepFn = options.sleep_fn || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await singleAttempt(frameBuffer, options);
+    } catch (error) {
+      lastError = error;
+      if (isAbortError(error, options.abort_signal)) throw error;
+      if (attempt >= maxAttempts) break;
+      await sleepFn(retryDelayMs);
+      if (options.abort_signal && options.abort_signal.aborted) throw error;
+    }
+  }
+
+  throw new Error('vision inference failed after ' + maxAttempts + ' attempts: ' +
+    String(lastError && lastError.message ? lastError.message : lastError));
+}
+
 function writeLatestObservation(result, paths, state) {
   const text = assertPublicTranscriptText(
     String(result && (result.observation_summary || result.response || '')).trim(),
@@ -413,25 +454,63 @@ function readChatWebcamVisionStatus(options = {}) {
 
 function readLatestPrivateObservation(options = {}) {
   const paths = runtimePaths(options);
+  const vision = getVisionConfig('chat');
   const observation = safeReadJson(paths.latest_observation_file);
+  const unavailable = (reason, extra = {}) => Object.freeze({
+    available: false,
+    fresh: false,
+    stale: reason === 'stale_observation',
+    observation_age_ms: extra.observation_age_ms === undefined ? null : extra.observation_age_ms,
+    latest_private_observation_timestamp: extra.timestamp || null,
+    source: null,
+    sight_scope: null,
+    observation_summary: null,
+    unavailable_reason: reason,
+    public_transcript_visible: false,
+    chat_mode_only: true,
+    game_mode_started: false
+  });
+
   if (!observation || observation.ok !== true) {
-    return Object.freeze({
-      available: false,
-      latest_private_observation_timestamp: null,
-      source: null,
-      sight_scope: null,
-      observation_summary: null,
-      public_transcript_visible: false,
-      chat_mode_only: true,
-      game_mode_started: false
+    return unavailable('missing_observation');
+  }
+
+  const summary = typeof observation.observation_summary === 'string'
+    ? observation.observation_summary.trim()
+    : '';
+  if (!summary) {
+    return unavailable('empty_observation', { timestamp: observation.created_at || null });
+  }
+
+  const timestampMs = new Date(observation.created_at || '').getTime();
+  if (!Number.isFinite(timestampMs)) {
+    return unavailable('invalid_observation_timestamp', { timestamp: observation.created_at || null });
+  }
+
+  const nowMs = Number(options.now_ms === undefined ? Date.now() : options.now_ms);
+  const maxAgeMs = Math.max(1, Number(
+    options.max_age_ms === undefined
+      ? vision.latest_observation_max_age_ms
+      : options.max_age_ms
+  ));
+  const ageMs = Math.max(0, nowMs - timestampMs);
+  if (ageMs > maxAgeMs) {
+    return unavailable('stale_observation', {
+      timestamp: observation.created_at || null,
+      observation_age_ms: ageMs
     });
   }
+
   return Object.freeze({
     available: true,
+    fresh: true,
+    stale: false,
+    observation_age_ms: ageMs,
     latest_private_observation_timestamp: observation.created_at || null,
     source: observation.source || 'webcam',
     sight_scope: observation.sight_scope || 'maker_world_external',
-    observation_summary: observation.observation_summary || null,
+    observation_summary: summary,
+    unavailable_reason: null,
     public_transcript_visible: false,
     chat_mode_only: true,
     game_mode_started: false
@@ -563,6 +642,8 @@ async function runChatWebcamVisionService(options = {}) {
     last_vlm_inference_timestamp: null,
     latest_private_observation_timestamp: null,
     latest_private_observation_file: paths.latest_observation_file,
+    consecutive_vlm_failures: 0,
+    last_vlm_error: null,
     ffmpeg_pid: null,
     ffmpeg_process_alive: false
   };
@@ -611,20 +692,43 @@ async function runChatWebcamVisionService(options = {}) {
     state.last_vlm_inference_timestamp = nowIso();
     publish();
     try {
-      const result = await callVisionModel(frame, { ...options, abort_signal: inferenceAbortController.signal });
+      const result = await callVisionModelWithRetry(frame, {
+        ...options,
+        abort_signal: inferenceAbortController.signal
+      });
       if (stopping) return;
+      state.consecutive_vlm_failures = 0;
+      state.last_vlm_error = null;
       writeLatestObservation(result, paths, state);
-      publish();
+      publish({ last_vlm_error: null });
     } catch (error) {
       if (stopping) return;
-      fatalError = error.message;
-      publish({
-        ok: false,
-        marker: 'FLOKI_V2_CHAT_WEBCAM_SERVICE_FATAL',
-        last_fatal_error: fatalError
-      });
-      requestStop();
-      process.exitCode = 1;
+      state.consecutive_vlm_failures += 1;
+      state.last_vlm_error = error.message;
+      const maxConsecutiveFailures = Math.max(
+        1,
+        Number(vision.vlm_max_consecutive_failures)
+      );
+      const fatal = state.consecutive_vlm_failures >= maxConsecutiveFailures;
+
+      if (fatal) {
+        fatalError = error.message;
+        publish({
+          ok: false,
+          marker: 'FLOKI_V2_CHAT_WEBCAM_SERVICE_FATAL',
+          last_vlm_error: state.last_vlm_error,
+          last_fatal_error: fatalError
+        });
+        requestStop();
+        process.exitCode = 1;
+      } else {
+        publish({
+          ok: true,
+          marker: 'FLOKI_V2_CHAT_WEBCAM_SERVICE_DEGRADED',
+          last_vlm_error: state.last_vlm_error,
+          last_fatal_error: null
+        });
+      }
     } finally {
       inferenceAbortController = null;
       inFlightInference = false;
@@ -747,6 +851,8 @@ module.exports = {
   processIsAlive,
   readChatWebcamVisionStatus,
   readLatestPrivateObservation,
+  callVisionModel,
+  callVisionModelWithRetry,
   chatVisionTunnelConfig,
   readChatVisionTunnelStatus,
   startChatVisionTunnel,

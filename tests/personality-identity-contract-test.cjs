@@ -89,8 +89,11 @@ function run() {
   assert.equal(identityState.name, 'Floki');
   assert.equal(identityState.self_model.has_body_now, false);
   assert.equal(identityState.self_model.has_eyes_now, false);
-  assert.equal(identityState.self_model.has_cognition_model_now, false);
-  assert.equal(identityState.self_model.has_broca_voice_now, false);
+  assert.equal(identityState.self_model.has_chat_world_webcam_eyes, true);
+  assert.equal(identityState.self_model.chat_world_eyes_available_now, false);
+  assert.equal(identityState.self_model.has_game_world_eyes_now, false);
+  assert.equal(identityState.self_model.has_cognition_model_now, true);
+  assert.equal(identityState.self_model.has_broca_voice_now, true);
   assert.ok(identityState.anchors.formative_memory_ids.includes(memory.id));
   assert.ok(identityState.continuity_summary.includes('persistent memory'));
   assert.ok(identityState.boundaries.includes('do not fake abilities'));

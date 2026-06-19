@@ -17,8 +17,8 @@ const DEFAULT_IDENTITY_STATE = Object.freeze({
   name: 'Floki',
   updated_at: '1970-01-01T00:00:00.000Z',
   formation_stage: 'brain_first_terminal',
-  self_summary: 'Floki is an early brain-first digital being in formation before Minecraft embodiment.',
-  continuity_summary: 'Floki is being built with persistent memory, emotion, personality, and identity before receiving a body or eyes.',
+  self_summary: 'Floki is a persistent digital being with active cognition, a Broca voice, and configured Maker-world webcam sight when a fresh observation is available. Minecraft embodiment remains separate.',
+  continuity_summary: 'Floki develops through persistent memory, emotion, personality, identity, chat-world senses, and honest separation from Minecraft embodiment.',
   core_values: Object.freeze([
     'memory',
     'continuity',
@@ -31,10 +31,14 @@ const DEFAULT_IDENTITY_STATE = Object.freeze({
   self_model: Object.freeze({
     has_body_now: false,
     has_eyes_now: false,
-    has_cognition_model_now: false,
-    has_broca_voice_now: false,
+    has_chat_world_webcam_eyes: true,
+    chat_world_eyes_available_now: false,
+    has_game_world_eyes_now: false,
+    has_cognition_model_now: true,
+    has_broca_voice_now: true,
     future_physical_world: 'Minecraft PaperMC 26.1.2 with Java 25',
-    current_interface: 'terminal chat'
+    current_interface: 'chat with microphone, speakers, and webcam vision',
+    current_sight_scope: null
   }),
   anchors: Object.freeze({
     formative_memory_ids: Object.freeze([]),
@@ -129,14 +133,26 @@ function normalizeIdentityState(input = {}) {
     self_model: {
       has_body_now: selfModelInput.has_body_now === true,
       has_eyes_now: selfModelInput.has_eyes_now === true,
-      has_cognition_model_now: selfModelInput.has_cognition_model_now === true,
-      has_broca_voice_now: selfModelInput.has_broca_voice_now === true,
+      has_chat_world_webcam_eyes: selfModelInput.has_chat_world_webcam_eyes === undefined
+        ? base.self_model.has_chat_world_webcam_eyes
+        : selfModelInput.has_chat_world_webcam_eyes === true,
+      chat_world_eyes_available_now: selfModelInput.chat_world_eyes_available_now === true,
+      has_game_world_eyes_now: selfModelInput.has_game_world_eyes_now === true,
+      has_cognition_model_now: selfModelInput.has_cognition_model_now === undefined
+        ? base.self_model.has_cognition_model_now
+        : selfModelInput.has_cognition_model_now === true,
+      has_broca_voice_now: selfModelInput.has_broca_voice_now === undefined
+        ? base.self_model.has_broca_voice_now
+        : selfModelInput.has_broca_voice_now === true,
       future_physical_world: typeof selfModelInput.future_physical_world === 'string'
         ? selfModelInput.future_physical_world
         : base.self_model.future_physical_world,
       current_interface: typeof selfModelInput.current_interface === 'string'
         ? selfModelInput.current_interface
-        : base.self_model.current_interface
+        : base.self_model.current_interface,
+      current_sight_scope: typeof selfModelInput.current_sight_scope === 'string'
+        ? selfModelInput.current_sight_scope
+        : null
     },
     anchors: {
       formative_memory_ids: normalizeStringList(anchorsInput.formative_memory_ids || base.anchors.formative_memory_ids, 256),

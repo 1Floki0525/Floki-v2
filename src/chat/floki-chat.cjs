@@ -123,12 +123,22 @@ async function runInteractive() {
         return;
       }
 
-      const result = await handleUserText(runtime, text);
+      let streamedReply = null;
+      const result = await handleUserText(runtime, text, {
+        on_public_text(payload) {
+          if (streamedReply !== null) return;
+          streamedReply = payload.text;
+          console.log('floki> ' + payload.text);
+        }
+      });
       const cognition = cognitionJsonFromOutput(result.cognitionOutput);
       const speech = speechJsonFromOutput(result.speechOutput);
 
-      if (speech.enabled) {
+      if (speech.enabled && streamedReply === null) {
         console.log('floki> ' + speech.text);
+      }
+      if (speech.enabled && streamedReply !== null && speech.text !== streamedReply) {
+        throw new Error('final text-chat reply differs from streamed Broca-authorized reply');
       }
 
       console.log(JSON.stringify({

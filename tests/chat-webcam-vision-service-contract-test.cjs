@@ -105,9 +105,13 @@ function run() {
   }, null, 2));
   const observation = readLatestPrivateObservation({
     runtime_dir: observationDir,
-    latest_observation_file: observationFile
+    latest_observation_file: observationFile,
+    now_ms: Date.parse('2026-06-19T10:00:02.000Z'),
+    max_age_ms: 5000
   });
   assert.equal(observation.available, true);
+  assert.equal(observation.fresh, true);
+  assert.equal(observation.stale, false);
   assert.equal(observation.public_transcript_visible, false);
   assert.equal(observation.observation_summary, 'A private live webcam observation is available.');
 

@@ -25,6 +25,7 @@ const {
   applyIdentityDelta,
   summarizeIdentity
 } = require('../../src/brain/identity-state-schema.cjs');
+const { buildChatRuntimeCapabilities } = require('../../src/vision/chat-webcam-vision-context.cjs');
 
 const MODULE_NAME = 'pineal';
 
@@ -237,7 +238,7 @@ function updateIdentity(delta, options = {}) {
   }
 }
 
-function identityDeltaFromMemory(record, personalitySummary = {}) {
+function identityDeltaFromMemory(record, personalitySummary = {}, runtimeCapabilities = {}) {
   validateMemoryRecord(record);
 
   const text = `${record.content.summary} ${record.content.detail} ${record.tags.join(' ')}`.toLowerCase();
@@ -260,8 +261,13 @@ function identityDeltaFromMemory(record, personalitySummary = {}) {
     ? personalitySummary.values
     : [];
 
+  const capabilities = Object.freeze({
+    ...buildChatRuntimeCapabilities({ available: false }),
+    ...(runtimeCapabilities || {})
+  });
+
   const continuityPieces = [
-    'Floki is forming through persistent memory, emotion, personality, and identity before Minecraft embodiment.'
+    'Floki develops through persistent memory, emotion, personality, identity, chat-world senses, and honest separation from Minecraft embodiment.'
   ];
 
   if (formativeMemoryIds.length > 0) {
@@ -276,7 +282,7 @@ function identityDeltaFromMemory(record, personalitySummary = {}) {
     updated_at: nowIso(),
     name: 'Floki',
     formation_stage: 'brain_first_terminal',
-    self_summary: 'Floki is an early brain-first digital being forming a persistent self before body and eyes are wired.',
+    self_summary: 'Floki is a persistent digital being with active cognition, a Broca voice, and configured Maker-world webcam sight when a fresh observation is available. Minecraft embodiment remains separate.',
     continuity_summary: continuityPieces.join(' '),
     core_values: [
       'memory',
@@ -289,12 +295,16 @@ function identityDeltaFromMemory(record, personalitySummary = {}) {
       ...values
     ],
     self_model: {
-      has_body_now: false,
-      has_eyes_now: false,
-      has_cognition_model_now: false,
-      has_broca_voice_now: false,
+      has_body_now: capabilities.has_body_now === true,
+      has_eyes_now: capabilities.has_eyes_now === true,
+      has_chat_world_webcam_eyes: capabilities.has_chat_world_webcam_eyes === true,
+      chat_world_eyes_available_now: capabilities.chat_world_eyes_available_now === true,
+      has_game_world_eyes_now: capabilities.has_game_world_eyes_now === true,
+      has_cognition_model_now: capabilities.has_cognition_model_now === true,
+      has_broca_voice_now: capabilities.has_broca_voice_now === true,
       future_physical_world: 'Minecraft PaperMC 26.1.2 with Java 25',
-      current_interface: 'terminal chat'
+      current_interface: capabilities.current_interface || 'chat with microphone, speakers, and webcam vision',
+      current_sight_scope: capabilities.current_sight_scope || null
     },
     anchors: {
       formative_memory_ids: formativeMemoryIds,
@@ -317,7 +327,11 @@ function identityDeltaFromMemory(record, personalitySummary = {}) {
 }
 
 function updateFromMemory(record, personalitySummary = {}, options = {}) {
-  const delta = identityDeltaFromMemory(record, personalitySummary);
+  const delta = identityDeltaFromMemory(
+    record,
+    personalitySummary,
+    options.runtime_capabilities || {}
+  );
   return updateIdentity(delta, options);
 }
 

@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const {
   synthesizePiperSpeechToFile
@@ -153,6 +153,116 @@ function runPlaybackWithVoiceLock(filePath, metadata = {}, options = {}) {
   }
 }
 
+
+function playWavWithAplayAsync(filePath, options = {}) {
+  const aplay = commandReady('aplay');
+  if (!aplay.ready) return Promise.reject(new Error('aplay command not found'));
+
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const child = spawn('aplay', [filePath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill('SIGTERM');
+      const error = new Error('speaker playback timed out');
+      error.code = 'SPEAKER_PLAYBACK_TIMEOUT';
+      reject(error);
+    }, Number(options.timeout_ms || getTimeoutConfig('chat').speaker_playback_ms));
+
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      child.kill('SIGTERM');
+      const error = new Error('speaker playback aborted');
+      error.name = 'AbortError';
+      error.code = 'SPEAKER_PLAYBACK_ABORTED';
+      reject(error);
+    };
+    if (options.signal) {
+      if (options.signal.aborted) return onAbort();
+      options.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (options.signal) options.signal.removeEventListener('abort', onAbort);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (options.signal) options.signal.removeEventListener('abort', onAbort);
+      resolve(Object.freeze({
+        ok: code === 0,
+        command: 'aplay',
+        command_path: aplay.path,
+        exit_status: code,
+        stdout: stdout.trim().slice(0, 500),
+        stderr: stderr.trim().slice(0, 500)
+      }));
+    });
+  });
+}
+
+async function runPlaybackWithVoiceLockAsync(filePath, metadata = {}, options = {}) {
+  if (!filePath || typeof filePath !== 'string') throw new Error('speaker playback requires a wav file path');
+  const lock = createVoiceOutputLock({ lock_file: options.voice_lock_file });
+  const started = lock.beginSpeaking({
+    source: 'speaker_playback',
+    output_id: metadata.output_id || filePath,
+    text_hash: metadata.text_hash || path.basename(filePath),
+    ttl_ms: Number(options.voice_lock_ttl_ms || 120000),
+    now_ms: options.voice_lock_start_now_ms
+  });
+  if (started.ears_muted_now !== true) {
+    lock.endSpeaking({ reason: 'lock_failed_before_playback', now_ms: options.voice_lock_end_now_ms });
+    throw new Error('voice output lock did not mute ears before speaker playback');
+  }
+
+  let playback;
+  let playbackError = null;
+  try {
+    const runner = options.playback_runner_async || playWavWithAplayAsync;
+    playback = await runner(filePath, { signal: options.signal, timeout_ms: options.timeout_ms });
+  } catch (error) {
+    playbackError = error;
+    playback = Object.freeze({ ok: false, command: 'playback_runner_async', reason: error.message });
+  } finally {
+    const ended = lock.endSpeaking({
+      reason: playback && playback.ok === true ? 'completed' : 'playback_failed',
+      now_ms: options.voice_lock_end_now_ms
+    });
+    const ok = playback && playback.ok === true && started.ears_muted_now === true && ended.ears_muted_now === false && ended.speaking_now === false;
+    return Object.freeze({
+      ok,
+      marker: ok ? 'FLOKI_V2_SPEAKER_PLAYBACK_WITH_VOICE_LOCK_PASS' : 'FLOKI_V2_SPEAKER_PLAYBACK_WITH_VOICE_LOCK_FAIL',
+      file_path: filePath,
+      playback,
+      playback_error_message: playbackError ? playbackError.message : null,
+      lock_file: lock.lock_file,
+      voice_output_lock_started: true,
+      voice_output_lock_start_reason: started.reason,
+      voice_output_lock_id: started.lock_id,
+      ears_muted_during_playback: started.ears_muted_now === true,
+      voice_output_lock_cleared_after_playback: ended.ears_muted_now === false && ended.speaking_now === false,
+      ears_open_after_playback: ended.ears_muted_now === false,
+      started,
+      ended,
+      speaker_playback_run_now: playback ? playback.ok === true : false,
+      chat_mode_only: true
+    });
+  }
+}
+
 function runPiperSpeakerPlaybackProof(options = {}) {
   const guard = speakerPlaybackGuardStatus(options.env || process.env);
 
@@ -256,7 +366,9 @@ module.exports = {
   speakerPlaybackGuardStatus,
   commandReady,
   playWavWithAplay,
+  playWavWithAplayAsync,
   runPlaybackWithVoiceLock,
+  runPlaybackWithVoiceLockAsync,
   runPiperSpeakerPlaybackProof,
   printPiperSpeakerPlaybackProof
 };

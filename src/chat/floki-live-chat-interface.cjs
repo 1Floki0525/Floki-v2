@@ -22,7 +22,8 @@ const {
   formatChatWebcamVisionLines
 } = require('../vision/chat-webcam-vision-service.cjs');
 
-const { PROJECT_ROOT: ROOT, getTimeoutConfig, getPathConfig, getSleepConfig } = require('../../src/config/floki-config.cjs');
+const { PROJECT_ROOT: ROOT, getTimeoutConfig, getPathConfig, getSleepConfig, getLiveChatConfig } = require('../../src/config/floki-config.cjs');
+const { createLatencyTrace } = require('../util/latency-trace.cjs');
 
 function jsonStatus(ok, marker, extra = {}) {
   return Object.freeze({ ok, marker, ...extra, chat_mode_only: true, game_mode_started: false });
@@ -237,19 +238,111 @@ function lifecycleSignature(status) {
   ].join(':');
 }
 
-async function handleTypedText(runtime, text) {
-  appendChatTranscriptTurn({ role: 'user', text, input_modality: 'text', output_modality: 'none', spoken_aloud: false, source: 'live_chat_interface' });
-  const result = await handleUserText(runtime, text, {
-    chat_webcam_vision: readLatestPrivateObservation()
+async function handleTypedText(runtime, text, options = {}) {
+  const liveChat = getLiveChatConfig('chat');
+  const model = runtime.config.models.cognition;
+  const paths = getPathConfig('chat');
+  const trace = options.latency_trace || createLatencyTrace({
+    input_modality: options.input_modality || 'text',
+    configured_model: model.model,
+    configured_endpoint: model.endpoint,
+    schema_enabled: true,
+    streaming_enabled: liveChat.public_response_streaming_enabled === true,
+    log_path: path.join(ROOT, paths.chat_runtime_root, 'latency-events.jsonl'),
+    max_log_bytes: liveChat.latency_log_max_bytes,
+    on_event: options.on_latency_event
   });
+
+  trace.emit('request_accepted', { input_character_count: String(text || '').length });
+  appendChatTranscriptTurn({ role: 'user', text, input_modality: options.input_modality || 'text', output_modality: 'none', spoken_aloud: false, source: options.source || 'live_chat_interface' });
+
+  const cachedVision = options.chat_webcam_vision !== undefined
+    ? options.chat_webcam_vision
+    : readLatestPrivateObservation();
+  trace.emit('cached_vision_ready', {
+    cached_vision_available: cachedVision && cachedVision.available === true,
+    cached_vision_fresh: cachedVision && cachedVision.fresh === true
+  });
+
+  let displayedText = null;
+  const result = await handleUserText(runtime, text, {
+    chat_webcam_vision: cachedVision,
+    signal: options.signal,
+    latency_trace: trace,
+    streaming_enabled: options.streaming_enabled,
+    post_json: options.post_json,
+    post_json_stream: options.post_json_stream,
+    on_public_text(payload) {
+      if (displayedText !== null) return;
+      displayedText = payload.text;
+      if (options.print_public_text !== false) console.log('floki> ' + payload.text);
+      if (typeof options.on_public_text === 'function') options.on_public_text(payload);
+    },
+    on_first_sentence: options.on_first_sentence,
+    on_model_dispatched: options.on_model_dispatched,
+    on_first_chunk: options.on_first_chunk,
+    on_final_model_output: options.on_final_model_output,
+    on_schema_valid: options.on_schema_valid
+  });
+
   const cognition = cognitionJsonFromOutput(result.cognitionOutput);
   const speech = speechJsonFromOutput(result.speechOutput);
+  const interrupted = options.signal && options.signal.aborted ||
+    result.cognitionOutput && result.cognitionOutput.failure && result.cognitionOutput.failure.code === 'FRONTAL_COGNITION_INTERRUPTED';
+
+  if (interrupted) {
+    trace.emit('response_interrupted', { completion_status: 'interrupted', error_code: 'FRONTAL_COGNITION_INTERRUPTED' });
+    return jsonStatus(false, 'FLOKI_V2_LIVE_CHAT_TEXT_REPLY_INTERRUPTED', {
+      transcript_recorded_now: false,
+      response_interrupted: true,
+      trace_id: trace.trace_id,
+      turn_id: trace.turn_id
+    });
+  }
+
   const reply = speech.enabled ? speech.text : String(speech.error || 'I could not form a reply.');
+  if (!speech.enabled) {
+    trace.emit('response_failed', { completion_status: 'failed', error_code: 'BROCA_RESPONSE_FAILED' });
+    return jsonStatus(false, 'FLOKI_V2_LIVE_CHAT_TEXT_REPLY_FAILED', {
+      transcript_recorded_now: false,
+      error: reply,
+      trace_id: trace.trace_id,
+      turn_id: trace.turn_id
+    });
+  }
+
   assertPublicTranscriptText(reply, 'typed chat Floki reply');
-  appendChatTranscriptTurn({ role: 'floki', text: reply, input_modality: 'text', output_modality: 'text', spoken_aloud: false, source: 'live_chat_interface', event_id: result.event && result.event.id ? result.event.id : null });
-  if (cognition.safe_thought_summary) appendPrivateThoughtRecord({ text: cognition.safe_thought_summary, source: 'live_chat_interface', event_id: result.event && result.event.id ? result.event.id : null });
-  console.log('floki> ' + reply);
-  return jsonStatus(cognition.enabled === true && speech.enabled === true, cognition.enabled === true && speech.enabled === true ? 'FLOKI_V2_LIVE_CHAT_TEXT_REPLY_RECORDED' : 'FLOKI_V2_LIVE_CHAT_TEXT_REPLY_FAILED', { transcript_recorded_now: true });
+  if (displayedText !== null && displayedText !== reply) {
+    trace.emit('response_failed', { completion_status: 'failed', error_code: 'PUBLIC_RESPONSE_MISMATCH' });
+    throw new Error('final typed reply differs from the streamed Broca-authorized reply');
+  }
+  if (displayedText === null) {
+    displayedText = reply;
+    if (options.print_public_text !== false) console.log('floki> ' + reply);
+    if (typeof options.on_public_text === 'function') options.on_public_text(Object.freeze({ text: reply, final_only: true }));
+  }
+
+  appendChatTranscriptTurn({
+    role: 'floki',
+    text: reply,
+    input_modality: options.input_modality || 'text',
+    output_modality: options.output_modality || 'text',
+    spoken_aloud: options.spoken_aloud === true,
+    source: options.source || 'live_chat_interface',
+    event_id: result.event && result.event.id ? result.event.id : null
+  });
+  if (cognition.safe_thought_summary) {
+    appendPrivateThoughtRecord({ text: cognition.safe_thought_summary, source: options.source || 'live_chat_interface', event_id: result.event && result.event.id ? result.event.id : null });
+  }
+  trace.emit('response_completed', { completion_status: 'completed', response_character_count: reply.length, safe_public_text_length: reply.length });
+
+  return jsonStatus(cognition.enabled === true && speech.enabled === true, 'FLOKI_V2_LIVE_CHAT_TEXT_REPLY_RECORDED', {
+    transcript_recorded_now: true,
+    reply,
+    trace_id: trace.trace_id,
+    turn_id: trace.turn_id,
+    latency_events: trace.events()
+  });
 }
 
 async function runLiveChatInterface(options = {}) {
@@ -273,11 +366,12 @@ async function runLiveChatInterface(options = {}) {
   console.log('Spoken input: say wake word, for example: Hey Floki ...');
   console.log('Public transcript: ' + paths.transcript_text_file);
   console.log('Private thought review log: ' + paths.private_thought_text_file);
-  console.log('Commands: /help, /status, /state, /sleep-status, /vision-status, /eyes-status, /transcript, /speech-start, /speech-stop, /exit');
+  console.log('Commands: /help, /status, /state, /sleep-status, /vision-status, /eyes-status, /transcript, /speech-start, /speech-stop, /interrupt, /exit');
   console.log('Knowledge autoload: ' + JSON.stringify(knowledgeAutoloadStatus));
   console.log(JSON.stringify(startStatus, null, 2));
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: 'you> ' });
   let webcamStopped = false;
+  let activeAbortController = null;
   async function stopOwnedWebcamVision() {
     if (webcamStopped) return null;
     webcamStopped = true;
@@ -306,20 +400,41 @@ async function runLiveChatInterface(options = {}) {
     try {
       if (!text) { rl.prompt(); return; }
       if (text === '/exit' || text === '/quit') {
+        if (activeAbortController) activeAbortController.abort();
         clearInterval(poll);
         console.log(JSON.stringify(stopSpeechLoop(), null, 2));
         console.log(JSON.stringify(await stopOwnedWebcamVision(), null, 2));
         rl.close();
         return;
       }
-      if (text === '/help') { console.log('Commands: /status, /state, /sleep-status, /vision-status, /eyes-status, /transcript, /speech-start, /speech-stop, /exit'); rl.prompt(); return; }
+      if (text === '/help') { console.log('Commands: /status, /state, /sleep-status, /vision-status, /eyes-status, /transcript, /speech-start, /speech-stop, /interrupt, /exit'); rl.prompt(); return; }
       if (text === '/status') { printStatus(startStatus); rl.prompt(); return; }
       if (text === '/vision-status' || text === '/eyes-status') { console.log(JSON.stringify(readChatWebcamVisionStatus(), null, 2)); rl.prompt(); return; }
       if (text === '/state' || text === '/sleep-status') { printLifecycleStatus(); rl.prompt(); return; }
       if (text === '/transcript') { for (const entry of readChatTranscriptTail(30)) console.log((entry.role || 'unknown') + ' [' + (entry.input_modality || entry.output_modality || 'unknown') + ']> ' + entry.text); rl.prompt(); return; }
       if (text === '/speech-start') { console.log(JSON.stringify(startSpeechLoop(), null, 2)); rl.prompt(); return; }
       if (text === '/speech-stop') { console.log(JSON.stringify(stopSpeechLoop(), null, 2)); rl.prompt(); return; }
-      await handleTypedText(runtime, text);
+      if (text === '/interrupt') {
+        if (activeAbortController) {
+          activeAbortController.abort();
+          console.log('FLOKI_V2_ACTIVE_RESPONSE_INTERRUPTED');
+        } else {
+          console.log('FLOKI_V2_NO_ACTIVE_RESPONSE');
+        }
+        rl.prompt();
+        return;
+      }
+      if (activeAbortController) {
+        console.log('Floki is still responding. Use /interrupt before starting another turn.');
+        rl.prompt();
+        return;
+      }
+      activeAbortController = new AbortController();
+      try {
+        await handleTypedText(runtime, text, { signal: activeAbortController.signal });
+      } finally {
+        activeAbortController = null;
+      }
     } catch (error) {
       console.error(JSON.stringify({ ok: false, marker: 'FLOKI_V2_LIVE_CHAT_INTERFACE_ERROR', error: error.message, chat_mode_only: true, game_mode_started: false }, null, 2));
     }

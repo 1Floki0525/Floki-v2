@@ -124,7 +124,7 @@ function rejectThirdPersonSelfReference(text, options = {}) {
   throw error;
 }
 
-function rejectUnsafeSpeech(text) {
+function rejectUnsafeSpeech(text, context = {}) {
   const lower = String(text || '').toLowerCase();
   const banned = [
     '<think>',
@@ -160,12 +160,29 @@ function rejectUnsafeSpeech(text) {
     }
   }
 
+  if (context && context.chat_webcam_vision && context.chat_webcam_vision.available === true) {
+    const falseBlindnessClaims = [
+      'i cannot see',
+      "i can't see",
+      'i have no eyes',
+      "i don't have eyes",
+      'i am blind',
+      'i lack visual input',
+      'i have no visual input'
+    ];
+    for (const phrase of falseBlindnessClaims) {
+      if (lower.includes(phrase)) {
+        throw new Error('speech contains false blindness claim while fresh Maker-world sight exists: ' + phrase);
+      }
+    }
+  }
+
   rejectThirdPersonSelfReference(text);
 
   return true;
 }
 
-function cleanSpeechText(text) {
+function cleanSpeechText(text, context = {}) {
   let cleaned = String(text || '')
     .replace(/[\r\n]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -181,7 +198,7 @@ function cleanSpeechText(text) {
     cleaned = cleaned.slice(0, 897).trimEnd() + '...';
   }
 
-  rejectUnsafeSpeech(cleaned);
+  rejectUnsafeSpeech(cleaned, context);
   return cleaned;
 }
 
@@ -213,19 +230,50 @@ function composeSpeech(cognitionOutput, context = {}) {
   }
 
   const primary = cognition.response_intent_for_broca || cognition.safe_thought_summary;
-  const felt = cognition.felt_interpretation;
-
   let text = primary;
-
-  if (felt && felt.length > 0 && !primary.toLowerCase().includes('feel')) {
-    text = primary + ' I feel this as ' + felt.charAt(0).toLowerCase() + felt.slice(1);
-  }
 
   if (context.include_chat_truth === true) {
     text += ' I am answering from chat-mode cognition, memory, and emotion context.';
   }
 
-  return cleanSpeechText(text);
+  return cleanSpeechText(text, context);
+}
+
+function authorizePublicText(text, context = {}, options = {}) {
+  try {
+    const cleaned = cleanSpeechText(text, context);
+    const output = makeSpeechOutput(cleaned, {
+      parent_event_ids: Array.isArray(context.parent_event_ids) ? context.parent_event_ids : [],
+      parent_output_ids: Array.isArray(context.parent_output_ids) ? context.parent_output_ids : [],
+      tone: context.tone || 'plain',
+      audience: context.audience || 'user',
+      diagnostics: {
+        module: MODULE_NAME,
+        status: 'streamed_public_text_authorized',
+        provisional_stream_authorization: true,
+        broca_enabled_now: true,
+        chat_mode_only: true
+      }
+    });
+
+    persistDiagnostic({
+      status: 'streamed_public_text_authorized',
+      output_id: output.id,
+      text_length: cleaned.length
+    }, options);
+
+    return output;
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    const code = error && error.code === THIRD_PERSON_SELF_REFERENCE_CODE
+      ? THIRD_PERSON_SELF_REFERENCE_CODE
+      : 'BROCA_UNSAFE_SPEECH';
+    persistDiagnostic({ status: 'speech_blocked', code, message: message.slice(0, 1000) }, options);
+    return makeFailureOutput(MODULE_NAME, code, message, {
+      parent_event_ids: Array.isArray(context.parent_event_ids) ? context.parent_event_ids : [],
+      parent_output_ids: Array.isArray(context.parent_output_ids) ? context.parent_output_ids : []
+    });
+  }
 }
 
 function speakFromCognition(cognitionOutput, context = {}, options = {}) {
@@ -280,6 +328,9 @@ function createBroca(options = {}) {
     contract: getContract(),
     speakFromCognition: function(cognitionOutput, context = {}, local = {}) {
       return speakFromCognition(cognitionOutput, context, { ...options, ...local });
+    },
+    authorizePublicText: function(text, context = {}, local = {}) {
+      return authorizePublicText(text, context, { ...options, ...local });
     }
   });
 }
@@ -295,6 +346,7 @@ module.exports = {
   cleanSpeechText,
   extractCognition,
   composeSpeech,
+  authorizePublicText,
   speakFromCognition,
   createBroca
 };

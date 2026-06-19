@@ -28,7 +28,7 @@ function run() {
   assert.equal(startScript.includes('nvm use 24'), true);
 
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  assert.equal(pkg.engines.node, '>=24 <27');
+  assert.equal(pkg.engines.node, '>=24 <25');
   assert.equal(pkg.scripts['status:lifecycle'], 'node src/chat/floki-lifecycle-status.cjs');
   assert.equal(Boolean(pkg.scripts['proof:lifecycle-status']), true);
 

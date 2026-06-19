@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const {
   PIPER_CLI,
@@ -172,6 +172,105 @@ function synthesizePiperSpeechToFile(options = {}) {
   });
 }
 
+
+function synthesizePiperSpeechToFileAsync(options = {}) {
+  const readiness = buildChatToolchainReadinessStatus();
+  if (!readiness.piper || readiness.piper.ready !== true) {
+    return Promise.reject(new Error('Piper toolchain is not ready'));
+  }
+
+  const voiceSize = options.voice_size || 'large';
+  const voice = VOICES[voiceSize];
+  if (!voice) return Promise.reject(new Error('unknown Piper voice size: ' + voiceSize));
+  if (!executableReady(PIPER_CLI)) return Promise.reject(new Error('Piper CLI is not executable: ' + PIPER_CLI));
+  if (!fileReady(voice.model)) return Promise.reject(new Error('Piper voice model missing: ' + voice.model));
+  if (!fileReady(voice.config)) return Promise.reject(new Error('Piper voice config missing: ' + voice.config));
+
+  const text = safeSpeechText(options.text || 'I am Floki.');
+  const outputId = 'piper_stream_' + new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14) + '_' + process.pid;
+  const outputDir = options.output_dir || OUTPUT_DIR;
+  const outputFile = options.output_file || path.join(outputDir, outputId + '_' + voiceSize + '.wav');
+  fs.mkdirSync(path.dirname(outputFile), { recursive: true });
+
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const child = spawn(PIPER_CLI, ['--model', voice.model, '--output_file', outputFile], {
+      cwd: ROOT,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill('SIGTERM');
+      const error = new Error('Piper synthesis timed out');
+      error.code = 'PIPER_SYNTHESIS_TIMEOUT';
+      reject(error);
+    }, Number(options.timeout_ms || getTimeoutConfig('chat').piper_synthesis_ms));
+
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      child.kill('SIGTERM');
+      const error = new Error('Piper synthesis aborted');
+      error.name = 'AbortError';
+      error.code = 'PIPER_SYNTHESIS_ABORTED';
+      reject(error);
+    };
+    if (options.signal) {
+      if (options.signal.aborted) return onAbort();
+      options.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (options.signal) options.signal.removeEventListener('abort', onAbort);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (options.signal) options.signal.removeEventListener('abort', onAbort);
+      const wav = wavStatus(outputFile);
+      const ok = code === 0 && wav.ready && wav.riff_header && wav.wave_header && wav.size_bytes > 44;
+      if (!ok) {
+        const error = new Error('Piper synthesis failed: exit=' + code + ' stderr=' + stderr.slice(0, 500));
+        error.code = 'PIPER_SYNTHESIS_FAILED';
+        reject(error);
+        return;
+      }
+      resolve(Object.freeze({
+        ok: true,
+        marker: 'FLOKI_V2_PIPER_SPEECH_ASYNC_PASS',
+        voice_size: voiceSize,
+        voice_name: voice.name,
+        piper_cli: PIPER_CLI,
+        model_path: voice.model,
+        config_path: voice.config,
+        output_file: outputFile,
+        output_ready: true,
+        output_size_bytes: wav.size_bytes,
+        riff_header: wav.riff_header,
+        wave_header: wav.wave_header,
+        piper_exit_status: code,
+        piper_stdout: stdout.trim().slice(0, 500),
+        piper_stderr: stderr.trim().slice(0, 500),
+        text_length: text.length,
+        piper_speech_run_now: true,
+        speaker_playback_run_now: false
+      }));
+    });
+    child.stdin.end(text + '\n');
+  });
+}
+
 function printPiperSpeechSmokeStatus() {
   const status = synthesizePiperSpeechToFile();
   console.log(JSON.stringify(status, null, 2));
@@ -195,5 +294,6 @@ module.exports = {
   safeSpeechText,
   wavStatus,
   synthesizePiperSpeechToFile,
+  synthesizePiperSpeechToFileAsync,
   printPiperSpeechSmokeStatus
 };

@@ -3,11 +3,13 @@
 const { createModuleContract, validateModuleContract } = require('../../src/brain/module-contract.cjs');
 const { createBrainOutput, makeFailureOutput } = require('../../src/brain/brain-output-schema.cjs');
 const models = require('../../src/config/model-config.cjs');
-const { generateJson, rejectPrivateReasoningMarkers } = require('../../src/model/ollama-client.cjs');
+const { generateJson, generateJsonStream, rejectPrivateReasoningMarkers } = require('../../src/model/ollama-client.cjs');
+const { extractCompletedFirstPublicField } = require('../../src/chat/public-response-stream.cjs');
 const { appendJsonlSync } = require('../../src/util/jsonl.cjs');
 const { statePath } = require('../../src/util/fs-safe.cjs');
 const { diagnosticId } = require('../../src/util/ids.cjs');
 const { nowIso } = require('../../src/util/time.cjs');
+const { normalizeChatWebcamVisionContext } = require('../../src/vision/chat-webcam-vision-context.cjs');
 
 const MODULE_NAME = 'frontal';
 
@@ -24,16 +26,17 @@ const COGNITION_RESPONSE_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,
   required: [
+    'response_intent_for_broca',
     'safe_thought_summary',
     'felt_interpretation',
     'memory_links',
     'personality_implications',
     'identity_implications',
-    'response_intent_for_broca',
     'new_memory_summary',
     'emotion_reflection_enabled'
   ],
   properties: {
+    response_intent_for_broca: { type: 'string' },
     safe_thought_summary: { type: 'string' },
     felt_interpretation: { type: 'string' },
     memory_links: {
@@ -48,7 +51,6 @@ const COGNITION_RESPONSE_SCHEMA = Object.freeze({
       type: 'array',
       items: { type: 'string' }
     },
-    response_intent_for_broca: { type: 'string' },
     new_memory_summary: { type: 'string' },
     emotion_reflection_enabled: { type: 'boolean' }
   }
@@ -156,7 +158,7 @@ function compactCognitionContext(context = {}) {
   const persistent = context.persistent_chat_memory || {};
   const emotional = context.emotional_reinforcement || {};
   const dreamMemory = persistent.dream_memory_context || {};
-  const webcamVision = context.chat_webcam_vision || {};
+  const webcamVision = normalizeChatWebcamVisionContext(context.chat_webcam_vision || {});
 
   return Object.freeze({
     user_text: eventText.slice(0, 500),
@@ -183,10 +185,14 @@ function compactCognitionContext(context = {}) {
     },
     chat_webcam_vision: {
       available: webcamVision.available === true,
+      fresh: webcamVision.fresh === true,
+      stale: webcamVision.stale === true,
+      observation_age_ms: webcamVision.observation_age_ms,
       source: webcamVision.source || null,
       sight_scope: webcamVision.sight_scope || null,
       latest_private_observation_timestamp: webcamVision.latest_private_observation_timestamp || null,
       observation_summary: safeText(webcamVision.observation_summary || '', '').slice(0, 500),
+      unavailable_reason: webcamVision.unavailable_reason || null,
       public_transcript_visible: false
     },
     emotional_reinforcement_state: emotional.state || null,
@@ -204,17 +210,24 @@ function buildCognitionPrompt(context) {
     'Return only values for the required schema fields.',
     'Do not include markdown, comments, private reasoning, or extra keys.',
     '',
+    'Field order is mandatory: response_intent_for_broca must be the first property in the JSON object.',
     'Field intent:',
+    '- response_intent_for_broca: one concise direct response Broca can say to the user; put this property first.',
     '- safe_thought_summary: short safe reflection about the user request and memory context.',
     '- felt_interpretation: brief grounded emotion interpretation.',
     '- memory_links: array of safe memory connections.',
     '- personality_implications: array of safe personality growth implications.',
     '- identity_implications: array of safe continuity implications.',
-    '- response_intent_for_broca: one sentence Broca can later say to the user.',
     '- Current live user request has priority over recalled memories.',
     '- Do not mention recalled topics unless the user directly asked for them.',
     '- For simple greetings or status questions, answer the greeting/status directly.',
     '- Do not drag old proof topics, old test topics, trust, hope, dreams, or transcript topics into the reply unless relevant to the current user text.',
+    '- chat_webcam_vision is current Maker-world sight only; it is not Minecraft game-world sight.',
+    '- If chat_webcam_vision.available is true, answer visual questions directly from observation_summary in first person.',
+    '- When live Maker-world sight is available, do not claim permanent blindness, no eyes, disembodiment, or lack of visual input.',
+    '- Describe visible people as a person or people unless the observation itself establishes identity; do not assume the person is the user.',
+    '- If chat_webcam_vision.available is false, say the current webcam view is temporarily unavailable, stale, or offline. Do not claim that I permanently have no eyes.',
+    '- Never use Maker-world webcam observations as Minecraft game-world vision.',
     ...BROCA_FIRST_PERSON_FIELD_INSTRUCTIONS,
     '- If the user asks about dreams, use dream_memory_context as self-continuity.',
     '- If dream_memory_context.has_dreams is false, be honest that I do not have a saved dream yet.',
@@ -238,6 +251,9 @@ function buildCognitionRetryPrompt(context, previousError) {
     'Keep every string short and valid.',
     '',
     'For response_intent_for_broca:',
+    '- chat_webcam_vision is current Maker-world sight only; it is not Minecraft game-world sight.',
+    '- If chat_webcam_vision.available is true, answer visual questions from observation_summary.',
+    '- If it is false, describe the current webcam view as temporarily unavailable; never claim permanent blindness.',
     ...BROCA_FIRST_PERSON_FIELD_INSTRUCTIONS,
     '',
     'Compact context:',
@@ -247,9 +263,30 @@ function buildCognitionRetryPrompt(context, previousError) {
       recalled_memories: compact.recalled_memories.slice(0, 3),
       persistent_recall_counts: compact.persistent_recall_counts,
       dream_memory_context: compact.dream_memory_context,
-      emotional_reinforcement_state: compact.emotional_reinforcement_state
+      chat_webcam_vision: compact.chat_webcam_vision,
+      emotional_reinforcement_state: compact.emotional_reinforcement_state,
+      personality: compact.personality,
+      identity: compact.identity
     }, null, 2)
   ].join('\n');
+}
+
+function buildLockedPublicResponseRetryPrompt(context, publicResponse, previousError) {
+  const locked = String(publicResponse || '').trim();
+  if (!locked) throw new Error('cannot repair cognition without the already authorized public response');
+  return [
+    buildCognitionRetryPrompt(context, previousError),
+    '',
+    'The public response has already been authorized by Broca and released to the user.',
+    'The response_intent_for_broca value MUST be exactly this JSON string, byte-for-byte after JSON decoding:',
+    JSON.stringify(locked),
+    'Do not paraphrase, extend, shorten, or otherwise change that value.',
+    'Repair only the complete schema object and private continuity fields.'
+  ].join('\n');
+}
+
+function isAbortFailure(error) {
+  return Boolean(error && (error.name === 'AbortError' || error.code === 'OLLAMA_REQUEST_ABORTED'));
 }
 
 function isJsonParseFailure(error) {
@@ -411,62 +448,169 @@ async function runCognition(context, options = {}) {
   try {
     const config = options.model_config || models.getCognitionConfig();
     const schema = getCognitionResponseSchema();
+    const prompt = buildCognitionPrompt(context);
+    const streamingEnabled = options.streaming_enabled === true;
+    let candidateReleased = false;
+    let candidateText = null;
+    let accumulated = '';
 
-    const generation = await generateJsonWithRetry({
+    const primaryInput = {
       endpoint: config.endpoint,
       model: config.model,
-      prompt: buildCognitionPrompt(context),
-      system: 'You are Floki-v2 frontal cognition. Output only a JSON object matching the provided schema.',
-      temperature: typeof options.temperature === 'number' ? options.temperature : 0.1,
-      top_p: typeof options.top_p === 'number' ? options.top_p : 0.3,
-      num_predict: 512,
+      prompt,
+      system: 'You are Floki-v2 frontal cognition. Output only a JSON object matching the provided schema. The first property must be response_intent_for_broca.',
+      temperature: typeof options.temperature === 'number' ? options.temperature : config.temperature,
+      top_p: typeof options.top_p === 'number' ? options.top_p : config.top_p,
+      num_predict: Number(options.num_predict || 512),
       timeout_ms: options.timeout_ms || config.timeout_ms,
       keep_alive: config.keep_alive,
       think: false,
       format_schema: schema,
-      response_schema: schema
-    }, {
-      endpoint: config.endpoint,
-      model: config.model,
-      prompt: buildCognitionRetryPrompt(context, 'first JSON/schema attempt failed'),
-      system: 'Repair pass. Output only a compact JSON object matching the provided schema.',
-      temperature: 0,
-      top_p: 0.1,
-      num_predict: 384,
-      timeout_ms: options.timeout_ms || config.timeout_ms,
-      keep_alive: config.keep_alive,
-      think: false,
-      format_schema: schema,
-      response_schema: schema
-    });
+      response_schema: schema,
+      signal: options.signal,
+      post_json: options.post_json,
+      post_json_stream: options.post_json_stream
+    };
 
-    const result = generation.result;
-    const normalized = normalizeCognitionJson(result.response_json, context);
+    if (typeof options.on_model_dispatched === 'function') {
+      options.on_model_dispatched(Object.freeze({
+        model: config.model,
+        endpoint: config.endpoint,
+        prompt_character_count: prompt.length,
+        schema_enabled: true,
+        streaming_enabled: streamingEnabled
+      }));
+    }
+
+    let generation;
+    let retryUsed = false;
+    let firstError = null;
+
+    if (streamingEnabled) {
+      try {
+        generation = await generateJsonStream({
+          ...primaryInput,
+          on_first_chunk(info) {
+            if (typeof options.on_first_chunk === 'function') options.on_first_chunk(info);
+          },
+          on_response_fragment(info) {
+            accumulated += info.fragment;
+            if (candidateReleased || (options.signal && options.signal.aborted)) return;
+            const extracted = extractCompletedFirstPublicField(accumulated, 'response_intent_for_broca');
+            if (extracted.complete === true) {
+              candidateReleased = true;
+              candidateText = extracted.value;
+              if (typeof options.on_public_candidate === 'function') {
+                options.on_public_candidate(Object.freeze({
+                  text: extracted.value,
+                  field_name: extracted.field_name,
+                  accumulated_length: accumulated.length
+                }));
+              }
+            }
+          }
+        });
+      } catch (error) {
+        if (isAbortFailure(error)) throw error;
+        const firstMessage = error && error.message ? error.message : String(error);
+        const releasedText = typeof options.released_public_text === 'function'
+          ? String(options.released_public_text() || '').trim()
+          : '';
+
+        if (candidateReleased) {
+          retryUsed = true;
+          firstError = firstMessage;
+          const lockedPublicResponse = releasedText || candidateText;
+          generation = await generateJson({
+            ...primaryInput,
+            prompt: buildLockedPublicResponseRetryPrompt(context, lockedPublicResponse, firstError),
+            system: 'Repair pass. Output only a compact JSON object matching the provided schema. Preserve the locked public response exactly.',
+            temperature: 0,
+            top_p: 0.1,
+            num_predict: 384,
+            stream: false
+          });
+        } else {
+          if (!isJsonParseFailure(error)) throw error;
+          retryUsed = true;
+          firstError = firstMessage;
+          generation = await generateJson({
+            ...primaryInput,
+            prompt: buildCognitionRetryPrompt(context, firstError),
+            system: 'Repair pass. Output only a compact JSON object matching the provided schema.',
+            temperature: 0,
+            top_p: 0.1,
+            num_predict: 384,
+            stream: false
+          });
+        }
+      }
+    } else {
+      const wrapped = await generateJsonWithRetry(primaryInput, {
+        ...primaryInput,
+        prompt: buildCognitionRetryPrompt(context, 'first JSON/schema attempt failed'),
+        system: 'Repair pass. Output only a compact JSON object matching the provided schema.',
+        temperature: 0,
+        top_p: 0.1,
+        num_predict: 384
+      });
+      generation = wrapped.result;
+      retryUsed = wrapped.retry_used === true;
+      firstError = wrapped.first_error || null;
+    }
+
+    if (typeof options.on_final_model_output === 'function') {
+      options.on_final_model_output(Object.freeze({ model: generation.model, raw_stats: generation.raw_stats }));
+    }
+
+    let normalized = normalizeCognitionJson(generation.response_json, context);
+    if (candidateReleased) {
+      if (candidateText && normalized.response_intent_for_broca !== candidateText) {
+        const released = typeof options.released_public_text === 'function'
+          ? String(options.released_public_text() || '').trim()
+          : '';
+        if (!released || normalized.response_intent_for_broca !== released) {
+          throw new Error('final cognition public response differs from the streamed public field');
+        }
+      }
+      if (typeof options.released_public_text === 'function') {
+        const released = String(options.released_public_text() || '').trim();
+        if (released) {
+          normalized = Object.freeze({ ...normalized, response_intent_for_broca: released });
+        }
+      }
+    }
+    if (typeof options.on_schema_valid === 'function') {
+      options.on_schema_valid(Object.freeze({ response_intent_for_broca: normalized.response_intent_for_broca }));
+    }
+
     const parentEventIds = context && context.event && context.event.id ? [context.event.id] : [];
-
     const output = createBrainOutput({
       type: 'model_response_summary',
       source: MODULE_NAME,
       parent_event_ids: parentEventIds,
       payload: {
-        model: result.model,
+        model: generation.model,
         cognition: normalized,
-        raw_stats: result.raw_stats,
+        raw_stats: generation.raw_stats,
         safe_summary_only: true,
         raw_private_reasoning_stored: false,
         normalized_model_json: true,
         schema_constrained_json: true,
-        json_retry_used: generation.retry_used === true,
-        json_retry_first_error: generation.first_error || null,
+        public_response_streamed: candidateReleased,
+        json_retry_used: retryUsed,
+        json_retry_first_error: firstError,
         model_json_fallback_used: false,
         model_json_fallback_reason: null
       },
       diagnostics: {
         module: MODULE_NAME,
         status: 'cognition_completed',
-        model: result.model,
+        model: generation.model,
         schema_constrained_json: true,
-        retry_used: generation.retry_used === true,
+        streaming_enabled: streamingEnabled,
+        public_response_streamed: candidateReleased,
+        retry_used: retryUsed,
         fallback_used: false
       }
     });
@@ -474,9 +618,11 @@ async function runCognition(context, options = {}) {
     persistDiagnostic({
       status: 'cognition_completed',
       output_id: output.id,
-      model: result.model,
+      model: generation.model,
       schema_constrained_json: true,
-      retry_used: generation.retry_used === true,
+      streaming_enabled: streamingEnabled,
+      public_response_streamed: candidateReleased,
+      retry_used: retryUsed,
       fallback_used: false
     }, options);
 
@@ -484,16 +630,13 @@ async function runCognition(context, options = {}) {
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     const lower = message.toLowerCase();
-    const code = lower.includes('private-reasoning') || lower.includes('<think>')
-      ? 'FRONTAL_UNSAFE_MODEL_OUTPUT'
-      : 'FRONTAL_COGNITION_FAILED';
+    const code = error && (error.name === 'AbortError' || error.code === 'OLLAMA_REQUEST_ABORTED')
+      ? 'FRONTAL_COGNITION_INTERRUPTED'
+      : lower.includes('private-reasoning') || lower.includes('<think>')
+        ? 'FRONTAL_UNSAFE_MODEL_OUTPUT'
+        : 'FRONTAL_COGNITION_FAILED';
 
-    persistDiagnostic({
-      status: 'cognition_failed',
-      code,
-      message: message.slice(0, 1000)
-    }, options);
-
+    persistDiagnostic({ status: 'cognition_failed', code, message: message.slice(0, 1000) }, options);
     return makeFailureOutput(MODULE_NAME, code, message, {
       parent_event_ids: context && context.event && context.event.id ? [context.event.id] : []
     });
@@ -521,6 +664,8 @@ module.exports = {
   compactCognitionContext,
   buildCognitionPrompt,
   buildCognitionRetryPrompt,
+  buildLockedPublicResponseRetryPrompt,
+  isAbortFailure,
   isJsonParseFailure,
   generateJsonWithRetry,
   asSafeString,

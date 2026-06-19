@@ -12,8 +12,11 @@ const {
 } = require('./hearing-to-cognition-bridge.cjs');
 
 const {
-  runPlaybackWithVoiceLock
+  runPlaybackWithVoiceLock,
+  runPlaybackWithVoiceLockAsync
 } = require('./piper-speaker-playback.cjs');
+
+const { synthesizePiperSpeechToFileAsync } = require('./piper-speech-smoke.cjs');
 
 const {
   recordWakeActivityIfSleeping
@@ -21,7 +24,9 @@ const {
 
 const { appendChatTranscriptTurn, appendPrivateThoughtRecord, assertPublicTranscriptText } = require('../chat/chat-transcript.cjs');
 
-const { PROJECT_ROOT: ROOT } = require('../config/floki-config.cjs');
+const { PROJECT_ROOT: ROOT, getLiveChatConfig, getModelConfig, getPathConfig } = require('../config/floki-config.cjs');
+const { createLatencyTrace } = require('../util/latency-trace.cjs');
+const { readLatestPrivateObservation } = require('../vision/chat-webcam-vision-service.cjs');
 const TOOLS_DIR = path.join(ROOT, '.floki-tools');
 const SPOKEN_REPLY_OUTPUT_DIR = path.join(TOOLS_DIR, 'output', 'spoken-reply-once');
 
@@ -119,7 +124,7 @@ function ensurePiperWavReady(bridgeStatus) {
     throw new Error('Piper WAV was not created');
   }
 
-  if (bridgeStatus.speaker_playback_run_now === true) {
+  if (bridgeStatus.speaker_playback_run_now === true && bridgeStatus.low_latency_spoken_enabled !== true) {
     throw new Error('bridge stage must not play speakers before guarded playback stage');
   }
 
@@ -211,6 +216,70 @@ async function runSpokenReplyOnce(options = {}) {
     });
   }
 
+  const liveChat = getLiveChatConfig('chat');
+  const cognitionModel = getModelConfig('chat').cognition;
+  const pathConfig = getPathConfig('chat');
+  const trace = options.latency_trace || createLatencyTrace({
+    input_modality: 'spoken',
+    configured_model: cognitionModel.model,
+    configured_endpoint: cognitionModel.endpoint,
+    schema_enabled: true,
+    streaming_enabled: liveChat.public_response_streaming_enabled === true,
+    log_path: path.join(ROOT, pathConfig.chat_runtime_root, 'latency-events.jsonl'),
+    max_log_bytes: liveChat.latency_log_max_bytes,
+    on_event: options.on_latency_event
+  });
+  trace.emit('request_accepted', { input_character_count: String(hearing.heard_text || '').length });
+  const cachedVision = options.chat_webcam_vision !== undefined
+    ? options.chat_webcam_vision
+    : readLatestPrivateObservation();
+  trace.emit('cached_vision_ready', {
+    cached_vision_available: cachedVision && cachedVision.available === true,
+    cached_vision_fresh: cachedVision && cachedVision.fresh === true
+  });
+
+  let earlySpokenPromise = null;
+  function startEarlySpoken(payload) {
+    if (earlySpokenPromise || liveChat.first_sentence_tts_enabled !== true) return;
+    const text = String(payload && payload.text || '').trim();
+    if (!text || options.signal && options.signal.aborted) return;
+    const task = (async () => {
+      trace.emit('tts_started', { tts_character_count: text.length });
+      const speech = await (options.piper_synthesizer_async || synthesizePiperSpeechToFileAsync)({
+        voice_size: options.voice_size || 'large',
+        text,
+        output_dir: options.piper_output_dir,
+        signal: options.signal
+      });
+      trace.emit('tts_ready', {
+        tts_character_count: text.length,
+        audio_file_size_bytes: Number(speech.output_size_bytes || 0)
+      });
+      if (options.signal && options.signal.aborted) {
+        const error = new Error('spoken response interrupted before playback');
+        error.name = 'AbortError';
+        throw error;
+      }
+      trace.emit('playback_started', { audio_file_size_bytes: Number(speech.output_size_bytes || 0) });
+      const lockedPlayback = await (options.locked_playback_runner_async || runPlaybackWithVoiceLockAsync)(speech.output_file, {
+        output_id: speech.output_file,
+        text_hash: 'spoken_stream_' + String(speech.output_size_bytes || 0)
+      }, {
+        voice_lock_file: options.voice_lock_file,
+        voice_lock_start_now_ms: options.voice_lock_start_now_ms,
+        voice_lock_end_now_ms: options.voice_lock_end_now_ms,
+        voice_lock_ttl_ms: options.voice_lock_ttl_ms,
+        playback_runner_async: options.playback_runner_async,
+        signal: options.signal
+      });
+      return Object.freeze({ text, speech, locked_playback: lockedPlayback });
+    })();
+    earlySpokenPromise = task.then(
+      (result) => Object.freeze({ ok: true, result }),
+      (error) => Object.freeze({ ok: false, error })
+    );
+  }
+
   const bridge = await bridgeRunner({
     env: {
       ...process.env,
@@ -224,7 +293,25 @@ async function runSpokenReplyOnce(options = {}) {
     voice_lock_now_ms: options.voice_lock_now_ms,
     piper_output_dir: options.piper_output_dir,
     voice_size: options.voice_size || 'large',
-    write_report: options.write_bridge_report !== false
+    write_report: options.write_bridge_report !== false,
+    chat_webcam_vision: cachedVision,
+    latency_trace: trace,
+    signal: options.signal,
+    streaming_enabled: liveChat.public_response_streaming_enabled === true,
+    low_latency_spoken: liveChat.first_sentence_tts_enabled === true,
+    on_public_text(payload) {
+      startEarlySpoken(payload);
+      if (typeof options.on_public_text === 'function') options.on_public_text(payload);
+    },
+    on_first_safe_sentence(payload) {
+      if (typeof options.on_first_safe_sentence === 'function') options.on_first_safe_sentence(payload);
+    },
+    get_early_spoken_result: async function() {
+      if (!earlySpokenPromise) return null;
+      const settled = await earlySpokenPromise;
+      if (!settled.ok) throw settled.error;
+      return settled.result;
+    }
   });
 
   const sleepInterruptionRecorder = options.sleep_interruption_recorder || recordWakeActivityIfSleeping;
@@ -245,16 +332,18 @@ async function runSpokenReplyOnce(options = {}) {
     throw new Error('Piper WAV file missing before speaker playback: ' + wavFile);
   }
 
-  const lockedPlayback = playbackRunner(wavFile, {
-    output_id: bridge.piper_wav_output_file,
-    text_hash: 'spoken_reply_once_' + String(bridge.piper_wav_output_size_bytes || 0)
-  }, {
-    voice_lock_file: options.voice_lock_file,
-    voice_lock_start_now_ms: options.voice_lock_start_now_ms,
-    voice_lock_end_now_ms: options.voice_lock_end_now_ms,
-    voice_lock_ttl_ms: options.voice_lock_ttl_ms,
-    playback_runner: options.playback_runner
-  });
+  const lockedPlayback = bridge.low_latency_spoken_enabled === true && bridge.early_locked_playback
+    ? bridge.early_locked_playback
+    : playbackRunner(wavFile, {
+      output_id: bridge.piper_wav_output_file,
+      text_hash: 'spoken_reply_once_' + String(bridge.piper_wav_output_size_bytes || 0)
+    }, {
+      voice_lock_file: options.voice_lock_file,
+      voice_lock_start_now_ms: options.voice_lock_start_now_ms,
+      voice_lock_end_now_ms: options.voice_lock_end_now_ms,
+      voice_lock_ttl_ms: options.voice_lock_ttl_ms,
+      playback_runner: options.playback_runner
+    });
 
   const ok = bridge.ok === true &&
     lockedPlayback &&
@@ -309,6 +398,15 @@ async function runSpokenReplyOnce(options = {}) {
     minecraft_called: false,
     chat_mode_only: true
   });
+
+  if (trace && !trace.is_closed()) {
+    trace.emit(ok ? 'response_completed' : 'response_failed', {
+      completion_status: ok ? 'completed' : 'failed',
+      response_character_count: String(status.broca_text_response || '').length,
+      safe_public_text_length: String(status.broca_text_response || '').length,
+      error_code: ok ? null : 'SPOKEN_REPLY_FAILED'
+    });
+  }
 
   const reportFile = writeSpokenReplyReport(status, options);
   const transcriptEntries = appendSpokenReplyTranscript(status, reportFile, options);
