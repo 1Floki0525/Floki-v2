@@ -19,7 +19,6 @@ const { buildVisionStatus } = require(path.join(PROJECT_ROOT, 'src/vision/vision
 const { loadAffectState } = require(path.join(PROJECT_ROOT, 'brain/emotions_base/index.cjs'));
 const { getModelConfig, getPathConfig, getVisionConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
 const { getDetectionConfig } = require(path.join(PROJECT_ROOT, 'src/vision/yolo-detection-service.cjs'));
-const { stopChatWebcamVisionService, stopScheduler } = require(path.join(PROJECT_ROOT, 'src/chat/floki-chat.cjs'));
 const { stopScheduler: stopSchedulerDirect } = require(path.join(PROJECT_ROOT, 'src/chat/sleep-cycle-scheduler.cjs'));
 const { stopChatWebcamVisionService: stopWebcamDirect } = require(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'));
 
@@ -46,9 +45,27 @@ let mjpegServer = null;
 const MJPEG_BOUNDARY = '--jpgliveboundary--';
 const mjpegClients = new Set();
 
+const mjpegDiag = {
+  startedAt: null,
+  framesServed: 0,
+  lastFrameServedAt: null,
+  lastFrameSize: 0,
+  clientConnectCount: 0,
+  errors: 0,
+  reconnects: 0,
+};
+
+function getMjpegDiag() {
+  return { ...mjpegDiag, port: mjpegPort, connectedClients: mjpegClients.size };
+}
+
 function startMjpegServer(frameFile) {
-  if (mjpegServer) return Promise.resolve(mjpegPort);
+  if (mjpegServer) {
+    mjpegDiag.reconnects += 1;
+    return Promise.resolve(mjpegPort);
+  }
   return new Promise((resolve) => {
+    mjpegDiag.startedAt = new Date().toISOString();
     mjpegServer = http.createServer((req, res) => {
       if (req.url !== '/live.mjpeg') {
         res.writeHead(404).end();
@@ -56,6 +73,7 @@ function startMjpegServer(frameFile) {
       }
       let lastMtime = 0;
       const client = { res, closed: false };
+      mjpegDiag.clientConnectCount += 1;
 
       const listener = (curr) => {
         if (client.closed) return;
@@ -63,10 +81,20 @@ function startMjpegServer(frameFile) {
           if (curr.mtimeMs === lastMtime) return;
           lastMtime = curr.mtimeMs;
           const data = fs.readFileSync(frameFile);
+          mjpegDiag.framesServed += 1;
+          mjpegDiag.lastFrameServedAt = new Date().toISOString();
+          mjpegDiag.lastFrameSize = data.length;
           res.write(`--${MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${data.length}\r\n\r\n`);
           res.write(data);
           res.write('\r\n');
         } catch (_) { /* frame file not ready */ }
+      };
+
+      const onClientError = (err) => {
+        mjpegDiag.errors += 1;
+        client.closed = true;
+        mjpegClients.delete(client);
+        try { fs.unwatchFile(frameFile, listener); } catch (_) { /* ok */ }
       };
 
       req.on('close', () => {
@@ -75,13 +103,16 @@ function startMjpegServer(frameFile) {
         try { fs.unwatchFile(frameFile, listener); } catch (_) { /* ok */ }
       });
 
+      req.on('error', onClientError);
+      res.on('error', onClientError);
+
       res.writeHead(200, {
         'Content-Type': `multipart/x-mixed-replace; boundary=${MJPEG_BOUNDARY}`,
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         Pragma: 'no-cache',
         Expires: '0',
         'Access-Control-Allow-Origin': '*',
-        Connection: 'close',
+        'Connection': 'close',
       });
 
       mjpegClients.add(client);
@@ -89,8 +120,16 @@ function startMjpegServer(frameFile) {
       try { listener(fs.statSync(frameFile)); } catch (_) { /* send initial on next frame */ }
     });
 
+    mjpegServer.on('error', (err) => {
+      mjpegDiag.errors += 1;
+      console.error('[MJPEG] Server error:', err.message);
+      mjpegServer = null;
+      mjpegPort = 0;
+    });
+
     mjpegServer.listen(0, '127.0.0.1', () => {
       mjpegPort = mjpegServer.address().port;
+      console.error('[MJPEG] Server started on port', mjpegPort);
       resolve(mjpegPort);
     });
   });
@@ -202,17 +241,27 @@ function visionFrame() {
   const service = readChatWebcamVisionStatus();
   const observation = readLatestPrivateObservation();
   const config = getDetectionConfig();
-  const detectionFile = path.resolve(PROJECT_ROOT, config.yoloModelPath.replace(/yolo11n\.pt$/, ''), '..', 'runtime', 'chat-webcam-vision.latest-detection.json');
+  const runtimeDir = path.resolve(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root);
+  const detectionFile = path.join(runtimeDir, 'chat-webcam-vision.latest-detection.json');
   
-  let yolodetections = [];
-  let yolofaces = [];
+  let allDetections = [];
+  let objects = [];
+  let persons = [];
+  let faces = [];
   
   if (fs.existsSync(detectionFile)) {
     try {
       const detection = JSON.parse(fs.readFileSync(detectionFile, 'utf8'));
       if (Array.isArray(detection.detections)) {
-        yolodetections = detection.detections.filter(d => d.type !== 'face');
-        yolofaces = detection.detections.filter(d => d.type === 'face');
+        allDetections = detection.detections;
+        for (const d of allDetections) {
+          const label = (d.label || d.type || '').toLowerCase();
+          if (label === 'person' || d.class_id === 0) {
+            persons.push({ ...d, type: 'person' });
+          } else {
+            objects.push(d);
+          }
+        }
       }
     } catch (e) {
       // Invalid JSON - use empty arrays
@@ -220,8 +269,9 @@ function visionFrame() {
   }
   
   return {
-    objects: yolodetections.length > 0 ? yolodetections : [],
-    faces: yolofaces.length > 0 ? yolofaces : [],
+    objects,
+    persons,
+    faces,
     scene: {
       label: observation?.observation_summary || observation?.description || observation?.scene || observation?.summary || 'No current visual description',
       confidence: Number(observation?.confidence || 0),
@@ -246,25 +296,227 @@ function getLatestFrameBase64() {
   }
 }
 
+function safeFileTime(filePath) {
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch (_error) {
+    return Date.now();
+  }
+}
+
+function readPidFile(filePath) {
+  try {
+    const value = Number(String(fs.readFileSync(filePath, 'utf8')).trim());
+    return Number.isInteger(value) && value > 0 ? value : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function uptimeFromFile(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    return Math.max(0, Date.now() - Number(stat.birthtimeMs || stat.ctimeMs || stat.mtimeMs || Date.now()));
+  } catch (_error) {
+    return 0;
+  }
+}
+
 function serviceStatus() {
   const paths = getPathConfig('chat');
   const runtimeRoot = path.resolve(PROJECT_ROOT, paths.chat_runtime_root);
+  const stateRoot = path.resolve(PROJECT_ROOT, paths.state_root || 'state/floki');
   const webcam = readChatWebcamVisionStatus();
   const lifecycle = buildFlokiLifecycleStatus();
-  const pidFiles = [
-    ['Sleep Scheduler', path.join(runtimeRoot, 'sleep-cycle-scheduler.pid')],
-    ['Chat Vision', path.join(runtimeRoot, 'chat-webcam-vision.pid')],
-    ['Speech Listener', path.join(runtimeRoot, 'chat-loop.pid')],
+
+  const schedulerPidFile = path.join(runtimeRoot, 'sleep-cycle-scheduler.pid');
+  const visionPidFile = path.join(runtimeRoot, 'chat-webcam-vision.pid');
+  const hearingPidFile = path.join(runtimeRoot, 'chat-mode-loop.pid');
+  const schedulerHeartbeat = path.join(runtimeRoot, 'sleep-cycle-scheduler.heartbeat.json');
+  const visionHeartbeat = path.join(runtimeRoot, 'chat-webcam-vision.heartbeat.json');
+  const hearingLog = path.join(runtimeRoot, 'chat-mode-loop.log');
+
+  const schedulerPid = readPidFile(schedulerPidFile);
+  const visionPid = readPidFile(visionPidFile);
+  const hearingPid = readPidFile(hearingPidFile);
+  const schedulerRunning = processAlive(schedulerPid);
+  const visionRunning = processAlive(visionPid);
+  const hearingRunning = processAlive(hearingPid);
+  const coreRunning = Boolean(runtime) || schedulerRunning || visionRunning || hearingRunning;
+
+  let emotionHealthy = false;
+  try {
+    emotionHealthy = Boolean(loadAffectState({ persist_diagnostics: false }));
+  } catch (_error) {
+    emotionHealthy = false;
+  }
+
+  const memoryHealthy = fs.existsSync(stateRoot);
+  const nativeBridgeRunning = Boolean(mainWindow && !mainWindow.isDestroyed());
+  const visionError = webcam.last_fatal_error || webcam.last_yolo_error || webcam.last_vlm_error || null;
+  const visionStatus = webcam.ready_for_chat === true
+    ? 'Running'
+    : (webcam.active === true || visionRunning ? 'Degraded' : 'Stopped');
+  const now = Date.now();
+
+  return [
+    {
+      name: 'Floki Core',
+      status: coreRunning ? 'Running' : 'Stopped',
+      lastHeartbeat: Math.max(safeFileTime(hearingLog), safeFileTime(visionHeartbeat), safeFileTime(schedulerHeartbeat)),
+      uptime: runtime ? now - startedAt : Math.max(uptimeFromFile(hearingPidFile), uptimeFromFile(visionPidFile), uptimeFromFile(schedulerPidFile)),
+      latency: 0,
+      lastError: null,
+      detail: runtime ? 'Core brain runtime instantiated in chat.local.' : 'Core brain loads on demand; background chat services remain independently visible.',
+      restartAvailable: true,
+      logAvailable: true,
+      controlAction: 'restartChat',
+      logKey: 'Floki Core',
+    },
+    {
+      name: 'Cognition',
+      status: runtime ? 'Running' : (coreRunning ? 'Degraded' : 'Stopped'),
+      lastHeartbeat: now,
+      uptime: runtime ? now - startedAt : 0,
+      latency: 0,
+      lastError: null,
+      detail: runtime ? `Configured model: ${getModelConfig('chat').cognition.model}` : `Configured model: ${getModelConfig('chat').cognition.model}; runtime has not handled a turn yet.`,
+      restartAvailable: true,
+      logAvailable: true,
+      controlAction: 'restartChat',
+      logKey: 'Cognition',
+    },
+    {
+      name: 'Vision',
+      status: visionStatus,
+      lastHeartbeat: safeFileTime(visionHeartbeat),
+      uptime: uptimeFromFile(visionPidFile),
+      latency: 0,
+      lastError: visionError,
+      detail: `Webcam ${webcam.camera_open === true ? 'open' : 'closed'} · ${Number(webcam.measured_capture_fps || 0).toFixed(1)} FPS · YOLO/VLM status reported separately by the vision service.`,
+      restartAvailable: true,
+      logAvailable: true,
+      controlAction: 'restartVision',
+      logKey: 'Vision',
+    },
+    {
+      name: 'Hearing',
+      status: hearingRunning ? 'Running' : 'Stopped',
+      lastHeartbeat: safeFileTime(hearingLog),
+      uptime: uptimeFromFile(hearingPidFile),
+      latency: 0,
+      lastError: null,
+      detail: hearingRunning ? 'Microphone/VAD/Whisper loop process is active.' : 'The spoken input loop is not active.',
+      restartAvailable: true,
+      logAvailable: true,
+      controlAction: 'restartHearing',
+      logKey: 'Hearing',
+    },
+    {
+      name: 'Speech',
+      status: hearingRunning ? 'Running' : 'Stopped',
+      lastHeartbeat: safeFileTime(hearingLog),
+      uptime: uptimeFromFile(hearingPidFile),
+      latency: 0,
+      lastError: null,
+      detail: hearingRunning ? 'Broca/Piper speech path is available through the chat loop.' : 'Speech loop is not active.',
+      restartAvailable: true,
+      logAvailable: true,
+      controlAction: 'restartSpeech',
+      logKey: 'Speech',
+    },
+    {
+      name: 'Memory',
+      status: memoryHealthy ? 'Running' : 'Degraded',
+      lastHeartbeat: safeFileTime(stateRoot),
+      uptime: now - startedAt,
+      latency: 0,
+      lastError: memoryHealthy ? null : 'State root is unavailable',
+      detail: 'Persistent state and memory files remain under the Floki-v2 state authority.',
+      restartAvailable: false,
+      logAvailable: true,
+      controlAction: null,
+      logKey: 'Memory',
+    },
+    {
+      name: 'Emotion',
+      status: emotionHealthy ? 'Running' : 'Degraded',
+      lastHeartbeat: now,
+      uptime: now - startedAt,
+      latency: 0,
+      lastError: emotionHealthy ? null : 'Affect state could not be loaded',
+      detail: 'Persistent affect state is read directly from the Floki emotion module.',
+      restartAvailable: false,
+      logAvailable: true,
+      controlAction: null,
+      logKey: 'Emotion',
+    },
+    {
+      name: 'Sleep Scheduler',
+      status: schedulerRunning ? 'Running' : 'Stopped',
+      lastHeartbeat: safeFileTime(schedulerHeartbeat),
+      uptime: uptimeFromFile(schedulerPidFile),
+      latency: 0,
+      lastError: null,
+      detail: lifecycle.sleep_cycle_scheduler_note || 'Sleep scheduler state unavailable.',
+      restartAvailable: true,
+      logAvailable: true,
+      controlAction: 'restartScheduler',
+      logKey: 'Sleep Scheduler',
+    },
+    {
+      name: 'Dream Engine',
+      status: schedulerRunning || lifecycle.is_dreaming ? 'Running' : 'Stopped',
+      lastHeartbeat: Number(Date.parse(lifecycle.last_transition_at || '')) || now,
+      uptime: schedulerRunning ? uptimeFromFile(schedulerPidFile) : 0,
+      latency: 0,
+      lastError: null,
+      detail: lifecycle.is_dreaming ? 'REM dream generation is active.' : 'Dream engine is scheduled by the sleep-cycle runtime.',
+      restartAvailable: false,
+      logAvailable: true,
+      controlAction: null,
+      logKey: 'Dream Engine',
+    },
+    {
+      name: 'Local API',
+      status: nativeBridgeRunning ? 'Running' : 'Stopped',
+      lastHeartbeat: now,
+      uptime: now - startedAt,
+      latency: 0,
+      lastError: null,
+      detail: 'Native context-isolated Electron IPC is active; no fake HTTP API process is claimed.',
+      restartAvailable: false,
+      logAvailable: true,
+      controlAction: null,
+      logKey: 'Local API',
+    },
+    {
+      name: 'WebSocket Connection',
+      status: nativeBridgeRunning ? 'Running' : 'Stopped',
+      lastHeartbeat: now,
+      uptime: now - startedAt,
+      latency: 0,
+      lastError: null,
+      detail: 'Renderer events use the native IPC bridge; no fake WebSocket connection is claimed.',
+      restartAvailable: false,
+      logAvailable: true,
+      controlAction: null,
+      logKey: 'WebSocket Connection',
+    },
+    {
+      name: 'Minecraft Bridge',
+      status: 'Stopped',
+      lastHeartbeat: now,
+      uptime: 0,
+      latency: 0,
+      lastError: null,
+      detail: 'Not loaded in chat.local. Minecraft game mode remains isolated and must not be started from this interface.',
+      restartAvailable: false,
+      logAvailable: false,
+      controlAction: null,
+      logKey: 'Minecraft Bridge',
+    },
   ];
-  const rows = pidFiles.map(([name, file]) => {
-    const pid = fs.existsSync(file) ? Number(String(fs.readFileSync(file, 'utf8')).trim()) : null;
-    const running = processAlive(pid);
-    return { name, status: running ? 'Running' : 'Stopped', lastHeartbeat: Date.now(), uptime: 0, latency: 0, lastError: null, pid, restartAvailable: running, logAvailable: running };
-  });
-  rows.push({ name: 'Cognition Runtime', status: runtime ? 'Running' : 'Stopped', lastHeartbeat: Date.now(), uptime: runtime ? Date.now() - startedAt : 0, latency: 0, lastError: null, restartAvailable: false, logAvailable: false });
-  rows.push({ name: 'Webcam Eyes', status: webcam.ready_for_chat ? 'Running' : 'Degraded', lastHeartbeat: Date.now(), uptime: 0, latency: 0, lastError: webcam.last_fatal_error || null, restartAvailable: true, logAvailable: true });
-  rows.push({ name: 'Lifecycle', status: lifecycle.state ? 'Running' : 'Degraded', lastHeartbeat: Date.now(), uptime: Date.now() - startedAt, latency: 0, lastError: null, restartAvailable: false, logAvailable: false });
-  return rows;
 }
 
 function neuralEvents(limit) {
@@ -397,6 +649,7 @@ function registerIpc() {
   ipcMain.handle('floki:interrupt', async () => { if (activeAbortController) activeAbortController.abort(); return { ok: true }; });
   ipcMain.handle('floki:get-vision-frame', async () => visionFrame());
   ipcMain.handle('floki:get-latest-frame', async () => getLatestFrameBase64());
+  ipcMain.handle('floki:get-mjpeg-diag', async () => getMjpegDiag());
   ipcMain.handle('floki:get-mjpeg-port', async () => { const frameFile = process.env.FLOKI_E2E_FRAME_FILE || runtimePaths().latest_frame_file; return startMjpegServer(frameFile); });
   ipcMain.handle('floki:get-observation', async () => readLatestPrivateObservation());
   ipcMain.handle('floki:get-emotion', async () => { recordAffectHistory(); return emotionState(); });
@@ -412,11 +665,22 @@ function registerIpc() {
   ipcMain.handle('floki:open-log', async (_event, payload = {}) => {
     const paths = getPathConfig('chat');
     const runtimeRoot = path.resolve(PROJECT_ROOT, paths.chat_runtime_root);
+    const diagnostics = path.join(PROJECT_ROOT, 'state/floki/diagnostics.jsonl');
     const candidates = {
+      'Floki Core': diagnostics,
+      'Cognition': diagnostics,
+      'Vision': path.join(runtimeRoot, 'chat-webcam-vision.log'),
       'Chat Vision': path.join(runtimeRoot, 'chat-webcam-vision.log'),
-      'Sleep Scheduler': path.join(runtimeRoot, 'sleep-cycle-scheduler.log'),
-      'Speech Listener': path.join(runtimeRoot, 'chat-loop.log'),
       'Webcam Eyes': path.join(runtimeRoot, 'chat-webcam-vision.log'),
+      'Hearing': path.join(runtimeRoot, 'chat-mode-loop.log'),
+      'Speech': path.join(runtimeRoot, 'chat-mode-loop.log'),
+      'Speech Listener': path.join(runtimeRoot, 'chat-mode-loop.log'),
+      'Memory': diagnostics,
+      'Emotion': diagnostics,
+      'Sleep Scheduler': path.join(runtimeRoot, 'sleep-cycle-scheduler.log'),
+      'Dream Engine': path.join(runtimeRoot, 'sleep-cycle-scheduler.log'),
+      'Local API': diagnostics,
+      'WebSocket Connection': diagnostics,
     };
     const file = candidates[payload.service] || path.join(PROJECT_ROOT, 'state/floki/diagnostics.jsonl');
     if (fs.existsSync(file)) await shell.openPath(file);
@@ -435,6 +699,7 @@ function registerIpc() {
       restartVision: [visionStop, visionStart],
       restartHearing: ['floki-chat-stop.sh', 'floki-chat-start.sh'],
       restartSpeech: ['floki-chat-stop.sh', 'floki-chat-start.sh'],
+      restartScheduler: [schedulerStop, schedulerStart],
       requestSleep: [schedulerStart],
       pauseSleep: [schedulerStop],
       resumeSleep: [schedulerStart],

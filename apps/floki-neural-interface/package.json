@@ -12,7 +12,8 @@
     "typecheck": "tsc -p ./jsconfig.json",
     "electron": "electron .",
     "start": "npm run build && electron .",
-    "test:integration": "node tests/chat-local-contract.cjs",
+    "test:integration": "node tests/chat-local-contract.cjs && node tests/full-interface-preservation-contract.cjs",
+    "test:preservation": "node tests/full-interface-preservation-contract.cjs",
     "test:e2e": "node tests/e2e/electron-test.cjs",
     "test:e2e:headed": "HEADED=1 node tests/e2e/electron-test.cjs"
   },
