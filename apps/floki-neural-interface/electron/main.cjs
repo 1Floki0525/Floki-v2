@@ -17,7 +17,8 @@ const { buildFlokiLifecycleStatus } = require(path.join(PROJECT_ROOT, 'src/chat/
 const { readChatWebcamVisionStatus, readLatestPrivateObservation, runtimePaths } = require(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'));
 const { buildVisionStatus } = require(path.join(PROJECT_ROOT, 'src/vision/vision-status.cjs'));
 const { loadAffectState } = require(path.join(PROJECT_ROOT, 'brain/emotions_base/index.cjs'));
-const { getModelConfig, getPathConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
+const { getModelConfig, getPathConfig, getVisionConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
+const { getDetectionConfig } = require(path.join(PROJECT_ROOT, 'src/vision/yolo-detection-service.cjs'));
 
 let mainWindow = null;
 let runtime = null;
@@ -187,9 +188,27 @@ function sleepStatus() {
 function visionFrame() {
   const service = readChatWebcamVisionStatus();
   const observation = readLatestPrivateObservation();
+  const config = getDetectionConfig();
+  const detectionFile = path.resolve(PROJECT_ROOT, config.yoloModelPath.replace(/yolo11n\.pt$/, ''), '..', 'runtime', 'chat-webcam-vision.latest-detection.json');
+  
+  let yolodetections = [];
+  let yolofaces = [];
+  
+  if (fs.existsSync(detectionFile)) {
+    try {
+      const detection = JSON.parse(fs.readFileSync(detectionFile, 'utf8'));
+      if (Array.isArray(detection.detections)) {
+        yolodetections = detection.detections.filter(d => d.type !== 'face');
+        yolofaces = detection.detections.filter(d => d.type === 'face');
+      }
+    } catch (e) {
+      // Invalid JSON - use empty arrays
+    }
+  }
+  
   return {
-    objects: Array.isArray(observation?.objects) ? observation.objects : [],
-    faces: Array.isArray(observation?.faces) ? observation.faces : [],
+    objects: yolodetections.length > 0 ? yolodetections : [],
+    faces: yolofaces.length > 0 ? yolofaces : [],
     scene: {
       label: observation?.observation_summary || observation?.description || observation?.scene || observation?.summary || 'No current visual description',
       confidence: Number(observation?.confidence || 0),

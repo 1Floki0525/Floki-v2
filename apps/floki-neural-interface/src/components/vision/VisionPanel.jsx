@@ -36,13 +36,16 @@ export default function VisionPanel() {
   const [showScene, setShowScene] = useState(true);
   const [objects, setObjects] = useState([]);
   const [faces, setFaces] = useState([]);
+  const [labels, setLabels] = useState([]);
   const [sceneLabel, setSceneLabel] = useState('No current visual description');
   const [sceneConf, setSceneConf] = useState(0);
   const [streamKey, setStreamKey] = useState(0);
   const [streamError, setStreamError] = useState(false);
+  const [frameDims, setFrameDims] = useState({ width: 1280, height: 720 });
   const frozenUrl = useRef(null);
   const metaRef = useRef(null);
   const reconnectTimer = useRef(null);
+  const svgRef = useRef(null);
 
   const refreshMeta = useCallback(async () => {
     try {
@@ -55,6 +58,11 @@ export default function VisionPanel() {
       setFrameMeta(metaRef.current);
       setObjects(Array.isArray(vision.objects) ? vision.objects : []);
       setFaces(Array.isArray(vision.faces) ? vision.faces : []);
+      setLabels(Array.isArray(vision.objects) ? vision.objects : []);
+      setFrameDims({
+        width: Number(vision.objects[0]?.bbox?.x2 || vision.objects[0]?.bbox?.width || 1280),
+        height: Number(vision.objects[0]?.bbox?.y2 || vision.objects[0]?.bbox?.height || 720)
+      });
       setSceneLabel(vision.scene?.label || 'No current visual description');
       setSceneConf(Number(vision.scene?.confidence || 0));
     } catch (error) {
@@ -122,23 +130,76 @@ export default function VisionPanel() {
               onError={handleStreamError}
             />
             {showObjects && objects.length > 0 && (
-              <div className="absolute top-2 left-2 flex flex-wrap gap-1">
-                {objects.map((obj, i) => (
-                  <span key={i} className="text-[9px] font-mono px-1 py-0.5 rounded bg-emerald-900/60 text-emerald-300 border border-emerald-500/30">
-                    {obj.label || obj.class || obj.name || 'object'}
-                    {showConf && obj.confidence != null ? ` ${(obj.confidence * 100).toFixed(0)}%` : ''}
-                  </span>
-                ))}
-              </div>
+              <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
+                {objects.map((obj, i) => {
+                  const box = obj.bbox || {};
+                  const x = (box.x || 0) * 100;
+                  const y = (box.y || 0) * 100;
+                  const w = (box.width || 1) * 100;
+                  const h = (box.height || 1) * 100;
+                  return (
+                    <g key={i}>
+                      <rect
+                        x={x}
+                        y={y}
+                        width={w}
+                        height={h}
+                        fill="none"
+                        stroke="lime"
+                        strokeWidth="2"
+                      />
+                      {showLabels && (
+                        <text
+                          x={x + 4}
+                          y={y + 14}
+                          fill="lime"
+                          fontSize="10"
+                          fontFamily="monospace"
+                        >
+                          {obj.label || obj.class || obj.name || 'object'}
+                          {showConf && obj.confidence != null ? ` ${(obj.confidence * 100).toFixed(0)}%` : ''}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
             )}
             {showFaces && faces.length > 0 && (
-              <div className="absolute top-2 right-2 flex flex-wrap gap-1">
-                {faces.map((face, i) => (
-                  <span key={i} className="text-[9px] font-mono px-1 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-500/30">
-                    Face {i + 1}{showConf && face.confidence != null ? ` ${(face.confidence * 100).toFixed(0)}%` : ''}
-                  </span>
-                ))}
-              </div>
+              <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
+                {faces.map((face, i) => {
+                  const box = face.bbox || {};
+                  const x = (box.x || 0) * 100;
+                  const y = (box.y || 0) * 100;
+                  const w = (box.width || 1) * 100;
+                  const h = (box.height || 1) * 100;
+                  return (
+                    <g key={i}>
+                      <rect
+                        x={x}
+                        y={y}
+                        width={w}
+                        height={h}
+                        fill="none"
+                        stroke="cyan"
+                        strokeWidth="2"
+                      />
+                      {showLabels && (
+                        <text
+                          x={x + 4}
+                          y={y + 14}
+                          fill="cyan"
+                          fontSize="10"
+                          fontFamily="monospace"
+                        >
+                          Face {i + 1}
+                          {showConf && face.confidence != null ? ` ${(face.confidence * 100).toFixed(0)}%` : ''}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
             )}
             {showLabels && (
               <div className="absolute bottom-2 left-2 text-[9px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-muted-foreground">

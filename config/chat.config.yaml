@@ -108,6 +108,13 @@ vision:
   vlm_ssh_tunnel_socket_name: chat-vision-ssh-tunnel.sock
   vlm_ssh_tunnel_check_timeout_ms: 8000
 
+detection:
+  object_detector_enabled: true
+  yolo_model_path: .floki-tools/models/yolo/yolo11n.pt
+  detection_confidence_threshold: 0.5
+  detection_interval_frames: 20
+  detection_max_age_ms: 5000
+
 chat_world_vision:
   enabled: true
   source: webcam

@@ -14,6 +14,8 @@ const { PROJECT_ROOT: ROOT, getModelConfig, getPathConfig, getVisionConfig } = r
 const { assertPublicTranscriptText } = require('../chat/chat-transcript.cjs');
 const { webcamCaptureConfig } = require('./webcam-capabilities.cjs');
 const { ffmpegPixelFormat } = require('./webcam-eyes-stream.cjs');
+const { startYoloDetectionWorker, runYoloDetectionOnFrame, storeDetectionResult, getDetectionStatus } = require('./yolo-detection-service.cjs');
+const { validateDetectionFrame, parseYoloDetectionFrame } = require('./structured-detection.cjs');
 
 const READY_TIMEOUT_MS = 330000;
 const STATUS_STALE_MS = 5000;
@@ -684,7 +686,7 @@ async function runChatWebcamVisionService(options = {}) {
     const minInterval = Number(vision.vlm_inference_min_interval_ms || 1000);
     const enoughTime = !state.last_vlm_inference_at_ms || nowMs - state.last_vlm_inference_at_ms >= minInterval;
     const firstObservation = state.first_vlm_observation_succeeded !== true;
-    const everyFrames = Number(vision.vlm_inference_every_n_frames || 1);
+    const everyFrames = Number(vision.vlm_inference_every_n_frames || 40);
     const dueFrame = everyFrames > 0 && state.total_frames_received % everyFrames === 0;
     if (inFlightInference || (!firstObservation && (!dueFrame || !enoughTime))) return;
     inFlightInference = true;
@@ -702,6 +704,16 @@ async function runChatWebcamVisionService(options = {}) {
       state.last_vlm_error = null;
       writeLatestObservation(result, paths, state);
       publish({ last_vlm_error: null });
+      
+      // Run YOLO detection on this frame
+      const yoloResult = await runYoloDetectionOnFrame(paths.latest_frame_file);
+      if (yoloResult.ok && yoloResult.detections && yoloResult.detections.length > 0) {
+        const detectionFrame = parseYoloDetectionFrame(yoloResult, new Date().toISOString());
+        const validation = validateDetectionFrame(detectionFrame);
+        if (validation.valid) {
+          storeDetectionResult(detectionFrame, { runtime_dir: paths.runtime_dir });
+        }
+      }
     } catch (error) {
       if (stopping) return;
       state.consecutive_vlm_failures += 1;
