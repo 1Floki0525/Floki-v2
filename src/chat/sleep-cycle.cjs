@@ -734,5 +734,6 @@ module.exports = {
   shouldResumeSleepAfterIdle,
   recordWakeActivityIfSleeping,
   runSleepCycleTick,
+  stopScheduler,
   printSleepCycleProof
 };

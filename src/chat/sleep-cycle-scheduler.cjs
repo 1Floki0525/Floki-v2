@@ -297,9 +297,46 @@ if (require.main === module) {
       chat_mode_only: true,
       game_mode_started: false
     }, null, 2));
-    process.exit(1);
-  });
-}
+     process.exit(1);
+   });
+ }
+
+ function stopScheduler(options = {}) {
+   const paths = schedulerPaths(options);
+   const pidFile = paths.pid_file;
+   
+   if (!fs.existsSync(pidFile)) {
+     return { ok: true, marker: 'SCHEDULER_STOPPED_NO_PID' };
+   }
+   
+   try {
+     const pid = Number(String(fs.readFileSync(pidFile, 'utf8')).trim());
+     if (!Number.isInteger(pid) || pid <= 0) {
+       fs.unlinkSync(pidFile);
+       return { ok: true, marker: 'SCHEDULER_STOPPED_NO_VALID_PID' };
+     }
+     
+     if (processIsAlive(pid)) {
+       process.kill(pid, 'SIGTERM');
+       
+       // Wait up to 5 seconds for graceful shutdown
+       let waited = 0;
+       while (processIsAlive(pid) && waited < 5000) {
+         require('node:fs').sync(1);
+         waited += 200;
+       }
+       
+       if (processIsAlive(pid)) {
+         process.kill(pid, 'SIGKILL');
+       }
+     }
+     
+     fs.unlinkSync(pidFile);
+     return { ok: true, marker: 'SCHEDULER_STOPPED', pid };
+   } catch (e) {
+     return { ok: false, marker: 'SCHEDULER_STOP_ERROR', error: e.message };
+   }
+ }
 
 module.exports = {
   ROOT,
@@ -312,5 +349,6 @@ module.exports = {
   writeHeartbeat,
   runSchedulerIteration,
   runSchedulerService,
-  waitForNextTick
+  waitForNextTick,
+  stopScheduler
 };

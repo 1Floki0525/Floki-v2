@@ -11,7 +11,9 @@ const {
 } = require('../../brain/core_brain/index.cjs');
 const { buildVisionStatus } = require('../vision/vision-status.cjs');
 const { buildFlokiLifecycleStatus, printLifecycleStatus } = require('./floki-lifecycle-status.cjs');
-const { recordWakeActivityIfSleeping } = require('./sleep-cycle.cjs');
+const { runSleepCycleTick, loadSleepCycleState, stopScheduler } = require('./sleep-cycle-scheduler.cjs');
+const { stopScheduler } = require('./sleep-cycle.cjs');
+const { stopChatWebcamVisionService } = require('../vision/chat-webcam-vision-service.cjs');
 
 function createRuntime(options = {}) {
   return createCoreBrain({
@@ -195,7 +197,9 @@ module.exports = {
   createRuntime,
   handleUserText,
   buildSmokeJson,
-  runSmoke
+  runSmoke,
+  stopScheduler,
+  stopChatWebcamVisionService
 };
 
 if (require.main === module) {
