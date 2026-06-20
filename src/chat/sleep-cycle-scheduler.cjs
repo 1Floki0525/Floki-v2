@@ -201,28 +201,64 @@ async function waitForNextTick(ms, shouldStop) {
   }
 }
 
+const SCHEDULER_STOP_SLEEP_BUFFER = new Int32Array(new SharedArrayBuffer(4));
+
+function sleepSync(milliseconds) {
+  const delayMs = Math.max(1, Math.floor(Number(milliseconds) || 1));
+  Atomics.wait(SCHEDULER_STOP_SLEEP_BUFFER, 0, 0, delayMs);
+}
+
+function waitForProcessExitSync(pid, timeoutMs, pollMs) {
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+  const intervalMs = Math.max(1, Number(pollMs) || 50);
+
+  while (processIsAlive(pid) && Date.now() < deadline) {
+    sleepSync(Math.min(intervalMs, Math.max(1, deadline - Date.now())));
+  }
+
+  return !processIsAlive(pid);
+}
+
 function cleanupSchedulerProcess(pid, paths, timeoutMs) {
   if (!pid || !processIsAlive(pid)) {
     if (pid && fs.existsSync(paths.pid_file)) fs.unlinkSync(paths.pid_file);
     return { ok: true, marker: 'SCHEDULER_CLEANUP_NO_PROCESS', pid };
   }
 
-  const deadline = Date.now() + Number(timeoutMs || 5000);
+  const gracefulTimeoutMs = Math.max(1, Number(timeoutMs) || 5000);
+  const forceTimeoutMs = Math.min(2000, gracefulTimeoutMs);
+
   process.kill(pid, 'SIGTERM');
 
-  while (Date.now() < deadline && processIsAlive(pid)) {
-    new Promise((resolve) => setTimeout(resolve, 200));
+  let exited = waitForProcessExitSync(pid, gracefulTimeoutMs, 100);
+  let forced = false;
+
+  if (!exited) {
+    forced = true;
+    process.kill(pid, 'SIGKILL');
+    exited = waitForProcessExitSync(pid, forceTimeoutMs, 50);
   }
 
-  if (processIsAlive(pid)) {
-    process.kill(pid, 'SIGKILL');
-    while (processIsAlive(pid)) {
-      new Promise((resolve) => setTimeout(resolve, 100));
-    }
+  if (!exited) {
+    return {
+      ok: false,
+      marker: 'SCHEDULER_CLEANUP_PROCESS_STILL_ALIVE',
+      pid,
+      forced,
+      pid_file_preserved: fs.existsSync(paths.pid_file)
+    };
   }
 
   if (fs.existsSync(paths.pid_file)) fs.unlinkSync(paths.pid_file);
-  return { ok: true, marker: 'SCHEDULER_CLEANUP_DONE', pid };
+
+  return {
+    ok: true,
+    marker: forced
+      ? 'SCHEDULER_CLEANUP_FORCED'
+      : 'SCHEDULER_CLEANUP_DONE',
+    pid,
+    forced
+  };
 }
 
 async function runSchedulerService(options = {}) {
