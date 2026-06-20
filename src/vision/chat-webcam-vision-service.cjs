@@ -35,6 +35,7 @@ function runtimePaths(options = {}) {
     status_file: options.status_file || path.join(runtimeDir, 'chat-webcam-vision.status.json'),
     heartbeat_file: options.heartbeat_file || path.join(runtimeDir, 'chat-webcam-vision.heartbeat.json'),
     latest_observation_file: options.latest_observation_file || path.join(runtimeDir, 'chat-webcam-vision.latest-observation.private.json'),
+    latest_frame_file: options.latest_frame_file || path.join(runtimeDir, 'chat-webcam-vision.latest-frame.jpg'),
     log_file: options.log_file || path.join(runtimeDir, 'chat-webcam-vision.log')
   });
 }
@@ -750,6 +751,7 @@ async function runChatWebcamVisionService(options = {}) {
       state.last_frame_at_ms = nowMs;
       state.last_frame_timestamp = nowIso();
       state.first_frame_received = true;
+      try { fs.writeFileSync(paths.latest_frame_file, latestFrame); } catch (_e) { /* best-effort frame file write */ }
       if (!stopping) maybeInfer(latestFrame);
     }
     publish();
@@ -866,5 +868,6 @@ module.exports = {
   statusReadyForChat,
   buildOperationalStatus,
   publicStatus,
-  formatChatWebcamVisionLines
+  formatChatWebcamVisionLines,
+  runtimePaths
 };

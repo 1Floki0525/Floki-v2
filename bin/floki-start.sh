@@ -87,6 +87,13 @@ case "$COMMAND" in
     node src/chat/floki-live-chat-interface.cjs "$@"
     exit "$?"
     ;;
+  chat.local)
+    start_sleep_scheduler
+    verify_sleep_scheduler
+    start_chat_webcam_vision
+    bash bin/floki-chat-local-start.sh "$@"
+    exit "$?"
+    ;;
   text-chat)
     start_sleep_scheduler
     node src/chat/floki-chat.cjs "$@"
@@ -178,6 +185,7 @@ esac
 
 echo "Floki-v2 start commands:"
 echo "  bin/floki-start.sh chat              live chat: typed text + spoken wake-word input"
+echo "  bin/floki-start.sh chat.local        native Electron neural interface"
 echo "  bin/floki-start.sh text-chat         old typed-only terminal chat"
 echo "  bin/floki-start.sh chat-loop-start   start background spoken wake-word listener"
 echo "  bin/floki-start.sh chat-loop-stop    stop background spoken listener"
