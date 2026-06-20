@@ -201,6 +201,30 @@ async function waitForNextTick(ms, shouldStop) {
   }
 }
 
+function cleanupSchedulerProcess(pid, paths, timeoutMs) {
+  if (!pid || !processIsAlive(pid)) {
+    if (pid && fs.existsSync(paths.pid_file)) fs.unlinkSync(paths.pid_file);
+    return { ok: true, marker: 'SCHEDULER_CLEANUP_NO_PROCESS', pid };
+  }
+
+  const deadline = Date.now() + Number(timeoutMs || 5000);
+  process.kill(pid, 'SIGTERM');
+
+  while (Date.now() < deadline && processIsAlive(pid)) {
+    new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  if (processIsAlive(pid)) {
+    process.kill(pid, 'SIGKILL');
+    while (processIsAlive(pid)) {
+      new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  if (fs.existsSync(paths.pid_file)) fs.unlinkSync(paths.pid_file);
+  return { ok: true, marker: 'SCHEDULER_CLEANUP_DONE', pid };
+}
+
 async function runSchedulerService(options = {}) {
   const paths = schedulerPaths(options);
   ensureDirSync(paths.runtime_dir);
@@ -288,6 +312,27 @@ async function main() {
   }, null, 2));
 }
 
+function stopScheduler(options = {}) {
+  const paths = schedulerPaths(options);
+  const pidFile = paths.pid_file;
+  
+  if (!fs.existsSync(pidFile)) {
+    return { ok: true, marker: 'SCHEDULER_STOPPED_NO_PID' };
+  }
+  
+  try {
+    const pid = Number(String(fs.readFileSync(pidFile, 'utf8')).trim());
+    if (!Number.isInteger(pid) || pid <= 0) {
+      fs.unlinkSync(pidFile);
+      return { ok: true, marker: 'SCHEDULER_STOPPED_NO_VALID_PID' };
+    }
+    
+    return cleanupSchedulerProcess(pid, paths, 5000);
+  } catch (e) {
+    return { ok: false, marker: 'SCHEDULER_STOP_ERROR', error: e.message };
+  }
+}
+
 if (require.main === module) {
   main().catch((error) => {
     console.error(JSON.stringify({
@@ -299,44 +344,7 @@ if (require.main === module) {
     }, null, 2));
      process.exit(1);
    });
- }
-
- function stopScheduler(options = {}) {
-   const paths = schedulerPaths(options);
-   const pidFile = paths.pid_file;
-   
-   if (!fs.existsSync(pidFile)) {
-     return { ok: true, marker: 'SCHEDULER_STOPPED_NO_PID' };
-   }
-   
-   try {
-     const pid = Number(String(fs.readFileSync(pidFile, 'utf8')).trim());
-     if (!Number.isInteger(pid) || pid <= 0) {
-       fs.unlinkSync(pidFile);
-       return { ok: true, marker: 'SCHEDULER_STOPPED_NO_VALID_PID' };
-     }
-     
-     if (processIsAlive(pid)) {
-       process.kill(pid, 'SIGTERM');
-       
-       // Wait up to 5 seconds for graceful shutdown
-       let waited = 0;
-       while (processIsAlive(pid) && waited < 5000) {
-         require('node:fs').sync(1);
-         waited += 200;
-       }
-       
-       if (processIsAlive(pid)) {
-         process.kill(pid, 'SIGKILL');
-       }
-     }
-     
-     fs.unlinkSync(pidFile);
-     return { ok: true, marker: 'SCHEDULER_STOPPED', pid };
-   } catch (e) {
-     return { ok: false, marker: 'SCHEDULER_STOP_ERROR', error: e.message };
-   }
- }
+}
 
 module.exports = {
   ROOT,

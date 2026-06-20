@@ -19,7 +19,9 @@ const { buildVisionStatus } = require(path.join(PROJECT_ROOT, 'src/vision/vision
 const { loadAffectState } = require(path.join(PROJECT_ROOT, 'brain/emotions_base/index.cjs'));
 const { getModelConfig, getPathConfig, getVisionConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
 const { getDetectionConfig } = require(path.join(PROJECT_ROOT, 'src/vision/yolo-detection-service.cjs'));
-const { stopChatWebcamVisionService, stopSleepScheduler } = require(path.join(PROJECT_ROOT, 'src/chat/floki-chat.cjs'));
+const { stopChatWebcamVisionService, stopScheduler } = require(path.join(PROJECT_ROOT, 'src/chat/floki-chat.cjs'));
+const { stopScheduler: stopSchedulerDirect } = require(path.join(PROJECT_ROOT, 'src/chat/sleep-cycle-scheduler.cjs'));
+const { stopChatWebcamVisionService: stopWebcamDirect } = require(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'));
 
 let mainWindow = null;
 let runtime = null;
@@ -30,8 +32,12 @@ const AFFECT_HISTORY_MAX = 360;
 
 /* Cleanup function to stop all backend processes */
 function cleanupProcesses() {
-  try { stopChatWebcamVisionService({ runtime_dir: path.join(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root) }); } catch (e) {}
-  try { stopScheduler({ runtime_dir: path.join(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root) }); } catch (e) {}
+  try { stopWebcamDirect({ runtime_dir: path.join(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root) }); } catch (e) {
+    console.error('webcam vision cleanup failed:', e.message);
+  }
+  try { stopSchedulerDirect({ runtime_dir: path.join(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root) }); } catch (e) {
+    console.error('scheduler cleanup failed:', e.message);
+  }
 }
 
 /* MJPEG streaming server — serves live video from vision service frame file */
@@ -463,19 +469,9 @@ function createWindow() {
   mainWindow.loadFile(DIST_INDEX);
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  mainWindow.on('closed', () => {
+    mainWindow.on('closed', () => {
     mainWindow = null;
-    // Clean up vision processes on shutdown
-    const { runScript } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
-    if (fs.existsSync(path.join(PROJECT_ROOT, 'bin/floki-chat-stop.sh'))) {
-      runScript('floki-chat-stop.sh', []);
-    }
-    if (fs.existsSync(path.join(PROJECT_ROOT, 'bin/floki-chat-vision-stop.sh'))) {
-      runScript('floki-chat-vision-stop.sh', []);
-    }
-    if (fs.existsSync(path.join(PROJECT_ROOT, 'bin/floki-sleep-scheduler-stop.sh'))) {
-      runScript('floki-sleep-scheduler-stop.sh', []);
-    }
+    cleanupProcesses();
   });
 }
 
