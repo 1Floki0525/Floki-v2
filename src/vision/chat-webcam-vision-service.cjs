@@ -14,10 +14,11 @@ const { PROJECT_ROOT: ROOT, getModelConfig, getPathConfig, getVisionConfig } = r
 const { assertPublicTranscriptText } = require('../chat/chat-transcript.cjs');
 const { webcamCaptureConfig } = require('./webcam-capabilities.cjs');
 const { ffmpegPixelFormat } = require('./webcam-eyes-stream.cjs');
-const { startYoloDetectionWorker, runYoloDetectionOnFrame, storeDetectionResult, getDetectionStatus } = require('./yolo-detection-service.cjs');
-const { validateDetectionFrame, parseYoloDetectionFrame } = require('./structured-detection.cjs');
+const { getDetectionConfig, storeDetectionResult, readLatestDetection, validateDetectionFrame, parseYoloDetectionFrame } = require('./yolo-detection-service.cjs');
+const { runHybridDetectionOnFrame, stopHybridDetectionWorkers } = require('./hybrid-detection-service.cjs');
+const { attachCachedPersonVerifications, isPersonCandidate, verifyDetectionFramePersons } = require('./person-presence-verifier.cjs');
 
-const READY_TIMEOUT_MS = 330000;
+const READY_TIMEOUT_MS = 30000;
 const STATUS_STALE_MS = 5000;
 const HEARTBEAT_MS = 1000;
 const MAX_PIPE_BUFFER_BYTES = 16 * 1024 * 1024;
@@ -38,6 +39,7 @@ function runtimePaths(options = {}) {
     heartbeat_file: options.heartbeat_file || path.join(runtimeDir, 'chat-webcam-vision.heartbeat.json'),
     latest_observation_file: options.latest_observation_file || path.join(runtimeDir, 'chat-webcam-vision.latest-observation.private.json'),
     latest_frame_file: options.latest_frame_file || path.join(runtimeDir, 'chat-webcam-vision.latest-frame.jpg'),
+    detection_frame_file: options.detection_frame_file || path.join(runtimeDir, 'chat-webcam-vision.yolo-frame.jpg'),
     log_file: options.log_file || path.join(runtimeDir, 'chat-webcam-vision.log')
   });
 }
@@ -188,6 +190,94 @@ function readPid(filePath) {
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
+function discoverVisionProcessIds() {
+  const serviceNeedle = path.resolve(__filename) + ' --service';
+  const workerNeedle = path.join(
+    ROOT,
+    '.floki-tools',
+    'yolo-config',
+    'yolo-worker.py'
+  );
+  const dinoWorkerNeedle = path.join(
+    ROOT,
+    '.floki-tools',
+    'grounding-dino',
+    'grounding-dino-worker.py'
+  );
+  const processInfos = [];
+  let entries = [];
+
+  try {
+    entries = fs.readdirSync('/proc', { withFileTypes: true });
+  } catch (_error) {
+    return [];
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
+
+    const pid = Number(entry.name);
+
+    try {
+      const cmdline = fs
+        .readFileSync(path.join('/proc', entry.name, 'cmdline'))
+        .toString('utf8')
+        .replace(/\0/g, ' ')
+        .trim();
+      const stat = fs.readFileSync(
+        path.join('/proc', entry.name, 'stat'),
+        'utf8'
+      );
+      const commandClose = stat.lastIndexOf(')');
+      const fields = commandClose >= 0
+        ? stat.slice(commandClose + 2).trim().split(/\s+/)
+        : [];
+      const parentPid = Number(fields[1]);
+
+      processInfos.push(Object.freeze({
+        pid,
+        parent_pid: Number.isInteger(parentPid) && parentPid > 0
+          ? parentPid
+          : null,
+        cmdline
+      }));
+    } catch (_error) {
+      // The process exited while /proc was being scanned.
+    }
+  }
+
+  const targets = new Set();
+
+  for (const processInfo of processInfos) {
+    if (
+      processInfo.cmdline.includes(serviceNeedle) ||
+      processInfo.cmdline.includes(workerNeedle) ||
+      processInfo.cmdline.includes(dinoWorkerNeedle)
+    ) {
+      targets.add(processInfo.pid);
+    }
+  }
+
+  let addedDescendant = true;
+
+  while (addedDescendant) {
+    addedDescendant = false;
+
+    for (const processInfo of processInfos) {
+      if (
+        processInfo.parent_pid !== null &&
+        targets.has(processInfo.parent_pid) &&
+        !targets.has(processInfo.pid)
+      ) {
+        targets.add(processInfo.pid);
+        addedDescendant = true;
+      }
+    }
+  }
+
+  return Array.from(targets);
+}
+
 function safeReadJson(filePath) {
   if (!existsSync(filePath)) return null;
   try {
@@ -279,6 +369,14 @@ function buildOperationalStatus(state, extra = {}) {
     target_fps_met: measuredCaptureFps >= targetFps,
     last_frame_timestamp: state.last_frame_timestamp || null,
     last_vlm_inference_timestamp: state.last_vlm_inference_timestamp || null,
+    last_yolo_inference_timestamp: state.last_yolo_inference_timestamp || null,
+    last_detection_stored_at: state.last_detection_stored_at || null,
+    last_detection_frame_sequence: Number(state.last_detection_frame_sequence || 0),
+    detection_source: 'live_mjpeg_frame_buffer',
+    detector_schedule: 'time_based_latest_live_frame',
+    person_verifier_payload_mode: 'crop_only',
+    last_yolo_error: state.last_yolo_error || null,
+    last_person_verifier_error: state.last_person_verifier_error || null,
     consecutive_vlm_failures: Number(state.consecutive_vlm_failures || 0),
     last_vlm_error: extra.last_vlm_error === undefined
       ? (state.last_vlm_error || null)
@@ -552,8 +650,18 @@ async function startChatWebcamVisionService(options = {}) {
   const paths = runtimePaths(options);
   ensureDirSync(paths.runtime_dir);
   const existing = readChatWebcamVisionStatus(options);
-  if (existing.active === true) {
-    return Object.freeze({ ...existing, owner: false, duplicate_prevented: true });
+  const discovered = discoverVisionProcessIds();
+  if (existing.active === true || existing.service_process_alive === true) {
+    return Object.freeze({
+      ...existing,
+      active: existing.active === true,
+      owner: false,
+      duplicate_prevented: true,
+      discovered_pids: discovered
+    });
+  }
+  if (discovered.length > 0) {
+    await stopChatWebcamVisionService({ ...options, stop_tunnel: false });
   }
   fs.rmSync(paths.status_file, { force: true });
   fs.rmSync(paths.heartbeat_file, { force: true });
@@ -585,37 +693,43 @@ async function stopChatWebcamVisionService(options = {}) {
   const pid = readPid(paths.pid_file);
   const aliveCheck = options.process_is_alive || processIsAlive;
   const killProcess = options.kill_process || ((targetPid, signal) => process.kill(targetPid, signal));
-  if (!pid || !aliveCheck(pid)) {
-    fs.rmSync(paths.pid_file, { force: true });
-    const tunnelStatus = options.stop_tunnel === false ? null : stopChatVisionTunnel(options);
-    return Object.freeze({
-      ok: true,
-      marker: 'FLOKI_V2_CHAT_WEBCAM_SERVICE_STOPPED',
-      active: false,
-      pid,
-      tunnel_status: tunnelStatus,
-      chat_mode_only: true,
-      game_mode_started: false
-    });
+  const discover = options.discover_process_ids || discoverVisionProcessIds;
+  const targets = Array.from(new Set([
+    ...(pid ? [pid] : []),
+    ...discover()
+  ])).filter((targetPid) => aliveCheck(targetPid));
+
+  for (const targetPid of targets) {
+    try { killProcess(targetPid, 'SIGTERM'); } catch (_error) { /* already stopped */ }
   }
-  killProcess(pid, 'SIGTERM');
+
   const deadline = Date.now() + Number(options.timeout_ms || 10000);
-  while (Date.now() < deadline && aliveCheck(pid)) {
+  while (Date.now() < deadline && targets.some((targetPid) => aliveCheck(targetPid))) {
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  const stopped = !aliveCheck(pid);
+
+  const survivors = targets.filter((targetPid) => aliveCheck(targetPid));
+  for (const targetPid of survivors) {
+    try { killProcess(targetPid, 'SIGKILL'); } catch (_error) { /* already stopped */ }
+  }
+  if (survivors.length > 0) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+
+  const stopped = targets.every((targetPid) => !aliveCheck(targetPid));
+  fs.rmSync(paths.pid_file, { force: true });
   const tunnelStatus = options.stop_tunnel === false ? null : stopChatVisionTunnel(options);
   return Object.freeze({
     ok: stopped,
     marker: stopped ? 'FLOKI_V2_CHAT_WEBCAM_SERVICE_STOPPED' : 'FLOKI_V2_CHAT_WEBCAM_SERVICE_STOP_TIMEOUT',
     active: !stopped,
     pid,
+    stopped_pids: targets,
     tunnel_status: tunnelStatus,
     chat_mode_only: true,
     game_mode_started: false
   });
 }
-
 async function runChatWebcamVisionService(options = {}) {
   assertNode24();
   const env = options.env || process.env;
@@ -647,12 +761,22 @@ async function runChatWebcamVisionService(options = {}) {
     latest_private_observation_file: paths.latest_observation_file,
     consecutive_vlm_failures: 0,
     last_vlm_error: null,
+    last_yolo_inference_timestamp: null,
+    last_detection_stored_at: null,
+    last_detection_frame_sequence: 0,
+    last_yolo_error: null,
+    last_person_verifier_error: null,
     ffmpeg_pid: null,
     ffmpeg_process_alive: false
   };
   let stopping = false;
   let inFlightInference = false;
+  let inFlightDetection = false;
+  let lastDetectionStartedAtMs = 0;
+  let inFlightPersonVerification = false;
+  let sceneInferenceUnlocked = getDetectionConfig().enabled !== true;
   let inferenceAbortController = null;
+  const detectionAbortController = new AbortController();
   let fatalError = null;
   let pipeBuffer = Buffer.alloc(0);
   let latestFrame = null;
@@ -671,6 +795,8 @@ async function runChatWebcamVisionService(options = {}) {
     if (inferenceAbortController) {
       inferenceAbortController.abort();
     }
+    detectionAbortController.abort();
+    stopHybridDetectionWorkers();
     if (ffmpeg && ffmpeg.pid && state.ffmpeg_process_alive) {
       ffmpeg.kill('SIGTERM');
     }
@@ -688,7 +814,12 @@ async function runChatWebcamVisionService(options = {}) {
     const firstObservation = state.first_vlm_observation_succeeded !== true;
     const everyFrames = Number(vision.vlm_inference_every_n_frames || 40);
     const dueFrame = everyFrames > 0 && state.total_frames_received % everyFrames === 0;
-    if (inFlightInference || (!firstObservation && (!dueFrame || !enoughTime))) return;
+    if (
+      !sceneInferenceUnlocked ||
+      inFlightInference ||
+      inFlightPersonVerification ||
+      (!firstObservation && (!dueFrame || !enoughTime))
+    ) return;
     inFlightInference = true;
     inferenceAbortController = new AbortController();
     state.last_vlm_inference_at_ms = nowMs;
@@ -704,18 +835,19 @@ async function runChatWebcamVisionService(options = {}) {
       state.last_vlm_error = null;
       writeLatestObservation(result, paths, state);
       publish({ last_vlm_error: null });
-      
-      // Run YOLO detection on this frame
-      const yoloResult = await runYoloDetectionOnFrame(paths.latest_frame_file);
-      if (yoloResult.ok && yoloResult.detections && yoloResult.detections.length > 0) {
-        const detectionFrame = parseYoloDetectionFrame(yoloResult, new Date().toISOString());
-        const validation = validateDetectionFrame(detectionFrame);
-        if (validation.valid) {
-          storeDetectionResult(detectionFrame, { runtime_dir: paths.runtime_dir });
-        }
-      }
     } catch (error) {
       if (stopping) return;
+      if (
+        isAbortError(
+          error,
+          inferenceAbortController &&
+          inferenceAbortController.signal
+        )
+      ) {
+        state.last_vlm_error = null;
+        publish({ last_vlm_error: null });
+        return;
+      }
       state.consecutive_vlm_failures += 1;
       state.last_vlm_error = error.message;
       const maxConsecutiveFailures = Math.max(
@@ -748,6 +880,250 @@ async function runChatWebcamVisionService(options = {}) {
     }
   }
 
+  async function maybeDetect(frame) {
+    if (stopping || inFlightDetection) return;
+
+    const detectionConfig = getDetectionConfig();
+    if (detectionConfig.enabled !== true) return;
+
+    const nowMs = Date.now();
+    const minimumIntervalMs = Math.max(
+      100,
+      Number(
+        detectionConfig.detectionMinIntervalMs ||
+        detectionConfig.detection_min_interval_ms ||
+        500
+      )
+    );
+
+    if (
+      lastDetectionStartedAtMs > 0 &&
+      nowMs - lastDetectionStartedAtMs < minimumIntervalMs
+    ) {
+      return;
+    }
+
+    inFlightDetection = true;
+    lastDetectionStartedAtMs = nowMs;
+
+    const capturedAt = state.last_frame_timestamp || nowIso();
+    const frameSequence = Number(state.total_frames_received || 0);
+    const frameSnapshot = Buffer.from(frame);
+    const detectionFramePath = path.join(
+      paths.runtime_dir,
+      'chat-webcam-vision.detect-' +
+      String(process.pid) + '-' +
+      String(frameSequence) + '.jpg'
+    );
+
+    state.last_yolo_inference_timestamp = capturedAt;
+    state.last_detection_frame_sequence = frameSequence;
+    publish();
+
+    try {
+      fs.writeFileSync(detectionFramePath, frameSnapshot);
+
+      const hybridResult =
+        await runHybridDetectionOnFrame(detectionFramePath);
+
+      if (stopping) return;
+
+      if (!hybridResult || hybridResult.ok !== true) {
+        throw new Error(
+          String(
+            hybridResult &&
+            (
+              hybridResult.error ||
+              hybridResult.marker
+            ) ||
+            'hybrid detection failed'
+          )
+        );
+      }
+
+      if (!Array.isArray(hybridResult.detections)) {
+        throw new Error(
+          'hybrid result did not contain a detections array'
+        );
+      }
+
+      const parsedFrame = parseYoloDetectionFrame(
+        hybridResult,
+        capturedAt
+      );
+      const validation = validateDetectionFrame(parsedFrame);
+
+      if (!validation.valid) {
+        throw new Error(
+          'hybrid detection frame invalid: ' +
+          validation.error
+        );
+      }
+
+      const displayFrame =
+        attachCachedPersonVerifications(parsedFrame);
+      const stored = storeDetectionResult(
+        displayFrame,
+        { runtime_dir: paths.runtime_dir }
+      );
+
+      if (!stored.ok) {
+        throw new Error(stored.error || stored.marker);
+      }
+
+      state.last_yolo_error = null;
+      state.last_detection_stored_at = nowIso();
+      publish();
+
+      const needsPersonVerification =
+        displayFrame.detections.some(
+          (detection) =>
+            isPersonCandidate(detection) &&
+            Array.isArray(detection.proposal_sources) &&
+            detection.proposal_sources.includes('yolo') &&
+            !(
+              detection.verification &&
+              detection.verification.verifier_ok === true
+            )
+        );
+
+      if (!needsPersonVerification) {
+        sceneInferenceUnlocked = true;
+        return;
+      }
+
+      if (inFlightPersonVerification) return;
+
+      sceneInferenceUnlocked = false;
+      inFlightPersonVerification = true;
+
+      if (
+        inFlightInference &&
+        inferenceAbortController
+      ) {
+        inferenceAbortController.abort();
+      }
+
+      Promise.resolve()
+        .then(async () => {
+          while (inFlightInference && !stopping) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, 50)
+            );
+          }
+
+          if (stopping) return null;
+
+          return verifyDetectionFramePersons(
+            parsedFrame,
+            detectionFramePath,
+            {
+              runtime_dir: paths.runtime_dir,
+              full_frame_buffer: frameSnapshot,
+              abort_signal:
+                detectionAbortController.signal
+            }
+          );
+        })
+        .then((verifiedFrame) => {
+          if (stopping || !verifiedFrame) return;
+
+          const failed = Array.isArray(
+            verifiedFrame.detections
+          )
+            ? verifiedFrame.detections.find(
+                (detection) =>
+                  detection.verification &&
+                  detection.verification.verifier_ok === false &&
+                  detection.verification.short_basis &&
+                  !String(
+                    detection.verification.short_basis
+                  ).includes(
+                    'strict verifier selection policy'
+                  )
+              )
+            : null;
+
+          state.last_person_verifier_error = failed
+            ? String(
+                failed.verification.short_basis ||
+                'person verifier failed'
+              )
+            : (
+                verifiedFrame.person_verification &&
+                verifiedFrame.person_verification.error
+                  ? String(
+                      verifiedFrame.person_verification.error
+                    )
+                  : null
+              );
+
+          const current = readLatestDetection({
+            runtime_dir: paths.runtime_dir
+          });
+
+          if (
+            current.available === true &&
+            current.detection
+          ) {
+            const currentVerified =
+              attachCachedPersonVerifications(
+                current.detection
+              );
+
+            const verifiedStored = storeDetectionResult(
+              currentVerified,
+              { runtime_dir: paths.runtime_dir }
+            );
+
+            if (!verifiedStored.ok) {
+              throw new Error(
+                verifiedStored.error ||
+                verifiedStored.marker
+              );
+            }
+
+            state.last_detection_stored_at = nowIso();
+          }
+
+          publish();
+        })
+        .catch((error) => {
+          if (!stopping) {
+            state.last_person_verifier_error = String(
+              error && error.message
+                ? error.message
+                : error
+            );
+            publish({
+              marker:
+                'FLOKI_V2_CHAT_WEBCAM_SERVICE_DEGRADED'
+            });
+          }
+        })
+        .finally(() => {
+          inFlightPersonVerification = false;
+          sceneInferenceUnlocked = true;
+        });
+    } catch (error) {
+      if (!stopping) {
+        state.last_yolo_error = String(
+          error && error.message
+            ? error.message
+            : error
+        );
+        sceneInferenceUnlocked = true;
+        publish({
+          marker:
+            'FLOKI_V2_CHAT_WEBCAM_SERVICE_DEGRADED'
+        });
+      }
+    } finally {
+      fs.rmSync(detectionFramePath, { force: true });
+      inFlightDetection = false;
+    }
+  }
+
   ffmpeg.stdout.on('data', (chunk) => {
     pipeBuffer = Buffer.concat([pipeBuffer, chunk]);
     if (pipeBuffer.length > MAX_PIPE_BUFFER_BYTES) {
@@ -764,7 +1140,10 @@ async function runChatWebcamVisionService(options = {}) {
       state.last_frame_timestamp = nowIso();
       state.first_frame_received = true;
       try { fs.writeFileSync(paths.latest_frame_file, latestFrame); } catch (_e) { /* best-effort frame file write */ }
-      if (!stopping) maybeInfer(latestFrame);
+      if (!stopping) {
+        maybeDetect(latestFrame);
+        maybeInfer(latestFrame);
+      }
     }
     publish();
   });
@@ -812,6 +1191,10 @@ async function runChatWebcamVisionService(options = {}) {
       resolve();
     });
   }).finally(() => {
+    stopHybridDetectionWorkers();
+    fs.rmSync(paths.detection_frame_file, { force: true });
+    process.removeListener('SIGTERM', requestStop);
+    process.removeListener('SIGINT', requestStop);
     const currentPid = readPid(paths.pid_file);
     if (currentPid === process.pid) fs.rmSync(paths.pid_file, { force: true });
   });
@@ -863,6 +1246,7 @@ module.exports = {
   assertNode24,
   runtimePaths,
   processIsAlive,
+  discoverVisionProcessIds,
   readChatWebcamVisionStatus,
   readLatestPrivateObservation,
   callVisionModel,

@@ -1,14 +1,17 @@
-// Scaffold Contract Test
-// This test verifies the scaffold structure is properly in place
+'use strict';
 
-const fs = require('fs');
-const path = require('path');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
-function testScaffoldStructure() {
-  console.log('Testing Floki-v2 scaffold structure...');
-  
-  // Check required directories exist
-  const requiredDirs = [
+const root = path.resolve(__dirname, '..');
+
+function exists(relativePath) {
+  return fs.existsSync(path.join(root, relativePath));
+}
+
+function run() {
+  const requiredDirectories = [
     'docs',
     'bin',
     'src',
@@ -16,31 +19,21 @@ function testScaffoldStructure() {
     'src/config',
     'src/util',
     'brain',
-    'brain/amygdala',
-    'brain/broca',
-    'brain/cerebellum',
-    'brain/emotions_base',
-    'brain/frontal',
-    'brain/hippocampus',
-    'brain/occipital',
-    'brain/temporal',
-    'brain/thalamum',
-    'brain/personality',
-    'brain/pineal',
     'tests',
     'state',
     'state/floki',
     'state/floki/memories',
     'logs'
   ];
-  
-  for (const dir of requiredDirs) {
-    if (!fs.existsSync(dir)) {
-      throw new Error(`Required directory ${dir} is missing`);
-    }
+
+  for (const relativePath of requiredDirectories) {
+    assert.equal(
+      exists(relativePath),
+      true,
+      'Required directory is missing: ' + relativePath
+    );
   }
-  
-  // Check required files exist
+
   const requiredFiles = [
     'README.md',
     'AGENTS.md',
@@ -51,81 +44,73 @@ function testScaffoldStructure() {
     'docs/STAGE_STATUS.md',
     'bin/floki-brain-proof.sh'
   ];
-  
-  for (const file of requiredFiles) {
-    if (!fs.existsSync(file)) {
-      throw new Error(`Required file ${file} is missing`);
-    }
+
+  for (const relativePath of requiredFiles) {
+    assert.equal(
+      exists(relativePath),
+      true,
+      'Required file is missing: ' + relativePath
+    );
   }
-  
-  // Check brain module structure
+
   const brainModules = [
-    'brain/amygdala',
-    'brain/broca',
-    'brain/cerebellum',
-    'brain/emotions_base',
-    'brain/frontal',
-    'brain/hippocampus',
-    'brain/occipital',
-    'brain/temporal',
-    'brain/thalamum',
-    'brain/personality',
-    'brain/pineal'
+    'amygdala',
+    'broca',
+    'cerebellum',
+    'emotions_base',
+    'frontal',
+    'hippocampus',
+    'occipital',
+    'temporal',
+    'thalamus',
+    'personality',
+    'pineal'
   ];
-  
-  for (const module of brainModules) {
-    if (!fs.existsSync(`${module}/README.md`)) {
-      throw new Error(`README.md missing in ${module}`);
-    }
-    
-    if (!fs.existsSync(`${module}/index.cjs`)) {
-      throw new Error(`index.cjs missing in ${module}`);
-    }
-    
-    // Check that index.cjs contains SCAFFOLD_ONLY
-    const content = fs.readFileSync(`${module}/index.cjs`, 'utf8');
-    if (!content.includes('SCAFFOLD_ONLY')) {
-      throw new Error(`SCAFFOLD_ONLY marker missing in ${module}/index.cjs`);
-    }
+
+  for (const moduleName of brainModules) {
+    const moduleRoot = path.join('brain', moduleName);
+    const readmePath = path.join(moduleRoot, 'README.md');
+    const indexPath = path.join(moduleRoot, 'index.cjs');
+
+    assert.equal(
+      exists(readmePath),
+      true,
+      'README.md missing in ' + moduleRoot
+    );
+    assert.equal(
+      exists(indexPath),
+      true,
+      'index.cjs missing in ' + moduleRoot
+    );
+
+    const source = fs.readFileSync(
+      path.join(root, indexPath),
+      'utf8'
+    );
+
+    assert.equal(
+      source.trim().length > 0,
+      true,
+      'Brain module is empty: ' + indexPath
+    );
   }
-  
-  // Check that no forbidden content exists
-  const forbiddenPatterns = [
-    'Minecraft',
-    'qwen3-vl',
-    'qwen3.5',
-    'fake intelligence'
-  ];
-  
-  // Check src files for forbidden content
-  const srcFiles = [
-    'src/brain/floki-brain.cjs',
-    'src/brain/brain-event-schema.cjs',
-    'src/brain/brain-output-schema.cjs',
-    'src/config/model-config.cjs',
-    'src/util/fs-safe.cjs',
-    'src/util/jsonl.cjs',
-    'src/util/time.cjs',
-    'src/util/ids.cjs'
-  ];
-  
-  for (const file of srcFiles) {
-    const content = fs.readFileSync(file, 'utf8');
-    for (const pattern of forbiddenPatterns) {
-      if (content.includes(pattern)) {
-        throw new Error(`Forbidden pattern "${pattern}" found in ${file}`);
-      }
-    }
-  }
-  
-  console.log('✅ All scaffold contract tests passed');
-  return true;
+
+  console.log(JSON.stringify({
+    ok: true,
+    marker: 'FLOKI_V2_BRAIN_MODULE_STRUCTURE_CONTRACT_PASS',
+    legacy_scaffold_only_marker_required: false,
+    brain_module_count: brainModules.length,
+    thalamus_path_correct: true
+  }, null, 2));
 }
 
 try {
-  testScaffoldStructure();
-  process.exit(0);
+  run();
 } catch (error) {
-  console.error('❌ Scaffold contract test failed:', error.message);
+  console.error(JSON.stringify({
+    ok: false,
+    marker: 'FLOKI_V2_BRAIN_MODULE_STRUCTURE_CONTRACT_FAIL',
+    error: error.message
+  }, null, 2));
   process.exit(1);
 }

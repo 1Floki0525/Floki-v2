@@ -109,12 +109,53 @@ vision:
   vlm_ssh_tunnel_check_timeout_ms: 8000
 
 detection:
-  object_detector_enabled: true
-  yolo_model_path: .floki-tools/models/yolo/yolo11n.pt
-  detection_confidence_threshold: 0.5
-  detection_interval_frames: 20
-  detection_max_age_ms: 5000
+  person_verifier_uncertain_ttl_ms: 3000
 
+  hybrid_detector_enabled: true
+  hybrid_require_all_components: true
+  hybrid_merge_iou_threshold: 0.30
+  object_detector_enabled: true
+  yolo_model_path: .floki-tools/models/yolo/yolo11m.pt
+  detection_confidence_threshold: 0.35
+  detection_interval_frames: 5
+  object_consensus_min_confidence: 0.35
+  object_display_min_confidence: 0.55
+  person_verifier_track_ttl_ms: 3000
+  person_verifier_crop_jpeg_quality: 5
+  person_verifier_crop_max_dimension: 512
+  detection_min_interval_ms: 500
+  detection_max_age_ms: 8000
+  person_candidate_confidence_threshold: 0.15
+  grounding_dino_enabled: true
+  grounding_dino_model_path: .floki-tools/models/grounding-dino/grounding-dino-tiny
+  grounding_dino_box_threshold: 0.25
+  grounding_dino_text_threshold: 0.25
+  grounding_dino_timeout_ms: 60000
+  grounding_dino_require_cuda: true
+  grounding_dino_prompts:
+    prompt_01: a human person
+    prompt_02: a standing person
+    prompt_03: a seated person
+    prompt_04: a face and upper body
+    prompt_05: a person shown inside a framed photograph
+    prompt_06: a poster
+    prompt_07: a television screen
+    prompt_08: a computer monitor
+    prompt_09: a chair
+    prompt_10: a bottle
+    prompt_11: a cup
+    prompt_12: a mobile phone
+  person_verifier_enabled: true
+  person_verifier_timeout_ms: 30000
+  person_verifier_cache_ttl_ms: 60000
+  person_verifier_max_candidates_per_frame: 4
+  person_verifier_max_dino_only_candidates: 0
+  person_verifier_min_dino_only_area: 0.02
+  person_verifier_grouping_iou_threshold: 0.25
+  person_verifier_track_iou_threshold: 0.30
+  person_verifier_track_center_distance: 0.12
+  person_verifier_crop_padding_ratio: 0.35
+  person_verifier_min_confidence: 0.65
 chat_world_vision:
   enabled: true
   source: webcam
@@ -277,7 +318,7 @@ webcam_capture:
   target_fps: 40
   target_width: 1280
   target_height: 720
-  preferred_pixel_format: mjpeg
+  preferred_pixel_format: yuyv422
   fallback_pixel_format: yuyv422
   allow_resolution_fallback: false
   allow_fps_fallback: false

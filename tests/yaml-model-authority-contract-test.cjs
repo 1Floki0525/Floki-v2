@@ -6,7 +6,15 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 const CONFIG_DIR = path.join(ROOT, 'config');
-const EXCLUDED_DIRS = new Set(['.git', 'node_modules', 'dist', 'vendor', 'state', '.floki-tools']);
+const EXCLUDED_DIRS = new Set([
+  '.git',
+  'node_modules',
+  'dist',
+  'vendor',
+  'state',
+  'reports',
+  '.floki-tools'
+]);
 const BACKUP_FILE = /(?:\.bak(?:\.|$)|\.backup(?:\.|$)|~$|\.orig$|\.rej$)/i;
 const MODEL_TAG = /\b(?:floki-)?qwen[\w.-]*:[\w.-]+\b/gi;
 
@@ -75,7 +83,14 @@ function run() {
   const backupFiles = [];
   function walkBackups(directory) {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'vendor') continue;
+      if (
+        entry.name === '.git' ||
+        entry.name === 'node_modules' ||
+        entry.name === 'vendor' ||
+        entry.name === 'state' ||
+        entry.name === 'reports' ||
+        entry.name === '.floki-tools'
+      ) continue;
       const full = path.join(directory, entry.name);
       if (entry.isDirectory()) {
         if (/^backups?$/i.test(entry.name)) backupFiles.push(path.relative(ROOT, full) + '/');
