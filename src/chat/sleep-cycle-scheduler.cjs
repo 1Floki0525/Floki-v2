@@ -116,6 +116,17 @@ function writeHeartbeat(paths, extra = {}) {
   });
 }
 
+function isRecoverableDreamQualityError(error) {
+  const message = String(
+    error && error.message ? error.message : error
+  );
+
+  return (
+    message.startsWith('DREAM_QUALITY_CONTRACT_REJECTED_AFTER_') &&
+    message.includes(': dream quality violations:')
+  );
+}
+
 async function runSchedulerIteration(options = {}) {
   const paths = schedulerPaths(options);
   ensureDirSync(paths.runtime_dir);
@@ -139,6 +150,31 @@ async function runSchedulerIteration(options = {}) {
       write_report: options.write_report !== false
     });
   } catch (error) {
+    if (isRecoverableDreamQualityError(error)) {
+      const record = Object.freeze({
+        ok: true,
+        marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_DREAM_REJECTED',
+        pid: process.pid,
+        degraded: true,
+        dream_generated: false,
+        rejection_error: error.message,
+        tick_completed_at: new Date().toISOString(),
+        chat_mode_only: true,
+        game_mode_started: false
+      });
+
+      writeRuntimeRecord(paths.status_file, record);
+      writeHeartbeat(paths, {
+        phase: 'idle_after_dream_rejection',
+        degraded: true,
+        dream_generated: false,
+        rejection_error: error.message,
+        last_tick_completed_at: record.tick_completed_at
+      });
+
+      return record;
+    }
+
     const record = Object.freeze({
       ok: false,
       marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_FATAL_ARCHITECTURE_ERROR',
@@ -391,6 +427,7 @@ module.exports = {
   processIsAlive,
   readSchedulerRuntimeStatus,
   writeHeartbeat,
+  isRecoverableDreamQualityError,
   runSchedulerIteration,
   runSchedulerService,
   waitForNextTick,

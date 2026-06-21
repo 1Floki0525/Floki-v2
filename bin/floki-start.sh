@@ -58,6 +58,31 @@ verify_sleep_scheduler() {
   fi
 }
 
+VISION_STARTED=false
+
+# FLOKI_CHAT_LOCAL_LIFECYCLE_HELPERS_BEGIN
+CHAT_LOCAL_CLEANUP_DONE=0
+
+cleanup_chat_local() {
+  if [ "$CHAT_LOCAL_CLEANUP_DONE" = "1" ]; then
+    return 0
+  fi
+
+  CHAT_LOCAL_CLEANUP_DONE=1
+  trap - EXIT INT TERM HUP
+
+  timeout 30s bash bin/floki-chat-local-cleanup.sh     >/dev/null 2>&1 || true
+
+  return 0
+}
+
+interrupt_chat_local() {
+  cleanup_chat_local
+  echo "FLOKI_V2_CHAT_LOCAL_INTERRUPTED" >&2
+  exit 130
+}
+# FLOKI_CHAT_LOCAL_LIFECYCLE_HELPERS_END
+
 start_chat_webcam_vision() {
   export FLOKI_ALLOW_WEBCAM_CAPTURE=1
   export FLOKI_ALLOW_CHAT_VISION=1
@@ -69,8 +94,18 @@ start_chat_webcam_vision() {
     fail "chat webcam vision did not start"
   fi
 
+  VISION_STARTED=true
   echo "$VISION_OUTPUT"
 }
+
+stop_chat_webcam_vision() {
+  if [ "$VISION_STARTED" = true ]; then
+    bash bin/floki-chat-vision-stop.sh
+  fi
+}
+
+trap stop_chat_webcam_vision EXIT
+trap 'exit' TERM INT HUP
 
 if [ ! -d "$PROJECT_DIR" ]; then
   fail "Project directory not found: $PROJECT_DIR"
@@ -84,15 +119,23 @@ case "$COMMAND" in
     start_sleep_scheduler
     verify_sleep_scheduler
     start_chat_webcam_vision
-    node src/chat/floki-live-chat-interface.cjs "$@"
-    exit "$?"
+    node src/chat/floki-live-chat-interface.cjs "$@"; RC=$?
+    stop_chat_webcam_vision
+    exit $RC
     ;;
   chat.local)
+    trap cleanup_chat_local EXIT
+    trap interrupt_chat_local INT TERM HUP
+
     start_sleep_scheduler
     verify_sleep_scheduler
     start_chat_webcam_vision
+
     bash bin/floki-chat-local-start.sh "$@"
-    exit "$?"
+    CHAT_LOCAL_STATUS="$?"
+
+    cleanup_chat_local
+    exit "$CHAT_LOCAL_STATUS"
     ;;
   text-chat)
     start_sleep_scheduler

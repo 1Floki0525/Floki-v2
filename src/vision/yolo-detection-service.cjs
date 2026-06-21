@@ -10,18 +10,312 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+  spawn } = require('child_process');
 
-const { getVisionConfig, getPathConfig, PROJECT_ROOT } = require('../config/floki-config.cjs');
+const { getVisionConfig,
+  getPathConfig,
+  PROJECT_ROOT,
+  getDetectionConfig: getYamlDetectionConfig
+} = require('../config/floki-config.cjs');
 const { ensureDirSync, writeJsonFileAtomicSync, existsSync } = require('../util/fs-safe.cjs');
+
+/* Persistent YOLO Python worker state */
+let yoloWorkerProcess = null;
+let yoloWorkerReady = false;
+let yoloWorkerDevice = 'unknown';
+let yoloPendingResolve = null;
+let yoloPendingReject = null;
+let yoloPendingTimeout = null;
+let yoloPendingFrameId = null;
+let yoloWorkerBuffer = '';
+let yoloWorkerStopped = false;
+let yoloWorkerSpawnCount = 0;
+
+const YOLO_WORKER_TIMEOUT_MS = 30000;
+const YOLO_MAX_RESTARTS = 3;
+
+/* Start persistent YOLO Python worker process */
+function startYoloDetectionWorker(options = {}) {
+  if (yoloWorkerProcess && yoloWorkerReady) {
+    return { ok: true, marker: 'YOLO_WORKER_ALREADY_RUNNING', device: yoloWorkerDevice };
+  }
+  if (yoloWorkerProcess) {
+    stopYoloDetectionWorker();
+  }
+
+  yoloWorkerStopped = false;
+  yoloWorkerSpawnCount += 1;
+  yoloWorkerBuffer = '';
+
+  const pythonPath = options.python_path || getPythonPath();
+  const workerScript = path.join(PROJECT_ROOT, '.floki-tools', 'yolo-config', 'yolo-worker.py');
+  const modelPath = options.yolo_model_path || getYoloModelPath();
+
+  if (!existsSync(workerScript)) {
+    return { ok: false, marker: 'YOLO_WORKER_SCRIPT_MISSING', error: `Worker script not found at ${workerScript}` };
+  }
+  if (!existsSync(modelPath)) {
+    return { ok: false, marker: 'YOLO_MODEL_MISSING', error: `YOLO model not found at ${modelPath}` };
+  }
+
+  try {
+    const worker = spawn(pythonPath, [workerScript], {
+      cwd: PROJECT_ROOT,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        FLOKI_YOLO_MODEL: modelPath,
+        PYTHONUNBUFFERED: '1'
+      }
+    });
+    yoloWorkerProcess = worker;
+
+    worker.stdout.on('data', (chunk) => {
+      yoloWorkerBuffer += chunk.toString();
+      processYoloWorkerLines();
+    });
+
+    worker.stderr.on('data', (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) console.error(`[YOLO-WORKER] ${text}`);
+    });
+
+    worker.on('error', (err) => {
+      console.error(`[YOLO-WORKER] Process error: ${err.message}`);
+      yoloWorkerReady = false;
+      if (!yoloWorkerStopped && yoloWorkerSpawnCount <= YOLO_MAX_RESTARTS) {
+        setTimeout(() => startYoloDetectionWorker(options), 1000);
+      }
+    });
+
+    worker.on('exit', (code, signal) => {
+      console.error(`[YOLO-WORKER] Exited code=${code} signal=${signal}`);
+      if (yoloPingTimer) { clearTimeout(yoloPingTimer); yoloPingTimer = null; }
+      yoloWorkerReady = false;
+      if (yoloWorkerProcess === worker) yoloWorkerProcess = null;
+      if (yoloPendingResolve) {
+        const resolve = yoloPendingResolve;
+        yoloPendingResolve = null;
+        yoloPendingReject = null;
+        yoloPendingFrameId = null;
+        if (yoloPendingTimeout) { clearTimeout(yoloPendingTimeout); yoloPendingTimeout = null; }
+        resolve({ ok: false, marker: 'YOLO_WORKER_EXITED', error: `YOLO worker exited (code=${code}, signal=${signal || 'none'})` });
+      }
+    });
+
+    pingYoloWorkerUntilReady();
+    return { ok: true, marker: 'YOLO_WORKER_SPAWNED', pid: worker.pid };
+  } catch (err) {
+    yoloWorkerProcess = null;
+    return { ok: false, marker: 'YOLO_WORKER_SPAWN_FAIL', error: err.message };
+  }
+}
+let yoloPingTimer = null;
+
+function pingYoloWorkerUntilReady() {
+  if (yoloWorkerReady || !yoloWorkerProcess || !yoloWorkerProcess.stdin || yoloWorkerStopped) return;
+  try {
+    yoloWorkerProcess.stdin.write(JSON.stringify({ type: 'ping' }) + '\n');
+  } catch (_) { /* ignore */ }
+  yoloPingTimer = setTimeout(pingYoloWorkerUntilReady, 500);
+}
+
+function stopYoloDetectionWorker() {
+  yoloWorkerStopped = true;
+  if (yoloPingTimer) { clearTimeout(yoloPingTimer); yoloPingTimer = null; }
+  if (yoloPendingTimeout) { clearTimeout(yoloPendingTimeout); yoloPendingTimeout = null; }
+  if (yoloPendingResolve) {
+    const resolve = yoloPendingResolve;
+    yoloPendingResolve = null;
+    yoloPendingReject = null;
+    yoloPendingFrameId = null;
+    resolve({ ok: false, marker: 'YOLO_WORKER_STOPPED', error: 'Worker stopped' });
+  }
+
+  const worker = yoloWorkerProcess;
+  yoloWorkerProcess = null;
+  yoloWorkerReady = false;
+  if (!worker) return { ok: true, marker: 'YOLO_WORKER_ALREADY_STOPPED', pid: null };
+
+  try {
+    if (worker.stdin && !worker.stdin.destroyed) {
+      worker.stdin.write(JSON.stringify({ type: 'exit' }) + '\n');
+    }
+  } catch (_) { /* ignore */ }
+  try { worker.kill('SIGTERM'); } catch (_) { /* ignore */ }
+
+  const killTimer = setTimeout(() => {
+    try {
+      if (worker.exitCode === null && worker.signalCode === null) worker.kill('SIGKILL');
+    } catch (_) { /* ignore */ }
+  }, 2000);
+  if (typeof killTimer.unref === 'function') killTimer.unref();
+
+  return { ok: true, marker: 'YOLO_WORKER_STOP_REQUESTED', pid: worker.pid || null };
+}
+function processYoloWorkerLines() {
+  while (true) {
+    const nl = yoloWorkerBuffer.indexOf('\n');
+    if (nl < 0) break;
+
+    const line = yoloWorkerBuffer.slice(0, nl).trim();
+    yoloWorkerBuffer = yoloWorkerBuffer.slice(nl + 1);
+    if (!line) continue;
+
+    try {
+      const msg = JSON.parse(line);
+
+      if (msg.type === 'pong') {
+        yoloWorkerReady = true;
+        yoloWorkerDevice = msg.device || 'unknown';
+        yoloWorkerSpawnCount = 0;
+        continue;
+      }
+
+      if (msg.type === 'result') {
+        if (yoloPendingFrameId && msg.frame_id !== yoloPendingFrameId) {
+          continue;
+        }
+        if (yoloPendingTimeout) { clearTimeout(yoloPendingTimeout); yoloPendingTimeout = null; }
+        if (yoloPendingResolve) {
+          const resolve = yoloPendingResolve;
+          yoloPendingResolve = null;
+          yoloPendingReject = null;
+          yoloPendingFrameId = null;
+          resolve(msg);
+        }
+        continue;
+      }
+
+      if (msg.type === 'error') {
+        console.error(`[YOLO-WORKER] ${msg.message}`);
+        if (yoloPendingResolve && (!msg.frame_id || msg.frame_id === yoloPendingFrameId)) {
+          const resolve = yoloPendingResolve;
+          yoloPendingResolve = null;
+          yoloPendingReject = null;
+          yoloPendingFrameId = null;
+          if (yoloPendingTimeout) { clearTimeout(yoloPendingTimeout); yoloPendingTimeout = null; }
+          resolve({ ok: false, marker: 'YOLO_WORKER_ERROR', error: String(msg.message || 'YOLO worker error') });
+        }
+        continue;
+      }
+    } catch (e) {
+      console.error(`[YOLO-WORKER] Parse error: ${e.message}, line: ${line.slice(0, 200)}`);
+    }
+  }
+}
+
+function ensureYoloWorkerStarted(options = {}) {
+  if (yoloWorkerProcess && yoloWorkerReady) return { ok: true, marker: 'YOLO_WORKER_READY' };
+
+  const startResult = startYoloDetectionWorker(options);
+  if (!startResult.ok) return startResult;
+
+  return waitForYoloWorkerReady(options);
+}
+
+function waitForYoloWorkerReady(options = {}) {
+  const timeout = Number(options.worker_start_timeout || 15000);
+  const started = Date.now();
+
+  return new Promise((resolve) => {
+    const check = () => {
+      if (yoloWorkerReady) {
+        resolve({ ok: true, marker: 'YOLO_WORKER_READY', device: yoloWorkerDevice });
+        return;
+      }
+      if (Date.now() - started > timeout) {
+        resolve({ ok: false, marker: 'YOLO_WORKER_START_TIMEOUT', error: 'Worker did not become ready' });
+        return;
+      }
+      setTimeout(check, 100);
+    };
+    check();
+  });
+}
+
+/* Run YOLO detection on a frame file path.
+ * Returns a promise resolving to structured detection result.
+ */
+async function runYoloDetectionOnFrame(framePath, options = {}) {
+  if (yoloWorkerStopped) {
+    return { ok: false, marker: 'YOLO_WORKER_STOPPED', error: 'Worker has been stopped' };
+  }
+
+  const ready = ensureYoloWorkerStarted(options);
+  if (ready.then) {
+    const result = await ready;
+    if (!result.ok) return result;
+  } else if (!ready.ok) {
+    return ready;
+  }
+
+  if (!existsSync(framePath)) {
+    return { ok: false, marker: 'FRAME_NOT_FOUND', error: `Frame not found: ${framePath}` };
+  }
+
+  const frameId = `frame_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
+  const config = getDetectionConfig();
+
+  if (!yoloWorkerProcess || !yoloWorkerProcess.stdin) {
+    return { ok: false, marker: 'YOLO_WORKER_NOT_AVAILABLE', error: 'Worker process not available' };
+  }
+
+  return new Promise((resolve, reject) => {
+    if (yoloPendingResolve) {
+      const previousResolve = yoloPendingResolve;
+      yoloPendingResolve = null;
+      yoloPendingReject = null;
+      yoloPendingFrameId = null;
+      if (yoloPendingTimeout) { clearTimeout(yoloPendingTimeout); yoloPendingTimeout = null; }
+      previousResolve({ ok: false, marker: 'FRAME_SKIPPED', error: 'Superseded by newer frame' });
+    }
+
+    yoloPendingResolve = resolve;
+    yoloPendingReject = reject;
+    yoloPendingFrameId = frameId;
+
+    yoloPendingTimeout = setTimeout(() => {
+      if (yoloPendingResolve) {
+        const r = yoloPendingResolve;
+        yoloPendingResolve = null;
+        yoloPendingReject = null;
+        yoloPendingFrameId = null;
+        r({ ok: false, marker: 'YOLO_TIMEOUT', error: `Inference timed out after ${YOLO_WORKER_TIMEOUT_MS}ms` });
+      }
+    }, YOLO_WORKER_TIMEOUT_MS);
+
+    const cmd = JSON.stringify({
+      type: 'detect',
+      frame_path: framePath,
+      frame_id: frameId,
+      confidence: Math.min(config.confidenceThreshold, config.personCandidateConfidenceThreshold)
+    });
+
+    try {
+      yoloWorkerProcess.stdin.write(cmd + '\n');
+    } catch (err) {
+      if (yoloPendingTimeout) { clearTimeout(yoloPendingTimeout); yoloPendingTimeout = null; }
+      yoloPendingResolve = null;
+      yoloPendingReject = null;
+      yoloPendingFrameId = null;
+      resolve({ ok: false, marker: 'YOLO_STDIN_WRITE_FAIL', error: err.message });
+    }
+  });
+}
 
 /* Get detection configuration from YAML */
 function getDetectionConfig() {
+  const detection = getYamlDetectionConfig('chat');
   return {
-    enabled: getVisionConfig('chat').detection?.object_detector_enabled !== false,
-    yoloModelPath: getVisionConfig('chat').detection?.yolo_model_path || '.floki-tools/models/yolo/yolo11n.pt',
-    confidenceThreshold: Number(getVisionConfig('chat').detection?.detection_confidence_threshold || 0.5),
-    detectionIntervalFrames: Number(getVisionConfig('chat').detection?.detection_interval_frames || 20),
-    maxAgeMs: Number(getVisionConfig('chat').detection?.detection_max_age_ms || 5000),
+    enabled: detection.object_detector_enabled !== false,
+    yoloModelPath: detection.yolo_model_path || '.floki-tools/models/yolo/yolo11m.pt',
+    confidenceThreshold: Number(detection.detection_confidence_threshold || 0.5),
+    personCandidateConfidenceThreshold: Number(detection.person_candidate_confidence_threshold || 0.30),
+    detectionIntervalFrames: Number(detection.detection_interval_frames || 5),
+    detectionMinIntervalMs: Number(detection.detection_min_interval_ms || 500),
+    maxAgeMs: Number(detection.detection_max_age_ms || 5000),
     cudaEnabled: true
   };
 }
@@ -90,11 +384,16 @@ function normalizeYoloDetection(yoloResult, frameWidth, frameHeight) {
   if (!yoloResult || !Array.isArray(yoloResult.detections)) return [];
   
   const detections = [];
-  const threshold = getDetectionConfig().confidenceThreshold;
-  
+  const config = getDetectionConfig();
+
   for (let i = 0; i < yoloResult.detections.length; i++) {
     const d = yoloResult.detections[i];
-    
+    const label = String(d.label || d.type || '').toLowerCase();
+    const personCandidate = Number(d.class_id) === 0 || label === 'person';
+    const threshold = personCandidate
+      ? config.personCandidateConfidenceThreshold
+      : config.confidenceThreshold;
+
     if (!d.confidence || d.confidence < threshold) continue;
     
     const conf = Number(d.confidence);
@@ -112,6 +411,14 @@ function normalizeYoloDetection(yoloResult, frameWidth, frameHeight) {
       type: String(d.type || 'object'),
       label: String(d.label || d.type || 'object'),
       confidence: Math.max(0, Math.min(1, conf)),
+      source: String(d.source || 'yolo'),
+      proposal_phrase: d.proposal_phrase ? String(d.proposal_phrase) : null,
+      proposal_sources: Array.isArray(d.proposal_sources)
+        ? d.proposal_sources.map(String)
+        : [String(d.source || 'yolo')],
+      visual_fingerprint: d.visual_fingerprint
+        ? String(d.visual_fingerprint)
+        : null,
       bbox: {
         x: Math.max(0, Math.min(1, bbox.x)),
         y: Math.max(0, Math.min(1, bbox.y)),
@@ -145,7 +452,7 @@ function parseYoloDetectionFrame(yoloResult, capturedAt) {
     image_width: Number(yoloResult.frame_width || 1280),
     image_height: Number(yoloResult.frame_height || 720),
     device: String(yoloResult.device || 'cpu'),
-    model_source: modelPath,
+    model_source: String(yoloResult.model_source || modelPath),
     detections: detections,
     stale: false,
     age_ms: 0
@@ -164,14 +471,17 @@ function storeDetectionResult(detectionFrame, options = {}) {
   }
   
   ensureDirSync(runtimeDir);
-  writeJsonFileAtomicSync(detectionFile, detectionFrame);
+  const storedAt = new Date().toISOString();
+  const storedFrame = Object.freeze({ ...detectionFrame, stored_at: storedAt });
+  writeJsonFileAtomicSync(detectionFile, storedFrame);
   
   const heartbeatFile = path.join(runtimeDir, 'yolo-detection.heartbeat.json');
   const heartbeat = {
-    service_heartbeat: new Date().toISOString(),
-    last_detection_frame_id: detectionFrame.frame_id,
-    last_detection_at: detectionFrame.detected_at,
-    detection_count: detectionFrame.detections.length
+    service_heartbeat: storedAt,
+    last_detection_frame_id: storedFrame.frame_id,
+    last_detection_at: storedFrame.detected_at,
+    last_detection_stored_at: storedAt,
+    detection_count: storedFrame.detections.length
   };
   writeJsonFileAtomicSync(heartbeatFile, heartbeat);
   
@@ -179,7 +489,7 @@ function storeDetectionResult(detectionFrame, options = {}) {
     ok: true, 
     marker: 'FLOKI_V2_CHAT_YOLO_DETECTION_STORED', 
     detection_file: detectionFile,
-    detection_count: detectionFrame.detections.length
+    detection_count: storedFrame.detections.length
   };
 }
 
@@ -215,7 +525,8 @@ function readLatestDetection(options = {}) {
     }
     
     const maxAgeMs = getDetectionConfig().maxAgeMs;
-    const ageMs = Date.now() - (Date.parse(detection.detected_at) || Date.now());
+    const freshnessTimestamp = detection.stored_at || detection.detected_at;
+    const ageMs = Date.now() - (Date.parse(freshnessTimestamp) || Date.now());
     const stale = ageMs > maxAgeMs;
     
     return {
@@ -272,6 +583,9 @@ module.exports = {
   getDetectionConfig,
   getYoloModelPath,
   getPythonPath,
+  startYoloDetectionWorker,
+  stopYoloDetectionWorker,
+  runYoloDetectionOnFrame,
   normalizeYoloDetection,
   parseYoloDetectionFrame,
   storeDetectionResult,

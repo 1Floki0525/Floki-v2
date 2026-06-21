@@ -1,6 +1,16 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
+
+if (
+  process.platform === 'linux' &&
+  process.env.FLOKI_ELECTRON_ENABLE_GPU_SANDBOX !== '1'
+) {
+  // Electron/Chromium on the supported Linux NVIDIA/X11 host cannot load
+  // Mesa's GBM helper inside the GPU sandbox. Keep hardware acceleration
+  // enabled while disabling only Chromium's GPU-process sandbox.
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+}
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
@@ -18,7 +28,8 @@ const { readChatWebcamVisionStatus, readLatestPrivateObservation, runtimePaths }
 const { buildVisionStatus } = require(path.join(PROJECT_ROOT, 'src/vision/vision-status.cjs'));
 const { loadAffectState } = require(path.join(PROJECT_ROOT, 'brain/emotions_base/index.cjs'));
 const { getModelConfig, getPathConfig, getVisionConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
-const { getDetectionConfig } = require(path.join(PROJECT_ROOT, 'src/vision/yolo-detection-service.cjs'));
+const { getDetectionConfig, readLatestDetection } = require(path.join(PROJECT_ROOT, 'src/vision/yolo-detection-service.cjs'));
+const { classifyVerifiedDetectionForDisplay } = require(path.join(PROJECT_ROOT, 'src/vision/person-presence-verifier.cjs'));
 const { stopScheduler: stopSchedulerDirect } = require(path.join(PROJECT_ROOT, 'src/chat/sleep-cycle-scheduler.cjs'));
 const { stopChatWebcamVisionService: stopWebcamDirect } = require(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'));
 
@@ -240,50 +251,56 @@ function sleepStatus() {
 function visionFrame() {
   const service = readChatWebcamVisionStatus();
   const observation = readLatestPrivateObservation();
-  const config = getDetectionConfig();
   const runtimeDir = path.resolve(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root);
-  const detectionFile = path.join(runtimeDir, 'chat-webcam-vision.latest-detection.json');
-  
-  let allDetections = [];
-  let objects = [];
-  let persons = [];
-  let faces = [];
-  
-  if (fs.existsSync(detectionFile)) {
-    try {
-      const detection = JSON.parse(fs.readFileSync(detectionFile, 'utf8'));
-      if (Array.isArray(detection.detections)) {
-        allDetections = detection.detections;
-        for (const d of allDetections) {
-          const label = (d.label || d.type || '').toLowerCase();
-          if (label === 'person' || d.class_id === 0) {
-            persons.push({ ...d, type: 'person' });
-          } else {
-            objects.push(d);
-          }
-        }
-      }
-    } catch (e) {
-      // Invalid JSON - use empty arrays
-    }
+
+  const objects = [];
+  const persons = [];
+  const faces = [];
+  const latestDetection = readLatestDetection({ runtime_dir: runtimeDir });
+  const rawDetections = latestDetection.available === true && latestDetection.fresh === true && latestDetection.detection
+    ? (Array.isArray(latestDetection.detection.detections) ? latestDetection.detection.detections : [])
+    : [];
+  for (const detection of rawDetections) {
+    const disposition = classifyVerifiedDetectionForDisplay(detection);
+    if (disposition.bucket === 'persons') persons.push(disposition.detection);
+    if (disposition.bucket === 'objects') objects.push(disposition.detection);
   }
-  
+
+  const sceneAvailable = Boolean(
+    observation &&
+    observation.available === true &&
+    observation.fresh === true &&
+    typeof observation.observation_summary === 'string' &&
+    observation.observation_summary.trim()
+  );
+  const cameraActive = service.active === true && service.camera_open === true;
+
   return {
     objects,
     persons,
     faces,
     scene: {
-      label: observation?.observation_summary || observation?.description || observation?.scene || observation?.summary || 'No current visual description',
-      confidence: Number(observation?.confidence || 0),
+      available: sceneAvailable,
+      label: sceneAvailable ? observation.observation_summary.trim() : '',
+      confidence: null,
     },
-    timestamp: Date.parse(observation?.created_at || observation?.observed_at || '') || Date.now(),
+    detection: {
+      available: latestDetection.available === true,
+      fresh: latestDetection.fresh === true,
+      stale: latestDetection.stale === true,
+      ageMs: latestDetection.age_ms,
+      error: latestDetection.error || service.last_yolo_error || null,
+      rawCount: rawDetections.length,
+      objectCount: objects.length,
+      personCount: persons.length,
+    },
+    timestamp: Date.now(),
     frameRate: Number(service.measured_capture_fps || 0),
-    connectionStatus: service.ready_for_chat === true ? 'active' : 'offline',
+    connectionStatus: cameraActive ? 'active' : 'offline',
     service,
     observation,
   };
 }
-
 function getLatestFrameBase64() {
   const paths = runtimePaths();
   const frameFile = paths.latest_frame_file;

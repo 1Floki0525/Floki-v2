@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import NeonPanel from '@/components/shared/NeonPanel';
 import flokiAdapter from '@/integrations/floki/adapter';
 import { cn } from '@/lib/utils';
-import { Eye, EyeOff, Snowflake, Camera, Activity } from 'lucide-react';
+import { Activity, Camera, Eye, EyeOff, Snowflake } from 'lucide-react';
 
 const TOGGLE_STYLES = {
   active: 'bg-neon-cyan/20 text-neon-cyan border-neon-cyan/40',
@@ -24,49 +24,91 @@ function ToggleBtn({ label, active, onClick }) {
   );
 }
 
+function DetectionLayer({ detections, stroke, fallbackLabel, showLabels, showConf }) {
+  if (!Array.isArray(detections) || detections.length === 0) return null;
+  return (
+    <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
+      {detections.map((detection, index) => {
+        const box = detection.bbox || {};
+        const x = Number(box.x || 0) * 100;
+        const y = Number(box.y || 0) * 100;
+        const width = Number(box.width || 0) * 100;
+        const height = Number(box.height || 0) * 100;
+        const confidence = Number(detection.confidence);
+        const confidenceText = showConf && Number.isFinite(confidence)
+          ? ` ${(confidence * 100).toFixed(0)}%`
+          : '';
+        return (
+          <g key={detection.id || `${fallbackLabel}-${index}`}>
+            <rect
+              x={x}
+              y={y}
+              width={width}
+              height={height}
+              fill="none"
+              stroke={stroke}
+              strokeWidth="2"
+            />
+            {showLabels && (
+              <text
+                x={x + 4}
+                y={y + 14}
+                fill={stroke}
+                fontSize="10"
+                fontFamily="monospace"
+              >
+                {detection.label || detection.class || detection.name || fallbackLabel}
+                {confidenceText}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 export default function VisionPanel() {
   const [mjpegUrl, setMjpegUrl] = useState(null);
   const [frameMeta, setFrameMeta] = useState({ frameRate: 0, connectionStatus: 'offline', timestamp: 0 });
   const [frozen, setFrozen] = useState(false);
+  const [frozenFrame, setFrozenFrame] = useState(null);
   const [blackout, setBlackout] = useState(false);
   const [showObjects, setShowObjects] = useState(true);
-  const [showFaces, setShowFaces] = useState(true);
+  const [showPersons, setShowPersons] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
   const [showConf, setShowConf] = useState(true);
   const [showScene, setShowScene] = useState(true);
   const [objects, setObjects] = useState([]);
-  const [faces, setFaces] = useState([]);
-  const [labels, setLabels] = useState([]);
-  const [sceneLabel, setSceneLabel] = useState('No current visual description');
-  const [sceneConf, setSceneConf] = useState(0);
+  const [persons, setPersons] = useState([]);
+  const [sceneLabel, setSceneLabel] = useState('');
+  const [sceneConf, setSceneConf] = useState(null);
   const [streamKey, setStreamKey] = useState(0);
   const [streamError, setStreamError] = useState(false);
-  const [frameDims, setFrameDims] = useState({ width: 1280, height: 720 });
-  const frozenUrl = useRef(null);
-  const metaRef = useRef(null);
   const reconnectTimer = useRef(null);
-  const svgRef = useRef(null);
 
   const refreshMeta = useCallback(async () => {
     try {
       const vision = await flokiAdapter.getVisionFrame();
-      metaRef.current = {
+      setFrameMeta({
         frameRate: Number(vision.frameRate || 0),
         connectionStatus: vision.connectionStatus || 'offline',
         timestamp: vision.timestamp || Date.now(),
-      };
-      setFrameMeta(metaRef.current);
-      setObjects(Array.isArray(vision.objects) ? vision.objects : []);
-      setFaces(Array.isArray(vision.faces) ? vision.faces : []);
-      setLabels(Array.isArray(vision.objects) ? vision.objects : []);
-      setFrameDims({
-        width: Number(vision.objects[0]?.bbox?.x2 || vision.objects[0]?.bbox?.width || 1280),
-        height: Number(vision.objects[0]?.bbox?.y2 || vision.objects[0]?.bbox?.height || 720)
       });
-      setSceneLabel(vision.scene?.label || 'No current visual description');
-      setSceneConf(Number(vision.scene?.confidence || 0));
+      setObjects(Array.isArray(vision.objects) ? vision.objects : []);
+      setPersons(Array.isArray(vision.persons) ? vision.persons : []);
+      setSceneLabel(vision.scene?.available === true ? String(vision.scene.label || '') : '');
+      const rawSceneConfidence = vision.scene?.confidence;
+      setSceneConf(
+        rawSceneConfidence !== null &&
+        rawSceneConfidence !== undefined &&
+        Number.isFinite(Number(rawSceneConfidence))
+          ? Number(rawSceneConfidence)
+          : null
+      );
     } catch (error) {
       console.error(error);
+      setFrameMeta((current) => ({ ...current, connectionStatus: 'offline', timestamp: Date.now() }));
     }
   }, []);
 
@@ -77,42 +119,49 @@ export default function VisionPanel() {
       if (cancelled) return;
       if (url) {
         setMjpegUrl(url);
-        frozenUrl.current = url;
-        setStreamKey((k) => k + 1);
+        setStreamKey((key) => key + 1);
       }
     })();
     return () => { cancelled = true; };
   }, []);
 
   const handleStreamError = useCallback(() => {
+    setStreamError(true);
     clearTimeout(reconnectTimer.current);
     reconnectTimer.current = setTimeout(async () => {
+      const vision = await flokiAdapter.getVisionFrame();
+      if (vision.connectionStatus !== 'active') return;
       const url = await flokiAdapter.getMjpegUrl();
       if (url) {
         setMjpegUrl(url);
-        setStreamKey((k) => k + 1);
+        setStreamKey((key) => key + 1);
+        setStreamError(false);
       }
     }, 2000);
   }, []);
 
-  useEffect(() => {
-    return () => clearTimeout(reconnectTimer.current);
-  }, []);
+  useEffect(() => () => clearTimeout(reconnectTimer.current), []);
 
   useEffect(() => {
     refreshMeta();
-    const interval = setInterval(refreshMeta, 2000);
+    const interval = setInterval(refreshMeta, 1000);
     return () => clearInterval(interval);
   }, [refreshMeta]);
 
-  const handleFreeze = () => {
-    if (!frozen) {
-      frozenUrl.current = mjpegUrl;
+  const handleFreeze = useCallback(async () => {
+    if (frozen) {
+      setFrozen(false);
+      setFrozenFrame(null);
+      return;
     }
-    setFrozen((prev) => !prev);
-  };
+    const frame = await flokiAdapter.getLatestFrame();
+    if (frame) {
+      setFrozenFrame(frame);
+      setFrozen(true);
+    }
+  }, [frozen]);
 
-  const displayUrl = blackout ? null : (frozen ? frozenUrl.current : mjpegUrl);
+  const displayUrl = frozen ? frozenFrame : mjpegUrl;
   const active = frameMeta.connectionStatus === 'active';
 
   return (
@@ -121,7 +170,7 @@ export default function VisionPanel() {
         {displayUrl ? (
           <>
             <img
-              key={streamKey}
+              key={frozen ? 'frozen-frame' : streamKey}
               src={displayUrl}
               alt="Live webcam feed"
               data-testid="vision-feed"
@@ -129,89 +178,35 @@ export default function VisionPanel() {
               style={{ filter: blackout ? 'brightness(0)' : undefined }}
               onError={handleStreamError}
             />
-            {showObjects && objects.length > 0 && (
-              <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
-                {objects.map((obj, i) => {
-                  const box = obj.bbox || {};
-                  const x = (box.x || 0) * 100;
-                  const y = (box.y || 0) * 100;
-                  const w = (box.width || 1) * 100;
-                  const h = (box.height || 1) * 100;
-                  return (
-                    <g key={i}>
-                      <rect
-                        x={x}
-                        y={y}
-                        width={w}
-                        height={h}
-                        fill="none"
-                        stroke="lime"
-                        strokeWidth="2"
-                      />
-                      {showLabels && (
-                        <text
-                          x={x + 4}
-                          y={y + 14}
-                          fill="lime"
-                          fontSize="10"
-                          fontFamily="monospace"
-                        >
-                          {obj.label || obj.class || obj.name || 'object'}
-                          {showConf && obj.confidence != null ? ` ${(obj.confidence * 100).toFixed(0)}%` : ''}
-                        </text>
-                      )}
-                    </g>
-                  );
-                })}
-              </svg>
+            {!blackout && showObjects && (
+              <DetectionLayer
+                detections={objects}
+                stroke="#84cc16"
+                fallbackLabel="object"
+                showLabels={showLabels}
+                showConf={showConf}
+              />
             )}
-            {showFaces && faces.length > 0 && (
-              <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
-                {faces.map((face, i) => {
-                  const box = face.bbox || {};
-                  const x = (box.x || 0) * 100;
-                  const y = (box.y || 0) * 100;
-                  const w = (box.width || 1) * 100;
-                  const h = (box.height || 1) * 100;
-                  return (
-                    <g key={i}>
-                      <rect
-                        x={x}
-                        y={y}
-                        width={w}
-                        height={h}
-                        fill="none"
-                        stroke="cyan"
-                        strokeWidth="2"
-                      />
-                      {showLabels && (
-                        <text
-                          x={x + 4}
-                          y={y + 14}
-                          fill="cyan"
-                          fontSize="10"
-                          fontFamily="monospace"
-                        >
-                          Face {i + 1}
-                          {showConf && face.confidence != null ? ` ${(face.confidence * 100).toFixed(0)}%` : ''}
-                        </text>
-                      )}
-                    </g>
-                  );
-                })}
-              </svg>
+            {!blackout && showPersons && (
+              <DetectionLayer
+                detections={persons}
+                stroke="#22d3ee"
+                fallbackLabel="person"
+                showLabels={showLabels}
+                showConf={showConf}
+              />
             )}
-            {showLabels && (
+            {!blackout && (
               <div className="absolute bottom-2 left-2 text-[9px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-muted-foreground">
                 {frameMeta.frameRate.toFixed(1)} FPS
               </div>
             )}
-            {showScene && sceneLabel && (
+            {!blackout && showScene && sceneLabel && (
               <div className="absolute bottom-2 right-2 text-[9px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-muted-foreground max-w-[60%] truncate">
-                {showConf ? `${sceneLabel} (${(sceneConf * 100).toFixed(0)}%)` : sceneLabel}
+                {showConf && sceneConf != null ? `${sceneLabel} (${(sceneConf * 100).toFixed(0)}%)` : sceneLabel}
               </div>
             )}
-            {frozen && (
+            {frozen && !blackout && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <span className="text-[10px] font-mono px-2 py-1 rounded bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/40 backdrop-blur-sm">
                   <Snowflake className="w-3 h-3 inline mr-1" />FROZEN
@@ -222,25 +217,27 @@ export default function VisionPanel() {
         ) : (
           <div className="flex flex-col items-center justify-center h-full p-6 text-center">
             <Camera className={cn('w-8 h-8 mb-3', active ? 'text-emerald-400 animate-pulse' : 'text-muted-foreground/40')} />
-            <p className="text-sm text-foreground/80">{sceneLabel}</p>
-            <p className="mt-2 text-[10px] text-muted-foreground font-mono">
-              {active ? `${frameMeta.frameRate.toFixed(1)} FPS · live Floki webcam service` : 'vision service offline or warming'}
+            <p className="text-sm text-foreground/80">
+              {streamError ? 'Vision stream reconnecting' : 'Vision service offline or warming'}
             </p>
           </div>
         )}
       </div>
 
       <div className="mt-2 flex items-center justify-between text-[9px] font-mono text-muted-foreground/60">
-        <span className="flex items-center gap-1"><Activity className="w-2.5 h-2.5" />{active ? 'Streaming' : 'Offline'}</span>
+        <span className="flex items-center gap-1">
+          <Activity className="w-2.5 h-2.5" />
+          {active ? 'Streaming' : 'Offline'}
+        </span>
         <span>{new Date(frameMeta.timestamp).toLocaleTimeString()}</span>
       </div>
 
       <div className="mt-2 flex flex-wrap gap-1.5">
-        <ToggleBtn label="Objects" active={showObjects} onClick={() => setShowObjects((p) => !p)} />
-        <ToggleBtn label="Faces" active={showFaces} onClick={() => setShowFaces((p) => !p)} />
-        <ToggleBtn label="Labels" active={showLabels} onClick={() => setShowLabels((p) => !p)} />
-        <ToggleBtn label="Conf" active={showConf} onClick={() => setShowConf((p) => !p)} />
-        <ToggleBtn label="Scene" active={showScene} onClick={() => setShowScene((p) => !p)} />
+        <ToggleBtn label="Objects" active={showObjects} onClick={() => setShowObjects((value) => !value)} />
+        <ToggleBtn label="Persons" active={showPersons} onClick={() => setShowPersons((value) => !value)} />
+        <ToggleBtn label="Labels" active={showLabels} onClick={() => setShowLabels((value) => !value)} />
+        <ToggleBtn label="Conf" active={showConf} onClick={() => setShowConf((value) => !value)} />
+        <ToggleBtn label="Scene" active={showScene} onClick={() => setShowScene((value) => !value)} />
       </div>
 
       <div className="mt-2 flex gap-2">
@@ -257,7 +254,7 @@ export default function VisionPanel() {
           <Snowflake className="w-2.5 h-2.5" /> Freeze
         </button>
         <button
-          onClick={() => setBlackout((p) => !p)}
+          onClick={() => setBlackout((value) => !value)}
           data-testid="blackout-btn"
           className={cn(
             'flex items-center gap-1 px-2 py-1 rounded text-[9px] font-mono border transition-colors',

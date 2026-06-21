@@ -12,6 +12,17 @@ const TIME_RANGES = [
   { key: 'session', label: 'Session', ms: Infinity },
 ];
 
+function timestampMs(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 function extent(values, key) {
   let lo = Infinity, hi = -Infinity;
   for (const v of values) {
@@ -55,9 +66,12 @@ export default function EmotionGraph() {
 
   const rangeMs = TIME_RANGES.find((r) => r.key === timeRange)?.ms ?? 900000;
   const now = Date.now();
-  const filtered = rangeMs === Infinity
-    ? history
-    : (history || []).filter((h) => now - (h.timestamp || now) <= rangeMs);
+  const filtered = (history || []).filter((h) => {
+    const ts = timestampMs(h.timestamp);
+    if (ts === null) return false;
+    if (rangeMs === Infinity) return true;
+    return now - ts <= rangeMs;
+  });
 
   const linePaths = useMemo(() => {
     if (filtered.length < 2) return [];

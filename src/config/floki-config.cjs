@@ -122,6 +122,7 @@ function loadFlokiConfig(mode) {
   };
 
   if (mode === 'chat') {
+    configDraft.detection = buildDetectionSection(raw.detection, mode);
     configDraft.chat_world_vision = buildChatWorldVisionSection(raw.chat_world_vision, mode);
     configDraft.audio = buildAudioSection(raw.audio, mode);
     configDraft.live_chat = buildLiveChatSection(raw.live_chat, mode);
@@ -206,6 +207,26 @@ function buildVisionSection(section, mode) {
       vlm_ssh_tunnel_socket_name: requireString(section.vlm_ssh_tunnel_socket_name, 'vision.vlm_ssh_tunnel_socket_name'),
       vlm_ssh_tunnel_check_timeout_ms: requireNumber(section.vlm_ssh_tunnel_check_timeout_ms, 'vision.vlm_ssh_tunnel_check_timeout_ms')
     } : {})
+  });
+}
+
+function buildDetectionSection(section, mode) {
+  if (!section) failMissingYamlKey(mode, 'detection');
+
+  const detection = requireObject(section, 'detection');
+  const prompts = detection.grounding_dino_prompts;
+
+  if (prompts !== undefined) {
+    requireObject(prompts, 'detection.grounding_dino_prompts');
+  }
+
+  return Object.freeze({
+    ...detection,
+    ...(prompts === undefined
+      ? {}
+      : {
+          grounding_dino_prompts: Object.freeze({ ...prompts })
+        })
   });
 }
 
@@ -441,6 +462,14 @@ function getVisionConfig(mode) {
   return loadFlokiConfig(mode).vision;
 }
 
+function getDetectionConfig(mode) {
+  if (mode !== 'chat') {
+    throw new Error('detection config is chat-mode only');
+  }
+
+  return loadFlokiConfig(mode).detection;
+}
+
 function getChatWorldVisionConfig(mode) {
   if (mode !== 'chat') throw new Error('chat_world_vision config is chat-mode only');
   return loadFlokiConfig(mode).chat_world_vision;
@@ -503,6 +532,7 @@ module.exports = {
   getLiveChatConfig,
   getLifeClockConfig,
   getVisionConfig,
+  getDetectionConfig,
   getChatWorldVisionConfig,
   getGameWorldVisionConfig,
   getPinealVisionConfig,
@@ -600,6 +630,19 @@ if (typeof module.exports.getFlokiConfig !== 'function') {
       life_clock: Object.freeze(_requiredObject(raw.life_clock, 'life_clock'))
     };
     if (mode === 'chat') {
+      const detection = _requiredObject(raw.detection, 'detection');
+      const prompts = detection.grounding_dino_prompts;
+      if (prompts !== undefined) {
+        _requiredObject(prompts, 'detection.grounding_dino_prompts');
+      }
+      config.detection = Object.freeze({
+        ...detection,
+        ...(prompts === undefined
+          ? {}
+          : {
+              grounding_dino_prompts: Object.freeze({ ...prompts })
+            })
+      });
       config.chat_world_vision = Object.freeze(_requiredObject(raw.chat_world_vision, 'chat_world_vision'));
       config.audio = Object.freeze(_requiredObject(raw.audio, 'audio'));
       config.live_chat = Object.freeze(_requiredObject(raw.live_chat, 'live_chat'));
