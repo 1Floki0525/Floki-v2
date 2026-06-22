@@ -14,6 +14,29 @@ fail() {
   exit 1
 }
 
+startup_stage() {
+  echo "[FLOKI STARTUP $1] $2"
+}
+
+preflight_core_brain() {
+  BRAIN_OUTPUT="$(node src/brain/core-brain-status.cjs chat 2>&1)"
+  BRAIN_STATUS="$?"
+
+  if [ "$BRAIN_STATUS" -ne 0 ]; then
+    echo "$BRAIN_OUTPUT" >&2
+    fail "core brain preflight failed"
+  fi
+
+  if ! printf '%s\n' "$BRAIN_OUTPUT" |
+    grep -q '"marker": "FLOKI_V2_CORE_BRAIN_STATUS_REPORT"'
+  then
+    echo "$BRAIN_OUTPUT" >&2
+    fail "core brain preflight marker missing"
+  fi
+
+  echo "Core brain: configuration, module registry, identity, memory, emotion, and cognition factories loaded"
+}
+
 load_node_24() {
   if [ -s "$HOME/.nvm/nvm.sh" ]; then
     export NVM_DIR="$HOME/.nvm"
@@ -104,6 +127,27 @@ stop_chat_webcam_vision() {
   fi
 }
 
+HEARING_STARTED=false
+
+start_chat_hearing() {
+  HEARING_OUTPUT="$(bash bin/floki-chat-start.sh 2>&1)"
+  HEARING_STATUS="$?"
+
+  if [ "$HEARING_STATUS" -ne 0 ]; then
+    echo "$HEARING_OUTPUT" >&2
+    fail "chat hearing and spoken reply loop did not start"
+  fi
+
+  HEARING_STARTED=true
+  echo "Hearing: $HEARING_OUTPUT"
+}
+
+stop_chat_hearing() {
+  if [ "$HEARING_STARTED" = true ]; then
+    bash bin/floki-chat-stop.sh >/dev/null 2>&1 || true
+  fi
+}
+
 trap stop_chat_webcam_vision EXIT
 trap 'exit' TERM INT HUP
 
@@ -127,9 +171,34 @@ case "$COMMAND" in
     trap cleanup_chat_local EXIT
     trap interrupt_chat_local INT TERM HUP
 
+    startup_stage "1/7" "Node 24 runtime ready: $(node -v)"
+
+    startup_stage "2/7" "Loading and validating the complete chat-mode core brain"
+    preflight_core_brain
+
+    startup_stage "3/7" "Starting the sleep, REM, and dream scheduler"
     start_sleep_scheduler
     verify_sleep_scheduler
-    start_chat_webcam_vision
+
+    startup_stage "4/7" "Resolving Floki's sleep state before enabling eyes or ears"
+    LIFECYCLE_JSON="$(node - <<'NODE'
+'use strict';
+const { buildFlokiLifecycleStatus } = require('./src/chat/floki-lifecycle-status.cjs');
+const status = buildFlokiLifecycleStatus();
+process.stdout.write(JSON.stringify({
+  state: status.state,
+  display_label: status.display_label,
+  is_awake: status.is_awake === true,
+  is_asleep: status.is_asleep === true,
+  is_dreaming: status.is_dreaming === true,
+  sleep_window: status.sleep_window_label
+}));
+NODE
+)" || fail "could not resolve lifecycle before sensory startup"
+    echo "Lifecycle: $LIFECYCLE_JSON"
+
+    startup_stage "5/7" "Starting the authoritative runtime; eyes and ears follow the resolved sleep state"
+    start_chat_hearing
 
     bash bin/floki-chat-local-start.sh "$@"
     CHAT_LOCAL_STATUS="$?"

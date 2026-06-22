@@ -28,7 +28,7 @@ assert.match(service, /person_verifier_payload_mode:\s*'crop_only'/);
 assert.match(service, /const frameSnapshot = Buffer\.from\(frame\)/);
 assert.match(service, /chat-webcam-vision\.detect-/);
 assert.match(service, /const minimumIntervalMs = Math\.max/);
-assert.match(service, /maybeDetect\(latestFrame\);[\s\S]*maybeInfer\(latestFrame\);/);
+assert.match(service, /maybeInfer\(latestFrame\);[\s\S]*maybeDetect\(latestFrame\);/);
 assert.doesNotMatch(service, /await\s+maybeDetect\(latestFrame\)/);
 
 const verifierCallStart = verifier.indexOf('async function callBatchVerifier(');
@@ -41,7 +41,8 @@ assert.doesNotMatch(verifierCall, /\.\.\.candidates\.map/);
 assert.match(verifierCall, /for \([\s\S]*candidateIndex < candidates\.length/);
 
 assert.match(verifier, /filter\(\(group\) => hasYoloSupport\(group\.detection\)\)/);
-assert.match(verifier, /grounding_dino_open_vocabulary_candidate_unverified/);
+assert.match(verifier, /dinoOnlyObjectDisplayMinConfidence/);
+assert.match(verifier, /grounding_dino_object_below_display_threshold/);
 assert.match(verifier, /object_detection_confidence_below_display_threshold/);
 assert.match(verifier, /trackTtlMs/);
 assert.doesNotMatch(verifier, /unverified person candidate/);
@@ -51,6 +52,8 @@ assert.match(yaml, /detection_min_interval_ms:\s*500/);
 assert.match(yaml, /person_verifier_crop_max_dimension:\s*512/);
 assert.match(yaml, /person_verifier_max_dino_only_candidates:\s*0/);
 assert.match(yaml, /person_verifier_track_ttl_ms:\s*3000/);
+assert.match(yaml, /grounding_dino_object_display_min_confidence:\s*0\.35/);
+assert.match(yaml, /person_consensus_display_min_confidence:\s*0\.35/);
 
 console.log(JSON.stringify({
   ok: true,

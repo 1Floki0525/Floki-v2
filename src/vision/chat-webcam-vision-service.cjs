@@ -16,7 +16,12 @@ const { webcamCaptureConfig } = require('./webcam-capabilities.cjs');
 const { ffmpegPixelFormat } = require('./webcam-eyes-stream.cjs');
 const { getDetectionConfig, storeDetectionResult, readLatestDetection, validateDetectionFrame, parseYoloDetectionFrame } = require('./yolo-detection-service.cjs');
 const { runHybridDetectionOnFrame, stopHybridDetectionWorkers } = require('./hybrid-detection-service.cjs');
-const { attachCachedPersonVerifications, isPersonCandidate, verifyDetectionFramePersons } = require('./person-presence-verifier.cjs');
+const {
+  attachCachedPersonVerifications,
+  classifyVerifiedDetectionForDisplay,
+  isPersonCandidate,
+  verifyDetectionFramePersons
+} = require('./person-presence-verifier.cjs');
 
 const READY_TIMEOUT_MS = 30000;
 const STATUS_STALE_MS = 5000;
@@ -40,6 +45,7 @@ function runtimePaths(options = {}) {
     latest_observation_file: options.latest_observation_file || path.join(runtimeDir, 'chat-webcam-vision.latest-observation.private.json'),
     latest_frame_file: options.latest_frame_file || path.join(runtimeDir, 'chat-webcam-vision.latest-frame.jpg'),
     detection_frame_file: options.detection_frame_file || path.join(runtimeDir, 'chat-webcam-vision.yolo-frame.jpg'),
+    refresh_request_file: options.refresh_request_file || path.join(runtimeDir, 'chat-webcam-vision.refresh-request.json'),
     log_file: options.log_file || path.join(runtimeDir, 'chat-webcam-vision.log')
   });
 }
@@ -553,6 +559,90 @@ function readChatWebcamVisionStatus(options = {}) {
   }));
 }
 
+function normalizedDetectionLabel(detection) {
+  return String(
+    detection &&
+    (detection.label || detection.class || detection.name) ||
+    ''
+  )
+    .toLowerCase()
+    .replace(/^an?\s+/, '')
+    .trim();
+}
+
+function buildFreshDetectionObservation(options = {}) {
+  const paths = runtimePaths(options);
+  const latest = readLatestDetection({
+    runtime_dir: paths.runtime_dir
+  });
+
+  if (
+    latest.available !== true ||
+    latest.fresh !== true ||
+    !latest.detection ||
+    !Array.isArray(latest.detection.detections)
+  ) {
+    return null;
+  }
+
+  const visible = latest.detection.detections
+    .map((detection) =>
+      classifyVerifiedDetectionForDisplay(detection)
+    )
+    .filter((entry) =>
+      entry &&
+      (entry.bucket === 'persons' || entry.bucket === 'objects')
+    );
+
+  const personCount = visible.filter(
+    (entry) => entry.bucket === 'persons'
+  ).length;
+  const objectLabels = Array.from(new Set(
+    visible
+      .filter((entry) => entry.bucket === 'objects')
+      .map((entry) => normalizedDetectionLabel(entry.detection))
+      .filter(Boolean)
+  )).slice(0, 12);
+
+  if (personCount === 0 && objectLabels.length === 0) {
+    return null;
+  }
+
+  const parts = [];
+  if (personCount > 0) {
+    parts.push(
+      String(personCount) +
+      (personCount === 1 ? ' person' : ' people')
+    );
+  }
+  if (objectLabels.length > 0) {
+    parts.push('objects including ' + objectLabels.join(', '));
+  }
+
+  const timestamp =
+    latest.detection.stored_at ||
+    latest.detection.detected_at ||
+    nowIso();
+
+  return Object.freeze({
+    available: true,
+    fresh: true,
+    stale: false,
+    observation_age_ms: Number(latest.age_ms || 0),
+    latest_private_observation_timestamp: timestamp,
+    source: 'webcam_live_detection',
+    sight_scope: 'maker_world_external',
+    observation_summary:
+      'Current live detector view: ' + parts.join('; ') + '.',
+    detection_fallback_used: true,
+    unavailable_reason: null,
+    public_transcript_visible: false,
+    chat_mode_only: true,
+    game_mode_started: false
+  });
+}
+
+
 function readLatestPrivateObservation(options = {}) {
   const paths = runtimePaths(options);
   const vision = getVisionConfig('chat');
@@ -573,19 +663,26 @@ function readLatestPrivateObservation(options = {}) {
   });
 
   if (!observation || observation.ok !== true) {
-    return unavailable('missing_observation');
+    return buildFreshDetectionObservation(options) ||
+      unavailable('missing_observation');
   }
 
   const summary = typeof observation.observation_summary === 'string'
     ? observation.observation_summary.trim()
     : '';
   if (!summary) {
-    return unavailable('empty_observation', { timestamp: observation.created_at || null });
+    return buildFreshDetectionObservation(options) ||
+      unavailable('empty_observation', {
+        timestamp: observation.created_at || null
+      });
   }
 
   const timestampMs = new Date(observation.created_at || '').getTime();
   if (!Number.isFinite(timestampMs)) {
-    return unavailable('invalid_observation_timestamp', { timestamp: observation.created_at || null });
+    return buildFreshDetectionObservation(options) ||
+      unavailable('invalid_observation_timestamp', {
+        timestamp: observation.created_at || null
+      });
   }
 
   const nowMs = Number(options.now_ms === undefined ? Date.now() : options.now_ms);
@@ -596,10 +693,11 @@ function readLatestPrivateObservation(options = {}) {
   ));
   const ageMs = Math.max(0, nowMs - timestampMs);
   if (ageMs > maxAgeMs) {
-    return unavailable('stale_observation', {
-      timestamp: observation.created_at || null,
-      observation_age_ms: ageMs
-    });
+    return buildFreshDetectionObservation(options) ||
+      unavailable('stale_observation', {
+        timestamp: observation.created_at || null,
+        observation_age_ms: ageMs
+      });
   }
 
   return Object.freeze({
@@ -774,7 +872,10 @@ async function runChatWebcamVisionService(options = {}) {
   let inFlightDetection = false;
   let lastDetectionStartedAtMs = 0;
   let inFlightPersonVerification = false;
-  let sceneInferenceUnlocked = getDetectionConfig().enabled !== true;
+  // Detector initialization must not block the first VLM observation or
+  // chat.local readiness. Active person verification temporarily locks
+  // scene inference later in maybeDetect().
+  let sceneInferenceUnlocked = true;
   let inferenceAbortController = null;
   const detectionAbortController = new AbortController();
   let fatalError = null;
@@ -809,18 +910,47 @@ async function runChatWebcamVisionService(options = {}) {
   async function maybeInfer(frame) {
     if (stopping) return;
     const nowMs = Date.now();
-    const minInterval = Number(vision.vlm_inference_min_interval_ms || 1000);
-    const enoughTime = !state.last_vlm_inference_at_ms || nowMs - state.last_vlm_inference_at_ms >= minInterval;
-    const firstObservation = state.first_vlm_observation_succeeded !== true;
-    const everyFrames = Number(vision.vlm_inference_every_n_frames || 40);
-    const dueFrame = everyFrames > 0 && state.total_frames_received % everyFrames === 0;
+    const forcedRefresh = existsSync(paths.refresh_request_file);
+    const minInterval = Number(
+      vision.vlm_inference_min_interval_ms || 1000
+    );
+    const enoughTime =
+      !state.last_vlm_inference_at_ms ||
+      nowMs - state.last_vlm_inference_at_ms >= minInterval;
+    const firstObservation =
+      state.first_vlm_observation_succeeded !== true;
+    const everyFrames = Number(
+      vision.vlm_inference_every_n_frames || 40
+    );
+    const dueFrame =
+      everyFrames > 0 &&
+      state.total_frames_received % everyFrames === 0;
+    const latestObservationMs = new Date(
+      state.latest_private_observation_timestamp || ''
+    ).getTime();
+    const refreshIntervalMs = Math.max(
+      minInterval,
+      Number(
+        vision.vlm_observation_refresh_interval_ms || 8000
+      )
+    );
+    const refreshDue =
+      firstObservation ||
+      !Number.isFinite(latestObservationMs) ||
+      nowMs - latestObservationMs >= refreshIntervalMs;
+    const inferenceDue =
+      firstObservation ||
+      forcedRefresh ||
+      (enoughTime && (dueFrame || refreshDue));
+
     if (
       !sceneInferenceUnlocked ||
       inFlightInference ||
       inFlightPersonVerification ||
-      (!firstObservation && (!dueFrame || !enoughTime))
+      !inferenceDue
     ) return;
     inFlightInference = true;
+    if (forcedRefresh) fs.rmSync(paths.refresh_request_file, { force: true });
     inferenceAbortController = new AbortController();
     state.last_vlm_inference_at_ms = nowMs;
     state.last_vlm_inference_timestamp = nowIso();
@@ -882,6 +1012,11 @@ async function runChatWebcamVisionService(options = {}) {
 
   async function maybeDetect(frame) {
     if (stopping || inFlightDetection) return;
+
+    // Complete one real scene observation before starting detector workers.
+    // Otherwise rapid person detections repeatedly abort the first VLM request
+    // and chat.local can never satisfy ready_for_chat.
+    if (state.first_vlm_observation_succeeded !== true) return;
 
     const detectionConfig = getDetectionConfig();
     if (detectionConfig.enabled !== true) return;
@@ -994,15 +1129,29 @@ async function runChatWebcamVisionService(options = {}) {
 
       if (inFlightPersonVerification) return;
 
+      const latestObservationMs = new Date(
+        state.latest_private_observation_timestamp || ''
+      ).getTime();
+      const refreshIntervalMs = Math.max(
+        Number(vision.vlm_inference_min_interval_ms || 1000),
+        Number(
+          vision.vlm_observation_refresh_interval_ms || 8000
+        )
+      );
+      const sceneRefreshDue =
+        !Number.isFinite(latestObservationMs) ||
+        Date.now() - latestObservationMs >= refreshIntervalMs;
+
+      // Never abort a scene observation for person verification. If a scene
+      // refresh is due, consensus person boxes remain visible and verification
+      // waits for a later detector frame.
+      if (inFlightInference || sceneRefreshDue) {
+        sceneInferenceUnlocked = true;
+        return;
+      }
+
       sceneInferenceUnlocked = false;
       inFlightPersonVerification = true;
-
-      if (
-        inFlightInference &&
-        inferenceAbortController
-      ) {
-        inferenceAbortController.abort();
-      }
 
       Promise.resolve()
         .then(async () => {
@@ -1141,8 +1290,10 @@ async function runChatWebcamVisionService(options = {}) {
       state.first_frame_received = true;
       try { fs.writeFileSync(paths.latest_frame_file, latestFrame); } catch (_e) { /* best-effort frame file write */ }
       if (!stopping) {
-        maybeDetect(latestFrame);
+        // Scene inference gets first access to each startup frame. Detection is
+        // enabled immediately after the first real VLM observation succeeds.
         maybeInfer(latestFrame);
+        maybeDetect(latestFrame);
       }
     }
     publish();

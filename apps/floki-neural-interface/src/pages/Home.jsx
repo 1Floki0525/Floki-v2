@@ -9,7 +9,7 @@ import flokiAdapter from '@/integrations/floki/adapter';
 
 const TABS = { chat: ChatInterface, dreams: DreamsDashboard, neural: NeuralStream, system: SystemDashboard, settings: SettingsPage };
 
-const initialState = { connected: false, state: 'Connecting', mode: 'chat.local', online: false, visionActive: false, hearingActive: false, sleepState: 'Unknown', cognitionModel: null };
+const initialState = { connected: false, state: 'Connecting', mode: 'chat.local', online: false, visionActive: false, hearingActive: false, memoryLoaded: false, speechActive: false, sleepState: 'Unknown', cognitionModel: null };
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('chat');
@@ -29,6 +29,8 @@ export default function Home() {
           online: status.online === true,
           visionActive: status.visionActive === true,
           hearingActive: status.hearingActive === true,
+          memoryLoaded: status.memoryLoaded === true,
+          speechActive: status.speechActive === true,
           sleepState: status.sleepState || 'Unknown',
           cognitionModel: status.cognitionModel,
         });
@@ -55,7 +57,7 @@ export default function Home() {
             <div className="w-6 h-6 rounded-full border-2 border-neon-cyan/30 border-t-neon-cyan animate-spin" />
           </div>
         }>
-          <Active key={activeTab} />
+          <Active key={activeTab} flokiStatus={flokiStatus} />
         </React.Suspense>
       </main>
     </div>

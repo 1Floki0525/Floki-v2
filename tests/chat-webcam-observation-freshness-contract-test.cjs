@@ -48,6 +48,86 @@ async function run() {
   assert.equal(stale.unavailable_reason, 'stale_observation');
   assert.equal(stale.observation_summary, null);
 
+
+
+  fs.writeFileSync(
+    path.join(
+      runtimeDir,
+      'chat-webcam-vision.latest-detection.json'
+    ),
+    JSON.stringify({
+      ok: true,
+      schema_version: 1,
+      marker: 'FLOKI_V2_CHAT_YOLO_DETECTION_FRAME',
+      frame_id: 'fresh-detector-frame',
+      captured_at: new Date().toISOString(),
+      detected_at: new Date().toISOString(),
+      stored_at: new Date().toISOString(),
+      source: 'hybrid',
+      image_width: 1280,
+      image_height: 720,
+      device: 'cuda:0',
+      model_source: 'hybrid_test',
+      stale: false,
+      age_ms: 0,
+      detections: [
+        {
+          id: 'person-1',
+          class_id: 0,
+          type: 'person',
+          label: 'person',
+          confidence: 0.92,
+          source: 'yolo',
+          proposal_sources: ['yolo', 'grounding_dino'],
+          bbox: {
+            x: 0.1,
+            y: 0.1,
+            width: 0.4,
+            height: 0.7
+          }
+        },
+        {
+          id: 'chair-1',
+          class_id: 56,
+          type: 'object',
+          label: 'chair',
+          confidence: 0.8,
+          source: 'yolo',
+          proposal_sources: ['yolo'],
+          bbox: {
+            x: 0.5,
+            y: 0.4,
+            width: 0.2,
+            height: 0.4
+          }
+        }
+      ]
+    }, null, 2)
+  );
+
+  const detectionFallback = readLatestPrivateObservation({
+    runtime_dir: runtimeDir,
+    now_ms: Date.now(),
+    max_age_ms: 1
+  });
+
+  assert.equal(detectionFallback.available, true);
+  assert.equal(detectionFallback.fresh, true);
+  assert.equal(detectionFallback.detection_fallback_used, true);
+  assert.equal(
+    detectionFallback.source,
+    'webcam_live_detection'
+  );
+  assert.match(
+    detectionFallback.observation_summary,
+    /1 person/
+  );
+  assert.match(
+    detectionFallback.observation_summary,
+    /chair/
+  );
+
+
   let attempts = 0;
   const retried = await callVisionModelWithRetry(Buffer.from('frame'), {
     max_attempts: 3,

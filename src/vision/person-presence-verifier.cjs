@@ -104,6 +104,26 @@ function getPersonVerifierConfig() {
         Number(detection.object_consensus_min_confidence || 0.35)
       )
     ),
+    dinoOnlyObjectDisplayMinConfidence: Math.max(
+      0,
+      Math.min(
+        1,
+        Number(
+          detection.grounding_dino_object_display_min_confidence ||
+          0.35
+        )
+      )
+    ),
+    personConsensusDisplayMinConfidence: Math.max(
+      0,
+      Math.min(
+        1,
+        Number(
+          detection.person_consensus_display_min_confidence ||
+          0.35
+        )
+      )
+    ),
     groupingIouThreshold: Math.max(
       0,
       Math.min(
@@ -659,12 +679,38 @@ function classifyVerifiedDetectionForDisplay(detection) {
     const yoloSupported = sources.includes('yolo');
     const dinoSupported = sources.includes('grounding_dino');
 
+    if (!yoloSupported && dinoSupported) {
+      if (
+        confidence <
+        config.dinoOnlyObjectDisplayMinConfidence
+      ) {
+        return Object.freeze({
+          bucket: 'suppressed',
+          detection,
+          unavailable_reason:
+            'grounding_dino_object_below_display_threshold'
+        });
+      }
+
+      return Object.freeze({
+        bucket: 'objects',
+        detection: Object.freeze({
+          ...detection,
+          type: 'object',
+          label: String(
+            detection.label || detection.type || 'object'
+          ).replace(/^a\s+/i, '').trim(),
+          display_basis: 'grounding_dino_open_vocabulary'
+        })
+      });
+    }
+
     if (!yoloSupported) {
       return Object.freeze({
         bucket: 'suppressed',
         detection,
         unavailable_reason:
-          'grounding_dino_open_vocabulary_candidate_unverified'
+          'object_detection_source_unavailable'
       });
     }
 
@@ -688,12 +734,40 @@ function classifyVerifiedDetectionForDisplay(detection) {
   }
 
   const verification = detection && detection.verification;
+  const config = getPersonVerifierConfig();
+  const sources = proposalSources(detection);
+  const confidence = Number(
+    detection && detection.confidence || 0
+  );
+  const consensusPerson =
+    sources.includes('yolo') &&
+    sources.includes('grounding_dino') &&
+    confidence >=
+      config.personConsensusDisplayMinConfidence;
 
   if (
     !verification ||
     verification.verifier_ok !== true ||
     verification.classification === 'uncertain'
   ) {
+    // A YOLO + Grounding DINO agreement is allowed as a visible provisional
+    // person track while the crop verifier completes or recovers. DINO-only
+    // wall photos and YOLO-only guesses remain hidden.
+    if (consensusPerson) {
+      return Object.freeze({
+        bucket: 'persons',
+        detection: Object.freeze({
+          ...detection,
+          type: 'person',
+          label: 'person',
+          display_basis: 'yolo_grounding_dino_consensus',
+          verification_status: verification
+            ? 'verifier_unavailable'
+            : 'verification_pending'
+        })
+      });
+    }
+
     return Object.freeze({
       bucket: 'suppressed',
       detection,
@@ -1114,10 +1188,14 @@ async function callBatchVerifier(
             ],
             format: schema,
             stream: false,
+            // qwen vision models can spend the entire small token budget in
+            // hidden reasoning and return an empty response. The verifier
+            // needs one short JSON object, so thinking is disabled here.
+            think: false,
             options: {
               temperature: 0,
               top_p: 0.1,
-              num_predict: 128
+              num_predict: 256
             },
             keep_alive: models.vision.keep_alive
           }),

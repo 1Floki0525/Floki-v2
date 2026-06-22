@@ -25,7 +25,7 @@ function run() {
   assert.equal(normalizeWakeText('Hey, FLOKI!!!'), 'hey floki');
   assert.equal(isAddressedToFloki('hey Floki'), true);
   assert.equal(isAddressedToFloki('HEY FLOKI can you hear me?'), true);
-  assert.equal(isAddressedToFloki('Floki can you hear me?'), false);
+  assert.equal(isAddressedToFloki('Floki can you hear me?'), true);
   assert.equal(isAddressedToFloki('hello can you hear me?'), false);
   assert.equal(stripWakePhrase('hey Floki can you hear me?'), 'can you hear me?');
 

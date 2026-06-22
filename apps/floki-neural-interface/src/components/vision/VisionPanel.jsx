@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import NeonPanel from '@/components/shared/NeonPanel';
 import flokiAdapter from '@/integrations/floki/adapter';
+import useSettings from '@/hooks/useSettings';
 import { cn } from '@/lib/utils';
 import { Activity, Camera, Eye, EyeOff, Snowflake } from 'lucide-react';
 
@@ -12,6 +13,9 @@ const TOGGLE_STYLES = {
 function ToggleBtn({ label, active, onClick }) {
   return (
     <button
+      type="button"
+      aria-pressed={active}
+      data-state={active ? 'on' : 'off'}
       onClick={onClick}
       data-testid={`toggle-${label.toLowerCase()}`}
       className={cn(
@@ -24,47 +28,55 @@ function ToggleBtn({ label, active, onClick }) {
   );
 }
 
+function clampPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(100, number * 100));
+}
+
 function DetectionLayer({ detections, stroke, fallbackLabel, showLabels, showConf }) {
   if (!Array.isArray(detections) || detections.length === 0) return null;
   return (
-    <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
+    <div
+      className="absolute inset-0 pointer-events-none"
+      data-testid={`detection-layer-${fallbackLabel}`}
+      data-detection-count={detections.length}
+    >
       {detections.map((detection, index) => {
         const box = detection.bbox || {};
-        const x = Number(box.x || 0) * 100;
-        const y = Number(box.y || 0) * 100;
-        const width = Number(box.width || 0) * 100;
-        const height = Number(box.height || 0) * 100;
+        const left = clampPercent(box.x);
+        const top = clampPercent(box.y);
+        const width = Math.max(0, Math.min(100 - left, clampPercent(box.width)));
+        const height = Math.max(0, Math.min(100 - top, clampPercent(box.height)));
         const confidence = Number(detection.confidence);
         const confidenceText = showConf && Number.isFinite(confidence)
           ? ` ${(confidence * 100).toFixed(0)}%`
           : '';
         return (
-          <g key={detection.id || `${fallbackLabel}-${index}`}>
-            <rect
-              x={x}
-              y={y}
-              width={width}
-              height={height}
-              fill="none"
-              stroke={stroke}
-              strokeWidth="2"
-            />
+          <div
+            key={detection.id || `${fallbackLabel}-${index}`}
+            className="absolute border-2"
+            style={{
+              left: `${left}%`,
+              top: `${top}%`,
+              width: `${width}%`,
+              height: `${height}%`,
+              borderColor: stroke,
+            }}
+          >
             {showLabels && (
-              <text
-                x={x + 4}
-                y={y + 14}
-                fill={stroke}
-                fontSize="10"
-                fontFamily="monospace"
+              <span
+                className="absolute left-0 top-0 max-w-full truncate bg-black/75 px-1 py-0.5 text-[10px] font-mono leading-none"
+                style={{ color: stroke }}
               >
                 {detection.label || detection.class || detection.name || fallbackLabel}
                 {confidenceText}
-              </text>
+              </span>
             )}
-          </g>
+          </div>
         );
       })}
-    </svg>
+    </div>
   );
 }
 
@@ -74,11 +86,12 @@ export default function VisionPanel() {
   const [frozen, setFrozen] = useState(false);
   const [frozenFrame, setFrozenFrame] = useState(null);
   const [blackout, setBlackout] = useState(false);
-  const [showObjects, setShowObjects] = useState(true);
-  const [showPersons, setShowPersons] = useState(true);
-  const [showLabels, setShowLabels] = useState(true);
-  const [showConf, setShowConf] = useState(true);
-  const [showScene, setShowScene] = useState(true);
+  const [visionSettings, updateVisionSettings] = useSettings('vision');
+  const showObjects = visionSettings.showObjectBoxes !== false;
+  const showPersons = visionSettings.showPersonBoxes !== false;
+  const showLabels = visionSettings.showLabels !== false;
+  const showConf = visionSettings.showConfidence !== false;
+  const showScene = visionSettings.showSceneRecognition !== false;
   const [objects, setObjects] = useState([]);
   const [persons, setPersons] = useState([]);
   const [sceneLabel, setSceneLabel] = useState('');
@@ -233,11 +246,11 @@ export default function VisionPanel() {
       </div>
 
       <div className="mt-2 flex flex-wrap gap-1.5">
-        <ToggleBtn label="Objects" active={showObjects} onClick={() => setShowObjects((value) => !value)} />
-        <ToggleBtn label="Persons" active={showPersons} onClick={() => setShowPersons((value) => !value)} />
-        <ToggleBtn label="Labels" active={showLabels} onClick={() => setShowLabels((value) => !value)} />
-        <ToggleBtn label="Conf" active={showConf} onClick={() => setShowConf((value) => !value)} />
-        <ToggleBtn label="Scene" active={showScene} onClick={() => setShowScene((value) => !value)} />
+        <ToggleBtn label="Objects" active={showObjects} onClick={() => updateVisionSettings({ showObjectBoxes: !showObjects })} />
+        <ToggleBtn label="Persons" active={showPersons} onClick={() => updateVisionSettings({ showPersonBoxes: !showPersons })} />
+        <ToggleBtn label="Labels" active={showLabels} onClick={() => updateVisionSettings({ showLabels: !showLabels })} />
+        <ToggleBtn label="Conf" active={showConf} onClick={() => updateVisionSettings({ showConfidence: !showConf })} />
+        <ToggleBtn label="Scene" active={showScene} onClick={() => updateVisionSettings({ showSceneRecognition: !showScene })} />
       </div>
 
       <div className="mt-2 flex gap-2">

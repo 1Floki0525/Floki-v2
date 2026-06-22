@@ -174,11 +174,6 @@ function synthesizePiperSpeechToFile(options = {}) {
 
 
 function synthesizePiperSpeechToFileAsync(options = {}) {
-  const readiness = buildChatToolchainReadinessStatus();
-  if (!readiness.piper || readiness.piper.ready !== true) {
-    return Promise.reject(new Error('Piper toolchain is not ready'));
-  }
-
   const voiceSize = options.voice_size || 'large';
   const voice = VOICES[voiceSize];
   if (!voice) return Promise.reject(new Error('unknown Piper voice size: ' + voiceSize));

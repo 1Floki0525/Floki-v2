@@ -26,7 +26,13 @@ export default function SettingRow({
       </div>
       <div className="flex-shrink-0">
         {type === 'toggle' && (
-          <Switch checked={Boolean(value)} onCheckedChange={onChange} disabled={disabled} />
+          <Switch
+            type="button"
+            data-testid={`setting-${String(label).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`}
+            checked={Boolean(value)}
+            onCheckedChange={onChange}
+            disabled={disabled}
+          />
         )}
         {type === 'text' && (
           <Input

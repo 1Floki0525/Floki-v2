@@ -88,7 +88,8 @@ vision:
   vlm_inference_enabled: true
   vlm_inference_every_n_frames: 40
   vlm_inference_min_interval_ms: 1000
-  latest_observation_max_age_ms: 15000
+  vlm_observation_refresh_interval_ms: 8000
+  latest_observation_max_age_ms: 30000
   vlm_inference_max_attempts: 3
   vlm_inference_retry_delay_ms: 500
   vlm_max_consecutive_failures: 5
@@ -120,6 +121,8 @@ detection:
   detection_interval_frames: 5
   object_consensus_min_confidence: 0.35
   object_display_min_confidence: 0.55
+  grounding_dino_object_display_min_confidence: 0.35
+  person_consensus_display_min_confidence: 0.35
   person_verifier_track_ttl_ms: 3000
   person_verifier_crop_jpeg_quality: 5
   person_verifier_crop_max_dimension: 512
@@ -258,11 +261,49 @@ audio:
   mic_channels: 1
   mic_format: S16_LE
   live_capture_seconds: 2
+  live_loop_turns: 10
+  live_loop_restart_seconds: 0.1
+  vad_frame_samples: 512
+  pre_roll_ms: 1600
+  post_roll_ms: 320
+  vad_start_threshold: 0.55
+  vad_end_threshold: 0.35
+  vad_start_frames: 2
+  vad_end_frames: 15
+  max_utterance_seconds: 30
+  ambient_rms_start_threshold: 0.035
+  ambient_rms_end_threshold: 0.018
+  ambient_start_frames: 3
+  ambient_end_frames: 20
+  ambient_min_event_ms: 500
+  ambient_max_event_seconds: 12
   proof_capture_seconds: 4
   whisper_model_size: small
+  whisper_server_enabled: true
+  whisper_server_host: 127.0.0.1
+  whisper_server_port: 7788
+  whisper_server_start_timeout_ms: 15000
   voice_lock_ttl_ms: 120000
   piper_voice_name: en_US-ryan-high
   piper_voice_size: large
+  # Production audio pipeline config
+  rolling_buffer_seconds: 30
+  vad_speech_threshold: 0.5
+  vad_endpoint_silence_ms: 800
+  vad_min_speech_ms: 250
+  vad_max_speech_seconds: 30
+  vad_frame_size_ms: 30
+  whisper_language: en
+  whisper_beam_size: 5
+  whisper_max_concurrent: 1
+  ambient_classify_enabled: true
+  ambient_classify_interval_ms: 5000
+  ambient_min_segment_ms: 1000
+  hearing_stale_event_ms: 10000
+  hearing_duplicate_window_ms: 2000
+  hearing_freshness_max_age_ms: 5000
+  piper_incremental_enabled: true
+  piper_playback_command: aplay
 
 timeouts:
   ollama_http_ms: 120000
@@ -298,6 +339,11 @@ live_chat:
   latency_events_enabled: true
   public_response_max_tokens: 512
   stream_timeout_ms: 120000
+  runtime_start_timeout_ms: 120000
+  runtime_start_poll_ms: 100
+  runtime_host: 127.0.0.1
+  runtime_port: 7700
+  runtime_heartbeat_ms: 1000
   public_sentence_min_characters: 12
   latency_log_max_bytes: 8388608
 

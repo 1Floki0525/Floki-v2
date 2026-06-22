@@ -8,15 +8,15 @@ const {
   classifyVerifiedDetectionForDisplay
 } = require('../src/vision/person-presence-verifier.cjs');
 
-function candidate(verification) {
+function candidate(verification, sources = ['yolo']) {
   return {
     id: 'candidate-1',
     class_id: 0,
     type: 'person',
     label: 'person',
     confidence: 0.88,
-    source: 'yolo',
-    proposal_sources: ['yolo'],
+    source: sources.includes('yolo') ? 'yolo' : sources[0],
+    proposal_sources: sources,
     bbox: {
       x: 0.1,
       y: 0.1,
@@ -124,6 +124,20 @@ assert.equal(
   'person_verification_pending'
 );
 
+const consensusPendingDisposition =
+  classifyVerifiedDetectionForDisplay(
+    candidate(undefined, ['yolo', 'grounding_dino'])
+  );
+
+assert.equal(
+  consensusPendingDisposition.bucket,
+  'persons'
+);
+assert.equal(
+  consensusPendingDisposition.detection.display_basis,
+  'yolo_grounding_dino_consensus'
+);
+
 const chairDisposition =
   classifyVerifiedDetectionForDisplay({
     class_id: 56,
@@ -141,6 +155,25 @@ const chairDisposition =
   });
 
 assert.equal(chairDisposition.bucket, 'objects');
+
+const dinoObjectDisposition =
+  classifyVerifiedDetectionForDisplay({
+    class_id: 1000,
+    type: 'object',
+    label: 'a bottle',
+    confidence: 0.38,
+    source: 'grounding_dino',
+    proposal_sources: ['grounding_dino'],
+    bbox: {
+      x: 0.1,
+      y: 0.1,
+      width: 0.1,
+      height: 0.2
+    }
+  });
+
+assert.equal(dinoObjectDisposition.bucket, 'objects');
+assert.equal(dinoObjectDisposition.detection.label, 'bottle');
 
 console.log(JSON.stringify({
   ok: true,

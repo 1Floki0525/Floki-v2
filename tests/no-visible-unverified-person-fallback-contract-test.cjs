@@ -82,8 +82,14 @@ assert.match(
 
 assert.match(
   verifier,
-  /verification\.verifier_ok\s*!==\s*true/,
-  'failed verification must not become a visible result'
+  /sources\.includes\('yolo'\).*sources\.includes\('grounding_dino'\)/s,
+  'provisional person visibility must require detector consensus'
+);
+
+assert.match(
+  verifier,
+  /personConsensusDisplayMinConfidence/,
+  'provisional person visibility must require a configured confidence threshold'
 );
 
 assert.doesNotMatch(
@@ -101,7 +107,8 @@ console.log(JSON.stringify({
     'apps',
   ],
   test_assertion_text_allowed: true,
-  raw_person_candidates_visible: false,
-  failed_or_uncertain_verification_visible: false,
+  raw_yolo_only_person_candidates_visible: false,
+  consensus_person_candidates_visible: true,
+  failed_or_uncertain_nonconsensus_visible: false,
   live_services_started_by_test: false,
 }, null, 2));

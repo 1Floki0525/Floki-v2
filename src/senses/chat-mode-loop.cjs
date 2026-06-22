@@ -88,9 +88,25 @@ function firstTurnValue(turns, field) {
 }
 
 function turnPassesFullInvariant(turn) {
+  if (!turn || turn.ok !== true || turn.chat_mode_only !== true) {
+    return false;
+  }
+
+  if (turn.marker === 'FLOKI_V2_SPOKEN_REPLY_ONCE_NO_SPEECH') {
+    return turn.vad_audio_analysis_run_now === true;
+  }
+
+  if (turn.marker === 'FLOKI_V2_SPOKEN_REPLY_ONCE_IGNORED') {
+    return Boolean(
+      turn.whisper_transcription_run_now === true &&
+      turn.wake_gate_checked_now === true &&
+      turn.wake_routed_to_cognition === false &&
+      turn.qwen_cognition_run_now === false &&
+      turn.piper_speech_run_now === false
+    );
+  }
+
   return Boolean(
-    turn &&
-    turn.ok === true &&
     (turn.microphone_recorded_now === true || turn.microphone_capture_replay_used === true) &&
     turn.vad_audio_analysis_run_now === true &&
     turn.whisper_transcription_run_now === true &&
@@ -106,8 +122,7 @@ function turnPassesFullInvariant(turn) {
     turn.voice_output_lock_started === true &&
     turn.ears_muted_during_playback === true &&
     turn.voice_output_lock_cleared_after_playback === true &&
-    turn.ears_open_after_playback === true &&
-    turn.chat_mode_only === true
+    turn.ears_open_after_playback === true
   );
 }
 

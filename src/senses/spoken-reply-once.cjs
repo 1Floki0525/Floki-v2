@@ -77,7 +77,12 @@ function writeSpokenReplyReport(status, options = {}) {
 }
 
 function appendSpokenReplyTranscript(status, reportFile, options = {}) {
-  if (!status || status.ok !== true || options.write_transcript === false) return [];
+  if (
+    !status ||
+    status.ok !== true ||
+    status.wake_routed_to_cognition !== true ||
+    options.write_transcript === false
+  ) return [];
   const transcriptOptions = options.transcript_options || {};
   const written = [];
   const common = {
@@ -188,16 +193,26 @@ async function runSpokenReplyOnce(options = {}) {
   });
 
   if (!hearing || hearing.ok !== true) {
+    const noSpeech = Boolean(
+      hearing &&
+      hearing.vad &&
+      hearing.vad.speech_detected === false
+    );
     const status = Object.freeze({
-      ok: false,
-      marker: 'FLOKI_V2_SPOKEN_REPLY_ONCE_FAIL',
-      reason: 'hearing loop failed before cognition',
+      ok: noSpeech,
+      marker: noSpeech
+        ? 'FLOKI_V2_SPOKEN_REPLY_ONCE_NO_SPEECH'
+        : 'FLOKI_V2_SPOKEN_REPLY_ONCE_FAIL',
+      reason: noSpeech
+        ? 'no speech detected during this listening window'
+        : 'hearing loop failed before cognition',
       hearing,
       microphone_recorded_now: hearing ? hearing.microphone_recorded_now === true : false,
       microphone_capture_replay_used: hearing ? hearing.microphone_capture_replay_used === true : false,
       vad_audio_analysis_run_now: hearing ? hearing.vad_audio_analysis_run_now === true : false,
       whisper_transcription_run_now: hearing ? hearing.whisper_transcription_run_now === true : false,
       wake_gate_checked_now: false,
+      wake_routed_to_cognition: false,
       qwen_cognition_run_now: false,
       broca_enabled_now: false,
       piper_speech_run_now: false,
@@ -313,6 +328,56 @@ async function runSpokenReplyOnce(options = {}) {
       return settled.result;
     }
   });
+
+  if (
+    bridge &&
+    bridge.marker ===
+      'FLOKI_V2_WAKE_GATED_HEARING_TO_COGNITION_IGNORED'
+  ) {
+    const status = Object.freeze({
+      ok: true,
+      marker: 'FLOKI_V2_SPOKEN_REPLY_ONCE_IGNORED',
+      hearing_report_file: hearing.report_file || null,
+      bridge_report_file: bridge.report_file || null,
+      heard_text: bridge.heard_text || hearing.heard_text || '',
+      capture_file: hearing.capture && hearing.capture.output_file
+        ? hearing.capture.output_file
+        : null,
+      whisper_report_file: hearing.whisper && hearing.whisper.report_file
+        ? hearing.whisper.report_file
+        : null,
+      wake_request_text: '',
+      wake_gate_marker: bridge.wake_gate_marker || null,
+      wake_gate_open: bridge.wake_gate_open === true,
+      wake_routed_to_cognition: false,
+      microphone_recorded_now: hearing.microphone_recorded_now === true,
+      microphone_capture_replay_used:
+        hearing.microphone_capture_replay_used === true,
+      vad_audio_analysis_run_now:
+        hearing.vad_audio_analysis_run_now === true,
+      whisper_transcription_run_now:
+        hearing.whisper_transcription_run_now === true,
+      wake_gate_checked_now: true,
+      qwen_cognition_run_now: false,
+      broca_enabled_now: false,
+      piper_speech_run_now: false,
+      piper_wav_created_now: false,
+      speaker_playback_run_now: false,
+      voice_output_lock_started: false,
+      ears_muted_during_playback: false,
+      voice_output_lock_cleared_after_playback: false,
+      ears_open_after_playback: true,
+      chat_mode_only: true
+    });
+
+    return Object.freeze({
+      ...status,
+      report_file: writeSpokenReplyReport(status, options),
+      transcript_entries_written: 0,
+      private_thought_entries_written: 0
+    });
+  }
+
 
   const sleepInterruptionRecorder = options.sleep_interruption_recorder || recordWakeActivityIfSleeping;
   const sleepInterruption = bridge && bridge.wake_routed_to_cognition === true

@@ -9,7 +9,7 @@ import FlokiStateIndicator from './FlokiStateIndicator'
 import MessageComposer from './MessageComposer'
 import EmptyChat from './EmptyChat'
 
-export default function ChatPanel() {
+export default function ChatPanel({ flokiStatus }) {
   const [messages, setMessages] = useState([])
   const [flokiState, setFlokiState] = useState(FlokiState.IDLE)
   const [isResponding, setIsResponding] = useState(false)
@@ -22,6 +22,55 @@ export default function ChatPanel() {
   }, [])
 
   useEffect(() => { scrollToBottom('instant') }, [messages.length, scrollToBottom])
+
+
+  useEffect(() => {
+    let active = true
+
+    const syncSpokenTranscript = async () => {
+      try {
+        const transcript = await flokiAdapter.getTranscript(200)
+        if (!active || !Array.isArray(transcript)) return
+
+        const spoken = transcript.filter((entry) =>
+          entry && entry.type === MessageType.SPOKEN
+        )
+
+        if (spoken.length === 0) return
+
+        setMessages((previous) => {
+          const existing = new Set(previous.map((message) => message.id))
+          const additions = spoken
+            .filter((entry) => !existing.has(entry.id))
+            .map((entry) => createChatMessage({
+              id: entry.id,
+              role: entry.role,
+              content: entry.content,
+              type: MessageType.SPOKEN,
+              timestamp: entry.timestamp,
+              isStreaming: false,
+            }))
+
+          if (additions.length === 0) return previous
+
+          return [...previous, ...additions].sort(
+            (left, right) =>
+              Number(left.timestamp || 0) - Number(right.timestamp || 0)
+          )
+        })
+      } catch (error) {
+        console.error('spoken transcript sync failed', error)
+      }
+    }
+
+    syncSpokenTranscript()
+    const timer = setInterval(syncSpokenTranscript, 750)
+
+    return () => {
+      active = false
+      clearInterval(timer)
+    }
+  }, [])
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return
@@ -110,7 +159,7 @@ export default function ChatPanel() {
       </div>
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto relative">
         {messages.length === 0 ? (
-          <EmptyChat />
+          <EmptyChat flokiStatus={flokiStatus} />
         ) : (
           <div className="py-4">
             {messages.map((message) => (

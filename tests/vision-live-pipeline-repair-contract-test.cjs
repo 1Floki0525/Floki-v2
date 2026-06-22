@@ -81,6 +81,37 @@ assert.doesNotMatch(
   /unverified person candidate/
 );
 
+
+assert.match(
+  serviceSource,
+  /let\s+sceneInferenceUnlocked\s*=\s*true\s*;/,
+  'detector initialization must not block first VLM readiness'
+);
+
+assert.doesNotMatch(
+  serviceSource,
+  /sceneInferenceUnlocked\s*=\s*getDetectionConfig\(\)\.enabled\s*!==\s*true/,
+  'startup readiness must not depend on detector initialization'
+);
+
+assert.match(
+  serviceSource,
+  /if\s*\(\s*state\.first_vlm_observation_succeeded\s*!==\s*true\s*\)\s*return\s*;/,
+  'detector workers must wait for the first VLM scene observation'
+);
+
+assert.match(
+  serviceSource,
+  /state\.first_vlm_observation_succeeded\s*===\s*true\s*&&\s*inFlightInference/,
+  'person verification must not abort the first VLM scene observation'
+);
+
+assert.match(
+  serviceSource,
+  /maybeInfer\(latestFrame\);\s*maybeDetect\(latestFrame\);/,
+  'scene inference must be scheduled before detection'
+);
+
 console.log(JSON.stringify({
   ok: true,
   marker: 'FLOKI_VISION_LIVE_PIPELINE_REPAIR_CONTRACT_PASS',

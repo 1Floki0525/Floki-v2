@@ -254,7 +254,7 @@ async function handleTypedText(runtime, text, options = {}) {
   });
 
   trace.emit('request_accepted', { input_character_count: String(text || '').length });
-  appendChatTranscriptTurn({ role: 'user', text, input_modality: options.input_modality || 'text', output_modality: 'none', spoken_aloud: false, source: options.source || 'live_chat_interface' });
+  appendChatTranscriptTurn({ role: 'user', text: String(options.transcript_user_text || text), input_modality: options.input_modality || 'text', output_modality: 'none', spoken_aloud: false, source: options.source || 'live_chat_interface' });
 
   const cachedVision = options.chat_webcam_vision !== undefined
     ? options.chat_webcam_vision

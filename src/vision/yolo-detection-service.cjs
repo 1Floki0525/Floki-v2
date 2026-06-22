@@ -35,6 +35,34 @@ let yoloWorkerSpawnCount = 0;
 const YOLO_WORKER_TIMEOUT_MS = 30000;
 const YOLO_MAX_RESTARTS = 3;
 
+function settlePendingYoloFailure(marker, error, expectedFrameId = null) {
+  if (!yoloPendingResolve) return false;
+  if (
+    expectedFrameId !== null &&
+    yoloPendingFrameId !== expectedFrameId
+  ) {
+    return false;
+  }
+
+  const resolve = yoloPendingResolve;
+  yoloPendingResolve = null;
+  yoloPendingReject = null;
+  yoloPendingFrameId = null;
+
+  if (yoloPendingTimeout) {
+    clearTimeout(yoloPendingTimeout);
+    yoloPendingTimeout = null;
+  }
+
+  resolve({
+    ok: false,
+    marker,
+    error: String(error || marker)
+  });
+
+  return true;
+}
+
 /* Start persistent YOLO Python worker process */
 function startYoloDetectionWorker(options = {}) {
   if (yoloWorkerProcess && yoloWorkerReady) {
@@ -70,6 +98,30 @@ function startYoloDetectionWorker(options = {}) {
       }
     });
     yoloWorkerProcess = worker;
+
+    // Writable stream errors such as EPIPE are emitted asynchronously and are
+    // not caught by try/catch around stdin.write(). Handle them explicitly so
+    // detector shutdown or worker replacement cannot crash the webcam service.
+    if (worker.stdin) {
+      worker.stdin.on('error', (error) => {
+        if (
+          !yoloWorkerStopped &&
+          (!error || error.code !== 'EPIPE')
+        ) {
+          console.error(
+            '[YOLO-WORKER] stdin error: ' +
+            String(error && error.message ? error.message : error)
+          );
+        }
+
+        settlePendingYoloFailure(
+          'YOLO_STDIN_ERROR',
+          error && error.message
+            ? error.message
+            : 'YOLO worker stdin closed'
+        );
+      });
+    }
 
     worker.stdout.on('data', (chunk) => {
       yoloWorkerBuffer += chunk.toString();
@@ -114,11 +166,34 @@ function startYoloDetectionWorker(options = {}) {
 let yoloPingTimer = null;
 
 function pingYoloWorkerUntilReady() {
-  if (yoloWorkerReady || !yoloWorkerProcess || !yoloWorkerProcess.stdin || yoloWorkerStopped) return;
+  const worker = yoloWorkerProcess;
+  const stdin = worker && worker.stdin;
+
+  if (
+    yoloWorkerReady ||
+    !worker ||
+    !stdin ||
+    stdin.destroyed ||
+    stdin.writableEnded ||
+    stdin.writable !== true ||
+    yoloWorkerStopped
+  ) {
+    return;
+  }
+
   try {
-    yoloWorkerProcess.stdin.write(JSON.stringify({ type: 'ping' }) + '\n');
-  } catch (_) { /* ignore */ }
-  yoloPingTimer = setTimeout(pingYoloWorkerUntilReady, 500);
+    stdin.write(
+      JSON.stringify({ type: 'ping' }) + '\n',
+      () => {}
+    );
+  } catch (_) {
+    // The stdin error listener handles asynchronous stream failures.
+  }
+
+  yoloPingTimer = setTimeout(
+    pingYoloWorkerUntilReady,
+    500
+  );
 }
 
 function stopYoloDetectionWorker() {
@@ -258,8 +333,21 @@ async function runYoloDetectionOnFrame(framePath, options = {}) {
   const frameId = `frame_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
   const config = getDetectionConfig();
 
-  if (!yoloWorkerProcess || !yoloWorkerProcess.stdin) {
-    return { ok: false, marker: 'YOLO_WORKER_NOT_AVAILABLE', error: 'Worker process not available' };
+  const worker = yoloWorkerProcess;
+  const stdin = worker && worker.stdin;
+
+  if (
+    !worker ||
+    !stdin ||
+    stdin.destroyed ||
+    stdin.writableEnded ||
+    stdin.writable !== true
+  ) {
+    return {
+      ok: false,
+      marker: 'YOLO_WORKER_NOT_AVAILABLE',
+      error: 'Worker process stdin is not writable'
+    };
   }
 
   return new Promise((resolve, reject) => {
@@ -293,14 +381,22 @@ async function runYoloDetectionOnFrame(framePath, options = {}) {
       confidence: Math.min(config.confidenceThreshold, config.personCandidateConfidenceThreshold)
     });
 
+    const handleWriteFailure = (error) => {
+      settlePendingYoloFailure(
+        'YOLO_STDIN_WRITE_FAIL',
+        error && error.message
+          ? error.message
+          : 'YOLO worker stdin write failed',
+        frameId
+      );
+    };
+
     try {
-      yoloWorkerProcess.stdin.write(cmd + '\n');
-    } catch (err) {
-      if (yoloPendingTimeout) { clearTimeout(yoloPendingTimeout); yoloPendingTimeout = null; }
-      yoloPendingResolve = null;
-      yoloPendingReject = null;
-      yoloPendingFrameId = null;
-      resolve({ ok: false, marker: 'YOLO_STDIN_WRITE_FAIL', error: err.message });
+      stdin.write(cmd + '\n', (error) => {
+        if (error) handleWriteFailure(error);
+      });
+    } catch (error) {
+      handleWriteFailure(error);
     }
   });
 }

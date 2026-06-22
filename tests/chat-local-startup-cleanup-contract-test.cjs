@@ -21,6 +21,21 @@ const cleanup = fs.readFileSync(
   path.join(root, 'bin/floki-chat-local-cleanup.sh'),
   'utf8'
 );
+const localStart = fs.readFileSync(
+  path.join(root, 'bin/floki-chat-local-start.sh'),
+  'utf8'
+);
+const electronMain = fs.readFileSync(
+  path.join(
+    root,
+    'apps/floki-neural-interface/electron/main.cjs'
+  ),
+  'utf8'
+);
+const yoloService = fs.readFileSync(
+  path.join(root, 'src/vision/yolo-detection-service.cjs'),
+  'utf8'
+);
 
 assert.match(service, /const READY_TIMEOUT_MS = 30000;/);
 assert.match(service, /grounding-dino-worker\.py/);
@@ -55,6 +70,33 @@ assert.match(cleanup, /grounding-dino-worker\.py/);
 assert.match(cleanup, /yolo-worker\.py/);
 assert.match(cleanup, /sleep-cycle-scheduler\.cjs --service/);
 assert.match(cleanup, /apps\/floki-neural-interface\/node_modules\/\.bin\/electron/);
+
+assert.match(mainStart, /startup_stage "1\/7"/);
+assert.match(mainStart, /startup_stage "2\/7"/);
+assert.match(mainStart, /preflight_core_brain/);
+assert.match(mainStart, /src\/brain\/core-brain-status\.cjs chat/);
+assert.match(mainStart, /startup_stage "4\/7"/);
+assert.match(localStart, /\[FLOKI STARTUP 6\/7\]/);
+assert.match(localStart, /\[FLOKI STARTUP 7\/7\]/);
+
+const ensureRuntimeIndex = electronMain.indexOf('ensureRuntime();');
+const createWindowIndex = electronMain.indexOf('createWindow();');
+assert.ok(ensureRuntimeIndex >= 0, 'Electron must initialize the core brain runtime');
+assert.ok(createWindowIndex > ensureRuntimeIndex, 'core brain runtime must initialize before the window opens');
+
+assert.match(yoloService, /worker\.stdin\.on\('error'/);
+assert.match(yoloService, /error\.code\s*!==\s*'EPIPE'/);
+assert.match(yoloService, /stdin\.destroyed/);
+assert.match(yoloService, /stdin\.writableEnded/);
+assert.match(yoloService, /settlePendingYoloFailure/);
+
+assert.match(mainStart, /startup_stage "5\/7"/);
+assert.match(mainStart, /start_chat_hearing/);
+assert.match(mainStart, /bin\/floki-chat-start\.sh/);
+assert.match(cleanup, /bin\/floki-chat-stop\.sh/);
+assert.match(cleanup, /chat-mode-loop\.pid/);
+assert.match(cleanup, /src\/senses\/chat-mode-loop\.cjs/);
+
 
 const statusReadyForChat = Function(
   '"use strict"; return (' + readyFunction[0] + ');'

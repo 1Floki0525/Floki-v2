@@ -2,67 +2,42 @@
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME_DIR="$PROJECT_DIR/state/floki/chat/runtime"
-PID_FILE="$RUNTIME_DIR/chat-mode-loop.pid"
-STOP_FILE="$RUNTIME_DIR/chat-mode-loop.stop"
+PID_FILE="$RUNTIME_DIR/chat-local-runtime.pid"
+COMPAT_PID_FILE="$RUNTIME_DIR/chat-mode-loop.pid"
 
-runner_active() {
+runtime_active() {
   CHECK_PID="$1"
-
-  if [ -z "$CHECK_PID" ]; then
-    return 1
-  fi
-
-  if ! kill -0 "$CHECK_PID" >/dev/null 2>&1; then
-    return 1
-  fi
-
+  [ -n "$CHECK_PID" ] || return 1
+  kill -0 "$CHECK_PID" >/dev/null 2>&1 || return 1
   if [ -r "/proc/$CHECK_PID/cmdline" ]; then
     CMDLINE="$(tr '\000' ' ' < "/proc/$CHECK_PID/cmdline")"
-    case "$CMDLINE" in
-      *floki-chat-start.sh*"--runner"*)
-        return 0
-        ;;
-      *)
-        return 1
-        ;;
-    esac
+    case "$CMDLINE" in *src/runtime/chat-local-runtime.cjs*) return 0 ;; *) return 1 ;; esac
   fi
-
   return 1
 }
 
 mkdir -p "$RUNTIME_DIR"
-
 if [ "${FLOKI_CHAT_SCRIPT_DRY_RUN:-0}" = "1" ]; then
   echo "{\"ok\":true,\"marker\":\"FLOKI_V2_CHAT_STOP_SCRIPT_PASS\",\"dry_run\":true,\"pid_file\":\"$PID_FILE\",\"chat_mode_only\":true}"
   exit 0
 fi
 
 PID=""
-if [ -f "$PID_FILE" ]; then
-  PID="$(cat "$PID_FILE" 2>/dev/null)"
-fi
-
-if ! runner_active "$PID"; then
-  rm -f "$PID_FILE"
-  echo "{\"ok\":true,\"marker\":\"FLOKI_V2_CHAT_STOP_SCRIPT_PASS\",\"already_stopped\":true,\"pid_file\":\"$PID_FILE\",\"chat_mode_only\":true}"
+[ -f "$PID_FILE" ] && PID="$(cat "$PID_FILE" 2>/dev/null)"
+if ! runtime_active "$PID"; then
+  rm -f "$PID_FILE" "$COMPAT_PID_FILE"
+  echo "{\"ok\":true,\"marker\":\"FLOKI_V2_CHAT_STOP_SCRIPT_PASS\",\"already_stopped\":true,\"chat_mode_only\":true}"
   exit 0
 fi
 
-touch "$STOP_FILE"
-kill "$PID" >/dev/null 2>&1
-
+kill -TERM "$PID" >/dev/null 2>&1 || true
 COUNT=0
-while runner_active "$PID" && [ "$COUNT" -lt 20 ]; do
+while runtime_active "$PID" && [ "$COUNT" -lt 80 ]; do
   sleep 0.25
   COUNT=$((COUNT + 1))
 done
-
-if runner_active "$PID"; then
-  kill -TERM "$PID" >/dev/null 2>&1
+if runtime_active "$PID"; then
+  kill -KILL "$PID" >/dev/null 2>&1 || true
 fi
-
-rm -f "$PID_FILE"
-
-echo "{\"ok\":true,\"marker\":\"FLOKI_V2_CHAT_STOP_SCRIPT_PASS\",\"stopped\":true,\"pid\":$PID,\"pid_file\":\"$PID_FILE\",\"chat_mode_only\":true}"
-exit 0
+rm -f "$PID_FILE" "$COMPAT_PID_FILE"
+echo "{\"ok\":true,\"marker\":\"FLOKI_V2_CHAT_STOP_SCRIPT_PASS\",\"stopped\":true,\"pid\":$PID,\"chat_mode_only\":true}"

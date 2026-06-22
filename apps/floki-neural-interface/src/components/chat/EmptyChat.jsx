@@ -1,7 +1,15 @@
 import React from 'react';
-import { Bot, Zap, Eye, Brain, Ear } from 'lucide-react';
+import { Bot, Zap, Eye, Brain, Ear, Volume2 } from 'lucide-react';
 
-export default function EmptyChat() {
+export default function EmptyChat({ flokiStatus = {} }) {
+  const items = [
+    { icon: Brain, label: 'Cognition', ready: flokiStatus.connected === true },
+    { icon: Eye, label: 'Vision', ready: flokiStatus.visionActive === true },
+    { icon: Ear, label: 'Hearing', ready: flokiStatus.hearingActive === true },
+    { icon: Volume2, label: 'Speech', ready: flokiStatus.speechActive === true },
+    { icon: Zap, label: 'Memory', ready: flokiStatus.memoryLoaded === true },
+  ];
+
   return (
     <div className="flex-1 flex items-center justify-center p-8">
       <div className="text-center max-w-md">
@@ -10,18 +18,15 @@ export default function EmptyChat() {
         </div>
         <h2 className="text-lg font-semibold text-foreground mb-2">Floki Neural Interface</h2>
         <p className="text-sm text-muted-foreground mb-8">
-          Start a conversation with Floki. Type a message or use voice input.
+          Start a conversation with Floki. Type a message or speak to him while hearing is online.
         </p>
         <div className="grid grid-cols-2 gap-3">
-          {[
-            { icon: Brain, label: 'Cognition Active' },
-            { icon: Eye, label: 'Vision Online' },
-            { icon: Ear, label: 'Hearing Ready' },
-            { icon: Zap, label: 'Memory Loaded' },
-          ].map(item => (
+          {items.map((item) => (
             <div key={item.label} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30 border border-border/30">
-              <item.icon className="w-3.5 h-3.5 text-neon-cyan/60" />
-              <span className="text-xs text-muted-foreground">{item.label}</span>
+              <item.icon className={item.ready ? 'w-3.5 h-3.5 text-neon-cyan/80' : 'w-3.5 h-3.5 text-muted-foreground/40'} />
+              <span className="text-xs text-muted-foreground">
+                {item.label}: {item.ready ? 'Ready' : 'Offline'}
+              </span>
             </div>
           ))}
         </div>

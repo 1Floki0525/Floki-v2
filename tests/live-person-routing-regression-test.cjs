@@ -126,13 +126,25 @@ assert.equal(
 );
 
 const rawPersonDisposition =
-  verifier.classifyVerifiedDetectionForDisplay(
-    detections[0]
-  );
+  verifier.classifyVerifiedDetectionForDisplay({
+    ...detections[0],
+    proposal_sources: ['yolo']
+  });
 
 assert.equal(
   rawPersonDisposition.bucket,
   'suppressed'
+);
+
+const consensusPersonDisposition =
+  verifier.classifyVerifiedDetectionForDisplay({
+    ...detections[0],
+    proposal_sources: ['yolo', 'grounding_dino']
+  });
+
+assert.equal(
+  consensusPersonDisposition.bucket,
+  'persons'
 );
 
 const dinoOnlyWallObject = {
@@ -155,7 +167,7 @@ assert.equal(
   verifier.classifyVerifiedDetectionForDisplay(
     dinoOnlyWallObject
   ).bucket,
-  'suppressed'
+  'objects'
 );
 
 const yoloChair = {
@@ -247,7 +259,8 @@ console.log(JSON.stringify({
   real_person_groups_selected: 2,
   wife_duplicate_proposals_grouped: true,
   small_wall_person_proposals_selected: false,
-  dino_only_wall_objects_visible: false,
+  dino_only_wall_objects_visible: true,
+  consensus_person_visible_while_verifier_recovers: true,
   raw_person_fallback_visible: false,
   verified_person_track_cache: true,
   live_services_started: false

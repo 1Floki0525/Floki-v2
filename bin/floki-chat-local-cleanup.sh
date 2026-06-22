@@ -4,6 +4,9 @@ ROOT="/media/binary-god/1tb-ssd/Floki-v2"
 
 cd "$ROOT" || exit 1
 
+
+timeout 20s bash bin/floki-chat-stop.sh >/dev/null 2>&1 || true
+
 timeout 20s bash bin/floki-chat-vision-stop.sh >/dev/null 2>&1 || true
 timeout 20s bash bin/floki-sleep-scheduler-stop.sh >/dev/null 2>&1 || true
 
@@ -20,7 +23,14 @@ needles = (
     f"{root}/.floki-tools/yolo-config/yolo-worker.py",
     f"{root}/.floki-tools/grounding-dino/grounding-dino-worker.py",
     f"{root}/src/chat/sleep-cycle-scheduler.cjs --service",
+    f"{root}/src/runtime/chat-local-runtime.cjs",
+    f"{root}/src/senses/silero-vad-worker.py",
+    f"{root}/.floki-tools/repos/whisper.cpp/build/bin/whisper-cli",
+    f"{root}/.floki-tools/repos/whisper.cpp/build/bin/whisper-server",
+    f"{root}/.floki-tools/venv-chat-embodiment/bin/piper",
     f"{root}/apps/floki-neural-interface/node_modules/.bin/electron",
+    "arecord -q",
+    "aplay ",
 )
 
 processes = {}
@@ -88,6 +98,10 @@ STATUS="$?"
 rm -f \
   state/floki/chat/runtime/chat-webcam-vision.pid \
   state/floki/chat/runtime/sleep-cycle-scheduler.pid \
+  state/floki/chat/runtime/chat-local-runtime.pid \
+  state/floki/chat/runtime/chat-mode-loop.pid \
+  state/floki/chat/runtime/chat-mode-loop.stop \
+  state/floki/chat/runtime/chat-webcam-vision.refresh-request.json \
   state/floki/chat/runtime/chat-vision-ssh-tunnel.sock
 
 exit "$STATUS"

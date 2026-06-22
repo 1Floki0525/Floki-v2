@@ -23,7 +23,8 @@ const CHAT_MODE_LIVING_CONTRACT = Object.freeze({
   wake_gate: Object.freeze({
     required_phrase: 'hey floki',
     accepted_phrases: Object.freeze([
-      'hey floki'
+      'hey floki',
+      'floki'
     ]),
     spoken_input_requires_wake_phrase: true,
     typed_input_requires_wake_phrase: true,

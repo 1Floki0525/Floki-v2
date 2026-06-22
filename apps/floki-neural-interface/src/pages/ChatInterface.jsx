@@ -5,12 +5,12 @@ import ObservationCard from '@/components/vision/ObservationCard';
 import EmotionGraph from '@/components/emotions/EmotionGraph';
 import SleepStatus from '@/components/sleep/SleepStatus';
 
-export default function ChatInterface() {
+export default function ChatInterface({ flokiStatus }) {
   return (
     <div className="flex h-full overflow-hidden">
       {/* Left — Chat (60%) */}
       <div className="flex-[3] min-w-0 border-r border-border/30">
-        <ChatPanel />
+        <ChatPanel flokiStatus={flokiStatus} />
       </div>
 
       {/* Right — Live View (40%) */}

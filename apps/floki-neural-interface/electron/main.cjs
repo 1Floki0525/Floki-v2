@@ -20,33 +20,112 @@ const APP_ROOT = path.resolve(__dirname, '..');
 const PROJECT_ROOT = path.resolve(APP_ROOT, '..', '..');
 const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
 
-const { createRuntime } = require(path.join(PROJECT_ROOT, 'src/chat/floki-chat.cjs'));
-const { handleTypedText } = require(path.join(PROJECT_ROOT, 'src/chat/floki-live-chat-interface.cjs'));
 const { readChatTranscriptTail } = require(path.join(PROJECT_ROOT, 'src/chat/chat-transcript.cjs'));
 const { buildFlokiLifecycleStatus } = require(path.join(PROJECT_ROOT, 'src/chat/floki-lifecycle-status.cjs'));
 const { readChatWebcamVisionStatus, readLatestPrivateObservation, runtimePaths } = require(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'));
 const { buildVisionStatus } = require(path.join(PROJECT_ROOT, 'src/vision/vision-status.cjs'));
 const { loadAffectState } = require(path.join(PROJECT_ROOT, 'brain/emotions_base/index.cjs'));
-const { getModelConfig, getPathConfig, getVisionConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
+const { getModelConfig, getPathConfig, getVisionConfig, getLiveChatConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
 const { getDetectionConfig, readLatestDetection } = require(path.join(PROJECT_ROOT, 'src/vision/yolo-detection-service.cjs'));
 const { classifyVerifiedDetectionForDisplay } = require(path.join(PROJECT_ROOT, 'src/vision/person-presence-verifier.cjs'));
-const { stopScheduler: stopSchedulerDirect } = require(path.join(PROJECT_ROOT, 'src/chat/sleep-cycle-scheduler.cjs'));
-const { stopChatWebcamVisionService: stopWebcamDirect } = require(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'));
 
 let mainWindow = null;
-let runtime = null;
-let activeAbortController = null;
+let requestInFlight = false;
 let lastRecordedAffectSignature = '';
 const startedAt = Date.now();
 const AFFECT_HISTORY_MAX = 360;
+const VISION_TRACK_TTL_MS = 2500;
+const visionDisplayTracks = {
+  objects: [],
+  persons: [],
+};
 
-/* Cleanup function to stop all backend processes */
-function cleanupProcesses() {
-  try { stopWebcamDirect({ runtime_dir: path.join(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root) }); } catch (e) {
-    console.error('webcam vision cleanup failed:', e.message);
+function detectionBox(detection) {
+  const box = detection && detection.bbox || {};
+  return {
+    x: Number(box.x || 0),
+    y: Number(box.y || 0),
+    width: Number(box.width || 0),
+    height: Number(box.height || 0),
+  };
+}
+
+function detectionIou(leftDetection, rightDetection) {
+  const left = detectionBox(leftDetection);
+  const right = detectionBox(rightDetection);
+  const leftRight = left.x + left.width;
+  const leftBottom = left.y + left.height;
+  const rightRight = right.x + right.width;
+  const rightBottom = right.y + right.height;
+  const width = Math.max(
+    0,
+    Math.min(leftRight, rightRight) -
+      Math.max(left.x, right.x)
+  );
+  const height = Math.max(
+    0,
+    Math.min(leftBottom, rightBottom) -
+      Math.max(left.y, right.y)
+  );
+  const intersection = width * height;
+  const union =
+    left.width * left.height +
+    right.width * right.height -
+    intersection;
+  return union > 0 ? intersection / union : 0;
+}
+
+function retainVisionDetections(kind, detections, now = Date.now()) {
+  const tracks = visionDisplayTracks[kind];
+  const incoming = Array.isArray(detections) ? detections : [];
+
+  for (const detection of incoming) {
+    const label = String(
+      detection.label || detection.class || detection.name || kind
+    ).toLowerCase();
+    let bestTrack = null;
+    let bestIou = 0;
+
+    for (const track of tracks) {
+      if (track.label !== label) continue;
+      const overlap = detectionIou(track.detection, detection);
+      if (overlap > bestIou) {
+        bestIou = overlap;
+        bestTrack = track;
+      }
+    }
+
+    if (bestTrack && bestIou >= 0.20) {
+      bestTrack.detection = detection;
+      bestTrack.lastSeenAt = now;
+    } else {
+      tracks.push({
+        label,
+        detection,
+        lastSeenAt: now,
+      });
+    }
   }
-  try { stopSchedulerDirect({ runtime_dir: path.join(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root) }); } catch (e) {
-    console.error('scheduler cleanup failed:', e.message);
+
+  for (let index = tracks.length - 1; index >= 0; index -= 1) {
+    if (now - tracks[index].lastSeenAt > VISION_TRACK_TTL_MS) {
+      tracks.splice(index, 1);
+    }
+  }
+
+  return tracks.map((track) => track.detection);
+}
+
+/* Electron is only a client. The launcher owns backend shutdown. */
+function cleanupProcesses() {
+  for (const response of mjpegClients) {
+    try { response.end(); } catch (_error) { /* ignore */ }
+  }
+  mjpegClients.clear();
+  if (mjpegServer) {
+    try { mjpegServer.close(); } catch (_error) { /* ignore */ }
+    mjpegServer = null;
+    mjpegPort = 0;
   }
 }
 
@@ -146,9 +225,35 @@ function startMjpegServer(frameFile) {
   });
 }
 
-function ensureRuntime() {
-  if (!runtime) runtime = createRuntime();
-  return runtime;
+const runtimeConfig = getLiveChatConfig('chat');
+const RUNTIME_URL = 'http://' + runtimeConfig.runtime_host + ':' + String(runtimeConfig.runtime_port);
+
+async function runtimeRequest(method, pathname, body = null) {
+  const response = await fetch(RUNTIME_URL + pathname, {
+    method,
+    headers: body === null ? undefined : { 'content-type': 'application/json' },
+    body: body === null ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(130000),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `runtime HTTP ${response.status}`);
+  return payload;
+}
+
+function runtimeStatusFile() {
+  const runtimeRoot = path.resolve(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root);
+  return path.join(runtimeRoot, 'chat-local-runtime.status.json');
+}
+
+function readRuntimeStatus() {
+  return safeJson(runtimeStatusFile(), {
+    ok: false,
+    ready: false,
+    state: 'offline',
+    brain_loaded: false,
+    memory_loaded: false,
+    hearing: {},
+  });
 }
 
 function safeJson(file, fallback = null) {
@@ -237,9 +342,9 @@ function sleepStatus() {
     remActive: status.state === 'rem' || status.current_rem_cycle_number != null,
     currentRemCycle: Number(status.current_rem_cycle_number || 0),
     dreaming: status.state === 'dreaming' || status.state === 'rem',
-    thinking: activeAbortController !== null,
-    speaking: false,
-    listening: true,
+    thinking: readRuntimeStatus().active_turn === true,
+    speaking: readRuntimeStatus().hearing?.speaking === true,
+    listening: readRuntimeStatus().hearing?.service_state === 'listening',
     externalEyesActive: readChatWebcamVisionStatus().ready_for_chat === true,
     currentMode: 'Chat Local',
     lastInteraction: Date.now(),
@@ -253,8 +358,8 @@ function visionFrame() {
   const observation = readLatestPrivateObservation();
   const runtimeDir = path.resolve(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root);
 
-  const objects = [];
-  const persons = [];
+  const currentObjects = [];
+  const currentPersons = [];
   const faces = [];
   const latestDetection = readLatestDetection({ runtime_dir: runtimeDir });
   const rawDetections = latestDetection.available === true && latestDetection.fresh === true && latestDetection.detection
@@ -262,9 +367,22 @@ function visionFrame() {
     : [];
   for (const detection of rawDetections) {
     const disposition = classifyVerifiedDetectionForDisplay(detection);
-    if (disposition.bucket === 'persons') persons.push(disposition.detection);
-    if (disposition.bucket === 'objects') objects.push(disposition.detection);
+    if (disposition.bucket === 'persons') {
+      currentPersons.push(disposition.detection);
+    }
+    if (disposition.bucket === 'objects') {
+      currentObjects.push(disposition.detection);
+    }
   }
+
+  const objects = retainVisionDetections(
+    'objects',
+    currentObjects
+  );
+  const persons = retainVisionDetections(
+    'persons',
+    currentPersons
+  );
 
   const sceneAvailable = Boolean(
     observation &&
@@ -348,10 +466,11 @@ function serviceStatus() {
 
   const schedulerPidFile = path.join(runtimeRoot, 'sleep-cycle-scheduler.pid');
   const visionPidFile = path.join(runtimeRoot, 'chat-webcam-vision.pid');
-  const hearingPidFile = path.join(runtimeRoot, 'chat-mode-loop.pid');
+  const hearingPidFile = path.join(runtimeRoot, 'chat-local-runtime.pid');
   const schedulerHeartbeat = path.join(runtimeRoot, 'sleep-cycle-scheduler.heartbeat.json');
   const visionHeartbeat = path.join(runtimeRoot, 'chat-webcam-vision.heartbeat.json');
-  const hearingLog = path.join(runtimeRoot, 'chat-mode-loop.log');
+  const hearingLog = path.join(runtimeRoot, 'chat-local-runtime.log');
+  const runtimeStatus = readRuntimeStatus();
 
   const schedulerPid = readPidFile(schedulerPidFile);
   const visionPid = readPidFile(visionPidFile);
@@ -359,7 +478,7 @@ function serviceStatus() {
   const schedulerRunning = processAlive(schedulerPid);
   const visionRunning = processAlive(visionPid);
   const hearingRunning = processAlive(hearingPid);
-  const coreRunning = Boolean(runtime) || schedulerRunning || visionRunning || hearingRunning;
+  const coreRunning = hearingRunning && runtimeStatus.brain_loaded === true;
 
   let emotionHealthy = false;
   try {
@@ -368,7 +487,7 @@ function serviceStatus() {
     emotionHealthy = false;
   }
 
-  const memoryHealthy = fs.existsSync(stateRoot);
+  const memoryHealthy = runtimeStatus.memory_loaded === true && fs.existsSync(stateRoot);
   const nativeBridgeRunning = Boolean(mainWindow && !mainWindow.isDestroyed());
   const visionError = webcam.last_fatal_error || webcam.last_yolo_error || webcam.last_vlm_error || null;
   const visionStatus = webcam.ready_for_chat === true
@@ -381,10 +500,10 @@ function serviceStatus() {
       name: 'Floki Core',
       status: coreRunning ? 'Running' : 'Stopped',
       lastHeartbeat: Math.max(safeFileTime(hearingLog), safeFileTime(visionHeartbeat), safeFileTime(schedulerHeartbeat)),
-      uptime: runtime ? now - startedAt : Math.max(uptimeFromFile(hearingPidFile), uptimeFromFile(visionPidFile), uptimeFromFile(schedulerPidFile)),
+      uptime: hearingRunning ? Number(runtimeStatus.uptime_ms || uptimeFromFile(hearingPidFile)) : 0,
       latency: 0,
       lastError: null,
-      detail: runtime ? 'Core brain runtime instantiated in chat.local.' : 'Core brain loads on demand; background chat services remain independently visible.',
+      detail: coreRunning ? 'One backend-owned core brain serves typed and spoken chat.' : 'The authoritative chat.local brain runtime is offline.',
       restartAvailable: true,
       logAvailable: true,
       controlAction: 'restartChat',
@@ -392,12 +511,12 @@ function serviceStatus() {
     },
     {
       name: 'Cognition',
-      status: runtime ? 'Running' : (coreRunning ? 'Degraded' : 'Stopped'),
+      status: coreRunning ? 'Running' : 'Stopped',
       lastHeartbeat: now,
-      uptime: runtime ? now - startedAt : 0,
+      uptime: coreRunning ? Number(runtimeStatus.uptime_ms || 0) : 0,
       latency: 0,
       lastError: null,
-      detail: runtime ? `Configured model: ${getModelConfig('chat').cognition.model}` : `Configured model: ${getModelConfig('chat').cognition.model}; runtime has not handled a turn yet.`,
+      detail: coreRunning ? `Configured model: ${getModelConfig('chat').cognition.model}; shared runtime session ${runtimeStatus.session_id || 'unknown'}.` : `Configured model: ${getModelConfig('chat').cognition.model}; runtime offline.`,
       restartAvailable: true,
       logAvailable: true,
       controlAction: 'restartChat',
@@ -418,12 +537,12 @@ function serviceStatus() {
     },
     {
       name: 'Hearing',
-      status: hearingRunning ? 'Running' : 'Stopped',
-      lastHeartbeat: safeFileTime(hearingLog),
+      status: runtimeStatus.hearing?.microphone_open && runtimeStatus.hearing?.vad_ready && runtimeStatus.hearing?.whisper_ready ? 'Running' : (hearingRunning ? 'Degraded' : 'Stopped'),
+      lastHeartbeat: Date.parse(runtimeStatus.hearing?.last_heartbeat_at || '') || safeFileTime(hearingLog),
       uptime: uptimeFromFile(hearingPidFile),
       latency: 0,
-      lastError: null,
-      detail: hearingRunning ? 'Microphone/VAD/Whisper loop process is active.' : 'The spoken input loop is not active.',
+      lastError: runtimeStatus.hearing?.last_error || null,
+      detail: runtimeStatus.hearing?.microphone_open ? `Continuous microphone open · Silero ${runtimeStatus.hearing?.vad_ready ? 'ready' : 'not ready'} · Whisper ${runtimeStatus.hearing?.whisper_ready ? 'ready' : 'not ready'}.` : 'Continuous hearing is not active.',
       restartAvailable: true,
       logAvailable: true,
       controlAction: 'restartHearing',
@@ -431,12 +550,12 @@ function serviceStatus() {
     },
     {
       name: 'Speech',
-      status: hearingRunning ? 'Running' : 'Stopped',
-      lastHeartbeat: safeFileTime(hearingLog),
+      status: runtimeStatus.hearing?.piper_ready && runtimeStatus.hearing?.playback_ready ? 'Running' : (hearingRunning ? 'Degraded' : 'Stopped'),
+      lastHeartbeat: Date.parse(runtimeStatus.hearing?.last_heartbeat_at || '') || safeFileTime(hearingLog),
       uptime: uptimeFromFile(hearingPidFile),
       latency: 0,
-      lastError: null,
-      detail: hearingRunning ? 'Broca/Piper speech path is available through the chat loop.' : 'Speech loop is not active.',
+      lastError: runtimeStatus.hearing?.last_error || null,
+      detail: runtimeStatus.hearing?.piper_ready ? `Piper ready · playback ${runtimeStatus.hearing?.playback_ready ? 'ready' : 'unavailable'} · speaking ${runtimeStatus.hearing?.speaking === true}.` : 'Speech service is not ready.',
       restartAvailable: true,
       logAvailable: true,
       controlAction: 'restartSpeech',
@@ -496,12 +615,12 @@ function serviceStatus() {
     },
     {
       name: 'Local API',
-      status: nativeBridgeRunning ? 'Running' : 'Stopped',
+      status: runtimeStatus.api_ready === true ? 'Running' : 'Stopped',
       lastHeartbeat: now,
       uptime: now - startedAt,
       latency: 0,
       lastError: null,
-      detail: 'Native context-isolated Electron IPC is active; no fake HTTP API process is claimed.',
+      detail: runtimeStatus.api_ready === true ? `Authoritative local runtime API active at ${RUNTIME_URL}.` : 'Authoritative local runtime API is offline.',
       restartAvailable: false,
       logAvailable: true,
       controlAction: null,
@@ -623,18 +742,36 @@ function runScript(script, args = []) {
 function registerIpc() {
   ipcMain.handle('floki:get-initial-status', async () => {
     const webcamStatus = readChatWebcamVisionStatus();
-    const vision = buildVisionStatus({ active_mode: 'chat', webcam_status: webcamStatus });
+    const vision = buildVisionStatus({
+      active_mode: 'chat',
+      webcam_status: webcamStatus
+    });
     const life = sleepStatus();
+    const pathConfig = getPathConfig('chat');
+    const runtimeRoot = path.resolve(
+      PROJECT_ROOT,
+      pathConfig.chat_runtime_root
+    );
+    const runtimeStatus = readRuntimeStatus();
+    const hearingActive = Boolean(
+      runtimeStatus.hearing?.microphone_open === true &&
+      runtimeStatus.hearing?.vad_ready === true &&
+      runtimeStatus.hearing?.whisper_ready === true
+    );
+
     return {
-      connected: true,
-      state: activeAbortController ? 'Thinking' : life.state,
+      connected: runtimeStatus.api_ready === true,
+      state: runtimeStatus.state || life.state,
       mode: 'chat.local',
-      cognitionModel: getModelConfig('chat').cognition.model,
-      online: true,
+      cognitionModel: runtimeStatus.cognition_model || getModelConfig('chat').cognition.model,
+      online: runtimeStatus.ready === true,
       visionActive: webcamStatus.ready_for_chat === true,
-      hearingActive: true,
+      hearingActive,
+      memoryLoaded: runtimeStatus.memory_loaded === true,
+      speechActive: runtimeStatus.hearing?.piper_ready === true && runtimeStatus.hearing?.playback_ready === true,
       sleepState: life.state,
       vision,
+      runtime: runtimeStatus,
     };
   });
   ipcMain.handle('floki:get-system-status', async () => serviceStatus());
@@ -642,16 +779,10 @@ function registerIpc() {
   ipcMain.handle('floki:send-message', async (_event, payload = {}) => {
     const text = String(payload.text || '').trim();
     if (!text) throw new Error('message text is required');
-    if (activeAbortController) throw new Error('Floki is already responding');
-    activeAbortController = new AbortController();
+    if (requestInFlight) throw new Error('Floki is already responding');
+    requestInFlight = true;
     try {
-      const result = await handleTypedText(ensureRuntime(), text, {
-        signal: activeAbortController.signal,
-        source: 'chat.local',
-        output_modality: 'text',
-        spoken_aloud: false,
-        print_public_text: false,
-      });
+      const result = await runtimeRequest('POST', '/chat', { text });
       return {
         ok: result.ok,
         reply: result.reply || null,
@@ -660,10 +791,10 @@ function registerIpc() {
         marker: result.marker,
       };
     } finally {
-      activeAbortController = null;
+      requestInFlight = false;
     }
   });
-  ipcMain.handle('floki:interrupt', async () => { if (activeAbortController) activeAbortController.abort(); return { ok: true }; });
+  ipcMain.handle('floki:interrupt', async () => runtimeRequest('POST', '/interrupt', {}));
   ipcMain.handle('floki:get-vision-frame', async () => visionFrame());
   ipcMain.handle('floki:get-latest-frame', async () => getLatestFrameBase64());
   ipcMain.handle('floki:get-mjpeg-diag', async () => getMjpegDiag());
@@ -689,14 +820,14 @@ function registerIpc() {
       'Vision': path.join(runtimeRoot, 'chat-webcam-vision.log'),
       'Chat Vision': path.join(runtimeRoot, 'chat-webcam-vision.log'),
       'Webcam Eyes': path.join(runtimeRoot, 'chat-webcam-vision.log'),
-      'Hearing': path.join(runtimeRoot, 'chat-mode-loop.log'),
-      'Speech': path.join(runtimeRoot, 'chat-mode-loop.log'),
-      'Speech Listener': path.join(runtimeRoot, 'chat-mode-loop.log'),
+      'Hearing': path.join(runtimeRoot, 'chat-local-runtime.log'),
+      'Speech': path.join(runtimeRoot, 'chat-local-runtime.log'),
+      'Speech Listener': path.join(runtimeRoot, 'chat-local-runtime.log'),
       'Memory': diagnostics,
       'Emotion': diagnostics,
       'Sleep Scheduler': path.join(runtimeRoot, 'sleep-cycle-scheduler.log'),
       'Dream Engine': path.join(runtimeRoot, 'sleep-cycle-scheduler.log'),
-      'Local API': diagnostics,
+      'Local API': path.join(runtimeRoot, 'chat-local-runtime.log'),
       'WebSocket Connection': diagnostics,
     };
     const file = candidates[payload.service] || path.join(PROJECT_ROOT, 'state/floki/diagnostics.jsonl');
@@ -723,7 +854,7 @@ function registerIpc() {
       wake: [schedulerStop],
       pauseAutoSleep: [schedulerStop],
     };
-    if (action === 'interrupt') { if (activeAbortController) activeAbortController.abort(); return { ok: true, action }; }
+    if (action === 'interrupt') return { ...(await runtimeRequest('POST', '/interrupt', {})), action };
     const scripts = map[action];
     if (!scripts) throw new Error(`unsupported control action: ${action}`);
     const results = scripts.map((script) => runScript(script));
@@ -757,11 +888,31 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
-  if (!fs.existsSync(DIST_INDEX)) throw new Error(`built interface missing: ${DIST_INDEX}`);
+app.whenReady().then(async () => {
+  if (!fs.existsSync(DIST_INDEX)) {
+    throw new Error(`built interface missing: ${DIST_INDEX}`);
+  }
+
+  console.error('[FLOKI STARTUP 7/7] Connecting Electron to the authoritative chat.local runtime');
+  const runtimeStatus = await runtimeRequest('GET', '/status');
+  if (runtimeStatus.api_ready !== true || runtimeStatus.brain_loaded !== true) {
+    throw new Error('authoritative chat.local runtime is not ready');
+  }
+  console.error('[FLOKI STARTUP 7/7] Shared brain, hearing, speech, memory, vision, and sleep status connected');
+
   registerIpc();
   createWindow();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
+}).catch((error) => {
+  console.error(
+    'FLOKI_V2_ELECTRON_STARTUP_FAIL: ' +
+    String(error && error.stack ? error.stack : error)
+  );
+  app.exit(1);
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

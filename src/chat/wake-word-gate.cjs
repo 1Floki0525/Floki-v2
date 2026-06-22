@@ -133,23 +133,26 @@ function classifyWakeInput(input = {}, contract = CHAT_MODE_LIVING_CONTRACT) {
 
   const stripped = punctuationTrim(stripWakePhrase(rawText, contract));
   const attentionOnly = stripped.length === 0;
+  const requestText = attentionOnly
+    ? 'The user called your name. Respond naturally and briefly as if someone nearby said your name.'
+    : stripped;
 
   return Object.freeze({
     ok: true,
     marker: attentionOnly ? 'FLOKI_V2_WAKE_WORD_GATE_ATTENTION_ONLY' : 'FLOKI_V2_WAKE_WORD_GATE_OPEN',
     gate_version: WAKE_WORD_GATE_VERSION,
     gate_open: true,
-    direct_request: !attentionOnly,
+    direct_request: true,
     attention_only: attentionOnly,
-    should_reply: !attentionOnly,
+    should_reply: true,
     should_remember_as_background: false,
     modality,
     source,
-    reason: attentionOnly ? 'wake_phrase_only' : 'wake_phrase_present',
+    reason: attentionOnly ? 'wake_phrase_only_response_required' : 'wake_phrase_present',
     raw_text: rawText,
     normalized_text: normalizedText,
     wake_phrase: contract.wake_gate.required_phrase,
-    request_text: stripped,
+    request_text: requestText,
     ears_must_be_muted: false,
     chat_mode_only: true
   });

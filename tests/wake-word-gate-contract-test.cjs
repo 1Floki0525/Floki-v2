@@ -61,10 +61,11 @@ function run() {
 
   assert.equal(attentionOnly.marker, 'FLOKI_V2_WAKE_WORD_GATE_ATTENTION_ONLY');
   assert.equal(attentionOnly.gate_open, true);
-  assert.equal(attentionOnly.direct_request, false);
+  assert.equal(attentionOnly.direct_request, true);
   assert.equal(attentionOnly.attention_only, true);
-  assert.equal(attentionOnly.should_reply, false);
-  assert.equal(shouldRouteToCognition(attentionOnly), false);
+  assert.equal(attentionOnly.should_reply, true);
+  assert.match(attentionOnly.request_text, /called your name/i);
+  assert.equal(shouldRouteToCognition(attentionOnly), true);
 
   const missingWake = classifyWakeInput({
     text: 'can you hear me?',
@@ -80,15 +81,16 @@ function run() {
   assert.equal(missingWake.reason, 'wake_phrase_missing');
   assert.equal(shouldRouteToCognition(missingWake), false);
 
-  const typedMissingWake = classifyWakeInput({
+  const naturalFlokiAddress = classifyWakeInput({
     text: 'Floki can you hear me?',
     modality: 'typed',
     source: 'user'
   });
 
-  assert.equal(typedMissingWake.gate_open, false);
-  assert.equal(typedMissingWake.should_reply, false);
-  assert.equal(typedMissingWake.reason, 'wake_phrase_missing');
+  assert.equal(naturalFlokiAddress.gate_open, true);
+  assert.equal(naturalFlokiAddress.should_reply, true);
+  assert.equal(naturalFlokiAddress.request_text, 'can you hear me?');
+  assert.equal(shouldRouteToCognition(naturalFlokiAddress), true);
 
   const selfVoice = classifyWakeInput({
     text: 'Hey Floki, this came from your own voice output.',

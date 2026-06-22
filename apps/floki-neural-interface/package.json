@@ -15,7 +15,8 @@
     "test:integration": "node tests/chat-local-contract.cjs && node tests/full-interface-preservation-contract.cjs",
     "test:preservation": "node tests/full-interface-preservation-contract.cjs",
     "test:e2e": "node tests/e2e/electron-test.cjs",
-    "test:e2e:headed": "HEADED=1 node tests/e2e/electron-test.cjs"
+    "test:e2e:headed": "HEADED=1 node tests/e2e/electron-test.cjs",
+    "test:vision-controls": "node tests/e2e/vision-controls-test.cjs"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^17.0.0",

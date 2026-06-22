@@ -32,7 +32,12 @@ const dinoWorker = fs.readFileSync(
 
 assert.match(
   service,
-  /sceneInferenceUnlocked\s*=\s*getDetectionConfig\(\)\.enabled\s*!==\s*true/
+  /state\.first_vlm_observation_succeeded\s*!==\s*true/
+);
+
+assert.match(
+  service,
+  /state\.first_vlm_observation_succeeded\s*===\s*true\s*&&\s*inFlightInference/
 );
 
 assert.match(
@@ -62,7 +67,12 @@ assert.match(
 
 assert.match(
   verifier,
-  /grounding_dino_open_vocabulary_candidate_unverified/
+  /dinoOnlyObjectDisplayMinConfidence/
+);
+
+assert.match(
+  verifier,
+  /grounding_dino_object_below_display_threshold/
 );
 
 assert.match(
@@ -94,11 +104,11 @@ console.log(JSON.stringify({
   ok: true,
   marker:
     'FLOKI_PERSON_VERIFICATION_PRIORITY_CONTRACT_PASS',
-  first_scene_waits_for_person_verification: true,
+  first_scene_completes_before_person_verification: true,
   person_verification_can_preempt_scene: true,
   aborted_scene_not_counted_as_failure: true,
   verified_result_applied_to_current_boxes: true,
   exact_frame_id_discard_removed: true,
-  dino_only_open_vocabulary_boxes_suppressed: true,
+  confident_dino_open_vocabulary_objects_visible: true,
   live_services_started: false
 }, null, 2));
