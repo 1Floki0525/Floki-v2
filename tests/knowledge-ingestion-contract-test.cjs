@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { getPathConfig } = require('../src/config/floki-config.cjs');
 
 const {
   statePath,
@@ -79,7 +80,9 @@ function run() {
   const baseDir = statePath('test/knowledge-ingestion/' + unique);
   const fixtures = makeFixtures(baseDir);
 
-  assert.equal(FLOKI_MEDIA_ROOT, '/media/binary-god/2tb-ssd/Floki-media');
+  const configuredMediaRoot = getPathConfig('chat').media_root;
+  assert.equal(FLOKI_MEDIA_ROOT, configuredMediaRoot);
+  assert.equal(path.isAbsolute(FLOKI_MEDIA_ROOT), true);
 
   const detectedDirectory = detectKnowledgeInput(fixtures.fixtureDir);
   assert.equal(detectedDirectory.ok, true);

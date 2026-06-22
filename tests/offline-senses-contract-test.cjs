@@ -2,6 +2,9 @@
 
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
+const path = require('node:path');
+
+const ROOT = path.resolve(__dirname, '..');
 
 function parseJsonFromStdout(stdout) {
   const first = stdout.indexOf('{');
@@ -14,7 +17,7 @@ function parseJsonFromStdout(stdout) {
 
 function run() {
   const result = spawnSync('bash', ['bin/floki-start.sh', 'senses-smoke'], {
-    cwd: '/media/binary-god/1tb-ssd/Floki-v2',
+    cwd: ROOT,
     encoding: 'utf8',
     timeout: 30000
   });

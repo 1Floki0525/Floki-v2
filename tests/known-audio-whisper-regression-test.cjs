@@ -2,15 +2,22 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 
 const { statePath } = require('../src/util/fs-safe.cjs');
+const { PROJECT_ROOT, getPathConfig } = require('../src/config/floki-config.cjs');
 const { newId } = require('../src/util/ids.cjs');
 
 const {
   runWhisperTranscriptionProof
 } = require('../src/senses/whisper-transcription-smoke.cjs');
 
-const KNOWN_CAPTURE = '/media/binary-god/1tb-ssd/Floki-v2/.floki-tools/input/microphone-smoke/microphone_smoke_20260617204048.wav';
+const KNOWN_CAPTURE = path.resolve(
+  PROJECT_ROOT,
+  getPathConfig('chat').tool_input_root,
+  'microphone-smoke',
+  'microphone_smoke_20260617204048.wav'
+);
 
 function textHasWakeTrustHope(text) {
   const lower = String(text || '').toLowerCase();

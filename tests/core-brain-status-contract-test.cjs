@@ -2,6 +2,9 @@
 
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
+const path = require('node:path');
+
+const ROOT = path.resolve(__dirname, '..');
 
 const {
   buildCoreBrainStatus
@@ -97,7 +100,7 @@ function run() {
   assert.equal(game.modules.disabled_modules.includes('game_world_body'), true);
 
   const cliChat = execFileSync('bash', ['bin/floki-start.sh', 'brain-status', 'chat'], {
-    cwd: '/media/binary-god/1tb-ssd/Floki-v2',
+    cwd: ROOT,
     encoding: 'utf8'
   });
 
@@ -107,7 +110,7 @@ function run() {
   assert.equal(parsedCliChat.embodiment.eyes_source, 'usb_webcam');
 
   const cliGame = execFileSync('bash', ['bin/floki-start.sh', 'brain-status', 'game'], {
-    cwd: '/media/binary-god/1tb-ssd/Floki-v2',
+    cwd: ROOT,
     encoding: 'utf8'
   });
 

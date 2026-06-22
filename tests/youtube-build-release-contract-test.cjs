@@ -7,6 +7,7 @@ const { spawnSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const config = require('../src/config/floki-config.cjs');
+const { loadYamlFile } = require('../src/config/yaml-lite.cjs');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
@@ -34,7 +35,12 @@ function run() {
   assert.equal(gameTemplate.startsWith('schema_version:'), true, 'game template must start with map-style YAML');
   assert.doesNotMatch(chatTemplate, /^#/m, 'chat template must not contain top-level comments rejected by yaml-lite');
   assert.doesNotMatch(gameTemplate, /^#/m, 'game template must not contain top-level comments rejected by yaml-lite');
-  assert.equal(chatTemplate.includes(cookiePath), false, 'public template must not contain the private cookie path');
+  const parsedChatTemplate = loadYamlFile(path.join(ROOT, 'config/chat.config.yaml.temp'));
+  const templateCookiePath = parsedChatTemplate.paths.youtube_cookies_file;
+  assert.equal(typeof templateCookiePath, 'string');
+  assert.equal(path.isAbsolute(templateCookiePath), true, 'public cookie placeholder must be absolute');
+  assert.equal(templateCookiePath.includes('/media/binary-god/'), false);
+  assert.equal(templateCookiePath.includes('/mnt/firstlight-cold-storage/'), false);
   assert.equal(gameTemplate.includes('youtube_cookies_file:'), false, 'game config must not own the YouTube cookie path');
   assert.equal(chatTemplate.includes('/media/binary-god/'), false);
   assert.equal(chatTemplate.includes('/mnt/firstlight-cold-storage/'), false);
@@ -82,11 +88,25 @@ function run() {
   assert.equal(tracked.includes('config/game.config.yaml.temp'), true);
   assert.deepEqual(tracked.filter((name) => /(^|\/)cookies\.txt$/.test(name)), []);
 
-  const privatePathResult = spawnSync('git', ['grep', '--cached', '-F', '--', cookiePath], {
+  const sensitivePathResult = spawnSync('git', [
+    'grep',
+    '--cached',
+    '-n',
+    '-E',
+    '(/media/binary-god/|/mnt/firstlight-cold-storage/|/1tb-ssd/secretes/cookies\\.txt)',
+    '--',
+    'config/chat.config.yaml.temp',
+    'config/game.config.yaml.temp',
+    'bin/scrape-youtube-public-transcripts.sh'
+  ], {
     cwd: ROOT,
     encoding: 'utf8'
   });
-  assert.equal(privatePathResult.status, 1, 'private cookie path must not exist in the staged public tree');
+  assert.equal(
+    sensitivePathResult.status,
+    1,
+    sensitivePathResult.stdout || sensitivePathResult.stderr || 'private paths must not exist in public release files'
+  );
 
   console.log(JSON.stringify({
     ok: true,

@@ -49,9 +49,8 @@ jobs:
       - name: Verify Node 24 requirement
         shell: bash
         run: |
-          bash bin/floki-node24-run.sh
-          node --version
-          npm --version
+          bash bin/floki-node24-run.sh node --version
+          bash bin/floki-node24-run.sh npm --version
 
       - name: Install root dependencies
         run: npm ci --no-audit --no-fund
