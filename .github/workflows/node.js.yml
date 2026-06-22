@@ -29,24 +29,35 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            apps/floki-neural-interface/package-lock.json
+
+      - name: Validate checked-out release inputs
+        shell: bash
+        run: |
+          test -f package-lock.json
+          test -f apps/floki-neural-interface/package-lock.json
+          test -f config/chat.config.yaml.temp
+          test -f config/game.config.yaml.temp
+          test -x bin/floki-node24-run.sh
+          test -x bin/floki-build.sh
 
       - name: Prepare public configuration
+        shell: bash
         run: |
           cp config/chat.config.yaml.temp config/chat.config.yaml
           cp config/game.config.yaml.temp config/game.config.yaml
 
       - name: Verify Node 24 requirement
-        run: bash bin/floki-node24-run.sh
+        shell: bash
+        run: |
+          bash bin/floki-node24-run.sh
+          node --version
+          npm --version
 
       - name: Install root dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Install neural-interface dependencies
-        run: npm --prefix apps/floki-neural-interface ci
+        run: npm --prefix apps/floki-neural-interface ci --no-audit --no-fund
 
       - name: Build neural interface
         run: npm run build
