@@ -85,7 +85,7 @@ def main():
     patched = replace_once(
         patched,
         "      'tests/manual-nap-contract-test.cjs', 'apps/floki-neural-interface/tests/functional-controls-contract.cjs', 'package.json', str(SELF)",
-        "      'tests/manual-nap-contract-test.cjs', 'apps/floki-neural-interface/tests/functional-controls-contract.cjs', 'package.json', str(SELF), 'bin/run-floki-v22-repair.py', 'bin/floki-v22-resume.py'",
+        "      'tests/manual-nap-contract-test.cjs', 'apps/floki-neural-interface/tests/functional-controls-contract.cjs', 'package.json', str(SELF), 'bin/run-floki-v22-repair.py', 'bin/floki-v22-resume.py', 'tests/chat-local-single-runtime-contract-test.cjs', 'tests/chat-local-interface-lifecycle-transcript-contract-test.cjs'",
         'repair-file target list',
     )
     patched = replace_once(
@@ -99,6 +99,12 @@ def main():
         "        if 'start_hhmm: 23:00' not in (ROOT / 'config/chat.config.yaml').read_text() or 'end_hhmm: 07:00' not in (ROOT / 'config/chat.config.yaml').read_text(): raise RepairError('nightly schedule changed')",
         "        run(['bash', 'bin/floki-node24-run.sh', 'node', '-e', \"const { loadYamlFile } = require('./src/config/yaml-lite.cjs'); const sleep = loadYamlFile('./config/chat.config.yaml').sleep || {}; if (String(sleep.start_hhmm) !== '23:00' || String(sleep.end_hhmm) !== '07:00') { console.error(JSON.stringify({ start_hhmm: sleep.start_hhmm, end_hhmm: sleep.end_hhmm })); process.exit(1); } console.log('FLOKI_V22_NIGHTLY_SCHEDULE_SEMANTIC_PASS');\"], timeout=120)",
         'nightly schedule semantic verification',
+    )
+    patched = replace_once(
+        patched,
+        "        patch_files()",
+        "        patch_files()\n        old_gate_assertion = \"  assert.match(runtime, /await liveAudio\\\\.setAwake\\\\(enableSenses\\\\)/);\\n\"\n        new_gate_assertions = \"  assert.match(runtime, /await liveAudio\\\\.setAwake\\\\(hearingEnabled\\\\)/);\\n  assert.match(runtime, /const visionEnabled = awake && state\\\\.client_ready === true/);\\n  assert.match(runtime, /if \\\\(!visionEnabled\\\\)/);\\n\"\n        for contract_relative in ['tests/chat-local-single-runtime-contract-test.cjs', 'tests/chat-local-interface-lifecycle-transcript-contract-test.cjs']:\n            contract_path = ROOT / contract_relative\n            contract_text = contract_path.read_text(encoding='utf-8')\n            contract_text = replace(contract_text, old_gate_assertion, new_gate_assertions, 'split hearing and vision lifecycle contract')\n            contract_path.write_text(contract_text, encoding='utf-8')",
+        'split sensory lifecycle contract updates',
     )
 
     temp = tempfile.TemporaryDirectory(prefix='floki-v22-resume-', dir='/tmp')
