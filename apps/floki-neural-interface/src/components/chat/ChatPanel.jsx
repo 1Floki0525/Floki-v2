@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { ArrowDown } from 'lucide-react'
+import { ArrowDown, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { FlokiState, createChatMessage, MessageType } from '@/integrations/floki/types'
 import flokiAdapter from '@/integrations/floki/adapter'
@@ -9,11 +9,27 @@ import FlokiStateIndicator from './FlokiStateIndicator'
 import MessageComposer from './MessageComposer'
 import EmptyChat from './EmptyChat'
 
+function transcriptMessage(entry) {
+  return createChatMessage({
+    id: entry.id,
+    role: entry.role,
+    content: entry.content,
+    type: entry.type === MessageType.SPOKEN ? MessageType.SPOKEN : MessageType.TYPED,
+    timestamp: entry.timestamp,
+    isStreaming: false,
+  })
+}
+
+function transcriptIdentity(message) {
+  return [message.role, message.type, String(message.content || '').trim()].join('\n')
+}
+
 export default function ChatPanel({ flokiStatus }) {
   const [messages, setMessages] = useState([])
   const [flokiState, setFlokiState] = useState(FlokiState.IDLE)
   const [isResponding, setIsResponding] = useState(false)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
+  const [isClearing, setIsClearing] = useState(false)
   const scrollRef = useRef(null)
   const abortRef = useRef(null)
 
@@ -23,54 +39,44 @@ export default function ChatPanel({ flokiStatus }) {
 
   useEffect(() => { scrollToBottom('instant') }, [messages.length, scrollToBottom])
 
+  const syncTranscript = useCallback(async () => {
+    const transcript = await flokiAdapter.getTranscript(500)
+    if (!Array.isArray(transcript)) return
+
+    const authoritative = transcript.map(transcriptMessage)
+    const authoritativeIdentities = new Set(authoritative.map(transcriptIdentity))
+
+    setMessages((previous) => {
+      const pending = previous.filter((message) =>
+        message.isStreaming === true ||
+        (message.optimistic === true && !authoritativeIdentities.has(transcriptIdentity(message)))
+      )
+      const authoritativeIds = new Set(authoritative.map((message) => message.id))
+      const uniquePending = pending.filter((message) => !authoritativeIds.has(message.id))
+      return [...authoritative, ...uniquePending].sort(
+        (left, right) => Number(left.timestamp || 0) - Number(right.timestamp || 0)
+      )
+    })
+  }, [])
 
   useEffect(() => {
     let active = true
 
-    const syncSpokenTranscript = async () => {
+    const poll = async () => {
       try {
-        const transcript = await flokiAdapter.getTranscript(200)
-        if (!active || !Array.isArray(transcript)) return
-
-        const spoken = transcript.filter((entry) =>
-          entry && entry.type === MessageType.SPOKEN
-        )
-
-        if (spoken.length === 0) return
-
-        setMessages((previous) => {
-          const existing = new Set(previous.map((message) => message.id))
-          const additions = spoken
-            .filter((entry) => !existing.has(entry.id))
-            .map((entry) => createChatMessage({
-              id: entry.id,
-              role: entry.role,
-              content: entry.content,
-              type: MessageType.SPOKEN,
-              timestamp: entry.timestamp,
-              isStreaming: false,
-            }))
-
-          if (additions.length === 0) return previous
-
-          return [...previous, ...additions].sort(
-            (left, right) =>
-              Number(left.timestamp || 0) - Number(right.timestamp || 0)
-          )
-        })
+        if (active) await syncTranscript()
       } catch (error) {
-        console.error('spoken transcript sync failed', error)
+        console.error('authoritative transcript sync failed', error)
       }
     }
 
-    syncSpokenTranscript()
-    const timer = setInterval(syncSpokenTranscript, 750)
-
+    poll()
+    const timer = setInterval(poll, 750)
     return () => {
       active = false
       clearInterval(timer)
     }
-  }, [])
+  }, [syncTranscript])
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return
@@ -83,7 +89,11 @@ export default function ChatPanel({ flokiStatus }) {
       toast.warning('Floki is already responding. Interrupt the active response first.')
       return
     }
-    const userMsg = createChatMessage({ role: 'user', content: text, type: MessageType.TYPED })
+
+    const userMsg = {
+      ...createChatMessage({ role: 'user', content: text, type: MessageType.TYPED }),
+      optimistic: true,
+    }
     const flokiMsgId = crypto.randomUUID()
     setMessages((previous) => [
       ...previous,
@@ -110,19 +120,24 @@ export default function ChatPanel({ flokiStatus }) {
           ))
         },
         onError: (error) => {
-        setMessages(prev => prev.map(m => m.id === flokiMsgId ? { ...m, content: `Error: ${error.message}`, isStreaming: false } : m));
-        setIsResponding(false);
-        setFlokiState(FlokiState.ERROR);
-        abortRef.current = null;
-      },
-      onComplete: (content, latency) => {
           setMessages((previous) => previous.map((message) =>
             message.id === flokiMsgId
-              ? { ...message, content, latency, isStreaming: false }
+              ? { ...message, content: `Error: ${error.message}`, isStreaming: false }
+              : message
+          ))
+          setIsResponding(false)
+          setFlokiState(FlokiState.ERROR)
+          abortRef.current = null
+        },
+        onComplete: (content, latency) => {
+          setMessages((previous) => previous.map((message) =>
+            message.id === flokiMsgId
+              ? { ...message, content, latency, isStreaming: false, optimistic: true }
               : message
           ))
         },
       })
+      await syncTranscript()
     } catch (error) {
       if (error?.name !== 'AbortError') {
         toast.error(error.message)
@@ -137,7 +152,7 @@ export default function ChatPanel({ flokiStatus }) {
       setFlokiState(FlokiState.IDLE)
       abortRef.current = null
     }
-  }, [isResponding])
+  }, [isResponding, syncTranscript])
 
   const handleInterrupt = useCallback(() => {
     if (abortRef.current) abortRef.current.abort()
@@ -152,10 +167,44 @@ export default function ChatPanel({ flokiStatus }) {
     ))
   }, [])
 
+  const handleClearTranscript = useCallback(async () => {
+    if (isResponding) {
+      toast.warning('Interrupt the active response before clearing the visible chat.')
+      return
+    }
+    const confirmed = window.confirm(
+      'Clear the visible chat transcript? This does not delete Floki’s memories, personality, private thoughts, beliefs, relationships, or dreams.'
+    )
+    if (!confirmed) return
+
+    setIsClearing(true)
+    try {
+      const result = await flokiAdapter.clearTranscript()
+      if (!result?.ok) throw new Error(result?.error || 'Could not clear the visible chat transcript')
+      setMessages([])
+      toast.success(`Visible chat cleared (${Number(result.entries_cleared || 0)} entries).`)
+    } catch (error) {
+      toast.error(error.message)
+    } finally {
+      setIsClearing(false)
+    }
+  }, [isResponding])
+
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-border/30 bg-background/50">
+      <div className="border-b border-border/30 bg-background/50 flex items-center justify-between gap-3 pr-3">
         <FlokiStateIndicator state={flokiState} />
+        <button
+          type="button"
+          onClick={handleClearTranscript}
+          disabled={isClearing || isResponding || messages.length === 0}
+          className="inline-flex items-center gap-2 rounded-lg border border-border/50 bg-secondary/30 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Clear visible chat transcript"
+          title="Clear visible chat only; persistent memories are preserved"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          {isClearing ? 'Clearing…' : 'Clear chat'}
+        </button>
       </div>
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto relative">
         {messages.length === 0 ? (

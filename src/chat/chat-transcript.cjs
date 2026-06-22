@@ -5,7 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const { PROJECT_ROOT: ROOT, getPathConfig } = require('../config/floki-config.cjs');
-const DEFAULT_TRANSCRIPT_DIR = path.join(ROOT, 'state', 'floki', 'chat', 'interface');
+const DEFAULT_TRANSCRIPT_DIR = path.resolve(ROOT, getPathConfig('chat').chat_transcript_root);
 
 const PRIVATE_THOUGHT_PATTERNS = Object.freeze([
   /<think>/i,
@@ -140,6 +140,22 @@ function readPrivateThoughtTail(limit = 80, options = {}) {
   return readJsonlTail(getTranscriptPaths(options).private_thought_jsonl_file, limit);
 }
 
+function clearChatTranscript(options = {}) {
+  const paths = getTranscriptPaths(options);
+  fs.mkdirSync(paths.transcript_dir, { recursive: true });
+  const entriesCleared = readJsonlTail(paths.transcript_jsonl_file, Number.MAX_SAFE_INTEGER).length;
+  fs.writeFileSync(paths.transcript_jsonl_file, '', 'utf8');
+  fs.writeFileSync(paths.transcript_text_file, '', 'utf8');
+  return Object.freeze({
+    ok: true,
+    marker: 'FLOKI_V2_CHAT_TRANSCRIPT_CLEAR_PASS',
+    entries_cleared: entriesCleared,
+    transcript_jsonl_file: paths.transcript_jsonl_file,
+    transcript_text_file: paths.transcript_text_file,
+    private_thoughts_preserved: true
+  });
+}
+
 module.exports = {
   ROOT,
   DEFAULT_TRANSCRIPT_DIR,
@@ -149,5 +165,6 @@ module.exports = {
   appendChatTranscriptTurn,
   appendPrivateThoughtRecord,
   readChatTranscriptTail,
-  readPrivateThoughtTail
+  readPrivateThoughtTail,
+  clearChatTranscript
 };

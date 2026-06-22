@@ -17,10 +17,13 @@ function run() {
   assert.match(runtime, /input_modality: 'spoken'/);
   assert.match(runtime, /input_modality: 'text'/);
   assert.match(runtime, /on_ambient_observation: rememberAmbient/);
-  assert.match(runtime, /await liveAudio\.setAwake\(awake\)/);
+  assert.match(runtime, /await liveAudio\.setAwake\(enableSenses\)/);
   assert.match(runtime, /stopChatWebcamVisionService/);
   assert.match(runtime, /startChatWebcamVisionService/);
   assert.match(runtime, /chat-webcam-vision\.refresh-request\.json/);
+  assert.match(runtime, /url\.pathname === '\/client-ready'/);
+  assert.match(runtime, /initial_awake: false/);
+  assert.match(electron, /runtimeRequest\('POST', '\/client-ready'/);
   assert.doesNotMatch(electron, /createRuntime\s*\(/);
   assert.doesNotMatch(electron, /handleTypedText\s*\(/);
   assert.match(electron, /runtimeRequest\('POST', '\/chat'/);

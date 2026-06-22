@@ -139,7 +139,7 @@ start_chat_hearing() {
   fi
 
   HEARING_STARTED=true
-  echo "Hearing: $HEARING_OUTPUT"
+  echo "Runtime: $HEARING_OUTPUT"
 }
 
 stop_chat_hearing() {
@@ -197,7 +197,7 @@ NODE
 )" || fail "could not resolve lifecycle before sensory startup"
     echo "Lifecycle: $LIFECYCLE_JSON"
 
-    startup_stage "5/7" "Starting the authoritative runtime; eyes and ears follow the resolved sleep state"
+    startup_stage "5/7" "Starting the authoritative backend with eyes and ears held off until the interface is visible"
     start_chat_hearing
 
     bash bin/floki-chat-local-start.sh "$@"

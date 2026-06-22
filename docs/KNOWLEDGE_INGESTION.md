@@ -1,75 +1,86 @@
 # Knowledge Ingestion
 
-Stage 12.33 adds chat-mode knowledge ingestion for local text and transcript files.
+Floki-v2 can use public YouTube subtitle transcripts as raw local knowledge material. The transcript scraper downloads subtitle data only, converts it into clean text, and leaves video and audio media untouched.
 
-This stage does not call Qwen, Broca, Piper, microphone, speaker, network tools, YouTube, yt-dlp, or Minecraft. It only reads already-local text files and writes deterministic chunks into local project state.
+## Public transcript boundaries
 
-## Correct media root
+`bin/scrape-youtube-public-transcripts.sh` is restricted to public, non-live content. Members-only, subscriber-only, private, restricted, unavailable, removed, age-gated, and live videos are skipped. The command uses `--skip-download`; it does not download video or audio.
 
-The Floki media corpus root is outside the Floki-v2 git repo:
+## Local configuration
 
-/media/binary-god/2tb-ssd/Floki-media
+The public repository tracks these templates:
 
-YouTube transcript text folders should be shaped like:
+```text
+config/chat.config.yaml.temp
+config/game.config.yaml.temp
+```
 
-/media/binary-god/2tb-ssd/Floki-media/text/youtube/<channel-folder>/
+Personal working configuration is intentionally not tracked. Create it from the template:
 
-Do not store media or transcripts under:
+```bash
+cp config/chat.config.yaml.temp config/chat.config.yaml
+cp config/game.config.yaml.temp config/game.config.yaml
+```
 
-/media/binary-god/1tb-ssd/Floki-v2/floki-media
+Set `paths.youtube_cookies_file` in your local `config/chat.config.yaml` to your own absolute cookie-file path outside the repository. The scraper reads that value through Floki's normal typed configuration API. It has no repository-local cookie fallback.
 
-## Guard
+## Browser cookies
 
-Knowledge ingestion is blocked unless explicitly enabled:
+YouTube may require browser cookies even when the requested subtitles belong to public videos. Export cookies in Netscape `cookies.txt` format and store the file outside the Floki-v2 repository.
 
-FLOKI_ALLOW_KNOWLEDGE_INGESTION=1
+Protect it:
 
-When guarded, the module does not read source files, write chunks, write indexes, call models, call the network, or start game mode.
+```bash
+chmod 600 /absolute/path/outside/the/repository/cookies.txt
+```
 
-## Supported in this stage
+Never commit the file, attach it to a bug report, include it in a project snapshot, copy it into a transcript folder, or place it under runtime state. Browser cookies are authentication secrets. Rotate or revoke them immediately if they are accidentally committed or shared. Cookies expire and may need to be exported again.
 
-- .txt
-- .md
-- .json
-- .jsonl
-- .srt
-- .vtt
-- .log
-- .csv
-- directories of those files
-- YouTube transcript channel folders containing transcripts.manifest.jsonl and/or SCRAPE_REPORT.latest.json
+## Project-local yt-dlp environment
 
-Unsupported file types are counted honestly and skipped.
+Create the project-local environment:
 
-## Not supported yet
+```bash
+python3 -m venv .floki-tools/yt-dlp-venv
+.floki-tools/yt-dlp-venv/bin/python -m pip install --upgrade pip
+.floki-tools/yt-dlp-venv/bin/python -m pip install --upgrade "yt-dlp[default]"
+```
 
-- PDF
-- DOCX
-- EPUB
-- MP3
-- WAV
-- MP4
-- AVI
-- MKV
-- MOV
-- WEBM
+Update an existing environment:
 
-Those belong in later extractor and media transcription stages.
+```bash
+.floki-tools/yt-dlp-venv/bin/python -m pip install --upgrade "yt-dlp[default]"
+```
 
-## Persistence
+The virtual environment is local tooling and is ignored by Git.
 
-Runtime knowledge state is written under project state and must not be committed:
+## Run the scraper
 
-state/floki/chat/knowledge/chunks.jsonl
-state/floki/chat/knowledge/sources.jsonl
-state/floki/chat/knowledge/index.json
-state/floki/chat/knowledge/ingestion-events.jsonl
+```bash
+bin/scrape-youtube-public-transcripts.sh <youtube-channel-url> [channel-folder]
+```
 
-Reports are written under:
+Example:
 
-.floki-tools/output/knowledge-ingestion/latest-knowledge-ingestion.json
+```bash
+FLOKI_YT_MAX_VIDEOS=5 bin/scrape-youtube-public-transcripts.sh "https://www.youtube.com/@example/videos" example
+```
 
-## Proofs
+The script validates that the YAML-configured cookie path is absolute and that the file exists and is readable. It passes the external file directly to `yt-dlp` and never copies or prints cookie contents.
 
-npm run proof:knowledge-ingestion-guard
-npm run proof:knowledge-ingestion
+## Output layout
+
+The output roots come from the local chat YAML configuration:
+
+- Cleaned transcripts: `paths.youtube_transcript_root/<channel-folder>/*.txt`
+- Per-video metadata: `paths.youtube_transcript_root/<channel-folder>/*.meta.json`
+- Channel manifest: `paths.youtube_transcript_root/<channel-folder>/transcripts.manifest.jsonl`
+- Latest scrape report: `paths.youtube_transcript_root/<channel-folder>/SCRAPE_REPORT.latest.json`
+- Raw subtitle files: `paths.media_root/raw/youtube/<channel-folder>/<timestamp>/`
+- Scrape logs and discovered URL lists: `paths.media_root/logs/youtube/<channel-folder>/<timestamp>/`
+
+No cookie file is written to any of those locations.
+
+## Local knowledge ingestion
+
+Already-downloaded transcript folders can be ingested into Floki's local knowledge state through the existing guarded knowledge-ingestion workflow. Runtime knowledge state remains under `state/` and must not be committed.

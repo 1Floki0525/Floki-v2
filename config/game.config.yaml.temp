@@ -143,9 +143,9 @@ paths:
   tool_input_root: .floki-tools/input
   tool_output_root: .floki-tools/output
   runtime_root: state/floki/runtime
-  dream_root: /mnt/firstlight-cold-storage/Floki-memory-bank/dreams
-  media_root: /media/binary-god/2tb-ssd/Floki-media
-  youtube_transcript_root: /media/binary-god/2tb-ssd/Floki-media/text/youtube
+  dream_root: /absolute/path/to/Floki-memory-bank/dreams
+  media_root: /absolute/path/to/Floki-media
+  youtube_transcript_root: /absolute/path/to/Floki-media/text/youtube
 
 sleep:
   timezone: America/Toronto

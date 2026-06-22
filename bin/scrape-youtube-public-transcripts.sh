@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FLOKI_MEDIA_ROOT="$(node -e "const c=require('./src/config/floki-config.cjs');console.log(c.getPathConfig('chat').media_root)" 2>/dev/null || echo '/media/binary-god/2tb-ssd/Floki-media')"
-DEFAULT_COOKIES="$ROOT/docs/cookies.txt"
+NODE24_RUN="$ROOT/bin/floki-node24-run.sh"
 
 CHANNEL_URL="$1"
 CHANNEL_FOLDER_ARG="$2"
-
-COOKIES_FILE="${FLOKI_YT_COOKIES:-$DEFAULT_COOKIES}"
 YTDLP_PY="${FLOKI_YTDLP_PY:-$ROOT/.floki-tools/yt-dlp-venv/bin/python}"
 
-BASE_TEXT_DIR="${FLOKI_MEDIA_TEXT_YOUTUBE_DIR:-$FLOKI_MEDIA_ROOT/text/youtube}"
-BASE_RAW_DIR="${FLOKI_MEDIA_RAW_YOUTUBE_DIR:-$FLOKI_MEDIA_ROOT/raw/youtube}"
-BASE_LOG_DIR="${FLOKI_MEDIA_LOG_YOUTUBE_DIR:-$FLOKI_MEDIA_ROOT/logs/youtube}"
+[ -x "$NODE24_RUN" ] || { echo "ERROR: Node 24 config runner is missing or not executable: $NODE24_RUN" >&2; exit 1; }
+
+CONFIG_OUTPUT="$("$NODE24_RUN" node -e "const p=require('./src/config/floki-config.cjs').getPathConfig('chat'); process.stdout.write([p.media_root,p.youtube_transcript_root,p.youtube_cookies_file].join('\n'));" )"
+CONFIG_STATUS="$?"
+[ "$CONFIG_STATUS" -eq 0 ] || { echo "ERROR: could not resolve YouTube paths through Floki config" >&2; exit "$CONFIG_STATUS"; }
+
+mapfile -t FLOKI_CONFIG_PATHS <<< "$CONFIG_OUTPUT"
+[ "${#FLOKI_CONFIG_PATHS[@]}" -eq 3 ] || { echo "ERROR: Floki config did not return the required YouTube paths" >&2; exit 1; }
+
+FLOKI_MEDIA_ROOT="${FLOKI_CONFIG_PATHS[0]}"
+BASE_TEXT_DIR="${FLOKI_CONFIG_PATHS[1]}"
+COOKIES_FILE="${FLOKI_CONFIG_PATHS[2]}"
+BASE_RAW_DIR="$FLOKI_MEDIA_ROOT/raw/youtube"
+BASE_LOG_DIR="$FLOKI_MEDIA_ROOT/logs/youtube"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
@@ -295,10 +303,6 @@ have_cmd grep || fail "grep not found"
 have_cmd wc || fail "wc not found"
 have_cmd mkdir || fail "mkdir not found"
 
-if [ ! -d "/media/binary-god/2tb-ssd" ]; then
-  fail "2TB SSD mount is missing: /media/binary-god/2tb-ssd"
-fi
-
 mkdir -p "$FLOKI_MEDIA_ROOT" || fail "could not create media root: $FLOKI_MEDIA_ROOT"
 
 if [ ! -x "$YTDLP_PY" ]; then
@@ -313,8 +317,20 @@ if [ -z "$YTDLP_VERSION" ]; then
   fail "could not get yt-dlp version from $YTDLP_PY"
 fi
 
+case "$COOKIES_FILE" in
+  /*)
+    ;;
+  *)
+    fail "paths.youtube_cookies_file must be an absolute path in config/chat.config.yaml"
+    ;;
+esac
+
 if [ ! -f "$COOKIES_FILE" ]; then
-  fail "cookies.txt not found at: $COOKIES_FILE"
+  fail "configured cookies.txt file does not exist: $COOKIES_FILE"
+fi
+
+if [ ! -r "$COOKIES_FILE" ]; then
+  fail "configured cookies.txt file is not readable: $COOKIES_FILE"
 fi
 
 if [ -n "$CHANNEL_FOLDER_ARG" ]; then
@@ -333,13 +349,10 @@ LOG_DIR="$BASE_LOG_DIR/$CHANNEL_FOLDER/$STAMP"
 
 MANIFEST_FILE="$TEXT_DIR/transcripts.manifest.jsonl"
 REPORT_FILE="$TEXT_DIR/SCRAPE_REPORT.latest.json"
-COOKIE_WORK="$LOG_DIR/cookies.runtime.txt"
 URL_LIST="$LOG_DIR/video-urls.txt"
 
 mkdir -p "$TEXT_DIR" "$RAW_DIR" "$LOG_DIR" || fail "could not create output directories"
 
-cp "$COOKIES_FILE" "$COOKIE_WORK" || fail "could not copy cookies file"
-chmod 600 "$COOKIE_WORK" >/dev/null 2>&1
 
 echo "FLOKI_YOUTUBE_TRANSCRIPT_SCRAPE_START"
 echo "channel_url=$CHANNEL_URL"
@@ -348,8 +361,7 @@ echo "floki_media_root=$FLOKI_MEDIA_ROOT"
 echo "text_dir=$TEXT_DIR"
 echo "raw_dir=$RAW_DIR"
 echo "log_dir=$LOG_DIR"
-echo "cookies_source=$COOKIES_FILE"
-echo "cookies_runtime_copy=$COOKIE_WORK"
+echo "cookies_file=$COOKIES_FILE"
 echo "yt_dlp_invocation=$YTDLP_INVOKED"
 echo "yt_dlp_version=$YTDLP_VERSION"
 echo "sub_langs=${FLOKI_YT_SUB_LANGS:-en.*,en}"
@@ -358,7 +370,7 @@ echo
 echo "Discovering channel videos..."
 "${YTDLP[@]}" \
   --no-config \
-  --cookies "$COOKIE_WORK" \
+  --cookies "$COOKIES_FILE" \
   --flat-playlist \
   --yes-playlist \
   --print "%(webpage_url)s" \
@@ -450,7 +462,7 @@ while IFS= read -r VIDEO_URL; do
 
   "${YTDLP[@]}" \
     --no-config \
-    --cookies "$COOKIE_WORK" \
+    --cookies "$COOKIES_FILE" \
     --no-progress \
     --no-abort-on-error \
     --skip-download \

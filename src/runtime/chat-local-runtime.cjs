@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const { createRuntime } = require('../chat/floki-chat.cjs');
 const { handleTypedText } = require('../chat/floki-live-chat-interface.cjs');
-const { readChatTranscriptTail } = require('../chat/chat-transcript.cjs');
+const { assertPublicTranscriptText, appendChatTranscriptTurn, readChatTranscriptTail, clearChatTranscript } = require('../chat/chat-transcript.cjs');
 const { buildFlokiLifecycleStatus } = require('../chat/floki-lifecycle-status.cjs');
 const {
   readChatWebcamVisionStatus,
@@ -23,7 +23,8 @@ const {
   getLiveChatConfig,
   getModelConfig,
   getPathConfig,
-  getSleepConfig
+  getSleepConfig,
+  getVisionConfig
 } = require('../config/floki-config.cjs');
 const { nowIso } = require('../util/time.cjs');
 const { newId } = require('../util/ids.cjs');
@@ -101,18 +102,81 @@ function memoryPathsWritable() {
   }
 }
 
-function looksLikeVisionQuestion(text) {
-  return /\b(what|who|where|describe|tell me).{0,28}\b(see|seeing|look|looking|camera|room|around you|in front of you)\b/i.test(String(text || '')) ||
-    /\bwhat do you see\b/i.test(String(text || ''));
+function normalizeIntentText(value) {
+  const lower = String(value || '').toLowerCase();
+  let out = '';
+  let previousSpace = true;
+  for (const character of lower) {
+    const code = character.charCodeAt(0);
+    const alphaNumeric =
+      (code >= 48 && code <= 57) ||
+      (code >= 97 && code <= 122);
+    if (alphaNumeric) {
+      out += character;
+      previousSpace = false;
+    } else if (!previousSpace) {
+      out += ' ';
+      previousSpace = true;
+    }
+  }
+  return out.trim();
+}
+
+function configuredVisionQuestionPhrases(visionConfig = getVisionConfig('chat')) {
+  const configured = visionConfig && visionConfig.direct_question_phrases;
+  if (!configured || typeof configured !== 'object' || Array.isArray(configured)) return [];
+  return Object.values(configured)
+    .map(normalizeIntentText)
+    .filter(Boolean);
+}
+
+function looksLikeVisionQuestion(text, visionConfig = getVisionConfig('chat')) {
+  const normalized = normalizeIntentText(text);
+  if (!normalized) return false;
+  return configuredVisionQuestionPhrases(visionConfig)
+    .some((phrase) => normalized.includes(phrase));
+}
+
+function visionObservationTimestamp(visionContext) {
+  if (!visionContext || typeof visionContext !== 'object') return null;
+  return visionContext.latest_private_observation_timestamp ||
+    visionContext.created_at ||
+    visionContext.observed_at ||
+    visionContext.timestamp ||
+    null;
+}
+
+function buildGroundedVisionReply(visionContext, visionConfig = getVisionConfig('chat')) {
+  const available = Boolean(
+    visionContext &&
+    visionContext.available === true &&
+    visionContext.fresh === true &&
+    typeof visionContext.observation_summary === 'string' &&
+    visionContext.observation_summary.trim()
+  );
+  if (!available) {
+    return assertPublicTranscriptText(
+      visionConfig.direct_answer_unavailable_reply,
+      'configured unavailable vision reply'
+    );
+  }
+  const prefix = String(visionConfig.direct_answer_prefix || '');
+  const summary = String(visionContext.observation_summary || '').trim();
+  return assertPublicTranscriptText(prefix + summary, 'grounded live vision reply');
 }
 
 async function waitForFreshVision(runtimeDir, options = {}) {
-  const live = getLiveChatConfig('chat');
-  const maxAgeMs = Number(options.max_age_ms || 5000);
-  const waitMs = Number(options.wait_ms || Math.min(5000, live.stream_timeout_ms || 5000));
+  const vision = getVisionConfig('chat');
+  const maxAgeMs = Number(options.max_age_ms || vision.direct_answer_max_age_ms);
+  const waitMs = Number(options.wait_ms || vision.direct_answer_wait_ms);
+  const preferDetection = options.prefer_detection === true;
   const paths = visionRuntimePaths({ runtime_dir: runtimeDir });
-  const before = readLatestPrivateObservation({ runtime_dir: runtimeDir });
-  const beforeTimestamp = before && (before.created_at || before.observed_at || before.timestamp) || null;
+  const before = readLatestPrivateObservation({
+    runtime_dir: runtimeDir,
+    max_age_ms: maxAgeMs,
+    prefer_detection: preferDetection
+  });
+  const beforeTimestamp = visionObservationTimestamp(before);
   const requestFile = path.join(runtimeDir, 'chat-webcam-vision.refresh-request.json');
   writeJsonAtomic(requestFile, {
     id: newId('visionrefresh'),
@@ -123,15 +187,23 @@ async function waitForFreshVision(runtimeDir, options = {}) {
 
   const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
-    const latest = readLatestPrivateObservation({ runtime_dir: runtimeDir });
-    const timestamp = latest && (latest.created_at || latest.observed_at || latest.timestamp) || null;
+    const latest = readLatestPrivateObservation({
+      runtime_dir: runtimeDir,
+      max_age_ms: maxAgeMs,
+      prefer_detection: preferDetection
+    });
+    const timestamp = visionObservationTimestamp(latest);
     const age = timestamp ? Date.now() - new Date(timestamp).getTime() : Infinity;
     if (latest && latest.available === true && latest.fresh === true && age <= maxAgeMs && timestamp !== beforeTimestamp) {
       return latest;
     }
     await sleep(100);
   }
-  return readLatestPrivateObservation({ runtime_dir: runtimeDir });
+  return readLatestPrivateObservation({
+    runtime_dir: runtimeDir,
+    max_age_ms: maxAgeMs,
+    prefer_detection: preferDetection
+  });
 }
 
 function createChatLocalRuntime(options = {}) {
@@ -150,6 +222,7 @@ function createChatLocalRuntime(options = {}) {
   const brain = options.runtime || createRuntime({ session_id: options.session_id || newId('chatruntime') });
   const model = getModelConfig('chat').cognition;
   const audioConfig = getAudioConfig('chat');
+  const visionConfig = getVisionConfig('chat');
 
   let server = null;
   let stopping = false;
@@ -175,9 +248,17 @@ function createChatLocalRuntime(options = {}) {
     last_turn_modality: null,
     last_reply: '',
     api_ready: false,
+    client_ready: false,
+    client_ready_at: null,
+    client_detached_at: null,
+    senses_enabled: false,
     shutdown_requested: false,
     hearing_start_error: null,
-    vision_start_error: null
+    vision_start_error: null,
+    last_grounded_vision_reply_at: null,
+    last_grounded_vision_source: null,
+    last_grounded_vision_observation_at: null,
+    last_grounded_vision_available: null
   };
 
   function appendLog(message) {
@@ -190,25 +271,54 @@ function createChatLocalRuntime(options = {}) {
     const vision = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
     lifecycle = buildFlokiLifecycleStatus();
     const sleeping = lifecycle && lifecycle.is_awake === false;
-    const sensoryReady = sleeping || Boolean(
+    const awaitingClient = state.client_ready !== true;
+    const sensesAllowed = !sleeping && !awaitingClient;
+    const hearingReady = Boolean(
+      sensesAllowed &&
       audio.microphone_open &&
       audio.vad_ready &&
       audio.whisper_ready &&
       audio.piper_ready &&
       audio.playback_ready &&
-      !state.hearing_start_error &&
+      !audio.last_error &&
+      !audio.last_wake_gate_error &&
+      !state.hearing_start_error
+    );
+    const visionReady = Boolean(
+      sensesAllowed &&
+      vision.active === true &&
+      vision.camera_open === true &&
+      vision.first_frame_received === true &&
+      vision.ready_for_chat === true &&
       !state.vision_start_error
     );
+    const degradedReasons = [];
+    if (sensesAllowed && state.hearing_start_error) degradedReasons.push('hearing_start: ' + state.hearing_start_error);
+    if (sensesAllowed && audio.last_error) degradedReasons.push('hearing_runtime: ' + audio.last_error);
+    if (sensesAllowed && audio.last_wake_gate_error) degradedReasons.push('wake_gate: ' + audio.last_wake_gate_error);
+    if (sensesAllowed && state.vision_start_error) degradedReasons.push('vision_start: ' + state.vision_start_error);
+    if (sensesAllowed && !hearingReady && degradedReasons.length === 0) degradedReasons.push('hearing_not_ready');
+    if (sensesAllowed && !visionReady && degradedReasons.length === 0) degradedReasons.push('vision_not_ready');
+    const sensoryReady = awaitingClient || sleeping || (hearingReady && visionReady);
     const ready = Boolean(
       state.api_ready &&
       state.brain_loaded &&
       state.memory_loaded &&
       sensoryReady &&
-      !state.last_error
+      !state.last_error &&
+      degradedReasons.length === 0
     );
     return Object.freeze({
-      ok: !state.last_error,
+      ok: !state.last_error && (!sensesAllowed || degradedReasons.length === 0),
       ready,
+      awaiting_client: awaitingClient,
+      senses_allowed: sensesAllowed,
+      hearing_ready: hearingReady,
+      vision_ready: visionReady,
+      hearing_intentionally_suspended: sleeping || awaitingClient,
+      vision_intentionally_suspended: sleeping || awaitingClient,
+      sensory_suspension_reason: sleeping ? 'sleeping' : awaitingClient ? 'interface_not_ready' : null,
+      degraded_reasons: degradedReasons,
       marker: state.marker,
       pid: process.pid,
       host,
@@ -284,11 +394,105 @@ function createChatLocalRuntime(options = {}) {
     return output;
   }
 
+  function rememberGroundedVisionTurn(request, visionContext, reply) {
+    try {
+      const hippocampus = brain.requireModule('hippocampus');
+      const event = createBrainEvent({
+        type: 'system_text',
+        source: 'system',
+        modality: 'text',
+        created_at: nowIso(),
+        payload: {
+          text: 'I answered a direct sight question from my current webcam observation: ' + reply,
+          sensory_modality: 'vision',
+          source_type: visionContext && visionContext.source || 'webcam_unavailable',
+          addressed_to_floki: true,
+          user_text: request.transcript_user_text || request.cognition_text
+        },
+        provenance: {
+          observed_by: 'chat_local_runtime_grounded_vision',
+          confidence: visionContext && visionContext.available === true ? 0.95 : 1,
+          notes: 'Direct sensory answer used the current structured webcam observation without model invention.'
+        }
+      });
+      return hippocampus.safeRememberEvent(event, {
+        stream: 'short_term',
+        type: 'sensory_experience',
+        tags: ['vision', 'webcam', 'direct_question', 'grounded_reply'],
+        importance: 0.55,
+        content: {
+          summary: reply,
+          detail: JSON.stringify({
+            source: visionContext && visionContext.source || null,
+            observed_at: visionContext && visionContext.latest_private_observation_timestamp || null,
+            available: visionContext && visionContext.available === true
+          })
+        }
+      });
+    } catch (error) {
+      appendLog('grounded vision memory failed: ' + error.message);
+      return null;
+    }
+  }
+
   async function resolveVisionContext(text) {
-    if (!looksLikeVisionQuestion(text)) return undefined;
-    const current = readLatestPrivateObservation({ runtime_dir: runtimeDir });
+    if (!looksLikeVisionQuestion(text, visionConfig)) return undefined;
+    const readOptions = {
+      runtime_dir: runtimeDir,
+      max_age_ms: visionConfig.direct_answer_max_age_ms,
+      prefer_detection: visionConfig.direct_answer_prefer_detection === true
+    };
+    const current = readLatestPrivateObservation(readOptions);
     if (current && current.available === true && current.fresh === true) return current;
-    return waitForFreshVision(runtimeDir, { reason: 'spoken_or_typed_vision_question' });
+    return waitForFreshVision(runtimeDir, {
+      reason: 'spoken_or_typed_vision_question',
+      max_age_ms: visionConfig.direct_answer_max_age_ms,
+      wait_ms: visionConfig.direct_answer_wait_ms,
+      prefer_detection: visionConfig.direct_answer_prefer_detection === true
+    });
+  }
+
+  function recordGroundedVisionTurn(request, visionContext) {
+    const reply = buildGroundedVisionReply(visionContext, visionConfig);
+    const source = request.source || 'chat_local_runtime';
+    appendChatTranscriptTurn({
+      role: 'user',
+      text: String(request.transcript_user_text || request.cognition_text),
+      input_modality: request.input_modality || 'text',
+      output_modality: 'none',
+      spoken_aloud: false,
+      source
+    });
+    appendChatTranscriptTurn({
+      role: 'floki',
+      text: reply,
+      input_modality: request.input_modality || 'text',
+      output_modality: request.output_modality || 'text',
+      spoken_aloud: request.spoken_aloud === true,
+      source: 'grounded_live_vision'
+    });
+    rememberGroundedVisionTurn(request, visionContext, reply);
+    state.last_reply = reply;
+    state.last_turn_completed_at = nowIso();
+    state.last_grounded_vision_reply_at = state.last_turn_completed_at;
+    state.last_grounded_vision_source = visionContext && visionContext.source || null;
+    state.last_grounded_vision_observation_at = visionContext && visionContext.latest_private_observation_timestamp || null;
+    state.last_grounded_vision_available = visionContext && visionContext.available === true;
+    appendLog(
+      'grounded vision reply source=' + String(state.last_grounded_vision_source || 'unavailable') +
+      ' observation_at=' + String(state.last_grounded_vision_observation_at || 'none')
+    );
+    return Object.freeze({
+      ok: true,
+      marker: 'FLOKI_V2_GROUNDED_LIVE_VISION_REPLY',
+      reply,
+      grounded_live_vision: true,
+      vision_available: state.last_grounded_vision_available,
+      vision_source: state.last_grounded_vision_source,
+      vision_observation_at: state.last_grounded_vision_observation_at,
+      transcript_recorded_now: true,
+      latency_events: []
+    });
   }
 
   function enqueueTurn(request) {
@@ -302,6 +506,12 @@ function createChatLocalRuntime(options = {}) {
       publish();
       try {
         const visionContext = await resolveVisionContext(request.cognition_text);
+        if (
+          visionConfig.direct_answer_enabled === true &&
+          looksLikeVisionQuestion(request.cognition_text, visionConfig)
+        ) {
+          return recordGroundedVisionTurn(request, visionContext);
+        }
         const result = await handleTypedText(brain, request.cognition_text, {
           signal: activeAbortController.signal,
           input_modality: request.input_modality || 'text',
@@ -319,7 +529,11 @@ function createChatLocalRuntime(options = {}) {
       } finally {
         activeAbortController = null;
         state.active_turn = false;
-        state.state = lifecycle.is_awake === false ? 'sleeping' : 'listening';
+        state.state = lifecycle.is_awake === false
+          ? 'sleeping'
+          : state.client_ready
+            ? 'listening'
+            : 'awaiting_client';
         publish();
       }
     };
@@ -332,7 +546,7 @@ function createChatLocalRuntime(options = {}) {
     runtime_dir: runtimeDir,
     session_id: brain.session_id,
     audio_config: audioConfig,
-    initial_awake: lifecycle.is_awake === true,
+    initial_awake: false,
     on_ambient_observation: rememberAmbient,
     async on_direct_speech(input) {
       const acceptedAt = nowIso();
@@ -352,31 +566,29 @@ function createChatLocalRuntime(options = {}) {
   async function applyLifecycle(next) {
     lifecycle = next;
     const awake = next && next.is_awake === true;
+    const enableSenses = awake && state.client_ready === true;
+    state.senses_enabled = enableSenses;
 
     try {
-      await liveAudio.setAwake(awake);
+      await liveAudio.setAwake(enableSenses);
       state.hearing_start_error = null;
     } catch (error) {
       state.hearing_start_error = error.message;
       appendLog('hearing lifecycle reconcile failed: ' + error.message);
     }
 
-    state.state = awake
-      ? (state.active_turn ? 'thinking' : liveAudio.status().speaking ? 'speaking' : 'listening')
-      : 'sleeping';
-
-    if (!awake) {
-      visionManagedSleeping = true;
+    if (!enableSenses) {
+      visionManagedSleeping = !awake;
       try {
         const vision = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
         if (vision.active === true || vision.camera_open === true) {
           await stopChatWebcamVisionService({ runtime_dir: runtimeDir, stop_tunnel: false });
-          appendLog('vision paused for sleep');
+          appendLog(awake ? 'vision paused until interface ready' : 'vision paused for sleep');
         }
         state.vision_start_error = null;
       } catch (error) {
         state.vision_start_error = error.message;
-        appendLog('vision sleep pause failed: ' + error.message);
+        appendLog('vision suspension failed: ' + error.message);
       }
     } else {
       visionManagedSleeping = false;
@@ -384,14 +596,27 @@ function createChatLocalRuntime(options = {}) {
         const vision = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
         if (vision.active !== true || vision.camera_open !== true) {
           await startChatWebcamVisionService({ runtime_dir: runtimeDir });
-          appendLog('vision enabled for awake state');
+          appendLog('vision enabled after interface ready');
         }
         state.vision_start_error = null;
       } catch (error) {
         state.vision_start_error = error.message;
-        appendLog('vision wake start failed: ' + error.message);
+        appendLog('vision awake start failed: ' + error.message);
       }
     }
+
+    const audioStatus = liveAudio.status();
+    state.state = !awake
+      ? 'sleeping'
+      : state.client_ready !== true
+        ? 'awaiting_client'
+        : (state.hearing_start_error || state.vision_start_error || audioStatus.last_error || audioStatus.last_wake_gate_error)
+          ? 'degraded'
+          : state.active_turn
+            ? 'thinking'
+            : audioStatus.speaking
+              ? 'speaking'
+              : 'listening';
     publish();
   }
 
@@ -414,6 +639,29 @@ function createChatLocalRuntime(options = {}) {
     if (req.method === 'GET' && url.pathname === '/transcript') {
       const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get('limit') || 200)));
       sendJson(res, 200, { ok: true, entries: readChatTranscriptTail(limit) });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/client-ready') {
+      state.client_ready = true;
+      state.client_ready_at = nowIso();
+      state.client_detached_at = null;
+      appendLog('interface ready; reconciling awake sensory services');
+      await applyLifecycle(buildFlokiLifecycleStatus());
+      sendJson(res, 200, { ok: true, marker: 'FLOKI_V2_CHAT_LOCAL_CLIENT_READY_PASS', status: status() });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/client-detached') {
+      state.client_ready = false;
+      state.client_detached_at = nowIso();
+      appendLog('interface detached; suspending external senses');
+      await applyLifecycle(buildFlokiLifecycleStatus());
+      sendJson(res, 200, { ok: true, marker: 'FLOKI_V2_CHAT_LOCAL_CLIENT_DETACHED_PASS', status: status() });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/transcript/clear') {
+      const result = clearChatTranscript();
+      appendLog('visible chat transcript cleared; entries=' + String(result.entries_cleared));
+      sendJson(res, 200, result);
       return;
     }
     if (req.method === 'POST' && url.pathname === '/chat') {
@@ -482,7 +730,14 @@ function createChatLocalRuntime(options = {}) {
     });
 
     state.api_ready = true;
-    state.state = lifecycle.is_awake === true ? 'listening' : 'sleeping';
+    const startupAudio = liveAudio.status();
+    state.state = lifecycle.is_awake !== true
+      ? 'sleeping'
+      : state.client_ready !== true
+        ? 'awaiting_client'
+        : (state.hearing_start_error || state.vision_start_error || startupAudio.last_error || startupAudio.last_wake_gate_error)
+          ? 'degraded'
+          : 'listening';
     publish();
     heartbeatTimer = setInterval(() => publish(), heartbeatMs);
     lifecycleTimer = setInterval(() => {
@@ -500,6 +755,8 @@ function createChatLocalRuntime(options = {}) {
   async function stop() {
     if (stopping) return;
     stopping = true;
+    state.client_ready = false;
+    state.senses_enabled = false;
     state.shutdown_requested = true;
     state.state = 'stopping';
     publish();
@@ -551,7 +808,11 @@ module.exports = {
   DEFAULT_HOST,
   DEFAULT_PORT,
   memoryPathsWritable,
+  normalizeIntentText,
+  configuredVisionQuestionPhrases,
   looksLikeVisionQuestion,
+  buildGroundedVisionReply,
+  visionObservationTimestamp,
   waitForFreshVision,
   createChatLocalRuntime
 };

@@ -108,6 +108,20 @@ vision:
   vlm_ssh_tunnel_remote_port: 11434
   vlm_ssh_tunnel_socket_name: chat-vision-ssh-tunnel.sock
   vlm_ssh_tunnel_check_timeout_ms: 8000
+  direct_answer_enabled: true
+  direct_answer_prefer_detection: true
+  direct_answer_max_age_ms: 8000
+  direct_answer_wait_ms: 2500
+  direct_answer_prefix: "From my camera right now: "
+  direct_answer_unavailable_reply: "My current camera view is unavailable right now."
+  direct_question_phrases:
+    phrase_01: what do you see
+    phrase_02: what can you see
+    phrase_03: describe what you see
+    phrase_04: tell me what you see
+    phrase_05: what are you looking at
+    phrase_06: what is in front of you
+    phrase_07: look around and tell me what you see
 
 detection:
   person_verifier_uncertain_ttl_ms: 3000
@@ -215,9 +229,11 @@ paths:
   runtime_root: state/floki/runtime
   chat_runtime_root: state/floki/chat/runtime
   chat_transcript_root: state/floki/chat/interface
-  dream_root: /mnt/firstlight-cold-storage/Floki-memory-bank/dreams
-  media_root: /media/binary-god/2tb-ssd/Floki-media
-  youtube_transcript_root: /media/binary-god/2tb-ssd/Floki-media/text/youtube
+  dream_root: /absolute/path/to/Floki-memory-bank/dreams
+  media_root: /absolute/path/to/Floki-media
+  youtube_transcript_root: /absolute/path/to/Floki-media/text/youtube
+  youtube_cookies_file: /absolute/path/outside/repository/cookies.txt
+
 
 sleep:
   timezone: America/Toronto
@@ -255,6 +271,17 @@ dream:
   grounding_knowledge_limit: 3
   recent_dream_avoidance_count: 12
   quality_regeneration_attempts: 1
+wake_gate:
+  required_phrase: hey floki
+  accepted_phrases:
+    phrase_01: hey floki
+    phrase_02: floki
+  spoken_input_requires_wake_phrase: true
+  typed_input_requires_wake_phrase: true
+  case_insensitive: true
+  trim_punctuation: true
+  may_ignore_unaddressed_background_speech: true
+
 audio:
   mic_device: default
   mic_rate: 16000
@@ -266,6 +293,17 @@ audio:
   vad_frame_samples: 512
   pre_roll_ms: 1600
   post_roll_ms: 320
+  attention_scan_enabled: true
+  attention_scan_window_ms: 4800
+  attention_scan_interval_ms: 1600
+  attention_followup_interval_ms: 600
+  attention_scan_min_audio_ms: 1200
+  attention_scan_min_rms: 0.008
+  attention_command_settle_ms: 1100
+  attention_command_max_wait_ms: 6000
+  attention_direct_dedupe_ms: 8000
+  attention_history_limit: 20
+  attention_max_pending_scans: 1
   vad_start_threshold: 0.55
   vad_end_threshold: 0.35
   vad_start_frames: 2

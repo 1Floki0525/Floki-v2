@@ -54,6 +54,15 @@ function pcmRms(frame) {
   return Math.sqrt(sum / Math.max(1, samples));
 }
 
+function classifyLiveHeardText(heard, speaking = false) {
+  return classifyWakeInput({
+    text: String(heard || ''),
+    modality: 'spoken',
+    source: 'user',
+    voice_speaking: speaking === true
+  });
+}
+
 function createLiveAudioService(options = {}) {
   const audio = options.audio_config || getAudioConfig('chat');
   const paths = getPathConfig('chat');
@@ -82,6 +91,17 @@ function createLiveAudioService(options = {}) {
   const ambientEndFrames = Math.max(1, Number(audio.ambient_end_frames || 20));
   const maxAmbientFrames = Math.max(1, Math.ceil(Number(audio.ambient_max_event_seconds || 12) * 1000 / frameMs));
   const minAmbientFrames = Math.max(1, Math.ceil(Number(audio.ambient_min_event_ms || 500) / frameMs));
+  const attentionScanEnabled = audio.attention_scan_enabled === true;
+  const attentionWindowFrames = Math.max(1, Math.ceil(Number(audio.attention_scan_window_ms) / frameMs));
+  const attentionIntervalMs = Math.max(frameMs, Number(audio.attention_scan_interval_ms));
+  const attentionFollowupIntervalMs = Math.max(frameMs, Number(audio.attention_followup_interval_ms));
+  const attentionMinFrames = Math.max(1, Math.ceil(Number(audio.attention_scan_min_audio_ms) / frameMs));
+  const attentionMinRms = Number(audio.attention_scan_min_rms);
+  const attentionSettleMs = Math.max(0, Number(audio.attention_command_settle_ms));
+  const attentionMaxWaitMs = Math.max(attentionSettleMs, Number(audio.attention_command_max_wait_ms));
+  const attentionDedupeMs = Math.max(0, Number(audio.attention_direct_dedupe_ms));
+  const attentionHistoryLimit = Math.max(1, Number(audio.attention_history_limit));
+  const attentionMaxPending = Math.max(1, Number(audio.attention_max_pending_scans));
 
   const whisper = createLiveWhisperService({ audio_config: audio });
   let piper;
@@ -102,9 +122,25 @@ function createLiveAudioService(options = {}) {
     last_speech_ended_at: null,
     last_transcription_at: null,
     last_transcription_text: '',
+    last_wake_gate_decision_at: null,
+    last_wake_gate_reason: null,
+    last_wake_gate_error: null,
     last_direct_address_at: null,
     last_reply_spoken_at: null,
     last_ambient_event_at: null,
+    last_ambient_sink_error: null,
+    last_attention_scan_at: null,
+    last_attention_scan_text: '',
+    last_attention_scan_error: null,
+    last_attention_route_at: null,
+    last_attention_route_text: '',
+    attention_scans_completed: 0,
+    attention_direct_routes: 0,
+    attention_scan_history: [],
+    attention_candidate_text: '',
+    attention_candidate_started_at: null,
+    attention_candidate_last_changed_at: null,
+    direct_route_in_flight: false,
     utterances_completed: 0,
     ambient_events_recorded: 0,
     dropped_frames_while_gated: 0,
@@ -130,7 +166,17 @@ function createLiveAudioService(options = {}) {
   let ambientPeakRms = 0;
   let sequence = 0;
   let vadLineBuffer = '';
-  let processingQueue = Promise.resolve();
+  const highPriorityAudioTasks = [];
+  const normalPriorityAudioTasks = [];
+  let audioTaskRunning = false;
+  let audioIdleResolvers = [];
+  let attentionFrames = [];
+  let attentionLastQueuedAt = 0;
+  let attentionPendingScans = 0;
+  let attentionCandidate = null;
+  let attentionCandidateTimer = null;
+  let lastDirectRouteKey = '';
+  let lastDirectRouteAt = 0;
   const pendingVadFrames = new Map();
 
   function refreshComponentState() {
@@ -183,8 +229,10 @@ function createLiveAudioService(options = {}) {
     state.ambient_events_recorded += 1;
     state.last_ambient_event_at = complete.processed_at;
     if (typeof options.on_ambient_observation === 'function') {
-      Promise.resolve(options.on_ambient_observation(complete)).catch((error) => {
-        state.last_error = 'ambient observation sink: ' + error.message;
+      Promise.resolve(options.on_ambient_observation(complete)).then(() => {
+        state.last_ambient_sink_error = null;
+      }).catch((error) => {
+        state.last_ambient_sink_error = 'ambient observation sink: ' + error.message;
         publish();
       });
     }
@@ -203,15 +251,53 @@ function createLiveAudioService(options = {}) {
     ambientStartCount = 0;
     ambientEndCount = 0;
     ambientPeakRms = 0;
+    attentionFrames = [];
+    cancelAttentionCandidate();
     pendingVadFrames.clear();
   }
 
-  function queueAudioProcessing(task) {
-    processingQueue = processingQueue.then(task, task).catch((error) => {
+  function resolveAudioIdle() {
+    if (audioTaskRunning || highPriorityAudioTasks.length || normalPriorityAudioTasks.length) return;
+    const resolvers = audioIdleResolvers;
+    audioIdleResolvers = [];
+    for (const resolve of resolvers) resolve();
+  }
+
+  async function pumpAudioTasks() {
+    if (audioTaskRunning) return;
+    const entry = highPriorityAudioTasks.shift() || normalPriorityAudioTasks.shift();
+    if (!entry) { resolveAudioIdle(); return; }
+    audioTaskRunning = true;
+    try {
+      const value = await entry.task();
+      entry.resolve(value);
+    } catch (error) {
       state.last_error = error.message;
       publish();
+      entry.reject(error);
+    } finally {
+      audioTaskRunning = false;
+      setImmediate(pumpAudioTasks);
+    }
+  }
+
+  function queueAudioProcessing(task, priority = 'normal') {
+    return new Promise((resolve, reject) => {
+      const entry = { task, resolve, reject };
+      if (priority === 'high') highPriorityAudioTasks.push(entry);
+      else normalPriorityAudioTasks.push(entry);
+      pumpAudioTasks();
     });
-    return processingQueue;
+  }
+
+  function waitForAudioIdle(timeoutMs) {
+    if (!audioTaskRunning && highPriorityAudioTasks.length === 0 && normalPriorityAudioTasks.length === 0) {
+      return Promise.resolve();
+    }
+    return Promise.race([
+      new Promise((resolve) => audioIdleResolvers.push(resolve)),
+      new Promise((resolve) => setTimeout(resolve, timeoutMs))
+    ]);
   }
 
   function classifyAmbientResult(parsed, metadata) {
@@ -231,7 +317,7 @@ function createLiveAudioService(options = {}) {
       });
     }
     if (parsed.speech_text) {
-      const wake = classifyWakeInput(parsed.speech_text, { now_ms: Date.now(), voice_lock_active: state.speaking });
+      const wake = classifyLiveHeardText(parsed.speech_text, state.speaking);
       if (!shouldRouteToCognition(wake)) {
         records.push({
           id: newId('audioevent'),
@@ -261,6 +347,207 @@ function createLiveAudioService(options = {}) {
       });
     }
     return records;
+  }
+
+  function directRouteKey(classification) {
+    return String(classification && classification.request_text || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  function recordAttentionScan(text, routeReason) {
+    const entry = Object.freeze({ observed_at: nowIso(), text: String(text || ''), route_reason: routeReason || null });
+    const history = state.attention_scan_history.concat([entry]).slice(-attentionHistoryLimit);
+    state.attention_scan_history = history;
+  }
+
+  function cancelAttentionCandidate() {
+    attentionCandidate = null;
+    state.attention_candidate_text = '';
+    state.attention_candidate_started_at = null;
+    state.attention_candidate_last_changed_at = null;
+    if (attentionCandidateTimer) clearTimeout(attentionCandidateTimer);
+    attentionCandidateTimer = null;
+  }
+
+  async function routeDirectSpeech({ heard, classification, utteranceId, startedAt, endedAt, source }) {
+    const key = directRouteKey(classification);
+    const now = Date.now();
+    if (key && key === lastDirectRouteKey && now - lastDirectRouteAt < attentionDedupeMs) {
+      return Object.freeze({ duplicate: true, reply: '' });
+    }
+    if (source !== 'rolling_attention_scan') cancelAttentionCandidate();
+    lastDirectRouteKey = key;
+    lastDirectRouteAt = now;
+    state.last_direct_address_at = nowIso();
+    state.service_state = 'thinking';
+    state.direct_route_in_flight = true;
+    if (source === 'rolling_attention_scan') {
+      state.last_attention_route_at = state.last_direct_address_at;
+      state.last_attention_route_text = heard;
+      state.attention_direct_routes += 1;
+    }
+    publish({ current_utterance_id: utteranceId, heard_text: heard, direct_address_source: source });
+    try {
+      const response = await options.on_direct_speech({
+        utterance_id: utteranceId,
+        raw_text: heard,
+        request_text: classification.request_text,
+        attention_only: classification.attention_only === true,
+        speech_started_at: startedAt,
+        speech_ended_at: endedAt,
+        transcribed_at: state.last_transcription_at,
+        received_by_brain_at: nowIso(),
+        session_id: state.session_id,
+        sequence: state.utterances_completed,
+        source
+      });
+      if (response && response.reply) {
+        await piper.speak(response.reply, { utterance_id: utteranceId, text_hash: 'live_audio_' + String(response.reply.length) });
+        state.last_reply_spoken_at = nowIso();
+      }
+      return response || Object.freeze({ reply: '' });
+    } catch (error) {
+      state.last_error = 'direct speech route failed: ' + error.message;
+      state.service_state = 'degraded';
+      publish({ current_utterance_id: utteranceId });
+      throw error;
+    } finally {
+      state.direct_route_in_flight = false;
+      if (!state.speaking) {
+        state.service_state = state.last_error ? 'degraded' : (state.awake ? 'listening' : 'sleeping');
+      }
+      publish({ current_utterance_id: null });
+    }
+  }
+
+  function flushAttentionCandidate() {
+    if (!attentionCandidate) return;
+    const now = Date.now();
+    const candidate = attentionCandidate;
+    const hasCommand = candidate.classification.attention_only !== true && Boolean(directRouteKey(candidate.classification));
+    const elapsedSinceChange = now - candidate.last_changed_at;
+    const elapsedTotal = now - candidate.first_seen_at;
+    const requiredWait = hasCommand ? attentionSettleMs : attentionMaxWaitMs;
+    const elapsed = hasCommand ? elapsedSinceChange : elapsedTotal;
+
+    if (elapsed < requiredWait) {
+      if (attentionCandidateTimer) clearTimeout(attentionCandidateTimer);
+      attentionCandidateTimer = setTimeout(flushAttentionCandidate, Math.max(1, requiredWait - elapsed));
+      return;
+    }
+
+    cancelAttentionCandidate();
+    if (!state.awake || state.speaking || stopping) return;
+    void routeDirectSpeech({
+      heard: candidate.heard,
+      classification: candidate.classification,
+      utteranceId: candidate.utterance_id,
+      startedAt: candidate.started_at,
+      endedAt: candidate.ended_at,
+      source: 'rolling_attention_scan'
+    }).catch(() => {});
+  }
+
+  function considerAttentionCandidate(heard, classification, metadata) {
+    const now = Date.now();
+    const key = directRouteKey(classification);
+    const currentKey = attentionCandidate ? directRouteKey(attentionCandidate.classification) : '';
+    const currentRequest = attentionCandidate ? String(attentionCandidate.classification.request_text || '') : '';
+    const incomingRequest = String(classification.request_text || '');
+    const shouldReplace = !attentionCandidate ||
+      (attentionCandidate.classification.attention_only === true && classification.attention_only !== true) ||
+      incomingRequest.length >= currentRequest.length;
+
+    if (!attentionCandidate) {
+      attentionCandidate = {
+        heard,
+        classification,
+        key,
+        first_seen_at: now,
+        last_seen_at: now,
+        last_changed_at: now,
+        utterance_id: metadata.utterance_id,
+        started_at: metadata.started_at,
+        ended_at: metadata.ended_at
+      };
+    } else {
+      const changed = key !== currentKey || heard !== attentionCandidate.heard;
+      if (shouldReplace) {
+        attentionCandidate.heard = heard;
+        attentionCandidate.classification = classification;
+        attentionCandidate.key = key;
+        attentionCandidate.utterance_id = metadata.utterance_id;
+        attentionCandidate.ended_at = metadata.ended_at;
+      }
+      attentionCandidate.last_seen_at = now;
+      if (changed && shouldReplace) attentionCandidate.last_changed_at = now;
+    }
+
+    state.attention_candidate_text = attentionCandidate.heard;
+    state.attention_candidate_started_at = new Date(attentionCandidate.first_seen_at).toISOString();
+    state.attention_candidate_last_changed_at = new Date(attentionCandidate.last_changed_at).toISOString();
+
+    if (attentionCandidateTimer) clearTimeout(attentionCandidateTimer);
+    const hasCommand = attentionCandidate.classification.attention_only !== true && Boolean(directRouteKey(attentionCandidate.classification));
+    const delay = hasCommand ? attentionSettleMs : Math.max(1, attentionMaxWaitMs - (now - attentionCandidate.first_seen_at));
+    attentionCandidateTimer = setTimeout(flushAttentionCandidate, Math.max(1, delay));
+    publish();
+  }
+
+  function scheduleAttentionScan() {
+    if (!attentionScanEnabled || stopping || !state.awake || state.speaking) return;
+    const now = Date.now();
+    if (attentionFrames.length < attentionMinFrames) return;
+    const scanIntervalMs = attentionCandidate ? attentionFollowupIntervalMs : attentionIntervalMs;
+    if (now - attentionLastQueuedAt < scanIntervalMs) return;
+    if (attentionPendingScans >= attentionMaxPending) return;
+    const snapshotFrames = attentionFrames.slice(-attentionWindowFrames);
+    const peakRms = snapshotFrames.reduce((peak, item) => Math.max(peak, item.rms), 0);
+    if (peakRms < attentionMinRms) return;
+    attentionLastQueuedAt = now;
+    attentionPendingScans += 1;
+    const scanId = newId('attentionscan');
+    const endedAt = nowIso();
+    queueAudioProcessing(async () => {
+      const wavFile = path.join(tempDir, scanId + '.wav');
+      try {
+        if (!state.awake || state.speaking || stopping) return;
+        writeWavPcm16(wavFile, Buffer.concat(snapshotFrames.map((entry) => entry.frame)), sampleRate, channels);
+        const parsed = await whisper.transcribe(wavFile);
+        const heard = String(parsed.speech_text || '').trim();
+        state.last_attention_scan_at = nowIso();
+        state.last_attention_scan_text = heard || parsed.raw_text || '';
+        state.last_attention_scan_error = null;
+        state.attention_scans_completed += 1;
+        if (!heard) { recordAttentionScan('', 'no_speech_text'); return; }
+        const classification = classifyLiveHeardText(heard, state.speaking);
+        recordAttentionScan(heard, classification.reason || null);
+        if (shouldRouteToCognition(classification)) {
+          considerAttentionCandidate(heard, classification, {
+            utterance_id: scanId,
+            started_at: endedAt,
+            ended_at: endedAt
+          });
+        }
+      } catch (error) {
+        state.last_attention_scan_at = nowIso();
+        state.last_attention_scan_error = error.message;
+        recordAttentionScan('', 'scan_error');
+      } finally {
+        attentionPendingScans = Math.max(0, attentionPendingScans - 1);
+        fs.rmSync(wavFile, { force: true });
+        publish();
+      }
+    }, 'high').catch(() => {});
+  }
+
+  function handleAttentionFrame(frame) {
+    if (!attentionScanEnabled || stopping || !state.awake || state.speaking) return;
+    attentionFrames.push({ frame, rms: pcmRms(frame) });
+    if (attentionFrames.length > attentionWindowFrames) attentionFrames.shift();
+    scheduleAttentionScan();
   }
 
   function finalizeAmbient(reason) {
@@ -297,7 +584,7 @@ function createLiveAudioService(options = {}) {
         fs.rmSync(wavFile, { force: true });
         publish();
       }
-    });
+    }, 'normal').catch(() => {});
   }
 
   function finalizeSpeech(reason) {
@@ -317,6 +604,7 @@ function createLiveAudioService(options = {}) {
 
     queueAudioProcessing(async () => {
       const wavFile = path.join(tempDir, utteranceId + '.wav');
+      let directRouteStarted = false;
       try {
         if (!state.awake || state.speaking || stopping) return;
         writeWavPcm16(wavFile, Buffer.concat(frames), sampleRate, channels);
@@ -339,7 +627,24 @@ function createLiveAudioService(options = {}) {
 
         const heard = String(parsed.speech_text || '').trim();
         if (!heard) return;
-        const classification = classifyWakeInput(heard, { now_ms: Date.now(), voice_lock_active: state.speaking });
+        let classification;
+        try {
+          classification = classifyLiveHeardText(heard, state.speaking);
+          state.last_wake_gate_decision_at = nowIso();
+          state.last_wake_gate_reason = classification.reason || null;
+          state.last_wake_gate_error = null;
+          if (state.last_error && state.last_error.startsWith('wake gate classification failed:')) {
+            state.last_error = null;
+          }
+        } catch (error) {
+          state.last_wake_gate_decision_at = nowIso();
+          state.last_wake_gate_reason = 'classification_error';
+          state.last_wake_gate_error = error.message;
+          state.last_error = 'wake gate classification failed: ' + error.message;
+          state.service_state = 'degraded';
+          publish({ current_utterance_id: utteranceId, heard_text: heard });
+          return;
+        }
         if (!shouldRouteToCognition(classification)) {
           appendAmbient({
             id: newId('audioevent'),
@@ -355,31 +660,25 @@ function createLiveAudioService(options = {}) {
           return;
         }
 
-        state.last_direct_address_at = nowIso();
-        state.service_state = 'thinking';
-        publish({ current_utterance_id: utteranceId, heard_text: heard });
-        const response = await options.on_direct_speech({
-          utterance_id: utteranceId,
-          raw_text: heard,
-          request_text: classification.request_text,
-          attention_only: classification.attention_only === true,
-          speech_started_at: startedAt,
-          speech_ended_at: endedAt,
-          transcribed_at: state.last_transcription_at,
-          received_by_brain_at: nowIso(),
-          session_id: state.session_id,
-          sequence: state.utterances_completed
-        });
-        if (response && response.reply) {
-          await piper.speak(response.reply, { utterance_id: utteranceId, text_hash: 'live_audio_' + String(response.reply.length) });
-          state.last_reply_spoken_at = nowIso();
-        }
+        directRouteStarted = true;
+        void routeDirectSpeech({
+          heard,
+          classification,
+          utteranceId,
+          startedAt,
+          endedAt,
+          source: 'vad_finalized_utterance'
+        }).catch(() => {});
       } finally {
         fs.rmSync(wavFile, { force: true });
-        state.service_state = state.awake ? 'listening' : 'sleeping';
-        publish({ current_utterance_id: null });
+        if (!directRouteStarted) {
+          state.service_state = state.last_wake_gate_error
+            ? 'degraded'
+            : (state.awake ? 'listening' : 'sleeping');
+          publish({ current_utterance_id: null });
+        }
       }
-    });
+    }, 'high').catch(() => {});
   }
 
   function handleVadProbability(frame, probability) {
@@ -506,6 +805,7 @@ function createLiveAudioService(options = {}) {
         const frame = Buffer.from(pcmBuffer.subarray(0, frameBytes));
         pcmBuffer = pcmBuffer.subarray(frameBytes);
         if (!state.awake || state.speaking) { state.dropped_frames_while_gated += 1; continue; }
+        handleAttentionFrame(frame);
         sendFrameToVad(frame);
       }
     });
@@ -613,7 +913,7 @@ function createLiveAudioService(options = {}) {
     vad = null;
     componentsStarted = false;
     await whisper.stop();
-    await Promise.race([processingQueue.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 3000))]);
+    await waitForAudioIdle(3000);
     fs.rmSync(tempDir, { recursive: true, force: true });
     state.microphone_open = false;
     state.vad_ready = false;
@@ -681,5 +981,6 @@ module.exports = {
   writeWavPcm16,
   pcmRms,
   parseWhisperResult: parseWhisperText,
+  classifyLiveHeardText,
   createLiveAudioService
 };

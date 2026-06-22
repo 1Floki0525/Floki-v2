@@ -479,6 +479,10 @@ function serviceStatus() {
   const visionRunning = processAlive(visionPid);
   const hearingRunning = processAlive(hearingPid);
   const coreRunning = hearingRunning && runtimeStatus.brain_loaded === true;
+  const runtimeSleeping = runtimeStatus.lifecycle?.is_awake === false || runtimeStatus.state === 'sleeping';
+  const hearingError = runtimeStatus.hearing?.last_error || runtimeStatus.hearing?.last_wake_gate_error || runtimeStatus.hearing_start_error || null;
+  const hearingReady = runtimeStatus.hearing_ready === true && !hearingError;
+  const speechReady = !runtimeSleeping && runtimeStatus.hearing?.piper_ready === true && runtimeStatus.hearing?.playback_ready === true && !hearingError;
 
   let emotionHealthy = false;
   try {
@@ -537,12 +541,16 @@ function serviceStatus() {
     },
     {
       name: 'Hearing',
-      status: runtimeStatus.hearing?.microphone_open && runtimeStatus.hearing?.vad_ready && runtimeStatus.hearing?.whisper_ready ? 'Running' : (hearingRunning ? 'Degraded' : 'Stopped'),
+      status: runtimeSleeping ? 'Stopped' : (hearingReady ? 'Running' : (hearingRunning ? 'Degraded' : 'Stopped')),
       lastHeartbeat: Date.parse(runtimeStatus.hearing?.last_heartbeat_at || '') || safeFileTime(hearingLog),
       uptime: uptimeFromFile(hearingPidFile),
       latency: 0,
-      lastError: runtimeStatus.hearing?.last_error || null,
-      detail: runtimeStatus.hearing?.microphone_open ? `Continuous microphone open · Silero ${runtimeStatus.hearing?.vad_ready ? 'ready' : 'not ready'} · Whisper ${runtimeStatus.hearing?.whisper_ready ? 'ready' : 'not ready'}.` : 'Continuous hearing is not active.',
+      lastError: hearingError,
+      detail: runtimeSleeping
+        ? 'Hearing is intentionally suspended while Floki is asleep.'
+        : hearingReady
+          ? `Continuous microphone open · Silero ready · Whisper ready · wake gate healthy.`
+          : `Continuous hearing is degraded${hearingError ? ': ' + hearingError : '.'}`,
       restartAvailable: true,
       logAvailable: true,
       controlAction: 'restartHearing',
@@ -550,12 +558,16 @@ function serviceStatus() {
     },
     {
       name: 'Speech',
-      status: runtimeStatus.hearing?.piper_ready && runtimeStatus.hearing?.playback_ready ? 'Running' : (hearingRunning ? 'Degraded' : 'Stopped'),
+      status: runtimeSleeping ? 'Stopped' : (speechReady ? 'Running' : (hearingRunning ? 'Degraded' : 'Stopped')),
       lastHeartbeat: Date.parse(runtimeStatus.hearing?.last_heartbeat_at || '') || safeFileTime(hearingLog),
       uptime: uptimeFromFile(hearingPidFile),
       latency: 0,
-      lastError: runtimeStatus.hearing?.last_error || null,
-      detail: runtimeStatus.hearing?.piper_ready ? `Piper ready · playback ${runtimeStatus.hearing?.playback_ready ? 'ready' : 'unavailable'} · speaking ${runtimeStatus.hearing?.speaking === true}.` : 'Speech service is not ready.',
+      lastError: hearingError,
+      detail: runtimeSleeping
+        ? 'Speech is inactive while Floki is asleep.'
+        : speechReady
+          ? `Piper ready · playback ready · speaking ${runtimeStatus.hearing?.speaking === true}.`
+          : 'Speech service is not ready.',
       restartAvailable: true,
       logAvailable: true,
       controlAction: 'restartSpeech',
@@ -753,11 +765,9 @@ function registerIpc() {
       pathConfig.chat_runtime_root
     );
     const runtimeStatus = readRuntimeStatus();
-    const hearingActive = Boolean(
-      runtimeStatus.hearing?.microphone_open === true &&
-      runtimeStatus.hearing?.vad_ready === true &&
-      runtimeStatus.hearing?.whisper_ready === true
-    );
+    const runtimeAwake = runtimeStatus.lifecycle?.is_awake === true;
+    const hearingError = runtimeStatus.hearing?.last_error || runtimeStatus.hearing?.last_wake_gate_error || runtimeStatus.hearing_start_error || null;
+    const hearingActive = Boolean(runtimeAwake && runtimeStatus.hearing_ready === true && !hearingError);
 
     return {
       connected: runtimeStatus.api_ready === true,
@@ -765,10 +775,10 @@ function registerIpc() {
       mode: 'chat.local',
       cognitionModel: runtimeStatus.cognition_model || getModelConfig('chat').cognition.model,
       online: runtimeStatus.ready === true,
-      visionActive: webcamStatus.ready_for_chat === true,
+      visionActive: runtimeAwake && runtimeStatus.vision_ready === true,
       hearingActive,
       memoryLoaded: runtimeStatus.memory_loaded === true,
-      speechActive: runtimeStatus.hearing?.piper_ready === true && runtimeStatus.hearing?.playback_ready === true,
+      speechActive: Boolean(runtimeAwake && runtimeStatus.hearing?.piper_ready === true && runtimeStatus.hearing?.playback_ready === true && !hearingError),
       sleepState: life.state,
       vision,
       runtime: runtimeStatus,
@@ -776,6 +786,7 @@ function registerIpc() {
   });
   ipcMain.handle('floki:get-system-status', async () => serviceStatus());
   ipcMain.handle('floki:get-transcript', async (_event, payload = {}) => readChatTranscriptTail(Number(payload.limit || 200)).map(normalizeTranscript));
+  ipcMain.handle('floki:clear-transcript', async () => runtimeRequest('POST', '/transcript/clear', {}));
   ipcMain.handle('floki:send-message', async (_event, payload = {}) => {
     const text = String(payload.text || '').trim();
     if (!text) throw new Error('message text is required');
@@ -880,9 +891,15 @@ function createWindow() {
   });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(DIST_INDEX);
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    void runtimeRequest('POST', '/client-ready', {}).catch((error) => {
+      console.error('FLOKI_V2_CLIENT_READY_SIGNAL_FAIL: ' + error.message);
+    });
+  });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    mainWindow.on('closed', () => {
+  mainWindow.on('closed', () => {
+    void runtimeRequest('POST', '/client-detached', {}).catch(() => {});
     mainWindow = null;
     cleanupProcesses();
   });
@@ -898,7 +915,7 @@ app.whenReady().then(async () => {
   if (runtimeStatus.api_ready !== true || runtimeStatus.brain_loaded !== true) {
     throw new Error('authoritative chat.local runtime is not ready');
   }
-  console.error('[FLOKI STARTUP 7/7] Shared brain, hearing, speech, memory, vision, and sleep status connected');
+  console.error('[FLOKI STARTUP 7/7] Shared brain, memory, and sleep state connected; eyes and ears remain suspended until the window is visible');
 
   registerIpc();
   createWindow();

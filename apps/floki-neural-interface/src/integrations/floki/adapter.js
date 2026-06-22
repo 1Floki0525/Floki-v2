@@ -22,6 +22,7 @@ class FlokiAdapter {
   async getDreamTimeline() { return bridge().getDreamTimeline(); }
   async getInitialStatus() { return bridge().getInitialStatus(); }
   async getTranscript(limit = 200) { return bridge().getTranscript(limit); }
+  async clearTranscript() { return bridge().clearTranscript(); }
   async control(action, argument = null) { return bridge().control(action, argument); }
   async openLog(service) { return bridge().openLog(service); }
   async interruptResponse() { return bridge().interrupt(); }

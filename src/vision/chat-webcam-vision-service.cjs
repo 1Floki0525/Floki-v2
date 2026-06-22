@@ -646,6 +646,10 @@ function buildFreshDetectionObservation(options = {}) {
 function readLatestPrivateObservation(options = {}) {
   const paths = runtimePaths(options);
   const vision = getVisionConfig('chat');
+  const preferredDetection = options.prefer_detection === true
+    ? buildFreshDetectionObservation(options)
+    : null;
+  if (preferredDetection) return preferredDetection;
   const observation = safeReadJson(paths.latest_observation_file);
   const unavailable = (reason, extra = {}) => Object.freeze({
     available: false,

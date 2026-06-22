@@ -124,6 +124,7 @@ function loadFlokiConfig(mode) {
   if (mode === 'chat') {
     configDraft.detection = buildDetectionSection(raw.detection, mode);
     configDraft.chat_world_vision = buildChatWorldVisionSection(raw.chat_world_vision, mode);
+    configDraft.wake_gate = buildWakeGateSection(raw.wake_gate, mode);
     configDraft.audio = buildAudioSection(raw.audio, mode);
     configDraft.live_chat = buildLiveChatSection(raw.live_chat, mode);
     if (raw.game_world_vision !== undefined) {
@@ -169,6 +170,14 @@ function buildModelSection(section, mode, label) {
 function buildVisionSection(section, mode) {
   if (!section) failMissingYamlKey(mode, 'vision');
 
+  let directQuestionPhrases = null;
+  if (mode === 'chat') {
+    directQuestionPhrases = requireObject(section.direct_question_phrases, 'vision.direct_question_phrases');
+    for (const [key, value] of Object.entries(directQuestionPhrases)) {
+      requireString(value, 'vision.direct_question_phrases.' + key);
+    }
+  }
+
   return Object.freeze({
     external_eyes_enabled: requireBoolean(section.external_eyes_enabled, 'vision.external_eyes_enabled'),
     external_eyes_source: requireString(section.external_eyes_source, 'vision.external_eyes_source'),
@@ -205,7 +214,14 @@ function buildVisionSection(section, mode) {
       vlm_ssh_tunnel_remote_host: requireString(section.vlm_ssh_tunnel_remote_host, 'vision.vlm_ssh_tunnel_remote_host'),
       vlm_ssh_tunnel_remote_port: requireNumber(section.vlm_ssh_tunnel_remote_port, 'vision.vlm_ssh_tunnel_remote_port'),
       vlm_ssh_tunnel_socket_name: requireString(section.vlm_ssh_tunnel_socket_name, 'vision.vlm_ssh_tunnel_socket_name'),
-      vlm_ssh_tunnel_check_timeout_ms: requireNumber(section.vlm_ssh_tunnel_check_timeout_ms, 'vision.vlm_ssh_tunnel_check_timeout_ms')
+      vlm_ssh_tunnel_check_timeout_ms: requireNumber(section.vlm_ssh_tunnel_check_timeout_ms, 'vision.vlm_ssh_tunnel_check_timeout_ms'),
+      direct_answer_enabled: requireBoolean(section.direct_answer_enabled, 'vision.direct_answer_enabled'),
+      direct_answer_prefer_detection: requireBoolean(section.direct_answer_prefer_detection, 'vision.direct_answer_prefer_detection'),
+      direct_answer_max_age_ms: requireNumber(section.direct_answer_max_age_ms, 'vision.direct_answer_max_age_ms'),
+      direct_answer_wait_ms: requireNumber(section.direct_answer_wait_ms, 'vision.direct_answer_wait_ms'),
+      direct_answer_prefix: requireString(section.direct_answer_prefix, 'vision.direct_answer_prefix'),
+      direct_answer_unavailable_reply: requireString(section.direct_answer_unavailable_reply, 'vision.direct_answer_unavailable_reply'),
+      direct_question_phrases: Object.freeze({ ...directQuestionPhrases })
     } : {})
   });
 }
@@ -293,7 +309,8 @@ function buildPathsSection(section, mode) {
     youtube_transcript_root: requireString(section.youtube_transcript_root, 'paths.youtube_transcript_root'),
     ...(mode === 'chat' ? {
       chat_runtime_root: requireString(section.chat_runtime_root, 'paths.chat_runtime_root'),
-      chat_transcript_root: requireString(section.chat_transcript_root, 'paths.chat_transcript_root')
+      chat_transcript_root: requireString(section.chat_transcript_root, 'paths.chat_transcript_root'),
+      youtube_cookies_file: requireString(section.youtube_cookies_file, 'paths.youtube_cookies_file')
     } : {})
   });
 }
@@ -340,6 +357,28 @@ function buildDreamSection(section, mode) {
   });
 }
 
+function buildWakeGateSection(section, mode) {
+  if (!section) failMissingYamlKey(mode, 'wake_gate');
+  const wakeGate = requireObject(section, 'wake_gate');
+  const acceptedMap = requireObject(wakeGate.accepted_phrases, 'wake_gate.accepted_phrases');
+  const acceptedPhrases = {};
+  for (const [key, value] of Object.entries(acceptedMap)) {
+    acceptedPhrases[key] = requireString(value, 'wake_gate.accepted_phrases.' + key);
+  }
+  if (Object.keys(acceptedPhrases).length === 0) {
+    throw new Error('wake_gate.accepted_phrases must contain at least one configured phrase');
+  }
+  return Object.freeze({
+    required_phrase: requireString(wakeGate.required_phrase, 'wake_gate.required_phrase'),
+    accepted_phrases: Object.freeze(acceptedPhrases),
+    spoken_input_requires_wake_phrase: requireBoolean(wakeGate.spoken_input_requires_wake_phrase, 'wake_gate.spoken_input_requires_wake_phrase'),
+    typed_input_requires_wake_phrase: requireBoolean(wakeGate.typed_input_requires_wake_phrase, 'wake_gate.typed_input_requires_wake_phrase'),
+    case_insensitive: requireBoolean(wakeGate.case_insensitive, 'wake_gate.case_insensitive'),
+    trim_punctuation: requireBoolean(wakeGate.trim_punctuation, 'wake_gate.trim_punctuation'),
+    may_ignore_unaddressed_background_speech: requireBoolean(wakeGate.may_ignore_unaddressed_background_speech, 'wake_gate.may_ignore_unaddressed_background_speech')
+  });
+}
+
 function buildAudioSection(section, mode) {
   if (!section) failMissingYamlKey(mode, 'audio');
 
@@ -354,6 +393,17 @@ function buildAudioSection(section, mode) {
     vad_frame_samples: requireNumber(section.vad_frame_samples, 'audio.vad_frame_samples'),
     pre_roll_ms: requireNumber(section.pre_roll_ms, 'audio.pre_roll_ms'),
     post_roll_ms: requireNumber(section.post_roll_ms, 'audio.post_roll_ms'),
+    attention_scan_enabled: requireBoolean(section.attention_scan_enabled, 'audio.attention_scan_enabled'),
+    attention_scan_window_ms: requireNumber(section.attention_scan_window_ms, 'audio.attention_scan_window_ms'),
+    attention_scan_interval_ms: requireNumber(section.attention_scan_interval_ms, 'audio.attention_scan_interval_ms'),
+    attention_followup_interval_ms: requireNumber(section.attention_followup_interval_ms, 'audio.attention_followup_interval_ms'),
+    attention_scan_min_audio_ms: requireNumber(section.attention_scan_min_audio_ms, 'audio.attention_scan_min_audio_ms'),
+    attention_scan_min_rms: requireNumber(section.attention_scan_min_rms, 'audio.attention_scan_min_rms'),
+    attention_command_settle_ms: requireNumber(section.attention_command_settle_ms, 'audio.attention_command_settle_ms'),
+    attention_command_max_wait_ms: requireNumber(section.attention_command_max_wait_ms, 'audio.attention_command_max_wait_ms'),
+    attention_direct_dedupe_ms: requireNumber(section.attention_direct_dedupe_ms, 'audio.attention_direct_dedupe_ms'),
+    attention_history_limit: requireNumber(section.attention_history_limit, 'audio.attention_history_limit'),
+    attention_max_pending_scans: requireNumber(section.attention_max_pending_scans, 'audio.attention_max_pending_scans'),
     vad_start_threshold: requireNumber(section.vad_start_threshold, 'audio.vad_start_threshold'),
     vad_end_threshold: requireNumber(section.vad_end_threshold, 'audio.vad_end_threshold'),
     vad_start_frames: requireNumber(section.vad_start_frames, 'audio.vad_start_frames'),
@@ -461,6 +511,11 @@ function getDreamConfig(mode) {
   return loadFlokiConfig(mode).dream;
 }
 
+function getWakeGateConfig(mode) {
+  if (mode !== 'chat') throw new Error('wake gate config is chat-mode only');
+  return loadFlokiConfig(mode).wake_gate;
+}
+
 function getAudioConfig(mode) {
   if (mode !== 'chat') throw new Error('audio config is chat-mode only');
   return loadFlokiConfig(mode).audio;
@@ -551,6 +606,7 @@ module.exports = {
   getPathConfig,
   getSleepConfig,
   getDreamConfig,
+  getWakeGateConfig,
   getAudioConfig,
   getTimeoutConfig,
   getKnowledgeConfig,

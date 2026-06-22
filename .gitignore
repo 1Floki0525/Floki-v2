@@ -26,7 +26,6 @@ data/knowledge-corpus/
 *.m4a
 *.ogg
 cookies.txt
-docs/cookies.txt
 yolo*.pt
 floki-media
 /floki-media
@@ -47,3 +46,13 @@ models/
 #*#
 apps/floki-neural-interface/node_modules/
 apps/floki-neural-interface/dist/
+
+config/chat.config.yaml
+config/game.config.yaml
+**/cookies.txt
+*.pid
+**/__pycache__/
+**/*.pyc
+
+# Private local configuration and credentials
+/hearing-speech-fix-report.txt

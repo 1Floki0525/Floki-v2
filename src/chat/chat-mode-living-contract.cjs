@@ -7,6 +7,25 @@
  * other mode is worked on.
  */
 
+const { getWakeGateConfig } = require('../config/floki-config.cjs');
+
+function buildConfiguredWakeGate() {
+  const configured = getWakeGateConfig('chat');
+  const accepted = Object.freeze(Object.values(configured.accepted_phrases));
+  if (accepted.length === 0) throw new Error('wake_gate.accepted_phrases must not be empty');
+  return Object.freeze({
+    required_phrase: configured.required_phrase,
+    accepted_phrases: accepted,
+    spoken_input_requires_wake_phrase: configured.spoken_input_requires_wake_phrase,
+    typed_input_requires_wake_phrase: configured.typed_input_requires_wake_phrase,
+    case_insensitive: configured.case_insensitive,
+    trim_punctuation: configured.trim_punctuation,
+    may_ignore_unaddressed_background_speech: configured.may_ignore_unaddressed_background_speech
+  });
+}
+
+const CONFIGURED_WAKE_GATE = buildConfiguredWakeGate();
+
 const CHAT_MODE_LIVING_CONTRACT = Object.freeze({
   contract_version: 'floki-v2-chat-mode-living-contract-v1',
   mode: 'chat',
@@ -20,18 +39,7 @@ const CHAT_MODE_LIVING_CONTRACT = Object.freeze({
     self_growth_required: true
   }),
 
-  wake_gate: Object.freeze({
-    required_phrase: 'hey floki',
-    accepted_phrases: Object.freeze([
-      'hey floki',
-      'floki'
-    ]),
-    spoken_input_requires_wake_phrase: true,
-    typed_input_requires_wake_phrase: true,
-    case_insensitive: true,
-    trim_punctuation: true,
-    may_ignore_unaddressed_background_speech: true
-  }),
+  wake_gate: CONFIGURED_WAKE_GATE,
 
   senses: Object.freeze({
     eyes: Object.freeze({
@@ -272,7 +280,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  CONFIGURED_WAKE_GATE,
   CHAT_MODE_LIVING_CONTRACT,
+  buildConfiguredWakeGate,
   normalizeWakeText,
   isAddressedToFloki,
   stripWakePhrase,

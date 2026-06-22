@@ -30,10 +30,19 @@ assert.match(cleanup, /whisper-server/);
 assert.match(runtime, /const brain = options\.runtime \|\| createRuntime/);
 assert.match(runtime, /input_modality: 'spoken'/);
 assert.match(runtime, /input_modality: 'text'/);
+assert.match(runtime, /hearing_ready: hearingReady/);
+assert.match(runtime, /hearing_intentionally_suspended: sleeping \|\| awaitingClient/);
+assert.match(runtime, /degraded_reasons: degradedReasons/);
 assert.match(audio, /spawn\(arecord/);
 assert.match(audio, /createLiveWhisperService/);
+assert.match(audio, /classifyLiveHeardText\(heard, state\.speaking\)/);
+assert.doesNotMatch(audio, /classifyWakeInput\(heard,\s*\{/);
 assert.match(audio, /createLivePiperService/);
 assert.match(audio, /ambient_sound_unclassified/);
+assert.match(audio, /rolling_attention_scan/);
+assert.match(audio, /handleAttentionFrame\(frame\)/);
+assert.match(audio, /highPriorityAudioTasks/);
+assert.match(audio, /last_ambient_sink_error/);
 assert.match(audio, /await stopRecorder\(\)/);
 assert.match(whisper, /state\.backend = 'server'/);
 assert.match(whisper, /cli_fallback/);
@@ -47,13 +56,24 @@ assert.doesNotMatch(electron, /createRuntime\s*\(/);
 assert.doesNotMatch(electron, /handleTypedText\s*\(/);
 assert.match(electron, /runtimeRequest\('POST', '\/chat'/);
 assert.doesNotMatch(electron, /hearingActive: true/);
-assert.match(chatPanel, /syncSpokenTranscript/);
-assert.match(chatPanel, /setInterval\(syncSpokenTranscript, 750\)/);
+assert.match(chatPanel, /syncTranscript/);
+assert.match(chatPanel, /getTranscript\(500\)/);
+assert.doesNotMatch(chatPanel, /filter\(\(entry\).*MessageType\.SPOKEN/s);
+assert.match(chatPanel, /Clear chat/);
+assert.match(electron, /'\/client-ready'/);
+assert.match(electron, /'\/transcript\/clear'/);
 
 assert.match(config, /vad_frame_samples: 512/);
 assert.match(config, /pre_roll_ms: 1600/);
 assert.match(config, /whisper_server_enabled: true/);
 assert.match(config, /ambient_min_event_ms: 500/);
+assert.match(config, /wake_gate:/);
+assert.match(config, /attention_scan_enabled: true/);
+assert.match(config, /attention_scan_window_ms:/);
+assert.match(config, /attention_scan_interval_ms:/);
+assert.match(config, /attention_followup_interval_ms:/);
+assert.doesNotMatch(audio, /stable_count >= 2/);
+assert.match(audio, /attentionCandidate\.last_changed_at/);
 
 console.log(JSON.stringify({
   ok: true,
@@ -64,7 +84,7 @@ console.log(JSON.stringify({
   persistent_whisper_server_with_fallback: true,
   piper_hard_microphone_gate: true,
   ambient_audio_ingestion: true,
-  spoken_turns_sync_to_gui: true,
+  all_transcript_modalities_sync_to_gui: true,
   hearing_status_is_truthful: true,
   fresh_vision_request_supported: true,
   live_services_started_by_test: false

@@ -1,6 +1,8 @@
 # Floki Neural Interface
 
-Native Electron interface for the local Floki-v2 runtime.
+The Floki Neural Interface is the native Electron/React desktop client for Floki-v2 `chat.local` companion mode.
+
+It is a client of the single authoritative Floki backend runtime. It does not create a second brain, second personality, second memory store, or separate spoken-chat identity.
 
 ## Launch
 
@@ -10,21 +12,23 @@ From the Floki-v2 repository root:
 bin/floki-start.sh chat.local
 ```
 
-The command starts the existing sleep scheduler and webcam vision services, builds the React renderer when needed, and opens the interface inside Electron. It does not open an external browser.
+Startup validates Node 24, the shared brain, and the sleep scheduler, then starts the backend with external eyes and ears suspended. The camera and microphone are released only after the Electron window is ready and visible and only when Floki is awake.
 
-## Integration
+## Connected features
 
-The Electron main process imports Floki-v2's existing CommonJS modules directly. The renderer receives a narrow context-isolated IPC API through `electron/preload.cjs`.
+- typed and spoken conversation from one persistent transcript;
+- visible transcript continuity across sessions;
+- a clear-visible-chat control that preserves memories and private state;
+- live webcam frame and observation status;
+- person and object detections;
+- cognition latency information;
+- persistent affect and emotion state;
+- awake, sleep, REM, and dream status;
+- safe diagnostics and service controls.
 
-Connected views include:
+## Authority boundaries
 
-- typed Floki chat and public transcript
-- cognition latency events
-- webcam vision status and latest private observation summary
-- persistent affect state
-- awake/sleep/REM lifecycle state
-- safe diagnostics and neural event stream
-- dream and REM records found in Floki state
-- service controls and log opening
-
-Model identity remains owned exclusively by the Floki YAML configuration.
+- Floki-v2 YAML owns adjustable runtime configuration and model identity.
+- The backend runtime owns the brain, hearing, vision, memory, sleep lifecycle, and transcript files.
+- Electron owns presentation and user interaction only.
+- Clearing the visible chat transcript does not clear Floki's memories, personality, emotions, beliefs, relationships, private thoughts, or dreams.

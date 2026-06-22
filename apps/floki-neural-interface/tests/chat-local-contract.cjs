@@ -30,10 +30,16 @@ assert.doesNotMatch(main, /handleTypedText\s*\(/)
 assert.doesNotMatch(main, /createRuntime\s*\(/)
 assert.equal(main.includes("runtimeRequest('POST', '/chat'"), true)
 assert.match(main, /readChatTranscriptTail/)
+assert.match(main, /floki:clear-transcript/)
+assert.match(main, /runtimeRequest\('POST', '\/client-ready'/)
 assert.match(main, /readChatWebcamVisionStatus/)
 assert.match(main, /loadAffectState/)
 assert.match(main, /buildFlokiLifecycleStatus/)
 assert.match(fs.readFileSync(path.join(root, 'bin/floki-start.sh'), 'utf8'), /chat\.local/)
+const chatPanel = read('src/components/chat/ChatPanel.jsx')
+assert.match(chatPanel, /getTranscript\(500\)/)
+assert.match(chatPanel, /Clear chat/)
+assert.doesNotMatch(chatPanel, /syncSpokenTranscript/)
 
 const forbidden = []
 function walk(dir) {

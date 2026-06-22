@@ -193,8 +193,9 @@ function buildWakeGatedUserText(input = {}) {
 }
 
 function wakeWordGateStatus() {
+  const configuredPhrase = CHAT_MODE_LIVING_CONTRACT.wake_gate.required_phrase;
   const open = classifyWakeInput({
-    text: 'Hey Floki, can you hear me?',
+    text: configuredPhrase + ', can you hear me?',
     modality: 'spoken',
     source: 'user'
   });
@@ -206,7 +207,7 @@ function wakeWordGateStatus() {
   });
 
   const selfEcho = classifyWakeInput({
-    text: 'Hey Floki, I am your own speaker output.',
+    text: configuredPhrase + ', I am your own speaker output.',
     modality: 'spoken',
     source: 'self_voice',
     voice_speaking: true

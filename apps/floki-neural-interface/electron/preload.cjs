@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('floki', Object.freeze({
   getInitialStatus: () => invoke('floki:get-initial-status'),
   getSystemStatus: () => invoke('floki:get-system-status'),
   getTranscript: (limit = 200) => invoke('floki:get-transcript', { limit }),
+  clearTranscript: () => invoke('floki:clear-transcript'),
   sendMessage: (text) => invoke('floki:send-message', { text }),
   interrupt: () => invoke('floki:interrupt'),
   getVisionFrame: () => invoke('floki:get-vision-frame'),
