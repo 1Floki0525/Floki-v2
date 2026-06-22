@@ -1,0 +1,46 @@
+# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
+
+name: Floki-v2 Node 24 CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: floki-v2-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-tests:
+    name: Node 24 contract tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+
+      - name: Display runtime versions
+        run: |
+          node --version
+          npm --version
+
+      - name: Verify Node 24 requirement
+        run: bash bin/floki-node24-run.sh
+
+      - name: Run Floki-v2 contract tests
+        run: npm test
