@@ -10,6 +10,7 @@ ROOT = Path('/media/binary-god/1tb-ssd/Floki-v2')
 REMOTE_INSTALLER = 'bin/floki-neural-interface-full-function-repair-v22.py'
 BROKEN_LAUNCHER = 'bin/run-floki-v22-repair.py'
 RESUME_SCRIPT = 'bin/floki-v22-resume.py'
+LOCAL_ONLY_PATH = '/docs/snapshot-terminal-command.md'
 ALLOWED_DIRTY = {REMOTE_INSTALLER, BROKEN_LAUNCHER}
 
 
@@ -38,11 +39,26 @@ def replace_once(text, old, new, label):
     return text.replace(old, new, 1)
 
 
+def ensure_local_only_exclude():
+    exclude_file = ROOT / '.git' / 'info' / 'exclude'
+    exclude_file.parent.mkdir(parents=True, exist_ok=True)
+    existing = exclude_file.read_text(encoding='utf-8') if exclude_file.exists() else ''
+    entries = {line.strip() for line in existing.splitlines()}
+    if LOCAL_ONLY_PATH not in entries:
+        with exclude_file.open('a', encoding='utf-8') as handle:
+            if existing and not existing.endswith('\n'):
+                handle.write('\n')
+            handle.write(LOCAL_ONLY_PATH + '\n')
+    print('[floki-v22] local-only Git exclusion verified: ' + LOCAL_ONLY_PATH, flush=True)
+
+
 def main():
     if not (ROOT / '.git').is_dir():
         raise RuntimeError(f'Floki-v2 repository is missing: {ROOT}')
     if git_output('branch', '--show-current') != 'main':
         raise RuntimeError('main branch is required')
+
+    ensure_local_only_exclude()
 
     staged = {line for line in git_output('diff', '--cached', '--name-only').splitlines() if line}
     unstaged = {line for line in git_output('diff', '--name-only').splitlines() if line}
