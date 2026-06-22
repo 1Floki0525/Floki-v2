@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+
+import py_compile
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path('/media/binary-god/1tb-ssd/Floki-v2')
+REMOTE_INSTALLER = 'bin/floki-neural-interface-full-function-repair-v22.py'
+BROKEN_LAUNCHER = 'bin/run-floki-v22-repair.py'
+RESUME_SCRIPT = 'bin/floki-v22-resume.py'
+ALLOWED_DIRTY = {REMOTE_INSTALLER, BROKEN_LAUNCHER}
+
+
+def run(args, *, check=True):
+    result = subprocess.run([str(item) for item in args], cwd=str(ROOT), text=True, capture_output=True)
+    if result.stdout:
+        print(result.stdout, end='' if result.stdout.endswith('\n') else '\n', flush=True)
+    if result.stderr:
+        print(result.stderr, end='' if result.stderr.endswith('\n') else '\n', file=sys.stderr, flush=True)
+    if check and result.returncode != 0:
+        raise RuntimeError('command failed (%d): %s' % (result.returncode, ' '.join(map(str, args))))
+    return result
+
+
+def git_output(*args):
+    result = subprocess.run(['git', *args], cwd=str(ROOT), text=True, capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or 'git command failed')
+    return result.stdout.strip()
+
+
+def replace_once(text, old, new, label):
+    count = text.count(old)
+    if count != 1:
+        raise RuntimeError(f'{label}: expected one match, found {count}')
+    return text.replace(old, new, 1)
+
+
+def main():
+    if not (ROOT / '.git').is_dir():
+        raise RuntimeError(f'Floki-v2 repository is missing: {ROOT}')
+    if git_output('branch', '--show-current') != 'main':
+        raise RuntimeError('main branch is required')
+
+    staged = {line for line in git_output('diff', '--cached', '--name-only').splitlines() if line}
+    unstaged = {line for line in git_output('diff', '--name-only').splitlines() if line}
+    unexpected = sorted((staged | unstaged) - ALLOWED_DIRTY)
+    if unexpected:
+        raise RuntimeError('unrelated tracked changes must be preserved: ' + ', '.join(unexpected))
+
+    run(['git', 'fetch', 'origin', 'main'])
+    local = git_output('rev-parse', 'HEAD')
+    remote = git_output('rev-parse', 'origin/main')
+    if local != remote:
+        if git_output('merge-base', 'HEAD', 'origin/main') != local:
+            raise RuntimeError('local main is not a safe fast-forward of origin/main')
+        run(['git', 'merge', '--ff-only', 'origin/main'])
+
+    pristine = git_output('show', f'origin/main:{REMOTE_INSTALLER}')
+    patched = pristine.replace(r"\'use strict\';", "'use strict';")
+    patched = replace_once(
+        patched,
+        "        if git('diff', '--cached', '--name-only') or git('diff', '--name-only'): raise RepairError('tracked tree must be clean')",
+        "        staged_before = [item for item in git('diff', '--cached', '--name-only').splitlines() if item]\n        dirty_before = [item for item in git('diff', '--name-only').splitlines() if item]\n        allowed_dirty = {str(SELF), 'bin/run-floki-v22-repair.py'}\n        unexpected_before = [item for item in staged_before + dirty_before if item not in allowed_dirty]\n        if unexpected_before: raise RepairError('unrelated tracked changes must be preserved: ' + ', '.join(sorted(set(unexpected_before))))",
+        'clean-tree guard',
+    )
+    patched = replace_once(
+        patched,
+        "      'tests/manual-nap-contract-test.cjs', 'apps/floki-neural-interface/tests/functional-controls-contract.cjs', 'package.json', str(SELF)",
+        "      'tests/manual-nap-contract-test.cjs', 'apps/floki-neural-interface/tests/functional-controls-contract.cjs', 'package.json', str(SELF), 'bin/run-floki-v22-repair.py', 'bin/floki-v22-resume.py'",
+        'repair-file target list',
+    )
+    patched = replace_once(
+        patched,
+        "        (ROOT / SELF).unlink()",
+        "        (ROOT / SELF).unlink(missing_ok=True)\n        (ROOT / 'bin/run-floki-v22-repair.py').unlink(missing_ok=True)\n        (ROOT / 'bin/floki-v22-resume.py').unlink(missing_ok=True)",
+        'repair-file cleanup',
+    )
+
+    temp = tempfile.TemporaryDirectory(prefix='floki-v22-resume-', dir='/tmp')
+    try:
+        installer = Path(temp.name) / 'floki-v22-fixed-installer.py'
+        bytecode = Path(temp.name) / 'floki-v22-fixed-installer.pyc'
+        installer.write_text(patched + '\n', encoding='utf-8')
+        py_compile.compile(str(installer), cfile=str(bytecode), doraise=True)
+        result = subprocess.run([sys.executable, str(installer)], cwd=str(ROOT))
+        raise SystemExit(result.returncode)
+    finally:
+        temp.cleanup()
+
+
+if __name__ == '__main__':
+    main()
