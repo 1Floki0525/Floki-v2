@@ -67,7 +67,7 @@ export default function SettingsPage() {
 
   const clearPreferences = () => {
     clearStoredSettings()
-    toast.success('Stored interface preferences cleared')
+    toast.success('YAML preferences restored to defaults')
   }
 
   return (
@@ -77,7 +77,7 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-xs font-semibold tracking-[0.2em] uppercase text-neon-cyan/90 font-mono">Settings</h2>
             <p className="mt-1 text-[10px] font-mono text-muted-foreground/60">
-              The full interface settings surface is preserved. Native chat.local uses context-isolated Electron IPC; optional REST/WebSocket values remain available for compatibility and future remote wiring.
+              Every preference is read from and written atomically to config/chat.config.yaml through the native Electron bridge.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -189,7 +189,7 @@ export default function SettingsPage() {
           <SettingRow label="Hide Recognized Names" type="toggle" value={privacy.hideRecognizedNames} onChange={(value) => updatePrivacy({ hideRecognizedNames: value })} />
           <SettingRow label="Redact Private Metadata" type="toggle" value={privacy.redactPrivateMetadata} onChange={(value) => updatePrivacy({ redactPrivateMetadata: value })} />
           <SettingRow label="Allow Local Export" type="toggle" value={privacy.allowLocalExport} onChange={(value) => updatePrivacy({ allowLocalExport: value })} />
-          <SettingRow label="Clear Stored Preferences" type="button" buttonLabel="Clear" onChange={clearPreferences} description="Clears all locally stored UI preferences and restores defaults." />
+          <SettingRow label="Clear Stored Preferences" type="button" buttonLabel="Clear" onChange={clearPreferences} description="Restores YAML-backed interface preferences to defaults." />
         </SettingsSection>
       </div>
     </div>

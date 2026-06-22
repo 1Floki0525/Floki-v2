@@ -26,6 +26,7 @@ class FlokiAdapter {
   async control(action, argument = null) { return bridge().control(action, argument); }
   async openLog(service) { return bridge().openLog(service); }
   async interruptResponse() { return bridge().interrupt(); }
+  async setPushToTalk(active) { return bridge().setPushToTalk(active); }
 
   async sendMessage(text) {
     return bridge().sendMessage(text);

@@ -12,6 +12,7 @@ const {
 const {
   readSchedulerRuntimeStatus
 } = require('./sleep-cycle-scheduler.cjs');
+const { readManualNapState } = require('./manual-nap.cjs');
 
 const LIFECYCLE_MARKER = 'FLOKI_V2_LIFECYCLE_STATUS_PASS';
 
@@ -20,6 +21,8 @@ const DISPLAY_LABELS = Object.freeze({
   awake_sleep_interrupted: 'AWAKE — SLEEP INTERRUPTED',
   asleep: 'ASLEEP',
   rem_dreaming: 'REM DREAMING',
+  manual_nap: 'ASLEEP — 30-MINUTE NAP',
+  manual_nap_rem: 'REM DREAMING — MANUAL NAP',
   unknown: 'UNKNOWN'
 });
 
@@ -127,6 +130,7 @@ function buildFlokiLifecycleStatus(options = {}) {
     process_is_alive: options.scheduler_process_is_alive
   });
   const sleepWindow = getSleepWindowForDate(now, sleepOptions);
+  const manualNap = options.manual_nap_state || readManualNapState({ now });
   const withinSleepWindow = isWithinSleepWindow(now, sleepOptions);
   const savedState = options.sleep_cycle_state || loadSleepCycleState(options);
   const stateLoaded = savedState !== null && savedState !== undefined;
@@ -178,6 +182,12 @@ function buildFlokiLifecycleStatus(options = {}) {
     chat_mode_only: true,
     game_mode_started: false
   });
+
+  if (manualNap && manualNap.active === true) {
+    const dreaming = (manualNap.rem_cycles || []).find((cycle) => cycle.status === 'dreaming');
+    const pending = (manualNap.rem_cycles || []).find((cycle) => cycle.status === 'pending');
+    return Object.freeze({ ...base, state: dreaming ? 'rem_dreaming' : 'asleep', display_label: dreaming ? DISPLAY_LABELS.manual_nap_rem : DISPLAY_LABELS.manual_nap, is_awake: false, is_asleep: true, is_dreaming: Boolean(dreaming), is_rem_dreaming: Boolean(dreaming), source_of_truth: 'manual_nap_state', manual_nap_active: true, manual_nap_started_at: manualNap.started_at, manual_nap_wake_at: manualNap.wake_at, manual_nap_duration_minutes: manualNap.duration_minutes, manual_nap_rem_cycles: manualNap.rem_cycles || [], current_rem_cycle_number: dreaming ? dreaming.cycle_number : null, current_rem_started_at: dreaming ? dreaming.dreaming_started_at : null, next_rem_cycle_number: pending ? pending.cycle_number : null, next_rem_cycle_at: pending ? pending.scheduled_at : null, last_transition_at: manualNap.last_transition_at || manualNap.started_at, nightly_schedule_modified: false });
+  }
 
   if (stateLoaded && (!Array.isArray(savedState.rem_cycles) || !validDateString(savedState.sleep_window_start) || !validDateString(savedState.sleep_window_end))) {
     return buildUnknownStatus('sleep cycle state is missing required window or REM fields', base);

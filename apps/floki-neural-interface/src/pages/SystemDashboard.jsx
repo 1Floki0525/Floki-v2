@@ -36,7 +36,7 @@ export default function SystemDashboard() {
     setBusyAction(action)
     try {
       const result = await flokiAdapter.control(action)
-      if (result?.ok) toast.success(`${label} completed`)
+      if (result?.ok === true && result?.verified === true) toast.success(result.message || `${label} verified`)
       else toast.error(`${label} failed${result?.error ? `: ${result.error}` : ''}`)
       await refresh()
     } catch (error) {

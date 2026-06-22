@@ -1,0 +1,14 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..', '..', '..');
+const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+assert.equal(read('apps/floki-neural-interface/src/stores/settingsStore.js').includes('localStorage'), false);
+assert.equal(read('apps/floki-neural-interface/src/components/chat/ChatMessage.jsx').includes('onRegenerate'), true);
+assert.equal(read('apps/floki-neural-interface/electron/main.cjs').includes("runtimeRequest('POST', '/nap/request'"), true);
+assert.equal(read('src/runtime/chat-local-runtime.cjs').includes("url.pathname === '/nap/request'"), true);
+assert.equal(read('src/runtime/chat-local-runtime.cjs').includes("url.pathname === '/audio/push-to-talk'"), true);
+assert.equal(read('apps/floki-neural-interface/src/components/system/SystemControls.jsx').includes('Request 30-Minute Nap'), true);
+assert.equal(read('src/config/interface-settings.cjs').includes('updateInterfaceSettings'), true);
+console.log('FLOKI_V22_FUNCTIONAL_CONTROLS_CONTRACT_PASS');

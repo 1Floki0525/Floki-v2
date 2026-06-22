@@ -27,6 +27,7 @@ const { buildVisionStatus } = require(path.join(PROJECT_ROOT, 'src/vision/vision
 const { loadAffectState } = require(path.join(PROJECT_ROOT, 'brain/emotions_base/index.cjs'));
 const { getModelConfig, getPathConfig, getVisionConfig, getLiveChatConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
 const { getDetectionConfig, readLatestDetection } = require(path.join(PROJECT_ROOT, 'src/vision/yolo-detection-service.cjs'));
+const { getInterfaceSettings, updateInterfaceSettings, resetInterfaceSettings, importInterfaceSettings } = require(path.join(PROJECT_ROOT, 'src/config/interface-settings.cjs'));
 const { classifyVerifiedDetectionForDisplay } = require(path.join(PROJECT_ROOT, 'src/vision/person-presence-verifier.cjs'));
 
 let mainWindow = null;
@@ -819,6 +820,12 @@ function registerIpc() {
     return readJsonl(historyFile, limit);
   });
   ipcMain.handle('floki:get-sleep-status', async () => sleepStatus());
+  ipcMain.handle('floki:get-settings', async () => getInterfaceSettings('chat'));
+  ipcMain.handle('floki:update-settings', async (_event, payload = {}) => { const settings = updateInterfaceSettings(String(payload.section || ''), payload.values || {}, 'chat'); await runtimeRequest('POST', '/settings/reload', {}).catch(() => null); return settings; });
+  ipcMain.handle('floki:reset-settings', async (_event, payload = {}) => { const settings = resetInterfaceSettings(String(payload.section || ''), 'chat'); await runtimeRequest('POST', '/settings/reload', {}).catch(() => null); return settings; });
+  ipcMain.handle('floki:reset-all-settings', async () => { const settings = resetInterfaceSettings(null, 'chat'); await runtimeRequest('POST', '/settings/reload', {}).catch(() => null); return settings; });
+  ipcMain.handle('floki:import-settings', async (_event, payload = {}) => { const settings = importInterfaceSettings(payload.settings || {}, 'chat'); await runtimeRequest('POST', '/settings/reload', {}).catch(() => null); return settings; });
+  ipcMain.handle('floki:push-to-talk', async (_event, payload = {}) => runtimeRequest('POST', '/audio/push-to-talk', { active: payload.active === true }));
   ipcMain.handle('floki:get-neural-events', async (_event, payload = {}) => neuralEvents(Number(payload.limit || 250)));
   ipcMain.handle('floki:get-dream-timeline', async () => dreamTimeline());
   ipcMain.handle('floki:open-log', async (_event, payload = {}) => {
@@ -859,17 +866,18 @@ function registerIpc() {
       restartHearing: ['floki-chat-stop.sh', 'floki-chat-start.sh'],
       restartSpeech: ['floki-chat-stop.sh', 'floki-chat-start.sh'],
       restartScheduler: [schedulerStop, schedulerStart],
-      requestSleep: [schedulerStart],
       pauseSleep: [schedulerStop],
       resumeSleep: [schedulerStart],
-      wake: [schedulerStop],
       pauseAutoSleep: [schedulerStop],
     };
-    if (action === 'interrupt') return { ...(await runtimeRequest('POST', '/interrupt', {})), action };
+    if (action === 'interrupt') { const result = await runtimeRequest('POST', '/interrupt', {}); return { ...result, action, verified: result.ok === true, message: 'Response interruption verified.' }; }
+    if (action === 'requestSleep') { const result = await runtimeRequest('POST', '/nap/request', {}); return { ...result, action, message: '30-minute nap verified: asleep, microphone closed, camera closed, consolidation started.' }; }
+    if (action === 'wake') { const result = await runtimeRequest('POST', '/nap/wake', {}); return { ...result, action, message: 'Manual nap ended; nightly scheduler remains unchanged.' }; }
     const scripts = map[action];
     if (!scripts) throw new Error(`unsupported control action: ${action}`);
     const results = scripts.map((script) => runScript(script));
-    return { ok: results.every((result) => result.ok), action, results };
+    const verified = results.every((result) => result.ok);
+    return { ok: verified, verified, action, results, message: verified ? action + ' completed and was verified.' : null };
   });
 }
 

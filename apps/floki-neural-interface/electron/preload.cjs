@@ -22,4 +22,10 @@ contextBridge.exposeInMainWorld('floki', Object.freeze({
   getDreamTimeline: () => invoke('floki:get-dream-timeline'),
   control: (action, argument = null) => invoke('floki:control', { action, argument }),
   openLog: (service) => invoke('floki:open-log', { service }),
+  getSettings: () => invoke('floki:get-settings'),
+  updateSettings: (section, values) => invoke('floki:update-settings', { section, values }),
+  resetSettings: (section) => invoke('floki:reset-settings', { section }),
+  resetAllSettings: () => invoke('floki:reset-all-settings'),
+  importSettings: (settings) => invoke('floki:import-settings', { settings }),
+  setPushToTalk: (active) => invoke('floki:push-to-talk', { active }),
 }));

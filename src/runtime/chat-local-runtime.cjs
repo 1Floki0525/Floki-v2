@@ -28,6 +28,9 @@ const {
 } = require('../config/floki-config.cjs');
 const { nowIso } = require('../util/time.cjs');
 const { newId } = require('../util/ids.cjs');
+const { getInterfaceSettings } = require('../config/interface-settings.cjs');
+const { readManualNapState, beginManualNap, wakeManualNap, claimDueRemCycle, finishRemCycle } = require('../chat/manual-nap.cjs');
+const { runDreamEngineOnce } = require('../chat/dream-engine.cjs');
 
 const DEFAULT_HOST = getLiveChatConfig('chat').runtime_host;
 const DEFAULT_PORT = getLiveChatConfig('chat').runtime_port;
@@ -232,6 +235,8 @@ function createChatLocalRuntime(options = {}) {
   let lifecycleTimer = null;
   let heartbeatTimer = null;
   let visionManagedSleeping = false;
+  let manualNapDreamTask = null;
+  let lastManualNapActive = false;
   const startedAt = Date.now();
 
   const state = {
@@ -258,7 +263,8 @@ function createChatLocalRuntime(options = {}) {
     last_grounded_vision_reply_at: null,
     last_grounded_vision_source: null,
     last_grounded_vision_observation_at: null,
-    last_grounded_vision_available: null
+    last_grounded_vision_available: null,
+    push_to_talk_active: false
   };
 
   function appendLog(message) {
@@ -566,18 +572,20 @@ function createChatLocalRuntime(options = {}) {
   async function applyLifecycle(next) {
     lifecycle = next;
     const awake = next && next.is_awake === true;
-    const enableSenses = awake && state.client_ready === true;
-    state.senses_enabled = enableSenses;
+    const voice = getInterfaceSettings('chat').voice;
+    const hearingEnabled = awake && state.client_ready === true && voice.microphoneEnabled === true && (voice.pushToTalk === true ? state.push_to_talk_active === true : voice.handsFreeListening === true);
+    const visionEnabled = awake && state.client_ready === true;
+    state.senses_enabled = hearingEnabled || visionEnabled;
 
     try {
-      await liveAudio.setAwake(enableSenses);
+      await liveAudio.setAwake(hearingEnabled);
       state.hearing_start_error = null;
     } catch (error) {
       state.hearing_start_error = error.message;
       appendLog('hearing lifecycle reconcile failed: ' + error.message);
     }
 
-    if (!enableSenses) {
+    if (!visionEnabled) {
       visionManagedSleeping = !awake;
       try {
         const vision = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
@@ -618,6 +626,26 @@ function createChatLocalRuntime(options = {}) {
               ? 'speaking'
               : 'listening';
     publish();
+  }
+
+  async function requestManualNap() {
+    const consolidation = brain.requireModule('hippocampus').consolidateShortTerm();
+    const nap = beginManualNap({ consolidation });
+    lastManualNapActive = true;
+    await applyLifecycle(buildFlokiLifecycleStatus());
+    const snapshot = status();
+    const verified = snapshot.lifecycle.manual_nap_active === true && snapshot.lifecycle.manual_nap_duration_minutes === 30 && snapshot.hearing.microphone_open === false && snapshot.vision.camera_open === false;
+    return Object.freeze({ ok: verified, verified, marker: verified ? 'FLOKI_V22_MANUAL_NAP_REQUEST_PASS' : 'FLOKI_V22_MANUAL_NAP_REQUEST_FAIL', nap, consolidation, status: snapshot });
+  }
+  async function wakeFromManualNap() {
+    const nap = wakeManualNap('manual_wake'); lastManualNapActive = false; await applyLifecycle(buildFlokiLifecycleStatus());
+    return Object.freeze({ ok: nap.active !== true, verified: nap.active !== true, marker: 'FLOKI_V22_MANUAL_NAP_WAKE_PASS', nap, status: status() });
+  }
+  async function processManualNap() {
+    const nap = readManualNapState();
+    if (!nap || nap.active !== true) { if (lastManualNapActive) { lastManualNapActive = false; await applyLifecycle(buildFlokiLifecycleStatus()); } return; }
+    lastManualNapActive = true; if (manualNapDreamTask) return; const claim = claimDueRemCycle(); if (!claim) return;
+    manualNapDreamTask = runDreamEngineOnce({ env: { ...process.env, FLOKI_ALLOW_DREAM_ENGINE: '1' }, rem_cycle_number: claim.cycle.cycle_number, sleep_window_start: claim.state.started_at, sleep_window_end: claim.state.wake_at }).then((result) => finishRemCycle(result, null)).catch((error) => { finishRemCycle(null, error); appendLog('manual nap REM failed: ' + error.message); }).finally(async () => { manualNapDreamTask = null; await applyLifecycle(buildFlokiLifecycleStatus()); });
   }
 
   async function route(req, res) {
@@ -679,11 +707,12 @@ function createChatLocalRuntime(options = {}) {
       sendJson(res, 200, result);
       return;
     }
-    if (req.method === 'POST' && url.pathname === '/interrupt') {
-      if (activeAbortController) activeAbortController.abort();
-      sendJson(res, 200, { ok: true, interrupted: Boolean(activeAbortController) });
-      return;
-    }
+    if (req.method === 'POST' && url.pathname === '/interrupt') { const hadTurn = Boolean(activeAbortController); if (activeAbortController) activeAbortController.abort(); const speech = liveAudio.interruptSpeech(); sendJson(res, 200, { ok: true, interrupted: hadTurn || speech.interrupted === true, speech }); return; }
+    if (req.method === 'POST' && url.pathname === '/nap/request') { sendJson(res, 200, await requestManualNap()); return; }
+    if (req.method === 'POST' && url.pathname === '/nap/wake') { sendJson(res, 200, await wakeFromManualNap()); return; }
+    if (req.method === 'GET' && url.pathname === '/nap/status') { sendJson(res, 200, { ok: true, nap: readManualNapState(), lifecycle: buildFlokiLifecycleStatus() }); return; }
+    if (req.method === 'POST' && url.pathname === '/settings/reload') { await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, { ok: true, verified: true, settings: getInterfaceSettings('chat'), status: status() }); return; }
+    if (req.method === 'POST' && url.pathname === '/audio/push-to-talk') { const body = await bodyJson(req); state.push_to_talk_active = body.active === true; await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, { ok: true, verified: true, active: state.push_to_talk_active, status: status() }); return; }
     if (req.method === 'POST' && url.pathname === '/speak') {
       const body = await bodyJson(req);
       const text = String(body.text || '').trim();
@@ -741,6 +770,7 @@ function createChatLocalRuntime(options = {}) {
     publish();
     heartbeatTimer = setInterval(() => publish(), heartbeatMs);
     lifecycleTimer = setInterval(() => {
+      void processManualNap().catch((error) => appendLog('manual nap processing failed: ' + error.message));
       const next = buildFlokiLifecycleStatus();
       void applyLifecycle(next).catch((error) => {
         state.last_error = 'lifecycle reconciliation failed: ' + error.message;

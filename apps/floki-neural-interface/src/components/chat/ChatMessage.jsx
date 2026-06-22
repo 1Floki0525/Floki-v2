@@ -8,7 +8,7 @@ function formatTime(ts) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-export default function ChatMessage({ message, showTimestamps = true }) {
+export default function ChatMessage({ message, showTimestamps = true, onRegenerate }) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === 'user';
   const isStreaming = message.isStreaming;
@@ -101,7 +101,7 @@ export default function ChatMessage({ message, showTimestamps = true }) {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button className="p-1 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors">
+                  <button onClick={() => onRegenerate?.(message)} disabled={!onRegenerate} className="p-1 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30">
                     <RefreshCw className="w-3.5 h-3.5" />
                   </button>
                 </TooltipTrigger>

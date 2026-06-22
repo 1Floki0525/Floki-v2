@@ -161,6 +161,8 @@ sleep:
     cycle_4: 360
     cycle_5: 440
 
+  manual_nap_duration_minutes: 30
+  manual_nap_rem_offset_minutes: 15
 dream:
   temperature: 0.45
   top_p: 0.85
@@ -214,3 +216,72 @@ life_clock:
     dusk: 12000
     night: 13000
     midnight: 18000
+
+interface:
+  settings_version: 3
+  connection:
+    transport: electron-ipc
+    local_api_url: http://127.0.0.1:7700
+    local_ws_url: ws://127.0.0.1:7700/ws
+    auto_reconnect: true
+    reconnect_delay_ms: 3000
+    request_timeout_ms: 120000
+    mock_mode: false
+  chat:
+    stream_responses: true
+    show_timestamps: true
+    markdown_rendering: true
+    compact_messages: false
+    enter_to_send: true
+    max_local_history: 500
+  voice:
+    microphone_enabled: true
+    speaker_enabled: true
+    hands_free_listening: true
+    push_to_talk: false
+    wake_word_enabled: true
+    wake_phrase: Hey Floki
+    speech_volume: 80
+    speech_rate: 1
+    interruptible_speech: true
+    show_partial_transcription: true
+  vision:
+    show_object_boxes: true
+    show_person_boxes: true
+    show_face_boxes: true
+    show_recognized_names: true
+    show_labels: true
+    show_confidence: true
+    show_scene_recognition: true
+    observation_freshness_threshold: 30
+    stale_observation_warning: true
+    privacy_blackout_default: false
+  emotions:
+    graph_time_range: 5m
+    update_frequency: 2000
+    graph_smoothing: 0.3
+  neural_stream:
+    auto_scroll: true
+    max_events: 1000
+    compact_view: false
+    default_privacy_filter: all
+  appearance:
+    neon_intensity: 70
+    glow_intensity: 50
+    animation_level: normal
+    font_size: 14
+    interface_scale: 100
+    panel_density: comfortable
+    reduced_motion: false
+  latency:
+    first_token_target: 500
+    first_spoken_audio_target: 1500
+    slow_warning_threshold: 2000
+    critical_threshold: 5000
+    show_detailed_stage_timing: true
+  privacy:
+    hide_vision_by_default: false
+    hide_recognized_names: false
+    redact_private_metadata: false
+    allow_local_export: true
+    clear_stored_preferences: false

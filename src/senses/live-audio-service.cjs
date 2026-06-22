@@ -8,6 +8,7 @@ const { PROJECT_ROOT: ROOT, getAudioConfig, getPathConfig, getTimeoutConfig } = 
 const { classifyWakeInput, shouldRouteToCognition } = require('../chat/wake-word-gate.cjs');
 const { createLiveWhisperService, parseWhisperText, whisperModelPath, WHISPER_CLI, WHISPER_MODEL_DIR } = require('./live-whisper-service.cjs');
 const { createLivePiperService } = require('./live-piper-service.cjs');
+const { getInterfaceSettings } = require('../config/interface-settings.cjs');
 const { nowIso } = require('../util/time.cjs');
 const { newId } = require('../util/ids.cjs');
 
@@ -403,7 +404,7 @@ function createLiveAudioService(options = {}) {
         sequence: state.utterances_completed,
         source
       });
-      if (response && response.reply) {
+      if (response && response.reply && getInterfaceSettings('chat').voice.speakerEnabled === true) {
         await piper.speak(response.reply, { utterance_id: utteranceId, text_hash: 'live_audio_' + String(response.reply.length) });
         state.last_reply_spoken_at = nowIso();
       }
@@ -963,6 +964,7 @@ function createLiveAudioService(options = {}) {
     stop,
     setAwake,
     speak: (text, metadata) => piper.speak(text, metadata),
+    interruptSpeech: () => piper.interrupt(),
     status: () => snapshot(),
     publish,
     paths: Object.freeze({ runtime_dir: runtimeDir, status_file: statusFile, heartbeat_file: heartbeatFile, events_file: eventsFile })

@@ -7,6 +7,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const { PROJECT_ROOT: ROOT, getAudioConfig, getTimeoutConfig } = require('../config/floki-config.cjs');
 const { PIPER_CLI, PIPER_VOICE_DIR } = require('./chat-toolchain-readiness.cjs');
 const { runPlaybackWithVoiceLockAsync } = require('./piper-speaker-playback.cjs');
+const { getInterfaceSettings } = require('../config/interface-settings.cjs');
 const { nowIso } = require('../util/time.cjs');
 const { newId } = require('../util/ids.cjs');
 
@@ -42,6 +43,9 @@ function createLivePiperService(options = {}) {
   const outputDir = options.output_dir || path.join(ROOT, 'state', 'floki', 'chat', 'runtime', 'audio-tmp');
   const voice = selectedVoice(audio);
   const aplay = commandPath('aplay');
+  let activeSpeechController = null;
+  function voiceSettings() { return getInterfaceSettings('chat').voice; }
+  function applyOutputVolume() { const volume = Math.max(0, Math.min(100, Number(voiceSettings().speechVolume || 80))); const wpctl = commandPath('wpctl'); if (wpctl) { spawnSync(wpctl, ['set-volume', '@DEFAULT_AUDIO_SINK@', String(volume / 100)], { encoding: 'utf8' }); return 'wpctl'; } const pactl = commandPath('pactl'); if (pactl) { spawnSync(pactl, ['set-sink-volume', '@DEFAULT_SINK@', String(volume) + '%'], { encoding: 'utf8' }); return 'pactl'; } return null; }
   const state = {
     ready: false,
     speaking: false,
@@ -92,7 +96,8 @@ function createLivePiperService(options = {}) {
     return new Promise((resolve, reject) => {
       let stderr = '';
       let settled = false;
-      const child = spawn(PIPER_CLI, ['--model', voice.model, '--config', voice.config, '--output_file', outputFile], {
+      const rate = Math.max(0.5, Math.min(2, Number(voiceSettings().speechRate || 1)));
+    const child = spawn(PIPER_CLI, ['--model', voice.model, '--config', voice.config, '--length_scale', String(1 / rate), '--output_file', outputFile], {
         cwd: ROOT,
         stdio: ['pipe', 'ignore', 'pipe']
       });
@@ -127,6 +132,7 @@ function createLivePiperService(options = {}) {
   }
 
   async function speak(text, metadata = {}) {
+    if (voiceSettings().speakerEnabled !== true) return Object.freeze({ ok: true, skipped: true, reason: 'speaker_disabled_in_yaml' });
     if (state.speaking) throw new Error('Piper is already speaking');
     state.speaking = true;
     state.last_error = null;
@@ -134,13 +140,13 @@ function createLivePiperService(options = {}) {
     if (typeof options.on_speaking_change === 'function') await options.on_speaking_change(true);
     let synthesis = null;
     try {
-      synthesis = await synthesize(text, metadata);
-      state.last_first_audio_at = nowIso();
+      synthesis = await synthesize(text, metadata); state.last_first_audio_at = nowIso(); applyOutputVolume(); activeSpeechController = new AbortController();
       const playback = await runPlaybackWithVoiceLockAsync(synthesis.output_file, {
         output_id: metadata.utterance_id || synthesis.output_file,
         text_hash: metadata.text_hash || 'live_piper_' + String(text.length)
       }, {
-        voice_lock_ttl_ms: audio.voice_lock_ttl_ms
+        voice_lock_ttl_ms: audio.voice_lock_ttl_ms,
+        signal: activeSpeechController.signal
       });
       if (!playback || playback.ok !== true) throw new Error('Piper playback failed');
       state.utterances_spoken += 1;
@@ -151,13 +157,15 @@ function createLivePiperService(options = {}) {
       throw error;
     } finally {
       if (synthesis && synthesis.output_file) fs.rmSync(synthesis.output_file, { force: true });
+      activeSpeechController = null;
       state.speaking = false;
       if (typeof options.on_speaking_change === 'function') await options.on_speaking_change(false);
     }
   }
 
+  function interrupt() { if (voiceSettings().interruptibleSpeech !== true) return Object.freeze({ ok: false, interrupted: false, reason: 'interruptible_speech_disabled' }); const active = Boolean(activeSpeechController); if (activeSpeechController) activeSpeechController.abort(); return Object.freeze({ ok: true, interrupted: active }); }
   refreshReadiness();
-  return Object.freeze({ status, refreshReadiness, synthesize, speak });
+  return Object.freeze({ status, refreshReadiness, synthesize, speak, interrupt });
 }
 
 module.exports = {

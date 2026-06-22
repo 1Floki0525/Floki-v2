@@ -154,6 +154,8 @@ export default function ChatPanel({ flokiStatus }) {
     }
   }, [isResponding, syncTranscript])
 
+  const handleRegenerate = useCallback((assistantMessage) => { const index = messages.findIndex((message) => message.id === assistantMessage.id); for (let cursor = index - 1; cursor >= 0; cursor -= 1) { if (messages[cursor].role === 'user' && String(messages[cursor].content || '').trim()) { void handleSend(messages[cursor].content); return; } } toast.error('No preceding user message is available to regenerate.'); }, [handleSend, messages]);
+
   const handleInterrupt = useCallback(() => {
     if (abortRef.current) abortRef.current.abort()
     flokiAdapter.interruptResponse().catch(() => {})
@@ -213,7 +215,7 @@ export default function ChatPanel({ flokiStatus }) {
           <div className="py-4">
             {messages.map((message) => (
               <React.Fragment key={message.id}>
-                <ChatMessage message={message} />
+                <ChatMessage message={message} onRegenerate={message.role === 'assistant' ? handleRegenerate : undefined} />
                 {message.role === 'assistant' && !message.isStreaming && message.latency && (
                   <LatencyPanel latency={message.latency} />
                 )}
