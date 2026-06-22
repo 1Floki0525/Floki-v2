@@ -94,6 +94,12 @@ def main():
         "        (ROOT / SELF).unlink(missing_ok=True)\n        (ROOT / 'bin/run-floki-v22-repair.py').unlink(missing_ok=True)\n        (ROOT / 'bin/floki-v22-resume.py').unlink(missing_ok=True)",
         'repair-file cleanup',
     )
+    patched = replace_once(
+        patched,
+        "        if 'start_hhmm: 23:00' not in (ROOT / 'config/chat.config.yaml').read_text() or 'end_hhmm: 07:00' not in (ROOT / 'config/chat.config.yaml').read_text(): raise RepairError('nightly schedule changed')",
+        "        run(['bash', 'bin/floki-node24-run.sh', 'node', '-e', \"const { loadYamlFile } = require('./src/config/yaml-lite.cjs'); const sleep = loadYamlFile('./config/chat.config.yaml').sleep || {}; if (String(sleep.start_hhmm) !== '23:00' || String(sleep.end_hhmm) !== '07:00') { console.error(JSON.stringify({ start_hhmm: sleep.start_hhmm, end_hhmm: sleep.end_hhmm })); process.exit(1); } console.log('FLOKI_V22_NIGHTLY_SCHEDULE_SEMANTIC_PASS');\"], timeout=120)",
+        'nightly schedule semantic verification',
+    )
 
     temp = tempfile.TemporaryDirectory(prefix='floki-v22-resume-', dir='/tmp')
     try:
