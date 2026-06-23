@@ -37,14 +37,13 @@ jobs:
           test -f apps/floki-neural-interface/package-lock.json
           test -f config/chat.config.yaml.temp
           test -f config/game.config.yaml.temp
+          test -f bin/floki-prepare-ci-config.cjs
           test -x bin/floki-node24-run.sh
           test -x bin/floki-build.sh
 
-      - name: Prepare public configuration
+      - name: Prepare runner-portable configuration
         shell: bash
-        run: |
-          cp config/chat.config.yaml.temp config/chat.config.yaml
-          cp config/game.config.yaml.temp config/game.config.yaml
+        run: node bin/floki-prepare-ci-config.cjs
 
       - name: Verify Node 24 requirement
         shell: bash
@@ -62,4 +61,14 @@ jobs:
         run: npm run build
 
       - name: Run contract tests
-        run: npm test
+        shell: bash
+        run: |
+          status=0
+          npm test 2>&1 | tee "$RUNNER_TEMP/floki-contract-tests.log" || status=${PIPESTATUS[0]}
+
+          if [ "$status" -ne 0 ]; then
+            echo
+            echo "===== FLOKI CONTRACT TEST FAILURE CONTEXT ====="
+            tail -n 250 "$RUNNER_TEMP/floki-contract-tests.log"
+            exit "$status"
+          fi
