@@ -383,7 +383,7 @@ function createChatLocalRuntime(options = {}) {
     });
     const output = hippocampus.safeRememberEvent(event, {
       stream: 'short_term',
-      type: 'sensory_experience',
+      type: 'experience',
       tags: ['audio', 'ambient', record.type || 'sound', record.source_type || 'unknown_source'],
       importance: record.type === 'ambient_speech' ? 0.35 : 0.25,
       content: {
@@ -396,7 +396,13 @@ function createChatLocalRuntime(options = {}) {
         })
       }
     });
-    appendLog('ambient memory: ' + (output && output.type || 'unknown'));
+    if (!output || output.type === 'failure') {
+      const code = output && output.failure && output.failure.code || 'UNKNOWN';
+      const message = output && output.failure && output.failure.message || 'ambient memory write failed';
+      appendLog('ambient memory rejected: ' + code + ': ' + message);
+      throw new Error(code + ': ' + message);
+    }
+    appendLog('ambient memory: ' + output.type);
     return output;
   }
 
