@@ -24,6 +24,7 @@ const {
 
 const { PROJECT_ROOT: ROOT, getTimeoutConfig, getPathConfig, getSleepConfig, getLiveChatConfig } = require('../../src/config/floki-config.cjs');
 const { createLatencyTrace } = require('../util/latency-trace.cjs');
+const { beginLivingTurn, completeLivingTurn } = require('./living-continuity.cjs');
 
 function jsonStatus(ok, marker, extra = {}) {
   return Object.freeze({ ok, marker, ...extra, chat_mode_only: true, game_mode_started: false });
@@ -264,9 +265,18 @@ async function handleTypedText(runtime, text, options = {}) {
     cached_vision_fresh: cachedVision && cachedVision.fresh === true
   });
 
+  const livingTurn = beginLivingTurn({
+    text,
+    source: options.source || 'live_chat_interface',
+    input_modality: options.input_modality || 'text'
+  });
+
   let displayedText = null;
   const result = await handleUserText(runtime, text, {
     chat_webcam_vision: cachedVision,
+    persistent_chat_memory: livingTurn.persistent_chat_memory,
+    emotional_reinforcement: livingTurn.emotional_reinforcement,
+    soul_context: livingTurn.soul_context,
     signal: options.signal,
     latency_trace: trace,
     streaming_enabled: options.streaming_enabled,
@@ -322,6 +332,15 @@ async function handleTypedText(runtime, text, options = {}) {
     if (typeof options.on_public_text === 'function') options.on_public_text(Object.freeze({ text: reply, final_only: true }));
   }
 
+  const livingContinuity = completeLivingTurn({
+    turn: livingTurn,
+    runtime,
+    result,
+    reply,
+    source: options.source || 'live_chat_interface',
+    input_modality: options.input_modality || 'text'
+  });
+
   appendChatTranscriptTurn({
     role: 'floki',
     text: reply,
@@ -339,6 +358,7 @@ async function handleTypedText(runtime, text, options = {}) {
   return jsonStatus(cognition.enabled === true && speech.enabled === true, 'FLOKI_V2_LIVE_CHAT_TEXT_REPLY_RECORDED', {
     transcript_recorded_now: true,
     reply,
+    living_continuity: livingContinuity,
     trace_id: trace.trace_id,
     turn_id: trace.turn_id,
     latency_events: trace.events()

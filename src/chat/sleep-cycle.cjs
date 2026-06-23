@@ -23,6 +23,7 @@ function getSleepDefaults(mode) {
     start_hhmm: cfg.start_hhmm,
     end_hhmm: cfg.end_hhmm,
     idle_resume_seconds: cfg.idle_resume_seconds,
+    rem_interval_minutes: cfg.rem_interval_minutes,
     rem_offsets_minutes: cfg.rem_offsets_minutes
   });
 }
@@ -32,7 +33,7 @@ const yamlTimezone = DEFAULTS.timezone;
 const sleepStartFallback = DEFAULTS.start_hhmm;
 const sleepEndFallback = DEFAULTS.end_hhmm;
 const DEFAULT_IDLE_RESUME_SECONDS = DEFAULTS.idle_resume_seconds;
-const DEFAULT_REM_OFFSETS_MINUTES = Object.freeze([90, 180, 270, 360, 440]);
+const DEFAULT_REM_INTERVAL_MINUTES = DEFAULTS.rem_interval_minutes;
 const DEFAULT_STATE_FILE = statePath('chat/sleep/sleep-cycle-state.json');
 const DEFAULT_EVENTS_FILE = statePath('chat/sleep/sleep-events.jsonl');
 
@@ -83,12 +84,16 @@ function parseHHMM(value, fallback) {
 }
 
 function getScheduleConfig(options = {}) {
-  const env = options.env || process.env;
   return Object.freeze({
-    timezone: options.timezone || env.FLOKI_SLEEP_TIMEZONE || yamlTimezone,
-    start: parseHHMM(options.sleep_start_hhmm || env.FLOKI_SLEEP_START_HHMM, sleepStartFallback),
-    end: parseHHMM(options.sleep_end_hhmm || env.FLOKI_SLEEP_END_HHMM, sleepEndFallback),
-    idle_resume_seconds: Number(options.idle_resume_seconds || env.FLOKI_SLEEP_IDLE_RESUME_SECONDS || DEFAULT_IDLE_RESUME_SECONDS)
+    timezone: yamlTimezone,
+    start: parseHHMM(options.sleep_start_hhmm, sleepStartFallback),
+    end: parseHHMM(options.sleep_end_hhmm, sleepEndFallback),
+    idle_resume_seconds: Number(
+      options.idle_resume_seconds || DEFAULT_IDLE_RESUME_SECONDS
+    ),
+    rem_interval_minutes: Number(
+      options.rem_interval_minutes || DEFAULT_REM_INTERVAL_MINUTES
+    )
   });
 }
 
@@ -190,13 +195,42 @@ function isWithinSleepWindow(date, options = {}) {
 }
 
 function buildRemSchedule(sleepWindow, options = {}) {
-  const offsets = Array.isArray(options.rem_offsets_minutes) ? options.rem_offsets_minutes : DEFAULT_REM_OFFSETS_MINUTES;
   const startMs = new Date(sleepWindow.start_at).getTime();
   const endMs = new Date(sleepWindow.end_at).getTime();
+  const explicitOffsets = Array.isArray(options.rem_offsets_minutes)
+    ? options.rem_offsets_minutes.map(Number)
+    : null;
+  const intervalMinutes = Number(
+    options.rem_interval_minutes || DEFAULT_REM_INTERVAL_MINUTES
+  );
+
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    throw new Error('sleep window contains invalid timestamps');
+  }
+
+  let offsets;
+  if (explicitOffsets) {
+    offsets = explicitOffsets;
+  } else {
+    if (!Number.isFinite(intervalMinutes) || intervalMinutes !== 10) {
+      throw new Error('sleep.rem_interval_minutes must be 10');
+    }
+    offsets = [];
+    for (
+      let offset = intervalMinutes;
+      startMs + offset * 60000 < endMs;
+      offset += intervalMinutes
+    ) {
+      offsets.push(offset);
+    }
+  }
+
   return offsets
-    .map((minutes, index) => ({
+    .filter((minutes) => Number.isFinite(minutes) && minutes > 0)
+    .sort((left, right) => left - right)
+    .map((minutes, index) => Object.freeze({
       cycle_number: index + 1,
-      scheduled_at: new Date(startMs + Number(minutes) * 60000).toISOString(),
+      scheduled_at: new Date(startMs + minutes * 60000).toISOString(),
       status: 'pending',
       dream_txt_file: null,
       dream_metadata_file: null,
@@ -205,8 +239,62 @@ function buildRemSchedule(sleepWindow, options = {}) {
       completed_at: null,
       last_transition_at: null
     }))
-    .filter((cycle) => new Date(cycle.scheduled_at).getTime() < endMs)
-    .map(Object.freeze);
+    .filter((cycle) => new Date(cycle.scheduled_at).getTime() < endMs);
+}
+
+function sameRemSchedule(left, right) {
+  const leftTimes = Array.isArray(left)
+    ? left.map((cycle) => cycle && cycle.scheduled_at)
+    : [];
+  const rightTimes = Array.isArray(right)
+    ? right.map((cycle) => cycle && cycle.scheduled_at)
+    : [];
+  return leftTimes.length === rightTimes.length &&
+    leftTimes.every((value, index) => value === rightTimes[index]);
+}
+
+function reconcileRemSchedule(state, sleepWindow, options = {}) {
+  if (!state || !Array.isArray(state.rem_cycles)) return state;
+
+  const desired = buildRemSchedule(sleepWindow, options);
+  const intervalMinutes = Number(
+    options.rem_interval_minutes || DEFAULT_REM_INTERVAL_MINUTES
+  );
+
+  if (
+    sameRemSchedule(state.rem_cycles, desired) &&
+    Number(state.rem_interval_minutes || intervalMinutes) === intervalMinutes
+  ) {
+    return state;
+  }
+
+  const existingByTime = new Map(
+    state.rem_cycles
+      .filter((cycle) => cycle && typeof cycle.scheduled_at === 'string')
+      .map((cycle) => [cycle.scheduled_at, cycle])
+  );
+
+  const merged = desired.map((cycle, index) => {
+    const existing = existingByTime.get(cycle.scheduled_at);
+    return Object.freeze(existing
+      ? {
+          ...cycle,
+          ...existing,
+          cycle_number: index + 1,
+          scheduled_at: cycle.scheduled_at
+        }
+      : cycle);
+  });
+
+  return Object.freeze({
+    ...state,
+    timezone: sleepWindow.timezone,
+    sleep_window_start: sleepWindow.start_at,
+    sleep_window_end: sleepWindow.end_at,
+    rem_interval_minutes: intervalMinutes,
+    rem_cycles: merged,
+    rem_schedule_reconciled_at: nowDate(options).toISOString()
+  });
 }
 
 function stateFile(options = {}) {
@@ -221,6 +309,8 @@ function createSleepCycleState(options = {}) {
   const now = nowDate(options);
   const window = options.sleep_window || getSleepWindowForDate(now, options);
   const createdAt = now.toISOString();
+  const schedule = getScheduleConfig(options);
+
   return Object.freeze({
     current_sleep_date: window.sleep_date,
     sleep_window_start: window.start_at,
@@ -232,7 +322,8 @@ function createSleepCycleState(options = {}) {
     interrupted_at: null,
     last_user_activity_at: null,
     last_transition_at: createdAt,
-    idle_resume_seconds: getScheduleConfig(options).idle_resume_seconds,
+    idle_resume_seconds: schedule.idle_resume_seconds,
+    rem_interval_minutes: schedule.rem_interval_minutes,
     rem_cycles: buildRemSchedule(window, options),
     resumed_after_interruption_count: 0,
     chat_mode_only: true,
@@ -376,6 +467,7 @@ function recordWakeActivityIfSleeping(options = {}) {
   if (!state || state.current_sleep_date !== sleepWindow.sleep_date || state.completed === true) {
     state = createSleepCycleState({ ...options, sleep_window: sleepWindow });
   }
+  state = reconcileRemSchedule(state, sleepWindow, options);
   const interrupted = markAwakeInterruption(state, options.reason || 'wake_gated_user_activity', options);
   saveSleepCycleState(interrupted, options);
 
@@ -485,6 +577,18 @@ async function runSleepCycleTick(options = {}) {
     appendSleepEvent({ type: 'sleep_window_started', sleep_date: sleepWindow.sleep_date, at: now.toISOString() }, options);
   }
 
+  const reconciledSchedule = reconcileRemSchedule(state, sleepWindow, options);
+  if (reconciledSchedule !== state) {
+    state = reconciledSchedule;
+    stateDirty = true;
+    appendSleepEvent({
+      type: 'rem_schedule_reconciled',
+      rem_interval_minutes: state.rem_interval_minutes,
+      rem_cycles_total: state.rem_cycles.length,
+      at: now.toISOString()
+    }, options);
+  }
+
   const recovered = recoverStaleDreamingCycles(state, options);
   if (recovered.recovered) {
     state = recovered.state;
@@ -572,6 +676,7 @@ async function runSleepCycleTick(options = {}) {
       dream = await dreamRunner({
         ...options.dream_options,
         env,
+        sleep_kind: 'nightly_sleep',
         rem_cycle_number: cycle.cycle_number,
         sleep_window_start: state.sleep_window_start,
         sleep_window_end: state.sleep_window_end
@@ -719,11 +824,13 @@ module.exports = {
   sleepStartFallback,
   sleepEndFallback,
   DEFAULT_IDLE_RESUME_SECONDS,
+  DEFAULT_REM_INTERVAL_MINUTES,
   sleepCycleAllowed,
   sleepCycleGuardStatus,
   getSleepWindowForDate,
   isWithinSleepWindow,
   buildRemSchedule,
+  reconcileRemSchedule,
   createSleepCycleState,
   loadSleepCycleState,
   saveSleepCycleState,

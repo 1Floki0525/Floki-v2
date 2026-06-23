@@ -43,9 +43,9 @@ function run() {
   assert.equal(typeof chatSleep.rem_offsets_minutes, 'object', 'sleep.rem_offsets_minutes must be an object');
   const remKeys = Object.keys(chatSleep.rem_offsets_minutes);
   assert.ok(remKeys.length >= 3, 'sleep.rem_offsets_minutes must have at least 3 cycles');
-  assert.equal(chatSleep.rem_offsets_minutes.cycle_1, 90, 'rem_offsets_minutes.cycle_1 must match YAML');
-  assert.equal(chatSleep.rem_offsets_minutes.cycle_2, 180, 'rem_offsets_minutes.cycle_2 must match YAML');
-  assert.equal(chatSleep.rem_offsets_minutes.cycle_3, 270, 'rem_offsets_minutes.cycle_3 must match YAML');
+  assert.equal(chatSleep.rem_offsets_minutes.cycle_1, 10, 'rem_offsets_minutes.cycle_1 must match YAML');
+  assert.equal(chatSleep.rem_offsets_minutes.cycle_2, 20, 'rem_offsets_minutes.cycle_2 must match YAML');
+  assert.equal(chatSleep.rem_offsets_minutes.cycle_3, 30, 'rem_offsets_minutes.cycle_3 must match YAML');
 
   assert.equal(typeof chatDream.temperature, 'number', 'dream.temperature must be a number from YAML');
   assert.ok(chatDream.temperature > 0 && chatDream.temperature < 1, 'dream.temperature must be between 0 and 1');

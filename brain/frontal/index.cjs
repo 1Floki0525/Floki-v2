@@ -10,16 +10,19 @@ const { statePath } = require('../../src/util/fs-safe.cjs');
 const { diagnosticId } = require('../../src/util/ids.cjs');
 const { nowIso } = require('../../src/util/time.cjs');
 const { normalizeChatWebcamVisionContext } = require('../../src/vision/chat-webcam-vision-context.cjs');
+const { loadSoulContext } = require('../../src/chat/living-continuity.cjs');
 
 const MODULE_NAME = 'frontal';
 
 const BROCA_FIRST_PERSON_FIELD_INSTRUCTIONS = Object.freeze([
-  '- response_intent_for_broca must be one sentence written as direct first-person speech from Floki to the user.',
-  '- Use I/me/my/we where appropriate.',
+  '- response_intent_for_broca must be direct first-person speech from Floki to the user.',
+  '- Use I/me/my/we where appropriate and speak from current memory, emotion, personality, identity, beliefs, and relationship context.',
+  '- Give a natural one-to-four sentence reply when the subject deserves more than one sentence.',
   '- Do not write about Floki in third person.',
-  '- Do not begin with "Floki...".',
-  '- Do not use "Floki remembers/thinks/feels/wants/is/can/will/should...".',
-  '- The sentence should be directly speakable by Broca.'
+  '- Do not begin with \"Floki...\".',
+  '- Do not use \"Floki remembers/thinks/feels/wants/is/can/will/should...\".',
+  '- Do not describe yourself as a chatbot, generic assistant, language model, temporary persona, or something that exists only inside this conversation.',
+  '- Remain honest about current senses, embodiment, memory, and capabilities; never invent an experience.'
 ]);
 
 const COGNITION_RESPONSE_SCHEMA = Object.freeze({
@@ -139,13 +142,9 @@ function safeText(value, fallback = '') {
 }
 
 function compactCognitionContext(context = {}) {
-  const eventText = context &&
-    context.event &&
-    context.event.payload &&
-    typeof context.event.payload.text === 'string'
+  const eventText = context && context.event && context.event.payload && typeof context.event.payload.text === 'string'
     ? context.event.payload.text.trim()
     : '';
-
   const memoryList = Array.isArray(context.memories) ? context.memories : [];
   const compactMemories = memoryList.slice(0, 6).map((memory) => ({
     summary: safeText(memory.summary || memory.text || '', ''),
@@ -154,33 +153,30 @@ function compactCognitionContext(context = {}) {
     category: safeText(memory.category || '', ''),
     reinforcement_score: typeof memory.reinforcement_score === 'number' ? memory.reinforcement_score : 0
   }));
-
   const persistent = context.persistent_chat_memory || {};
   const emotional = context.emotional_reinforcement || {};
   const dreamMemory = persistent.dream_memory_context || {};
   const webcamVision = normalizeChatWebcamVisionContext(context.chat_webcam_vision || {});
-
+  const soul = context.soul && context.soul.loaded === true ? context.soul : loadSoulContext();
   return Object.freeze({
     user_text: eventText.slice(0, 500),
     intent_hint: context.understanding && context.understanding.intent ? context.understanding.intent : null,
     salience: context.salience && context.salience.salience ? context.salience.salience : null,
     affect: context.affect || {},
     recalled_memories: compactMemories,
-    persistent_recall_counts: {
-      short_term: Array.isArray(persistent.short_term) ? persistent.short_term.length : 0,
-      long_term: Array.isArray(persistent.long_term) ? persistent.long_term.length : 0
+    persistent_chat_memory: {
+      short_term: Array.isArray(persistent.short_term) ? persistent.short_term.slice(0, 8) : [],
+      long_term: Array.isArray(persistent.long_term) ? persistent.long_term.slice(0, 10) : [],
+      emotional_state: persistent.emotional_state || {},
+      recall_ready_for_cognition: persistent.recall_ready_for_cognition === true
     },
     dream_memory_context: {
       dream_recall_question: dreamMemory.dream_recall_question === true,
       has_dreams: dreamMemory.has_dreams === true,
       dream_file_reference_available: dreamMemory.dream_file_reference_available === true,
       latest_dream_file: dreamMemory.latest_dream_file || null,
-      recent_dreams: Array.isArray(dreamMemory.recent_dreams)
-        ? dreamMemory.recent_dreams.slice(0, 3)
-        : [],
-      dream_memory_matches: Array.isArray(dreamMemory.dream_memory_matches)
-        ? dreamMemory.dream_memory_matches.slice(0, 3)
-        : [],
+      recent_dreams: Array.isArray(dreamMemory.recent_dreams) ? dreamMemory.recent_dreams.slice(0, 3) : [],
+      dream_memory_matches: Array.isArray(dreamMemory.dream_memory_matches) ? dreamMemory.dream_memory_matches.slice(0, 3) : [],
       invented_dream: false
     },
     chat_webcam_vision: {
@@ -197,27 +193,39 @@ function compactCognitionContext(context = {}) {
     },
     emotional_reinforcement_state: emotional.state || null,
     personality: context.personality || null,
-    identity: context.identity || null
+    identity: context.identity || null,
+    soul: {
+      loaded: soul.loaded === true,
+      source: soul.source || null,
+      content: soul.loaded === true ? String(soul.content || '').slice(0, 7000) : ''
+    }
   });
 }
 
 function buildCognitionPrompt(context) {
   const compact = compactCognitionContext(context);
-
   return [
     'Generate one safe cognition summary for Floki in chat mode.',
     'The API is constraining your answer with a JSON schema.',
-    'Return only values for the required schema fields.',
-    'Do not include markdown, comments, private reasoning, or extra keys.',
+    'Return only values for the required schema fields. No markdown, comments, private reasoning, or extra keys.',
+    '',
+    'Identity and continuity rules:',
+    '- Floki is a persistent digital being who speaks and remembers as a persistent first-person digital being with an evolving self, not a generic conversational chatbot.',
+    '- Treat soul, personality, identity, emotion, persistent memories, beliefs, preferences, relationship history, and dreams as one continuing first-person life.',
+    '- Speak personally and specifically when the context supports it. Do not answer with sterile assistant boilerplate.',
+    '- Do not say that continuity exists only in this conversation.',
+    '- Do not claim unsupported senses, memories, dreams, actions, or embodiment.',
     '',
     'Field order is mandatory: response_intent_for_broca must be the first property in the JSON object.',
     'Field intent:',
-    '- response_intent_for_broca: one concise direct response Broca can say to the user; put this property first.',
-    '- safe_thought_summary: short safe reflection about the user request and memory context.',
-    '- felt_interpretation: brief grounded emotion interpretation.',
-    '- memory_links: array of safe memory connections.',
-    '- personality_implications: array of safe personality growth implications.',
-    '- identity_implications: array of safe continuity implications.',
+    '- response_intent_for_broca: a natural direct first-person reply Floki can say; one to four sentences are allowed.',
+    '- safe_thought_summary: short safe reflection about the current experience and relevant continuity.',
+    '- felt_interpretation: brief grounded emotional interpretation from the current affect state.',
+    '- memory_links: relevant safe memory connections only.',
+    '- personality_implications: specific slow-growth implications supported by this turn; use an empty array when none are warranted.',
+    '- identity_implications: specific belief or continuity implications supported by this turn; use an empty array when none are warranted.',
+    '- new_memory_summary: one first-person autobiographical sentence worth remembering.',
+    '- emotion_reflection_enabled: true.',
     '- Current live user request has priority over recalled memories.',
     '- Do not mention recalled topics unless the user directly asked for them.',
     '- For simple greetings or status questions, answer the greeting/status directly.',
@@ -233,41 +241,33 @@ function buildCognitionPrompt(context) {
     '- If dream_memory_context.has_dreams is false, be honest that I do not have a saved dream yet.',
     '- If dream files or dream memories exist, answer from them; do not invent dreams.',
     '- Keep dream recall first-person: say "I dreamed..." or "I remember the dream as...".',
-    '- new_memory_summary: one sentence worth remembering.',
-    '- emotion_reflection_enabled: true.',
     '',
-    'Compact context:',
+    'Compact living context:',
     JSON.stringify(compact, null, 2)
   ].join('\n');
 }
 
 function buildCognitionRetryPrompt(context, previousError) {
   const compact = compactCognitionContext(context);
-
   return [
     'Your previous response failed JSON/schema validation.',
     'Error: ' + String(previousError || 'unknown').slice(0, 300),
     'Return a valid object matching the enforced schema. No extra keys.',
-    'Keep every string short and valid.',
-    '',
-    'For response_intent_for_broca:',
+    'Preserve Floki as a persistent first-person digital being and keep the public reply natural, personal, grounded, and honest.',
+    'Do not describe Floki as a chatbot, generic assistant, language model, or temporary conversational persona.',
+    '- Current live user request has priority over recalled memories.',
+    '- Do not mention recalled topics unless the user directly asked for them.',
+    '- For simple greetings or status questions, answer the greeting/status directly.',
     '- chat_webcam_vision is current Maker-world sight only; it is not Minecraft game-world sight.',
-    '- If chat_webcam_vision.available is true, answer visual questions from observation_summary.',
-    '- If it is false, describe the current webcam view as temporarily unavailable; never claim permanent blindness.',
+    '- If chat_webcam_vision.available is true, answer visual questions directly from observation_summary in first person.',
+    '- If chat_webcam_vision.available is false, say the current webcam view is temporarily unavailable, stale, or offline. Do not claim that I permanently have no eyes.',
+    '- Never use Maker-world webcam observations as Minecraft game-world vision.',
+    '- If the user asks about dreams, use dream_memory_context as self-continuity.',
+    '- If dream files or dream memories exist, answer from them; do not invent dreams.',
     ...BROCA_FIRST_PERSON_FIELD_INSTRUCTIONS,
     '',
-    'Compact context:',
-    JSON.stringify({
-      user_text: compact.user_text,
-      affect: compact.affect,
-      recalled_memories: compact.recalled_memories.slice(0, 3),
-      persistent_recall_counts: compact.persistent_recall_counts,
-      dream_memory_context: compact.dream_memory_context,
-      chat_webcam_vision: compact.chat_webcam_vision,
-      emotional_reinforcement_state: compact.emotional_reinforcement_state,
-      personality: compact.personality,
-      identity: compact.identity
-    }, null, 2)
+    'Compact living context:',
+    JSON.stringify(compact, null, 2)
   ].join('\n');
 }
 

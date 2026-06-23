@@ -1,134 +1,210 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import flokiAdapter from '@/integrations/floki/adapter';
 import DreamsHeader from '@/components/dreams/DreamsHeader';
 import DreamsTimeline from '@/components/dreams/DreamsTimeline';
 import DreamFragmentCard from '@/components/dreams/DreamFragmentCard';
-import DreamsFilters from '@/components/dreams/DreamsFilters';
 
-function fragmentMatches(frag, filters) {
-  // Emotional tag filter
-  if (filters.emotionalTag !== 'all') {
-    const v = frag.emotionalTone.valence;
-    const a = frag.emotionalTone.arousal;
-    const tag = filters.emotionalTag;
+const REFRESH_INTERVAL_MS = 3000;
+const COUNTDOWN_INTERVAL_MS = 1000;
 
-    if (tag === 'peaceful' && !(v > 0.55 && a < 0.45)) return false;
-    if (tag === 'vivid' && !(a > 0.6)) return false;
-    if (tag === 'anxious' && !(v < 0.45 && a > 0.55)) return false;
-    if (tag === 'euphoric' && !(v > 0.55 && a > 0.55)) return false;
-    if (tag === 'melancholic' && !(v < 0.45 && a < 0.45)) return false;
-    if (tag === 'neutral' && !(v >= 0.4 && v <= 0.6 && a >= 0.35 && a <= 0.6)) return false;
+function formatCountdown(ms, includeHours = false) {
+  const totalSeconds = Math.max(0, Math.ceil(Number(ms || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (includeHours || hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }
-
-  // Duration filter
-  if (filters.duration !== 'all') {
-    const s = frag.duration / 1000;
-    if (filters.duration === 'short' && s >= 30) return false;
-    if (filters.duration === 'medium' && (s < 30 || s > 90)) return false;
-    if (filters.duration === 'long' && s <= 90) return false;
-  }
-
-  // Memory tag filter
-  if (filters.selectedTags.length > 0) {
-    if (!filters.selectedTags.some(tag => frag.memoryTags.includes(tag))) return false;
-  }
-
-  return true;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-export default function DreamsDashboard() {
-  const [timeline, setTimeline] = useState(null);
-  const [selectedFragment, setSelectedFragment] = useState(null);
-  const [filters, setFilters] = useState({ emotionalTag: 'all', duration: 'all', selectedTags: [] });
+function sessionLabel(session) {
+  if (!session || session.active !== true) return null;
+  if (session.status === 'dreaming') return 'REM DREAMING';
+  if (session.status === 'failed') return 'DREAM FAILED';
+  if (session.status === 'complete') return 'DREAM COMPLETE';
+  return session.kind === 'manual_nap'
+    ? 'ASLEEP — 30-MINUTE NAP'
+    : 'ASLEEP — NIGHTLY SLEEP';
+}
 
-  useEffect(() => {
-    flokiAdapter.getDreamTimeline().then(setTimeline).catch(console.error);
+export default function DreamsDashboard({ flokiStatus }) {
+  const [timeline, setTimeline] = useState(null);
+  const [selectedDreamId, setSelectedDreamId] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [clock, setClock] = useState(Date.now());
+
+  const refreshTimeline = useCallback(async () => {
+    try {
+      const next = await flokiAdapter.getDreamTimeline();
+      setTimeline(next);
+      setSelectedDreamId((current) => {
+        if (current && next.dreams?.some((dream) => dream.id === current)) return current;
+        return next.dreams?.[0]?.id || null;
+      });
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(error.message || String(error));
+    }
   }, []);
 
-  const handleRefresh = async () => {
-    setTimeline(await flokiAdapter.getDreamTimeline());
-    setSelectedFragment(null);
-  };
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      if (active) await refreshTimeline();
+    };
+    refresh();
+    const timer = setInterval(refresh, REFRESH_INTERVAL_MS);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [refreshTimeline]);
 
-  const matchingFragmentIds = useMemo(() => {
-    if (!timeline) return new Set();
-    const match = new Set();
-    timeline.fragments.forEach(frag => {
-      if (fragmentMatches(frag, filters)) match.add(frag.id);
-    });
-    return match;
-  }, [timeline, filters]);
+  useEffect(() => {
+    setClock(Date.now());
+    const timer = setInterval(() => setClock(Date.now()), COUNTDOWN_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
 
-  const activeFilterCount = (filters.emotionalTag !== 'all' ? 1 : 0) + (filters.duration !== 'all' ? 1 : 0) + filters.selectedTags.length;
+  useEffect(() => {
+    refreshTimeline();
+  }, [flokiStatus?.sleepState, flokiStatus?.state, refreshTimeline]);
 
-  const filteredFragments = useMemo(() => {
-    if (!timeline) return [];
-    return timeline.fragments.filter(f => matchingFragmentIds.has(f.id));
-  }, [timeline, matchingFragmentIds]);
+  const selectedDream = useMemo(() => (
+    timeline?.dreams?.find((dream) => dream.id === selectedDreamId) || null
+  ), [timeline, selectedDreamId]);
 
   if (!timeline) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center space-y-3">
           <div className="w-8 h-8 mx-auto rounded-full border-2 border-neon-cyan/30 border-t-neon-cyan animate-spin" />
-          <p className="text-xs text-muted-foreground font-mono">LOADING DREAM DATA...</p>
+          <p className="text-xs text-muted-foreground font-mono">
+            {loadError ? `DREAM DATA ERROR: ${loadError}` : 'LOADING DREAM DATA...'}
+          </p>
         </div>
       </div>
     );
   }
 
+  const activeSession = timeline.activeSession;
+  const activeLabel = sessionLabel(activeSession);
+  const sleepRemainingMs = activeSession?.wakeAt
+    ? Math.max(0, new Date(activeSession.wakeAt).getTime() - clock)
+    : Math.max(0, Number(activeSession?.remainingMs || 0));
+  const nextRemCountdownMs = activeSession?.nextRemCycleAt
+    ? Math.max(0, new Date(activeSession.nextRemCycleAt).getTime() - clock)
+    : null;
+  const completedCycles = Array.isArray(timeline.cycles)
+    ? timeline.cycles.filter((cycle) => cycle.status === 'complete').length
+    : 0;
+  const totalCycles = Array.isArray(timeline.cycles) ? timeline.cycles.length : 0;
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6 max-w-7xl mx-auto space-y-6">
-        <DreamsHeader
-          timeline={timeline}
-          filteredCount={filteredFragments.length}
-          hasActiveFilters={activeFilterCount > 0}
-          onRefresh={handleRefresh}
-        />
+        <DreamsHeader timeline={timeline} onRefresh={refreshTimeline} />
 
-        {/* Layout: filters sidebar + main area */}
-        <div className="flex flex-col lg:flex-row gap-6">
-          <DreamsFilters
-            fragments={timeline.fragments}
-            filters={filters}
-            onFiltersChange={setFilters}
-          />
-
-          <div className="flex-1 min-w-0">
-            {/* Timeline + fragment detail in two columns */}
-            <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-              <div className="xl:col-span-3">
-                <DreamsTimeline
-                  timeline={timeline}
-                  selectedFragmentId={selectedFragment?.id}
-                  matchingFragmentIds={matchingFragmentIds}
-                  onSelectFragment={setSelectedFragment}
-                />
-              </div>
-              <div className="xl:col-span-2">
-                {selectedFragment ? (
-                  <DreamFragmentCard
-                    fragment={selectedFragment}
-                    onClose={() => setSelectedFragment(null)}
-                  />
-                ) : (
-                  <div className="glass-panel rounded-lg p-8 text-center border border-border/50 flex flex-col items-center justify-center min-h-[300px]">
-                    <div className="w-14 h-14 mb-4 rounded-full bg-neon-cyan/5 border border-neon-cyan/10 flex items-center justify-center">
-                      <svg className="w-6 h-6 text-neon-cyan/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                      </svg>
-                    </div>
-                    <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-1">
-                      Select a dream fragment
-                    </p>
-                    <p className="text-[11px] text-muted-foreground/50 max-w-[220px] leading-relaxed">
-                      Click any dot on the nocturnal timeline to view the full subconscious memory
-                    </p>
-                  </div>
+        {activeLabel && (
+          <div className="glass-panel rounded-lg border border-neon-cyan/30 px-4 py-3">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold tracking-[0.18em] text-neon-cyan font-mono">
+                  {activeLabel}
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground font-mono">
+                  {activeSession.status === 'dreaming'
+                    ? `REM cycle ${activeSession.currentRemCycle || '—'} is generating a full first-person dream now.`
+                    : `One REM dream every ${activeSession.remIntervalMinutes || 10} minutes until wake.`}
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground/70 font-mono">
+                  REM cycles: {completedCycles}/{totalCycles} complete
+                </p>
+                {activeSession.lastError && (
+                  <p className="mt-1 text-[11px] text-red-400 font-mono">{activeSession.lastError}</p>
                 )}
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-[300px] font-mono">
+                <div className="rounded-md border border-border/50 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Sleep remaining
+                  </p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {formatCountdown(sleepRemainingMs, activeSession.kind === 'nightly_sleep')}
+                  </p>
+                </div>
+
+                <div className="rounded-md border border-neon-cyan/20 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    {activeSession.status === 'dreaming' ? 'Current REM' : 'Next REM in'}
+                  </p>
+                  <p className="text-lg font-semibold text-neon-cyan">
+                    {activeSession.status === 'dreaming'
+                      ? `Cycle ${activeSession.currentRemCycle || '—'}`
+                      : nextRemCountdownMs === null
+                        ? '—'
+                        : formatCountdown(nextRemCountdownMs)}
+                  </p>
+                  {activeSession.status !== 'dreaming' && activeSession.nextRemCycleAt && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Cycle {activeSession.nextRemCycleNumber || '—'} at{' '}
+                      {new Date(activeSession.nextRemCycleAt).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZone: 'America/Toronto'
+                      })}
+                    </p>
+                  )}
+                  {activeSession.status !== 'dreaming' && !activeSession.nextRemCycleAt && (
+                    <p className="text-[10px] text-muted-foreground">
+                      No further REM cycle before wake.
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
+          </div>
+        )}
+
+        {loadError && (
+          <div className="glass-panel rounded-lg border border-red-500/30 px-4 py-3 text-[11px] text-red-400 font-mono">
+            Live refresh failed: {loadError}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+          <div className="xl:col-span-2">
+            <DreamsTimeline
+              timeline={timeline}
+              selectedDreamId={selectedDreamId}
+              onSelectDream={(dream) => setSelectedDreamId(dream.id)}
+            />
+          </div>
+          <div className="xl:col-span-3">
+            {selectedDream ? (
+              <DreamFragmentCard dream={selectedDream} />
+            ) : (
+              <div className="glass-panel rounded-lg p-8 text-center border border-border/50 flex flex-col items-center justify-center min-h-[360px]">
+                <div className="w-14 h-14 mb-4 rounded-full bg-neon-cyan/5 border border-neon-cyan/10 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-neon-cyan/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                  </svg>
+                </div>
+                <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider mb-1">
+                  {activeSession?.status === 'dreaming'
+                    ? 'Dream narrative forming'
+                    : 'No completed dream selected'}
+                </p>
+                <p className="text-[11px] text-muted-foreground/50 max-w-[320px] leading-relaxed">
+                  {activeSession?.status === 'dreaming'
+                    ? 'The completed title and full transcript will appear automatically when the REM dream is indexed.'
+                    : 'Completed dreams appear by title in the Dream Archive on the left.'}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

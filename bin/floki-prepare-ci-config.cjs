@@ -5,48 +5,84 @@ const os = require('node:os');
 const path = require('node:path');
 const { loadYamlFile } = require('../src/config/yaml-lite.cjs');
 
-const ROOT = path.resolve(__dirname, '..');
-const CONFIG_DIR = path.join(ROOT, 'config');
-const RUNNER_TEMP = path.resolve(process.env.RUNNER_TEMP || os.tmpdir());
-const CI_ROOT = path.join(RUNNER_TEMP, 'floki-v2-ci');
-
-const CHAT_TEMPLATE = path.join(CONFIG_DIR, 'chat.config.yaml.temp');
-const GAME_TEMPLATE = path.join(CONFIG_DIR, 'game.config.yaml.temp');
-const CHAT_CONFIG = path.join(CONFIG_DIR, 'chat.config.yaml');
-const GAME_CONFIG = path.join(CONFIG_DIR, 'game.config.yaml');
-
-const DREAM_ROOT = path.join(CI_ROOT, 'Floki-memory-bank', 'dreams');
-const MEDIA_ROOT = path.join(CI_ROOT, 'Floki-media');
-const YOUTUBE_ROOT = path.join(MEDIA_ROOT, 'text', 'youtube');
-const COOKIE_FILE = path.join(CI_ROOT, 'secrets', 'cookies.txt');
-
-function fail(message) {
-  console.error('FLOKI_V2_CI_CONFIG_PREPARE_FAIL: ' + message);
-  process.exit(1);
-}
+const DEFAULT_PROJECT_ROOT = path.resolve(__dirname, '..');
 
 function requireFile(filePath) {
   if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-    fail('required file is missing: ' + filePath);
+    throw new Error('required file is missing: ' + filePath);
   }
 }
 
 function replaceScalar(source, key, value) {
   const lines = String(source).split(/\r?\n/);
   let replacements = 0;
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   const output = lines.map((line) => {
-    const match = line.match(new RegExp('^(\\s*)' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*:'));
+    const match = line.match(new RegExp('^(\\s*)' + escapedKey + '\\s*:'));
     if (!match) return line;
     replacements += 1;
     return match[1] + key + ': ' + value;
   });
 
   if (replacements !== 1) {
-    fail('expected exactly one YAML key named ' + key + ', found ' + replacements);
+    throw new Error(
+      'expected exactly one YAML key named ' + key + ', found ' + replacements
+    );
   }
 
   return output.join('\n');
+}
+
+function createLayout(options = {}) {
+  const projectRoot = path.resolve(
+    options.projectRoot ||
+    options.project_root ||
+    DEFAULT_PROJECT_ROOT
+  );
+  const configDir = path.join(projectRoot, 'config');
+  const externalRoot = path.resolve(
+    options.externalRoot ||
+    options.external_root ||
+    path.join(
+      path.resolve(process.env.RUNNER_TEMP || os.tmpdir()),
+      'floki-v2-ci'
+    )
+  );
+
+  const dreamRoot = path.join(externalRoot, 'Floki-memory-bank', 'dreams');
+  const mediaRoot = path.join(externalRoot, 'Floki-media');
+  const youtubeRoot = path.join(mediaRoot, 'text', 'youtube');
+  const cookieFile = path.join(externalRoot, 'secrets', 'cookies.txt');
+
+  return Object.freeze({
+    projectRoot,
+    configDir,
+    externalRoot,
+    chatTemplate: path.join(configDir, 'chat.config.yaml.temp'),
+    gameTemplate: path.join(configDir, 'game.config.yaml.temp'),
+    chatConfig: path.join(configDir, 'chat.config.yaml'),
+    gameConfig: path.join(configDir, 'game.config.yaml'),
+    dreamRoot,
+    mediaRoot,
+    youtubeRoot,
+    cookieFile
+  });
+}
+
+function ensureExternalPaths(layout) {
+  for (const directory of [
+    layout.dreamRoot,
+    layout.mediaRoot,
+    layout.youtubeRoot,
+    path.dirname(layout.cookieFile)
+  ]) {
+    fs.mkdirSync(directory, { recursive: true });
+  }
+
+  if (!fs.existsSync(layout.cookieFile)) {
+    fs.writeFileSync(layout.cookieFile, '', 'utf8');
+  }
 }
 
 function prepareConfig(templateFile, outputFile, values) {
@@ -58,75 +94,152 @@ function prepareConfig(templateFile, outputFile, values) {
   }
 
   if (source.includes('/absolute/path/')) {
-    fail('public placeholder path remains in ' + path.basename(outputFile));
+    throw new Error(
+      'public placeholder path remains in ' + path.basename(outputFile)
+    );
   }
 
+  fs.mkdirSync(path.dirname(outputFile), { recursive: true });
   fs.writeFileSync(outputFile, source.replace(/\s*$/, '\n'), 'utf8');
 }
 
-function ensureRunnerPaths() {
-  for (const directory of [DREAM_ROOT, MEDIA_ROOT, YOUTUBE_ROOT, path.dirname(COOKIE_FILE)]) {
-    fs.mkdirSync(directory, { recursive: true });
+function assertInsideExternalRoot(value, externalRoot, label) {
+  if (typeof value !== 'string' || !path.isAbsolute(value)) {
+    throw new Error(label + ' must be an absolute runner path');
   }
 
-  if (!fs.existsSync(COOKIE_FILE)) {
-    fs.writeFileSync(COOKIE_FILE, '', 'utf8');
+  const resolved = path.resolve(value);
+  const root = path.resolve(externalRoot);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    throw new Error(label + ' escaped the runner temp root');
   }
 }
 
-function validatePreparedConfig(filePath, expectedMode, includeCookie) {
+function validatePreparedConfig(
+  filePath,
+  expectedMode,
+  includeCookie,
+  externalRoot
+) {
   const config = loadYamlFile(filePath);
   if (config.mode !== expectedMode) {
-    fail(path.basename(filePath) + ' mode mismatch');
+    throw new Error(path.basename(filePath) + ' mode mismatch');
   }
 
   const paths = config.paths || {};
-  const required = ['dream_root', 'media_root', 'youtube_transcript_root'];
+  const required = [
+    'dream_root',
+    'media_root',
+    'youtube_transcript_root'
+  ];
   if (includeCookie) required.push('youtube_cookies_file');
 
   for (const key of required) {
-    const value = paths[key];
-    if (typeof value !== 'string' || !path.isAbsolute(value)) {
-      fail(path.basename(filePath) + ' paths.' + key + ' must be an absolute runner path');
-    }
-    if (!path.resolve(value).startsWith(CI_ROOT + path.sep)) {
-      fail(path.basename(filePath) + ' paths.' + key + ' escaped the runner temp root');
-    }
+    assertInsideExternalRoot(
+      paths[key],
+      externalRoot,
+      path.basename(filePath) + ' paths.' + key
+    );
   }
+
+  return config;
+}
+
+function prepareCiConfig(options = {}) {
+  const layout = createLayout(options);
+  ensureExternalPaths(layout);
+
+  prepareConfig(layout.chatTemplate, layout.chatConfig, {
+    dream_root: layout.dreamRoot,
+    media_root: layout.mediaRoot,
+    youtube_transcript_root: layout.youtubeRoot,
+    youtube_cookies_file: layout.cookieFile
+  });
+
+  prepareConfig(layout.gameTemplate, layout.gameConfig, {
+    dream_root: layout.dreamRoot,
+    media_root: layout.mediaRoot,
+    youtube_transcript_root: layout.youtubeRoot
+  });
+
+  validatePreparedConfig(
+    layout.chatConfig,
+    'chat',
+    true,
+    layout.externalRoot
+  );
+  validatePreparedConfig(
+    layout.gameConfig,
+    'game',
+    false,
+    layout.externalRoot
+  );
+
+  const result = Object.freeze({
+    ok: true,
+    marker: 'FLOKI_V2_CI_CONFIG_PREPARED',
+
+    project_root: layout.projectRoot,
+    projectRoot: layout.projectRoot,
+
+    external_root: layout.externalRoot,
+    externalRoot: layout.externalRoot,
+    runner_temp_root: layout.externalRoot,
+    runnerTempRoot: layout.externalRoot,
+
+    chat_config: layout.chatConfig,
+    chatConfig: layout.chatConfig,
+    chatConfigPath: layout.chatConfig,
+
+    game_config: layout.gameConfig,
+    gameConfig: layout.gameConfig,
+    gameConfigPath: layout.gameConfig,
+
+    dream_root: layout.dreamRoot,
+    media_root: layout.mediaRoot,
+    youtube_transcript_root: layout.youtubeRoot,
+    youtube_cookies_file: layout.cookieFile,
+
+    paths: Object.freeze({
+      chat_config: layout.chatConfig,
+      game_config: layout.gameConfig,
+      chatConfig: layout.chatConfig,
+      gameConfig: layout.gameConfig,
+      dream_root: layout.dreamRoot,
+      media_root: layout.mediaRoot,
+      youtube_transcript_root: layout.youtubeRoot,
+      youtube_cookies_file: layout.cookieFile
+    }),
+
+    private_host_paths_used: false,
+    public_placeholder_paths_used: false
+  });
+
+  return result;
 }
 
 function main() {
-  ensureRunnerPaths();
-
-  prepareConfig(CHAT_TEMPLATE, CHAT_CONFIG, {
-    dream_root: DREAM_ROOT,
-    media_root: MEDIA_ROOT,
-    youtube_transcript_root: YOUTUBE_ROOT,
-    youtube_cookies_file: COOKIE_FILE
-  });
-
-  prepareConfig(GAME_TEMPLATE, GAME_CONFIG, {
-    dream_root: DREAM_ROOT,
-    media_root: MEDIA_ROOT,
-    youtube_transcript_root: YOUTUBE_ROOT
-  });
-
-  validatePreparedConfig(CHAT_CONFIG, 'chat', true);
-  validatePreparedConfig(GAME_CONFIG, 'game', false);
-
-  console.log(JSON.stringify({
-    ok: true,
-    marker: 'FLOKI_V2_CI_CONFIG_PREPARED',
-    runner_temp_root: CI_ROOT,
-    chat_config: CHAT_CONFIG,
-    game_config: GAME_CONFIG,
-    private_host_paths_used: false,
-    public_placeholder_paths_used: false
-  }, null, 2));
+  const result = prepareCiConfig();
+  console.log(JSON.stringify(result, null, 2));
+  return result;
 }
 
-try {
-  main();
-} catch (error) {
-  fail(error && error.message ? error.message : String(error));
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(
+      'FLOKI_V2_CI_CONFIG_PREPARE_FAIL: ' +
+      (error && error.message ? error.message : String(error))
+    );
+    process.exit(1);
+  }
 }
+
+module.exports = {
+  prepareCiConfig,
+  createLayout,
+  replaceScalar,
+  prepareConfig,
+  validatePreparedConfig
+};

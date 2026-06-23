@@ -22,6 +22,7 @@ const { handleTypedText, startKnowledgeAutoload } = projectRequire('src/chat/flo
 const { buildChatModeStatus } = projectRequire('src/chat/chat-mode-status.cjs');
 const { buildFlokiLifecycleStatus } = projectRequire('src/chat/floki-lifecycle-status.cjs');
 const { buildDreamStatus } = projectRequire('src/chat/dream-status.cjs');
+const { buildDreamTimeline: buildSharedDreamTimeline } = projectRequire('src/chat/dream-timeline.cjs');
 const {
   readChatWebcamVisionStatus,
   readLatestPrivateObservation
@@ -287,71 +288,8 @@ function buildServices() {
   ];
 }
 
-function normalizeDreamRecord(record, index) {
-  const metadata = record && record.dream_metadata_file
-    ? safeReadJson(record.dream_metadata_file, {})
-    : {};
-  const story = metadata.dream_story || metadata.story || record.dream_story || '';
-  const createdAt = record.created_at || record.dream_created_at || metadata.created_at || new Date().toISOString();
-  const title = record.title || record.dream_title || metadata.title || 'Indexed dream';
-  const symbols = Array.isArray(metadata.symbols) ? metadata.symbols : [];
-  const tone = String(metadata.emotional_tone || 'neutral').toLowerCase();
-  const valence = /joy|hope|calm|love|positive|warm/.test(tone) ? 0.75 : /fear|sad|anger|negative|grief/.test(tone) ? 0.25 : 0.5;
-  const arousal = /vivid|fear|anger|intense|excited/.test(tone) ? 0.75 : /calm|peace|quiet/.test(tone) ? 0.25 : 0.5;
-  return {
-    id: String(record.dream_id || record.id || `dream-${index}`),
-    timestamp: Date.parse(createdAt) || nowMs(),
-    remCycleIndex: Number(record.rem_cycle_number || metadata.rem_cycle_number || 1),
-    cyclePhase: 'REM',
-    duration: Number(record.duration_ms || 0),
-    memoryTags: Array.isArray(record.memory_sources) ? record.memory_sources.slice(0, 8).map(String) : [],
-    visualElements: symbols.map(String),
-    emotionalTone: { valence, arousal },
-    narrative: String(story || metadata.first_person_reflection || title),
-    intensity: clamp01(arousal),
-    isLucid: metadata.lucid === true,
-    status: 'archived',
-    title
-  };
-}
-
 function buildDreamTimeline() {
-  const status = buildDreamStatus();
-  const records = safeReadJsonl(status.dream_index_file, 500);
-  const fragments = records.map(normalizeDreamRecord);
-  const grouped = new Map();
-  for (const fragment of fragments) {
-    const cycle = fragment.remCycleIndex || 1;
-    if (!grouped.has(cycle)) grouped.set(cycle, []);
-    grouped.get(cycle).push(fragment);
-  }
-  const cycles = Array.from(grouped.entries()).map(([cycleNumber, items]) => {
-    const times = items.map((item) => item.timestamp).sort((a, b) => a - b);
-    return {
-      id: `rem-${cycleNumber}`,
-      cycleNumber,
-      startTime: times[0] || nowMs(),
-      endTime: times[times.length - 1] || nowMs(),
-      duration: Math.max(0, (times[times.length - 1] || nowMs()) - (times[0] || nowMs())),
-      fragmentCount: items.length,
-      intensity: items.length ? items.reduce((sum, item) => sum + item.intensity, 0) / items.length : 0,
-      lucidMoments: items.filter((item) => item.isLucid).length,
-      dominantEmotion: items[0] && items[0].title ? items[0].title : 'neutral',
-      sleepPressureAtStart: 0,
-      alertnessAtEnd: 0
-    };
-  });
-  return {
-    sessionDate: status.current_time_utc,
-    totalSleepDuration: cycles.reduce((sum, cycle) => sum + cycle.duration, 0),
-    cycles,
-    fragments,
-    totalFragments: fragments.length,
-    lucidMoments: fragments.filter((fragment) => fragment.isLucid).length,
-    dominantTheme: status.latest_dream_title || 'No indexed dreams',
-    generatedAt: nowMs(),
-    source: status.dream_index_file
-  };
+  return buildSharedDreamTimeline();
 }
 
 function latencyLogPath() {

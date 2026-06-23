@@ -22,6 +22,7 @@ const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
 
 const { readChatTranscriptTail } = require(path.join(PROJECT_ROOT, 'src/chat/chat-transcript.cjs'));
 const { buildFlokiLifecycleStatus } = require(path.join(PROJECT_ROOT, 'src/chat/floki-lifecycle-status.cjs'));
+const { buildDreamTimeline } = require(path.join(PROJECT_ROOT, 'src/chat/dream-timeline.cjs'));
 const { readChatWebcamVisionStatus, readLatestPrivateObservation, runtimePaths } = require(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'));
 const { buildVisionStatus } = require(path.join(PROJECT_ROOT, 'src/vision/vision-status.cjs'));
 const { loadAffectState } = require(path.join(PROJECT_ROOT, 'brain/emotions_base/index.cjs'));
@@ -695,51 +696,7 @@ function neuralEvents(limit) {
 }
 
 function dreamTimeline() {
-  const dreamFiles = [];
-  const stateRoot = path.join(PROJECT_ROOT, 'state/floki');
-  function walk(dir) {
-    if (!fs.existsSync(dir)) return;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (/dream|rem/i.test(entry.name) && /\.(json|jsonl)$/i.test(entry.name)) dreamFiles.push(full);
-    }
-  }
-  walk(stateRoot);
-  const fragments = [];
-  for (const file of dreamFiles) {
-    const records = file.endsWith('.jsonl') ? readJsonl(file, 500) : [safeJson(file)].flat().filter(Boolean);
-    for (const record of records) {
-      const item = record.fragment || record.dream || record;
-      fragments.push({
-        id: item.id || item.dream_id || `${path.basename(file)}-${fragments.length}`,
-        timestamp: Date.parse(item.created_at || item.timestamp || '') || Date.now(),
-        remCycleIndex: Number(item.rem_cycle_index || item.cycle_number || 0),
-        cyclePhase: item.cycle_phase || item.state || 'Dream',
-        duration: Number(item.duration_ms || item.duration || 0),
-        memoryTags: Array.isArray(item.memory_tags) ? item.memory_tags : Array.isArray(item.tags) ? item.tags : [],
-        visualElements: Array.isArray(item.visual_elements) ? item.visual_elements : [],
-        emotionalTone: item.emotional_tone || { valence: Number(item.valence || 0), arousal: Number(item.arousal || 0) },
-        narrative: item.safe_summary || item.narrative || item.summary || 'Dream record available without a public narrative.',
-        intensity: Number(item.intensity || 0),
-        isLucid: item.is_lucid === true,
-        status: item.status || 'archived',
-      });
-    }
-  }
-  const sorted = fragments.sort((a, b) => a.timestamp - b.timestamp);
-  const earliest = sorted.length > 0 ? sorted[0].timestamp : Date.now();
-  const latest = sorted.length > 0 ? sorted[sorted.length - 1].timestamp : Date.now();
-  return {
-    fragments: sorted,
-    cycles: [],
-    sourceFiles: dreamFiles,
-    sessionDate: new Date(earliest).toISOString(),
-    totalSleepDuration: latest - earliest,
-    totalFragments: sorted.length,
-    lucidMoments: sorted.filter((f) => f.isLucid).length,
-    dominantTheme: sorted.length > 0 ? (sorted[0].emotionalTone?.valence > 0.5 ? 'Reflective' : 'Unknown') : 'None',
-  };
+  return buildDreamTimeline();
 }
 
 function runScript(script, args = []) {

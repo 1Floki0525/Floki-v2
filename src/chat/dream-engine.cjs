@@ -914,6 +914,7 @@ async function runDreamEngineOnce(options = {}) {
     sleep_window_start: context.sleep_window_start,
     sleep_window_end: context.sleep_window_end,
     timezone: context.timezone,
+    sleep_kind: options.sleep_kind || 'nightly_sleep',
     model: generation.model,
     schema_constrained_json:
       generation.raw_stats &&
@@ -950,6 +951,7 @@ async function runDreamEngineOnce(options = {}) {
     title: dreamJson.title,
     created_at: createdAt,
     rem_cycle_number: dreamJson.rem_cycle_number,
+    sleep_kind: options.sleep_kind || 'nightly_sleep',
     dream_txt_file: written.dream_txt_file,
     dream_metadata_file: written.dream_metadata_file,
     remembered_as: dreamJson.remembered_as,

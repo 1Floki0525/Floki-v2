@@ -645,7 +645,7 @@ function createChatLocalRuntime(options = {}) {
     const nap = readManualNapState();
     if (!nap || nap.active !== true) { if (lastManualNapActive) { lastManualNapActive = false; await applyLifecycle(buildFlokiLifecycleStatus()); } return; }
     lastManualNapActive = true; if (manualNapDreamTask) return; const claim = claimDueRemCycle(); if (!claim) return;
-    manualNapDreamTask = runDreamEngineOnce({ env: { ...process.env, FLOKI_ALLOW_DREAM_ENGINE: '1' }, rem_cycle_number: claim.cycle.cycle_number, sleep_window_start: claim.state.started_at, sleep_window_end: claim.state.wake_at }).then((result) => finishRemCycle(result, null)).catch((error) => { finishRemCycle(null, error); appendLog('manual nap REM failed: ' + error.message); }).finally(async () => { manualNapDreamTask = null; await applyLifecycle(buildFlokiLifecycleStatus()); });
+    manualNapDreamTask = runDreamEngineOnce({ sleep_kind: 'manual_nap', env: { ...process.env, FLOKI_ALLOW_DREAM_ENGINE: '1' }, rem_cycle_number: claim.cycle.cycle_number, sleep_window_start: claim.state.started_at, sleep_window_end: claim.state.wake_at }).then((result) => finishRemCycle(result, null)).catch((error) => { finishRemCycle(null, error); appendLog('manual nap REM failed: ' + error.message); }).finally(async () => { manualNapDreamTask = null; await applyLifecycle(buildFlokiLifecycleStatus()); });
   }
 
   async function route(req, res) {

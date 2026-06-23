@@ -47,7 +47,7 @@ function sleepOptionsFromConfig(mode) {
     sleep_start_hhmm: sleep.start_hhmm,
     sleep_end_hhmm: sleep.end_hhmm,
     idle_resume_seconds: sleep.idle_resume_seconds,
-    rem_offsets_minutes: Object.values(sleep.rem_offsets_minutes || {}).map(Number)
+    rem_interval_minutes: sleep.rem_interval_minutes
   });
 }
 

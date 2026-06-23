@@ -1,5 +1,7 @@
 'use strict';
 
+process.env.TZ = 'America/Toronto';
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -15,6 +17,10 @@ const {
   runSpokenReplyOnce
 } = require('../src/senses/spoken-reply-once.cjs');
 
+function localDate(year, month, day, hour, minute, second = 0) {
+  return new Date(year, month - 1, day, hour, minute, second, 0);
+}
+
 async function run() {
   const unique = newId('sleep_wake_resume').replace(/[^a-z0-9_]/g, '_');
   const baseDir = statePath('test/sleep-wake-resume/' + unique);
@@ -25,7 +31,7 @@ async function run() {
   let dreamCalls = 0;
   const firstRem = await runSleepCycleTick({
     env: { FLOKI_ALLOW_SLEEP_CYCLE: '1' },
-    now: '2026-06-18T04:31:00.000Z',
+    now: localDate(2026, 6, 17, 23, 11),
     state_file: stateFile,
     events_file: eventsFile,
     dream_runner: async function(input) {
@@ -38,13 +44,15 @@ async function run() {
     },
     write_report: false
   });
+  assert.equal(firstRem.rem_cycles_total, 47);
   assert.equal(firstRem.rem_cycles_completed, 1);
+  assert.equal(firstRem.rem_cycles_pending, 46);
   assert.equal(dreamCalls, 1);
 
   const beforeInterrupt = loadSleepCycleState({ state_file: stateFile });
   const wake = recordWakeActivityIfSleeping({
     env: { FLOKI_ALLOW_SLEEP_CYCLE: '1' },
-    now: '2026-06-18T04:32:00.000Z',
+    now: localDate(2026, 6, 17, 23, 12),
     state_file: stateFile,
     events_file: eventsFile,
     reason: 'wake_gated_user_input'
@@ -53,7 +61,7 @@ async function run() {
 
   const interrupted = await runSleepCycleTick({
     env: { FLOKI_ALLOW_SLEEP_CYCLE: '1' },
-    now: '2026-06-18T04:33:59.000Z',
+    now: localDate(2026, 6, 17, 23, 13, 59),
     state_file: stateFile,
     events_file: eventsFile,
     dream_runner: async function() {
@@ -67,7 +75,7 @@ async function run() {
 
   const resumed = await runSleepCycleTick({
     env: { FLOKI_ALLOW_SLEEP_CYCLE: '1' },
-    now: '2026-06-18T04:34:00.000Z',
+    now: localDate(2026, 6, 17, 23, 14),
     state_file: stateFile,
     events_file: eventsFile,
     dream_runner: async function() {
@@ -78,7 +86,7 @@ async function run() {
   assert.equal(resumed.resumed_after_idle, true);
   assert.equal(resumed.idle_resume_seconds, 120);
   assert.equal(resumed.rem_cycles_completed, 1);
-  assert.equal(resumed.rem_cycles_pending, 4);
+  assert.equal(resumed.rem_cycles_pending, 46);
 
   const afterResume = loadSleepCycleState({ state_file: stateFile });
   assert.equal(afterResume.current_sleep_date, beforeInterrupt.current_sleep_date);
@@ -154,9 +162,12 @@ async function run() {
   assert.equal(recorderCalled, true);
   assert.equal(spoken.sleep_interrupted_by_wake, true);
 
+  fs.rmSync(baseDir, { recursive: true, force: true });
+
   console.log(JSON.stringify({
     ok: true,
     marker: 'FLOKI_V2_SLEEP_WAKE_RESUME_CONTRACT_PASS',
+    timezone: 'America/Toronto',
     sleep_interrupted_by_wake: true,
     sleep_resumed_after_idle: resumed.resumed_after_idle,
     idle_resume_seconds: resumed.idle_resume_seconds,

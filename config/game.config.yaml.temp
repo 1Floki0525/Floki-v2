@@ -149,20 +149,62 @@ paths:
 
 sleep:
   timezone: America/Toronto
-  start_hhmm: "23:00"
-  end_hhmm: "07:00"
+  start_hhmm: 23:00
+  end_hhmm: 07:00
   idle_resume_seconds: 120
+  rem_interval_minutes: 10
   lifecycle_status_poll_ms: 1000
   lifecycle_transition_notifications_enabled: true
   rem_offsets_minutes:
-    cycle_1: 90
-    cycle_2: 180
-    cycle_3: 270
-    cycle_4: 360
-    cycle_5: 440
-
+    cycle_1: 10
+    cycle_2: 20
+    cycle_3: 30
+    cycle_4: 40
+    cycle_5: 50
+    cycle_6: 60
+    cycle_7: 70
+    cycle_8: 80
+    cycle_9: 90
+    cycle_10: 100
+    cycle_11: 110
+    cycle_12: 120
+    cycle_13: 130
+    cycle_14: 140
+    cycle_15: 150
+    cycle_16: 160
+    cycle_17: 170
+    cycle_18: 180
+    cycle_19: 190
+    cycle_20: 200
+    cycle_21: 210
+    cycle_22: 220
+    cycle_23: 230
+    cycle_24: 240
+    cycle_25: 250
+    cycle_26: 260
+    cycle_27: 270
+    cycle_28: 280
+    cycle_29: 290
+    cycle_30: 300
+    cycle_31: 310
+    cycle_32: 320
+    cycle_33: 330
+    cycle_34: 340
+    cycle_35: 350
+    cycle_36: 360
+    cycle_37: 370
+    cycle_38: 380
+    cycle_39: 390
+    cycle_40: 400
+    cycle_41: 410
+    cycle_42: 420
+    cycle_43: 430
+    cycle_44: 440
+    cycle_45: 450
+    cycle_46: 460
+    cycle_47: 470
   manual_nap_duration_minutes: 30
-  manual_nap_rem_offset_minutes: 15
+  manual_nap_rem_offset_minutes: 10
 dream:
   temperature: 0.45
   top_p: 0.85

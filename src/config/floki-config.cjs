@@ -318,11 +318,25 @@ function buildPathsSection(section, mode) {
 function buildSleepSection(section, mode) {
   if (!section) failMissingYamlKey(mode, 'sleep');
 
+  const timezone = requireString(section.timezone, 'sleep.timezone');
+  if (timezone !== 'America/Toronto') {
+    throw new Error('sleep.timezone must be America/Toronto');
+  }
+
+  const remIntervalMinutes = requireNumber(
+    section.rem_interval_minutes,
+    'sleep.rem_interval_minutes'
+  );
+  if (remIntervalMinutes !== 10) {
+    throw new Error('sleep.rem_interval_minutes must be 10');
+  }
+
   return Object.freeze({
-    timezone: requireString(section.timezone, 'sleep.timezone'),
+    timezone,
     start_hhmm: requireString(section.start_hhmm, 'sleep.start_hhmm'),
     end_hhmm: requireString(section.end_hhmm, 'sleep.end_hhmm'),
     idle_resume_seconds: requireNumber(section.idle_resume_seconds, 'sleep.idle_resume_seconds'),
+    rem_interval_minutes: remIntervalMinutes,
     rem_offsets_minutes: requireObject(section.rem_offsets_minutes, 'sleep.rem_offsets_minutes'),
     lifecycle_status_poll_ms: requireNumber(section.lifecycle_status_poll_ms, 'sleep.lifecycle_status_poll_ms'),
     lifecycle_transition_notifications_enabled: requireBoolean(section.lifecycle_transition_notifications_enabled, 'sleep.lifecycle_transition_notifications_enabled'),
