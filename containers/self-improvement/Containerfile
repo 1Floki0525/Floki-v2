@@ -1,0 +1,18 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG APT_PACKAGES
+ARG CONTEXT7_PACKAGE
+ARG CONTEXT7_VERSION
+ARG WORKSPACE_PATH
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ${APT_PACKAGES} \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN npm install --global "${CONTEXT7_PACKAGE}@${CONTEXT7_VERSION}"
+
+COPY agent.cjs /opt/floki-self-improvement/agent.cjs
+WORKDIR ${WORKSPACE_PATH}
+ENTRYPOINT ["node", "/opt/floki-self-improvement/agent.cjs"]

@@ -84,6 +84,11 @@ export default function NavRail({ activeTab, onTabChange, flokiStatus }) {
                 {!collapsed && (
                   <span className="text-sm font-medium truncate">{item.label}</span>
                 )}
+                {item.id === 'system' && Number(flokiStatus?.selfImprovementPending || 0) > 0 && (
+                  <span className="ml-auto min-w-5 h-5 px-1 rounded-full bg-orange-500/20 border border-orange-500/40 text-orange-300 text-[10px] font-mono flex items-center justify-center">
+                    {Number(flokiStatus.selfImprovementPending)}
+                  </span>
+                )}
               </button>
             );
 

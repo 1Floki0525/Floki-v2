@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import flokiAdapter from '@/integrations/floki/adapter'
 import ServiceCard from '@/components/system/ServiceCard'
 import SystemControls from '@/components/system/SystemControls'
+import SelfImprovementPanel from '@/components/system/SelfImprovementPanel'
 import { toast } from 'sonner'
 
 export default function SystemDashboard() {
@@ -75,6 +76,7 @@ export default function SystemDashboard() {
           ))}
         </div>
         <SystemControls onAction={(action) => execute(action, action)} busyAction={busyAction} />
+        <SelfImprovementPanel />
       </div>
     </div>
   )

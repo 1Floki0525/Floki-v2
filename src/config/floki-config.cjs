@@ -171,10 +171,20 @@ function buildVisionSection(section, mode) {
   if (!section) failMissingYamlKey(mode, 'vision');
 
   let directQuestionPhrases = null;
+  let prohibitedPublicVisionTerms = null;
+  let visionHardwareQuestionPhrases = null;
   if (mode === 'chat') {
     directQuestionPhrases = requireObject(section.direct_question_phrases, 'vision.direct_question_phrases');
+    prohibitedPublicVisionTerms = requireObject(section.prohibited_public_vision_terms, 'vision.prohibited_public_vision_terms');
+    visionHardwareQuestionPhrases = requireObject(section.vision_hardware_question_phrases, 'vision.vision_hardware_question_phrases');
     for (const [key, value] of Object.entries(directQuestionPhrases)) {
       requireString(value, 'vision.direct_question_phrases.' + key);
+    }
+    for (const [key, value] of Object.entries(prohibitedPublicVisionTerms)) {
+      requireString(value, 'vision.prohibited_public_vision_terms.' + key);
+    }
+    for (const [key, value] of Object.entries(visionHardwareQuestionPhrases)) {
+      requireString(value, 'vision.vision_hardware_question_phrases.' + key);
     }
   }
 
@@ -199,6 +209,7 @@ function buildVisionSection(section, mode) {
     ...(mode === 'chat' ? {
       latest_observation_max_age_ms: requireNumber(section.latest_observation_max_age_ms, 'vision.latest_observation_max_age_ms'),
       vlm_inference_max_attempts: requireNumber(section.vlm_inference_max_attempts, 'vision.vlm_inference_max_attempts'),
+      detection_continue_during_vlm: requireBoolean(section.detection_continue_during_vlm, 'vision.detection_continue_during_vlm'),
       vlm_inference_retry_delay_ms: requireNumber(section.vlm_inference_retry_delay_ms, 'vision.vlm_inference_retry_delay_ms'),
       vlm_max_consecutive_failures: requireNumber(section.vlm_max_consecutive_failures, 'vision.vlm_max_consecutive_failures'),
       webcam_device_env: requireString(section.webcam_device_env, 'vision.webcam_device_env'),
@@ -215,12 +226,14 @@ function buildVisionSection(section, mode) {
       vlm_ssh_tunnel_remote_port: requireNumber(section.vlm_ssh_tunnel_remote_port, 'vision.vlm_ssh_tunnel_remote_port'),
       vlm_ssh_tunnel_socket_name: requireString(section.vlm_ssh_tunnel_socket_name, 'vision.vlm_ssh_tunnel_socket_name'),
       vlm_ssh_tunnel_check_timeout_ms: requireNumber(section.vlm_ssh_tunnel_check_timeout_ms, 'vision.vlm_ssh_tunnel_check_timeout_ms'),
-      direct_answer_enabled: requireBoolean(section.direct_answer_enabled, 'vision.direct_answer_enabled'),
-      direct_answer_prefer_detection: requireBoolean(section.direct_answer_prefer_detection, 'vision.direct_answer_prefer_detection'),
-      direct_answer_max_age_ms: requireNumber(section.direct_answer_max_age_ms, 'vision.direct_answer_max_age_ms'),
-      direct_answer_wait_ms: requireNumber(section.direct_answer_wait_ms, 'vision.direct_answer_wait_ms'),
-      direct_answer_prefix: requireString(section.direct_answer_prefix, 'vision.direct_answer_prefix'),
-      direct_answer_unavailable_reply: requireString(section.direct_answer_unavailable_reply, 'vision.direct_answer_unavailable_reply'),
+      vision_question_max_age_ms: requireNumber(section.vision_question_max_age_ms, 'vision.vision_question_max_age_ms'),
+      vision_question_wait_ms: requireNumber(section.vision_question_wait_ms, 'vision.vision_question_wait_ms'),
+      cognition_scene_max_detected_objects: requireNumber(section.cognition_scene_max_detected_objects, 'vision.cognition_scene_max_detected_objects'),
+      cognition_scene_require_narrative: requireBoolean(section.cognition_scene_require_narrative, 'vision.cognition_scene_require_narrative'),
+      cognition_scene_instruction: requireString(section.cognition_scene_instruction, 'vision.cognition_scene_instruction'),
+      cognition_unavailable_instruction: requireString(section.cognition_unavailable_instruction, 'vision.cognition_unavailable_instruction'),
+      prohibited_public_vision_terms: Object.freeze({ ...prohibitedPublicVisionTerms }),
+      vision_hardware_question_phrases: Object.freeze({ ...visionHardwareQuestionPhrases }),
       direct_question_phrases: Object.freeze({ ...directQuestionPhrases })
     } : {})
   });
@@ -315,34 +328,62 @@ function buildPathsSection(section, mode) {
   });
 }
 
+function validateTimezone(value, fieldName) {
+  const timezone = requireString(value, fieldName);
+  try {
+    new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date(0));
+  } catch (error) {
+    throw new Error(fieldName + ' must be a valid IANA timezone: ' + error.message);
+  }
+  return timezone;
+}
+
 function buildSleepSection(section, mode) {
   if (!section) failMissingYamlKey(mode, 'sleep');
 
-  const timezone = requireString(section.timezone, 'sleep.timezone');
-  if (timezone !== 'America/Toronto') {
-    throw new Error('sleep.timezone must be America/Toronto');
-  }
-
-  const remIntervalMinutes = requireNumber(
-    section.rem_interval_minutes,
-    'sleep.rem_interval_minutes'
-  );
-  if (remIntervalMinutes !== 10) {
-    throw new Error('sleep.rem_interval_minutes must be 10');
-  }
+  const remIntervalMinutes = requireNumber(section.rem_interval_minutes, 'sleep.rem_interval_minutes');
+  if (remIntervalMinutes <= 0) throw new Error('sleep.rem_interval_minutes must be greater than zero');
 
   return Object.freeze({
-    timezone,
+    timezone: validateTimezone(section.timezone, 'sleep.timezone'),
     start_hhmm: requireString(section.start_hhmm, 'sleep.start_hhmm'),
     end_hhmm: requireString(section.end_hhmm, 'sleep.end_hhmm'),
     idle_resume_seconds: requireNumber(section.idle_resume_seconds, 'sleep.idle_resume_seconds'),
     rem_interval_minutes: remIntervalMinutes,
     rem_offsets_minutes: requireObject(section.rem_offsets_minutes, 'sleep.rem_offsets_minutes'),
     lifecycle_status_poll_ms: requireNumber(section.lifecycle_status_poll_ms, 'sleep.lifecycle_status_poll_ms'),
+    ...(mode === 'chat' ? {
+      scheduler_tick_ms: requireNumber(section.scheduler_tick_ms, 'sleep.scheduler_tick_ms'),
+      scheduler_heartbeat_refresh_ms: requireNumber(section.scheduler_heartbeat_refresh_ms, 'sleep.scheduler_heartbeat_refresh_ms'),
+      scheduler_heartbeat_stale_ms: requireNumber(section.scheduler_heartbeat_stale_ms, 'sleep.scheduler_heartbeat_stale_ms')
+    } : {}),
     lifecycle_transition_notifications_enabled: requireBoolean(section.lifecycle_transition_notifications_enabled, 'sleep.lifecycle_transition_notifications_enabled'),
     manual_nap_duration_minutes: requireNumber(section.manual_nap_duration_minutes, 'sleep.manual_nap_duration_minutes'),
-    manual_nap_rem_offset_minutes: requireNumber(section.manual_nap_rem_offset_minutes, 'sleep.manual_nap_rem_offset_minutes')
+    manual_nap_rem_offset_minutes: (() => { const value = requireNumber(section.manual_nap_rem_offset_minutes, 'sleep.manual_nap_rem_offset_minutes'); if (value < 0) throw new Error('sleep.manual_nap_rem_offset_minutes must be zero or greater'); return value; })()
   });
+}
+
+function requireNoveltyThresholds(value, fieldName) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(fieldName + ' must be an object');
+  }
+  const keys = [
+    'opening_similarity',
+    'narrative_arc_similarity',
+    'scene_progression_similarity',
+    'ending_similarity',
+    'paraphrase_similarity',
+    'symbol_sequence_similarity'
+  ];
+  const out = {};
+  for (const key of keys) {
+    const num = Number(value[key]);
+    if (!Number.isFinite(num)) {
+      throw new TypeError(fieldName + '.' + key + ' must be a finite number');
+    }
+    out[key] = num;
+  }
+  return Object.freeze(out);
 }
 
 function buildDreamSection(section, mode) {
@@ -355,6 +396,12 @@ function buildDreamSection(section, mode) {
     retry_temperature: requireNumber(section.retry_temperature, 'dream.retry_temperature'),
     retry_top_p: requireNumber(section.retry_top_p, 'dream.retry_top_p'),
     retry_num_predict: requireNumber(section.retry_num_predict, 'dream.retry_num_predict'),
+    ...(mode === 'chat' ? {
+      retry_temperature_step: requireNumber(section.retry_temperature_step, 'dream.retry_temperature_step'),
+      retry_temperature_max: requireNumber(section.retry_temperature_max, 'dream.retry_temperature_max'),
+      retry_top_p_step: requireNumber(section.retry_top_p_step, 'dream.retry_top_p_step'),
+      retry_top_p_max: requireNumber(section.retry_top_p_max, 'dream.retry_top_p_max')
+    } : {}),
     min_story_words: requireNumber(section.min_story_words, 'dream.min_story_words'),
     target_story_words: requireNumber(section.target_story_words, 'dream.target_story_words'),
     max_story_words: requireNumber(section.max_story_words, 'dream.max_story_words'),
@@ -369,7 +416,10 @@ function buildDreamSection(section, mode) {
     grounding_memory_limit: requireNumber(section.grounding_memory_limit, 'dream.grounding_memory_limit'),
     grounding_knowledge_limit: requireNumber(section.grounding_knowledge_limit, 'dream.grounding_knowledge_limit'),
     recent_dream_avoidance_count: requireNumber(section.recent_dream_avoidance_count, 'dream.recent_dream_avoidance_count'),
-    quality_regeneration_attempts: requireNumber(section.quality_regeneration_attempts, 'dream.quality_regeneration_attempts')
+    quality_regeneration_attempts: requireNumber(section.quality_regeneration_attempts, 'dream.quality_regeneration_attempts'),
+    quality_retry_backoff_seconds: requireNumber(section.quality_retry_backoff_seconds, 'dream.quality_retry_backoff_seconds'),
+    quality_retry_backoff_max_seconds: requireNumber(section.quality_retry_backoff_max_seconds, 'dream.quality_retry_backoff_max_seconds'),
+    novelty_thresholds: requireNoveltyThresholds(section.novelty_thresholds, 'dream.novelty_thresholds')
   });
 }
 
@@ -406,6 +456,11 @@ function buildAudioSection(section, mode) {
     live_capture_seconds: requireNumber(section.live_capture_seconds, 'audio.live_capture_seconds'),
     live_loop_turns: requireNumber(section.live_loop_turns, 'audio.live_loop_turns'),
     live_loop_restart_seconds: requireNumber(section.live_loop_restart_seconds, 'audio.live_loop_restart_seconds'),
+    recorder_max_restarts: requireNumber(section.recorder_max_restarts, 'audio.recorder_max_restarts'),
+    recorder_restart_backoff_max_ms: requireNumber(section.recorder_restart_backoff_max_ms, 'audio.recorder_restart_backoff_max_ms'),
+    recorder_stop_timeout_ms: requireNumber(section.recorder_stop_timeout_ms, 'audio.recorder_stop_timeout_ms'),
+    microphone_readiness_poll_ms: requireNumber(section.microphone_readiness_poll_ms, 'audio.microphone_readiness_poll_ms'),
+    microphone_readiness_timeout_ms: requireNumber(section.microphone_readiness_timeout_ms, 'audio.microphone_readiness_timeout_ms'),
     vad_frame_samples: requireNumber(section.vad_frame_samples, 'audio.vad_frame_samples'),
     pre_roll_ms: requireNumber(section.pre_roll_ms, 'audio.pre_roll_ms'),
     post_roll_ms: requireNumber(section.post_roll_ms, 'audio.post_roll_ms'),
@@ -417,6 +472,7 @@ function buildAudioSection(section, mode) {
     attention_scan_min_rms: requireNumber(section.attention_scan_min_rms, 'audio.attention_scan_min_rms'),
     attention_command_settle_ms: requireNumber(section.attention_command_settle_ms, 'audio.attention_command_settle_ms'),
     attention_command_max_wait_ms: requireNumber(section.attention_command_max_wait_ms, 'audio.attention_command_max_wait_ms'),
+    wake_command_continuation_ms: requireNumber(section.wake_command_continuation_ms, 'audio.wake_command_continuation_ms'),
     attention_direct_dedupe_ms: requireNumber(section.attention_direct_dedupe_ms, 'audio.attention_direct_dedupe_ms'),
     attention_history_limit: requireNumber(section.attention_history_limit, 'audio.attention_history_limit'),
     attention_max_pending_scans: requireNumber(section.attention_max_pending_scans, 'audio.attention_max_pending_scans'),
@@ -439,7 +495,24 @@ function buildAudioSection(section, mode) {
     whisper_server_start_timeout_ms: requireNumber(section.whisper_server_start_timeout_ms, 'audio.whisper_server_start_timeout_ms'),
     voice_lock_ttl_ms: requireNumber(section.voice_lock_ttl_ms, 'audio.voice_lock_ttl_ms'),
     piper_voice_name: requireString(section.piper_voice_name, 'audio.piper_voice_name'),
-    piper_voice_size: requireString(section.piper_voice_size, 'audio.piper_voice_size')
+    piper_voice_size: requireString(section.piper_voice_size, 'audio.piper_voice_size'),
+    rolling_buffer_seconds: requireNumber(section.rolling_buffer_seconds, 'audio.rolling_buffer_seconds'),
+    vad_speech_threshold: requireNumber(section.vad_speech_threshold, 'audio.vad_speech_threshold'),
+    vad_endpoint_silence_ms: requireNumber(section.vad_endpoint_silence_ms, 'audio.vad_endpoint_silence_ms'),
+    vad_min_speech_ms: requireNumber(section.vad_min_speech_ms, 'audio.vad_min_speech_ms'),
+    vad_max_speech_seconds: requireNumber(section.vad_max_speech_seconds, 'audio.vad_max_speech_seconds'),
+    vad_frame_size_ms: requireNumber(section.vad_frame_size_ms, 'audio.vad_frame_size_ms'),
+    whisper_language: requireString(section.whisper_language, 'audio.whisper_language'),
+    whisper_beam_size: requireNumber(section.whisper_beam_size, 'audio.whisper_beam_size'),
+    whisper_max_concurrent: requireNumber(section.whisper_max_concurrent, 'audio.whisper_max_concurrent'),
+    ambient_classify_enabled: requireBoolean(section.ambient_classify_enabled, 'audio.ambient_classify_enabled'),
+    ambient_classify_interval_ms: requireNumber(section.ambient_classify_interval_ms, 'audio.ambient_classify_interval_ms'),
+    ambient_min_segment_ms: requireNumber(section.ambient_min_segment_ms, 'audio.ambient_min_segment_ms'),
+    hearing_stale_event_ms: requireNumber(section.hearing_stale_event_ms, 'audio.hearing_stale_event_ms'),
+    hearing_duplicate_window_ms: requireNumber(section.hearing_duplicate_window_ms, 'audio.hearing_duplicate_window_ms'),
+    hearing_freshness_max_age_ms: requireNumber(section.hearing_freshness_max_age_ms, 'audio.hearing_freshness_max_age_ms'),
+    piper_incremental_enabled: requireBoolean(section.piper_incremental_enabled, 'audio.piper_incremental_enabled'),
+    piper_playback_command: requireString(section.piper_playback_command, 'audio.piper_playback_command')
   });
 }
 
@@ -466,6 +539,12 @@ function buildKnowledgeSection(section, mode) {
 
   return Object.freeze({
     autoload_enabled: requireBoolean(section.autoload_enabled, 'knowledge.autoload_enabled'),
+    ...(mode === 'chat' ? {
+      autoload_blocking_on_chat_local_start: requireBoolean(section.autoload_blocking_on_chat_local_start, 'knowledge.autoload_blocking_on_chat_local_start'),
+      sleep_consolidation_enabled: requireBoolean(section.sleep_consolidation_enabled, 'knowledge.sleep_consolidation_enabled'),
+      sleep_consolidation_max_chunks_per_night: requireNumber(section.sleep_consolidation_max_chunks_per_night, 'knowledge.sleep_consolidation_max_chunks_per_night'),
+      sleep_consolidation_summary_chars: requireNumber(section.sleep_consolidation_summary_chars, 'knowledge.sleep_consolidation_summary_chars')
+    } : {}),
     autoload_min_seconds: requireNumber(section.autoload_min_seconds, 'knowledge.autoload_min_seconds'),
     ingestion_enabled_env: requireString(section.ingestion_enabled_env, 'knowledge.ingestion_enabled_env'),
     max_files: requireNumber(section.max_files, 'knowledge.max_files'),
@@ -791,3 +870,172 @@ if (typeof module.exports.getFlokiConfig !== 'function') {
     });
   };
 }());
+
+// FLOKI_V2_RECURSIVE_SELF_IMPROVEMENT_CONFIG_BEGIN
+function getSelfImprovementConfig(mode = 'chat') {
+  const raw = loadRawYaml(mode);
+  const section = requireObject(raw.self_improvement, 'self_improvement');
+  const stringValue = (name) => requireString(section[name], 'self_improvement.' + name);
+  const numberValue = (name) => requireNumber(section[name], 'self_improvement.' + name);
+  const booleanValue = (name) => requireBoolean(section[name], 'self_improvement.' + name);
+  return Object.freeze({
+    enabled: booleanValue('enabled'),
+    auto_start: booleanValue('auto_start'),
+    approval_required: booleanValue('approval_required'),
+    idle_seconds: numberValue('idle_seconds'),
+    poll_ms: numberValue('poll_ms'),
+    cooldown_seconds: numberValue('cooldown_seconds'),
+    worker_preemption_poll_ms: numberValue('worker_preemption_poll_ms'),
+    ui_poll_ms: numberValue('ui_poll_ms'),
+    context_window: numberValue('context_window'),
+    max_agent_iterations: numberValue('max_agent_iterations'),
+    max_command_ms: numberValue('max_command_ms'),
+    max_changed_files: numberValue('max_changed_files'),
+    max_patch_bytes: numberValue('max_patch_bytes'),
+    minimum_available_memory_mb: numberValue('minimum_available_memory_mb'),
+    candidate_id_max_length: numberValue('candidate_id_max_length'),
+    approval_token_bytes: numberValue('approval_token_bytes'),
+    atomic_temp_random_bytes: numberValue('atomic_temp_random_bytes'),
+    run_id_random_bytes: numberValue('run_id_random_bytes'),
+    run_id_prefix: stringValue('run_id_prefix'),
+    prior_candidate_history_limit: numberValue('prior_candidate_history_limit'),
+    sandbox_engine: stringValue('sandbox_engine'),
+    image_name: stringValue('image_name'),
+    container_base_image: stringValue('container_base_image'),
+    container_apt_packages: stringValue('container_apt_packages'),
+    context7_package_name: stringValue('context7_package_name'),
+    context7_package_version: stringValue('context7_package_version'),
+    container_hostname: stringValue('container_hostname'),
+    container_name_prefix: stringValue('container_name_prefix'),
+    workspace_mount_path: stringValue('workspace_mount_path'),
+    outbox_mount_path: stringValue('outbox_mount_path'),
+    container_config_path: stringValue('container_config_path'),
+    container_tmp_path: stringValue('container_tmp_path'),
+    tmpfs_options: stringValue('tmpfs_options'),
+    network_mode: stringValue('network_mode'),
+    host_gateway_name: stringValue('host_gateway_name'),
+    host_gateway_mapping: stringValue('host_gateway_mapping'),
+    loopback_hostnames: stringValue('loopback_hostnames'),
+    cap_drop: stringValue('cap_drop'),
+    security_opt: stringValue('security_opt'),
+    workspace_mount_options: stringValue('workspace_mount_options'),
+    outbox_mount_options: stringValue('outbox_mount_options'),
+    config_mount_options: stringValue('config_mount_options'),
+    container_stop_timeout_seconds: numberValue('container_stop_timeout_seconds'),
+    container_stop_command_timeout_ms: numberValue('container_stop_command_timeout_ms'),
+    podman_command_timeout_ms: numberValue('podman_command_timeout_ms'),
+    podman_output_buffer_bytes: numberValue('podman_output_buffer_bytes'),
+    image_build_timeout_ms: numberValue('image_build_timeout_ms'),
+    cpu_limit: numberValue('cpu_limit'),
+    memory_limit: stringValue('memory_limit'),
+    pids_limit: numberValue('pids_limit'),
+    container_smoke_command: stringValue('container_smoke_command'),
+    general_web_enabled: booleanValue('general_web_enabled'),
+    context7_enabled: booleanValue('context7_enabled'),
+    workspace_root: stringValue('workspace_root'),
+    candidate_root: stringValue('candidate_root'),
+    outbox_root: stringValue('outbox_root'),
+    runtime_root: stringValue('runtime_root'),
+    status_file_name: stringValue('status_file_name'),
+    worker_pid_file_name: stringValue('worker_pid_file_name'),
+    pause_file_name: stringValue('pause_file_name'),
+    run_request_file_name: stringValue('run_request_file_name'),
+    current_container_file_name: stringValue('current_container_file_name'),
+    audit_file_name: stringValue('audit_file_name'),
+    approval_token_file_name: stringValue('approval_token_file_name'),
+    promotion_lock_file_name: stringValue('promotion_lock_file_name'),
+    worker_log_name: stringValue('worker_log_name'),
+    promotion_log_name: stringValue('promotion_log_name'),
+    restart_log_name: stringValue('restart_log_name'),
+    snapshot_metadata_file_name: stringValue('snapshot_metadata_file_name'),
+    snapshot_evidence_subdir: stringValue('snapshot_evidence_subdir'),
+    snapshot_runtime_evidence_file_name: stringValue('snapshot_runtime_evidence_file_name'),
+    snapshot_exclude_patterns: stringValue('snapshot_exclude_patterns'),
+    snapshot_command_timeout_ms: numberValue('snapshot_command_timeout_ms'),
+    snapshot_rsync_timeout_ms: numberValue('snapshot_rsync_timeout_ms'),
+    snapshot_output_buffer_bytes: numberValue('snapshot_output_buffer_bytes'),
+    snapshot_git_user_name: stringValue('snapshot_git_user_name'),
+    snapshot_git_user_email: stringValue('snapshot_git_user_email'),
+    snapshot_git_commit_message: stringValue('snapshot_git_commit_message'),
+    protected_path_prefixes: stringValue('protected_path_prefixes'),
+    allow_existing_test_changes: booleanValue('allow_existing_test_changes'),
+    verification_command_1: stringValue('verification_command_1'),
+    verification_command_2: stringValue('verification_command_2'),
+    verification_command_3: stringValue('verification_command_3'),
+    promotion_test_timeout_ms: numberValue('promotion_test_timeout_ms'),
+    promotion_command_timeout_ms: numberValue('promotion_command_timeout_ms'),
+    promotion_output_buffer_bytes: numberValue('promotion_output_buffer_bytes'),
+    promotion_stage_prefix: stringValue('promotion_stage_prefix'),
+    promotion_stage_exclude_patterns: stringValue('promotion_stage_exclude_patterns'),
+    promotion_rsync_timeout_ms: numberValue('promotion_rsync_timeout_ms'),
+    promotion_git_apply_timeout_ms: numberValue('promotion_git_apply_timeout_ms'),
+    promotion_cleanup_command: stringValue('promotion_cleanup_command'),
+    promotion_cleanup_timeout_ms: numberValue('promotion_cleanup_timeout_ms'),
+    promotion_restart_command: stringValue('promotion_restart_command'),
+    promotion_restart_delay_seconds: numberValue('promotion_restart_delay_seconds'),
+    dependency_install_locked_command: stringValue('dependency_install_locked_command'),
+    dependency_install_unlocked_command: stringValue('dependency_install_unlocked_command'),
+    interface_project_path: stringValue('interface_project_path'),
+    rollback_build_command_1: stringValue('rollback_build_command_1'),
+    rollback_build_command_2: stringValue('rollback_build_command_2'),
+    agent_shell_output_buffer_bytes: numberValue('agent_shell_output_buffer_bytes'),
+    agent_git_output_buffer_bytes: numberValue('agent_git_output_buffer_bytes'),
+    agent_git_show_buffer_bytes: numberValue('agent_git_show_buffer_bytes'),
+    agent_command_audit_max_chars: numberValue('agent_command_audit_max_chars'),
+    agent_tool_result_max_chars: numberValue('agent_tool_result_max_chars'),
+    agent_test_output_tail_chars: numberValue('agent_test_output_tail_chars'),
+    agent_min_command_timeout_ms: numberValue('agent_min_command_timeout_ms'),
+    agent_fetch_default_timeout_ms: numberValue('agent_fetch_default_timeout_ms'),
+    agent_fetch_max_timeout_ms: numberValue('agent_fetch_max_timeout_ms'),
+    agent_fetch_default_max_chars: numberValue('agent_fetch_default_max_chars'),
+    agent_http_user_agent: stringValue('agent_http_user_agent'),
+    agent_http_accept: stringValue('agent_http_accept'),
+    browser_command: stringValue('browser_command'),
+    browser_profile_root: stringValue('browser_profile_root'),
+    browser_flags: stringValue('browser_flags'),
+    browser_virtual_time_budget_ms: numberValue('browser_virtual_time_budget_ms'),
+    browser_timeout_ms: numberValue('browser_timeout_ms'),
+    browser_output_buffer_bytes: numberValue('browser_output_buffer_bytes'),
+    browser_default_max_chars: numberValue('browser_default_max_chars'),
+    browser_max_chars: numberValue('browser_max_chars'),
+    web_search_url_template: stringValue('web_search_url_template'),
+    web_search_redirect_base_url: stringValue('web_search_redirect_base_url'),
+    web_search_default_limit: numberValue('web_search_default_limit'),
+    web_search_max_limit: numberValue('web_search_max_limit'),
+    web_search_max_chars: numberValue('web_search_max_chars'),
+    github_search_url_template: stringValue('github_search_url_template'),
+    github_search_default_limit: numberValue('github_search_default_limit'),
+    github_search_max_limit: numberValue('github_search_max_limit'),
+    github_search_max_chars: numberValue('github_search_max_chars'),
+    arxiv_search_url_template: stringValue('arxiv_search_url_template'),
+    arxiv_search_default_limit: numberValue('arxiv_search_default_limit'),
+    arxiv_search_max_limit: numberValue('arxiv_search_max_limit'),
+    arxiv_search_max_chars: numberValue('arxiv_search_max_chars'),
+    arxiv_summary_max_chars: numberValue('arxiv_summary_max_chars'),
+    crossref_search_url_template: stringValue('crossref_search_url_template'),
+    crossref_search_default_limit: numberValue('crossref_search_default_limit'),
+    crossref_search_max_limit: numberValue('crossref_search_max_limit'),
+    crossref_search_max_chars: numberValue('crossref_search_max_chars'),
+    context7_call_timeout_ms: numberValue('context7_call_timeout_ms'),
+    context7_protocol_version: stringValue('context7_protocol_version'),
+    context7_client_name: stringValue('context7_client_name'),
+    context7_client_version: stringValue('context7_client_version'),
+    ollama_chat_path: stringValue('ollama_chat_path'),
+    ollama_stream: booleanValue('ollama_stream'),
+    default_objective: stringValue('default_objective'),
+    service_start_attempts: numberValue('service_start_attempts'),
+    service_start_poll_seconds: numberValue('service_start_poll_seconds'),
+    service_start_log_tail_lines: numberValue('service_start_log_tail_lines'),
+    service_stop_attempts: numberValue('service_stop_attempts'),
+    service_stop_poll_seconds: numberValue('service_stop_poll_seconds'),
+    agent_home_path: stringValue('agent_home_path'),
+    agent_npm_cache_path: stringValue('agent_npm_cache_path'),
+    agent_pip_cache_path: stringValue('agent_pip_cache_path'),
+    browser_profile_prefix: stringValue('browser_profile_prefix'),
+    github_accept: stringValue('github_accept'),
+    arxiv_accept: stringValue('arxiv_accept'),
+    crossref_accept: stringValue('crossref_accept')
+  });
+}
+module.exports.getSelfImprovementConfig = getSelfImprovementConfig;
+// FLOKI_V2_RECURSIVE_SELF_IMPROVEMENT_CONFIG_END

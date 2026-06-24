@@ -3,6 +3,7 @@
 ROOT="/media/binary-god/1tb-ssd/Floki-v2"
 
 cd "$ROOT" || exit 1
+timeout 20s bash bin/floki-self-improvement-stop.sh >/dev/null 2>&1 || true
 
 
 timeout 20s bash bin/floki-chat-stop.sh >/dev/null 2>&1 || true
@@ -24,6 +25,7 @@ needles = (
     f"{root}/.floki-tools/grounding-dino/grounding-dino-worker.py",
     f"{root}/src/chat/sleep-cycle-scheduler.cjs --service",
     f"{root}/src/runtime/chat-local-runtime.cjs",
+    f"{root}/src/senses/chat-mode-loop.cjs",
     f"{root}/src/senses/silero-vad-worker.py",
     f"{root}/.floki-tools/repos/whisper.cpp/build/bin/whisper-cli",
     f"{root}/.floki-tools/repos/whisper.cpp/build/bin/whisper-server",

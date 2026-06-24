@@ -4,7 +4,7 @@ mode: chat
 models:
   cognition:
     provider: ollama
-    model: floki-qwen3.5:4b-16k
+    model: floki-qwen3.5:4b-32k
     endpoint_env: FLOKI_COGNITION_ENDPOINT
     endpoint_default: http://127.0.0.1:11434
     mode_scope: chat_cognition
@@ -89,6 +89,7 @@ vision:
   vlm_inference_every_n_frames: 40
   vlm_inference_min_interval_ms: 1000
   vlm_observation_refresh_interval_ms: 8000
+  detection_continue_during_vlm: true
   latest_observation_max_age_ms: 30000
   vlm_inference_max_attempts: 3
   vlm_inference_retry_delay_ms: 500
@@ -108,12 +109,33 @@ vision:
   vlm_ssh_tunnel_remote_port: 11434
   vlm_ssh_tunnel_socket_name: chat-vision-ssh-tunnel.sock
   vlm_ssh_tunnel_check_timeout_ms: 8000
-  direct_answer_enabled: true
-  direct_answer_prefer_detection: true
-  direct_answer_max_age_ms: 8000
-  direct_answer_wait_ms: 2500
-  direct_answer_prefix: "From my camera right now: "
-  direct_answer_unavailable_reply: "My current camera view is unavailable right now."
+  vision_question_max_age_ms: 8000
+  vision_question_wait_ms: 2500
+  cognition_scene_max_detected_objects: 32
+  cognition_scene_require_narrative: true
+  cognition_scene_instruction: "Answer from my own current sight in natural first-person language. Integrate the whole grounded scene into one to three flowing sentences instead of reciting a label list. Mention only people, objects, relationships, and scene details supported by the fresh observation."
+  cognition_unavailable_instruction: "Say naturally that my sight is unavailable right now without describing implementation details."
+  prohibited_public_vision_terms:
+    term_01: camera
+    term_02: webcam
+    term_03: detector
+    term_04: live detector view
+    term_05: current detector view
+    term_06: vision model
+    term_07: frame
+    term_08: image analysis
+    term_09: camera feed
+    term_10: the system sees
+    term_11: the detector found
+  vision_hardware_question_phrases:
+    phrase_01: camera
+    phrase_02: webcam
+    phrase_03: microphone
+    phrase_04: hardware
+    phrase_05: vision model
+    phrase_06: detector
+    phrase_07: how do your eyes work
+    phrase_08: how does your sight work
   direct_question_phrases:
     phrase_01: what do you see
     phrase_02: what can you see
@@ -141,6 +163,7 @@ detection:
   person_verifier_crop_jpeg_quality: 5
   person_verifier_crop_max_dimension: 512
   detection_min_interval_ms: 500
+  detection_heartbeat_interval_ms: 1000
   detection_max_age_ms: 8000
   person_candidate_confidence_threshold: 0.15
   grounding_dino_enabled: true
@@ -242,6 +265,9 @@ sleep:
   idle_resume_seconds: 120
   rem_interval_minutes: 10
   lifecycle_status_poll_ms: 1000
+  scheduler_tick_ms: 30000
+  scheduler_heartbeat_refresh_ms: 30000
+  scheduler_heartbeat_stale_ms: 90000
   lifecycle_transition_notifications_enabled: true
   rem_offsets_minutes:
     cycle_1: 10
@@ -292,14 +318,18 @@ sleep:
     cycle_46: 460
     cycle_47: 470
   manual_nap_duration_minutes: 30
-  manual_nap_rem_offset_minutes: 10
+  manual_nap_rem_offset_minutes: 0
 dream:
   temperature: 0.45
   top_p: 0.85
   num_predict: 2800
-  retry_temperature: 0
-  retry_top_p: 0.1
+  retry_temperature: 0.85
+  retry_top_p: 0.95
   retry_num_predict: 2200
+  retry_temperature_step: 0.04
+  retry_temperature_max: 1.05
+  retry_top_p_step: 0.01
+  retry_top_p_max: 0.98
   min_story_words: 220
   target_story_words: 360
   max_story_words: 900
@@ -314,7 +344,7 @@ dream:
   grounding_memory_limit: 6
   grounding_knowledge_limit: 3
   recent_dream_avoidance_count: 12
-  quality_regeneration_attempts: 1
+  quality_regeneration_attempts: 8
 wake_gate:
   required_phrase: hey floki
   accepted_phrases:
@@ -334,6 +364,11 @@ audio:
   live_capture_seconds: 2
   live_loop_turns: 10
   live_loop_restart_seconds: 0.1
+  recorder_max_restarts: 5
+  recorder_restart_backoff_max_ms: 10000
+  recorder_stop_timeout_ms: 3000
+  microphone_readiness_timeout_ms: 3000
+  microphone_readiness_poll_ms: 50
   vad_frame_samples: 512
   pre_roll_ms: 1600
   post_roll_ms: 320
@@ -345,6 +380,7 @@ audio:
   attention_scan_min_rms: 0.008
   attention_command_settle_ms: 1100
   attention_command_max_wait_ms: 6000
+  wake_command_continuation_ms: 6500
   attention_direct_dedupe_ms: 8000
   attention_history_limit: 20
   attention_max_pending_scans: 1
@@ -402,6 +438,10 @@ timeouts:
 
 knowledge:
   autoload_enabled: true
+  autoload_blocking_on_chat_local_start: true
+  sleep_consolidation_enabled: true
+  sleep_consolidation_max_chunks_per_night: 64
+  sleep_consolidation_summary_chars: 900
   autoload_min_seconds: 900
   ingestion_enabled_env: FLOKI_ALLOW_KNOWLEDGE_INGESTION
   max_files: 5000
@@ -478,6 +518,7 @@ interface:
     compact_messages: false
     enter_to_send: true
     max_local_history: 500
+    transcript_poll_ms: 750
   voice:
     microphone_enabled: true
     speaker_enabled: true
@@ -498,6 +539,7 @@ interface:
     show_confidence: true
     show_scene_recognition: true
     observation_freshness_threshold: 30
+    detection_display_ttl_ms: 2500
     stale_observation_warning: true
     privacy_blackout_default: false
   emotions:
@@ -507,6 +549,8 @@ interface:
   neural_stream:
     auto_scroll: true
     max_events: 1000
+    dedupe_window_ms: 900000
+    session_only: true
     compact_view: false
     default_privacy_filter: all
   appearance:
@@ -529,3 +573,161 @@ interface:
     redact_private_metadata: false
     allow_local_export: true
     clear_stored_preferences: false
+
+self_improvement:
+  enabled: true
+  auto_start: true
+  approval_required: true
+  idle_seconds: 300
+  poll_ms: 5000
+  cooldown_seconds: 60
+  worker_preemption_poll_ms: 1000
+  ui_poll_ms: 3000
+  context_window: 32768
+  max_agent_iterations: 80
+  max_command_ms: 900000
+  max_changed_files: 200
+  max_patch_bytes: 5242880
+  minimum_available_memory_mb: 8192
+  candidate_id_max_length: 128
+  approval_token_bytes: 32
+  atomic_temp_random_bytes: 4
+  run_id_random_bytes: 4
+  run_id_prefix: "rsi"
+  prior_candidate_history_limit: 50
+  sandbox_engine: "podman"
+  image_name: "localhost/floki-self-improvement:node24"
+  container_base_image: "node:24-bookworm"
+  container_apt_packages: "bash build-essential ca-certificates chromium clang cmake curl file git jq less make patch pkg-config python3 python3-pip ripgrep rsync shellcheck unzip wget xz-utils"
+  context7_package_name: "@upstash/context7-mcp"
+  context7_package_version: "3.2.2"
+  container_hostname: "floki-self-improvement"
+  container_name_prefix: "floki-rsi"
+  workspace_mount_path: "/workspace"
+  outbox_mount_path: "/outbox"
+  container_config_path: "/run/floki-rsi/agent-config.json"
+  container_tmp_path: "/tmp"
+  tmpfs_options: "rw,nosuid,nodev,size=2g"
+  network_mode: "bridge"
+  host_gateway_name: "host.containers.internal"
+  host_gateway_mapping: "host-gateway"
+  loopback_hostnames: "127.0.0.1,localhost"
+  cap_drop: "all"
+  security_opt: "no-new-privileges"
+  workspace_mount_options: "rw,Z"
+  outbox_mount_options: "rw,Z"
+  config_mount_options: "ro,Z"
+  container_stop_timeout_seconds: 2
+  container_stop_command_timeout_ms: 15000
+  podman_command_timeout_ms: 1200000
+  podman_output_buffer_bytes: 67108864
+  image_build_timeout_ms: 1800000
+  cpu_limit: 4
+  memory_limit: "12g"
+  pids_limit: 1024
+  container_smoke_command: "node --version && git --version && chromium --version && command -v npx"
+  general_web_enabled: true
+  context7_enabled: true
+  workspace_root: "state/floki/self-improvement/workspaces"
+  candidate_root: "state/floki/self-improvement/candidates"
+  outbox_root: "state/floki/self-improvement/outbox"
+  runtime_root: "state/floki/self-improvement/runtime"
+  status_file_name: "status.json"
+  worker_pid_file_name: "worker.pid"
+  pause_file_name: "paused"
+  run_request_file_name: "run-request.json"
+  current_container_file_name: "current-container.json"
+  audit_file_name: "audit.jsonl"
+  approval_token_file_name: "approval-token"
+  promotion_lock_file_name: "promotion.lock"
+  worker_log_name: "worker.log"
+  promotion_log_name: "promotion.log"
+  restart_log_name: "restart.log"
+  snapshot_metadata_file_name: "snapshot.json"
+  snapshot_evidence_subdir: ".floki-self-improvement"
+  snapshot_runtime_evidence_file_name: "runtime-evidence.json"
+  snapshot_exclude_patterns: ".git/|node_modules/|apps/floki-neural-interface/node_modules/|apps/floki-neural-interface/dist/|state/|secrets/|.floki-tools/models/|.floki-tools/repos/|.floki-tools/input/|.floki-tools/output/|.floki-tools/venv*/|.floki-tools/**/__pycache__/|reports/|*.tar|*.tar.gz|*.zip|*.mp4|*.mkv|*.wav|*.onnx|*.pt|*.bin"
+  snapshot_command_timeout_ms: 300000
+  snapshot_rsync_timeout_ms: 600000
+  snapshot_output_buffer_bytes: 33554432
+  snapshot_git_user_name: "Floki Self Improvement"
+  snapshot_git_user_email: "self-improvement@floki.local"
+  snapshot_git_commit_message: "sandbox baseline"
+  protected_path_prefixes: "state/,secrets/,.git/,.floki-tools/,.floki-self-improvement/"
+  allow_existing_test_changes: false
+  verification_command_1: "npm test"
+  verification_command_2: "npm run build"
+  verification_command_3: "cd apps/floki-neural-interface && npm run test:integration && npm run build"
+  promotion_test_timeout_ms: 3600000
+  promotion_command_timeout_ms: 1800000
+  promotion_output_buffer_bytes: 134217728
+  promotion_stage_prefix: "promotion-stage-"
+  promotion_stage_exclude_patterns: ".git/|node_modules/|apps/floki-neural-interface/node_modules/|apps/floki-neural-interface/dist/|state/|secrets/|.floki-tools/models/|.floki-tools/repos/|.floki-tools/input/|.floki-tools/output/|.floki-tools/venv*/"
+  promotion_rsync_timeout_ms: 900000
+  promotion_git_apply_timeout_ms: 300000
+  promotion_cleanup_command: "bash bin/floki-chat-local-cleanup.sh"
+  promotion_cleanup_timeout_ms: 120000
+  promotion_restart_command: "bash bin/floki-start.sh chat.local"
+  promotion_restart_delay_seconds: 5
+  dependency_install_locked_command: "npm ci --no-audit --no-fund"
+  dependency_install_unlocked_command: "npm install --no-audit --no-fund"
+  interface_project_path: "apps/floki-neural-interface"
+  rollback_build_command_1: "npm run build"
+  rollback_build_command_2: "cd apps/floki-neural-interface && npm run build"
+  agent_shell_output_buffer_bytes: 67108864
+  agent_git_output_buffer_bytes: 134217728
+  agent_git_show_buffer_bytes: 67108864
+  agent_command_audit_max_chars: 30000
+  agent_tool_result_max_chars: 40000
+  agent_test_output_tail_chars: 12000
+  agent_min_command_timeout_ms: 1000
+  agent_fetch_default_timeout_ms: 30000
+  agent_fetch_max_timeout_ms: 120000
+  agent_fetch_default_max_chars: 50000
+  agent_http_user_agent: "Floki-v2-Self-Improvement/1.0"
+  agent_http_accept: "text/html,application/json,text/plain;q=0.9,*/*;q=0.5"
+  browser_command: "chromium"
+  browser_profile_root: "/tmp"
+  browser_flags: "--headless|--no-sandbox|--disable-dev-shm-usage|--disable-gpu|--disable-extensions|--disable-background-networking"
+  browser_virtual_time_budget_ms: 12000
+  browser_timeout_ms: 45000
+  browser_output_buffer_bytes: 33554432
+  browser_default_max_chars: 80000
+  browser_max_chars: 200000
+  web_search_url_template: "https://html.duckduckgo.com/html/?q={query}"
+  web_search_redirect_base_url: "https://duckduckgo.com"
+  web_search_default_limit: 8
+  web_search_max_limit: 20
+  web_search_max_chars: 150000
+  github_search_url_template: "https://api.github.com/search/repositories?q={query}&per_page={limit}&sort=updated"
+  github_search_default_limit: 10
+  github_search_max_limit: 30
+  github_search_max_chars: 100000
+  arxiv_search_url_template: "https://export.arxiv.org/api/query?search_query=all:{query}&start=0&max_results={limit}&sortBy=submittedDate&sortOrder=descending"
+  arxiv_search_default_limit: 8
+  arxiv_search_max_limit: 20
+  arxiv_search_max_chars: 120000
+  arxiv_summary_max_chars: 1200
+  crossref_search_url_template: "https://api.crossref.org/works?query={query}&rows={limit}&sort=published&order=desc"
+  crossref_search_default_limit: 8
+  crossref_search_max_limit: 20
+  crossref_search_max_chars: 120000
+  context7_call_timeout_ms: 120000
+  context7_protocol_version: "2025-06-18"
+  context7_client_name: "floki-v2-self-improvement"
+  context7_client_version: "1.0.0"
+  ollama_chat_path: "/api/chat"
+  ollama_stream: false
+  default_objective: "Inspect the current Floki-v2 source and select exactly one bounded, measurable improvement in architecture, cognition, memory, sensory processing, autonomous agency, recursive self-improvement, performance, reliability, AI/AGI research integration, self-modeling, metacognition, continual learning, or digital-being continuity that can be safely implemented and verified now."
+  service_start_attempts: 40
+  service_start_poll_seconds: 0.25
+  service_start_log_tail_lines: 80
+  service_stop_attempts: 40
+  service_stop_poll_seconds: 0.25
+  agent_home_path: "/tmp/floki-home"
+  agent_npm_cache_path: "/tmp/npm-cache"
+  agent_pip_cache_path: "/tmp/pip-cache"
+  browser_profile_prefix: "floki-chromium-"
+  github_accept: "application/vnd.github+json"
+  arxiv_accept: "application/atom+xml"
+  crossref_accept: "application/json"

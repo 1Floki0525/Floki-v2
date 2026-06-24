@@ -28,4 +28,13 @@ contextBridge.exposeInMainWorld('floki', Object.freeze({
   resetAllSettings: () => invoke('floki:reset-all-settings'),
   importSettings: (settings) => invoke('floki:import-settings', { settings }),
   setPushToTalk: (active) => invoke('floki:push-to-talk', { active }),
+  getRuntimeWebSocketUrl: () => invoke('floki:get-runtime-websocket-url'),
+  getSelfImprovementStatus: () => invoke('floki:get-self-improvement-status'),
+  getSelfImprovementCandidates: () => invoke('floki:get-self-improvement-candidates'),
+  getSelfImprovementCandidate: (id) => invoke('floki:get-self-improvement-candidate', { id }),
+  approveSelfImprovement: (id) => invoke('floki:approve-self-improvement', { id }),
+  denySelfImprovement: (id, reason = '') => invoke('floki:deny-self-improvement', { id, reason }),
+  pauseSelfImprovement: () => invoke('floki:pause-self-improvement'),
+  resumeSelfImprovement: () => invoke('floki:resume-self-improvement'),
+  runSelfImprovementNow: (objective = '') => invoke('floki:run-self-improvement-now', { objective }),
 }));

@@ -27,6 +27,13 @@ class FlokiAdapter {
   async openLog(service) { return bridge().openLog(service); }
   async interruptResponse() { return bridge().interrupt(); }
   async setPushToTalk(active) { return bridge().setPushToTalk(active); }
+  async subscribeRuntimeEvents(onEvent) {
+    const url = await bridge().getRuntimeWebSocketUrl();
+    const socket = new WebSocket(url);
+    socket.addEventListener('message', (event) => { try { onEvent(JSON.parse(event.data)); } catch (error) { console.error('invalid runtime event', error); } });
+    socket.addEventListener('error', () => onEvent({ type: 'stream.error', data: { error: 'Authoritative runtime event stream disconnected.' } }));
+    return () => socket.close();
+  }
 
   async sendMessage(text) {
     return bridge().sendMessage(text);
@@ -34,7 +41,7 @@ class FlokiAdapter {
 
   async sendChatMessage({ text, signal, onStateChange, onToken, onLatency, onError, onComplete }) {
     onStateChange?.(FlokiState.THINKING);
-    const onAbort = () => { bridge().interrupt().catch(() => {}); };
+    const onAbort = () => { bridge().interrupt().catch((error) => console.error('interrupt request failed', error)); };
     if (signal) signal.addEventListener('abort', onAbort, { once: true });
     try {
       const result = await bridge().sendMessage(text);
@@ -80,6 +87,14 @@ class FlokiAdapter {
     if (ms < 4000) return 'Slow';
     return 'Critical';
   }
+  async getSelfImprovementStatus() { return bridge().getSelfImprovementStatus(); }
+  async getSelfImprovementCandidates() { return bridge().getSelfImprovementCandidates(); }
+  async getSelfImprovementCandidate(id) { return bridge().getSelfImprovementCandidate(id); }
+  async approveSelfImprovement(id) { return bridge().approveSelfImprovement(id); }
+  async denySelfImprovement(id, reason = '') { return bridge().denySelfImprovement(id, reason); }
+  async pauseSelfImprovement() { return bridge().pauseSelfImprovement(); }
+  async resumeSelfImprovement() { return bridge().resumeSelfImprovement(); }
+  async runSelfImprovementNow(objective = '') { return bridge().runSelfImprovementNow(objective); }
 }
 
 export const flokiAdapter = new FlokiAdapter();

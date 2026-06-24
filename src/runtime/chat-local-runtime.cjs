@@ -2,11 +2,15 @@
 
 const fs = require('node:fs');
 const http = require('node:http');
+const net = require('node:net');
 const path = require('node:path');
+const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 
 const { createRuntime } = require('../chat/floki-chat.cjs');
 const { handleTypedText } = require('../chat/floki-live-chat-interface.cjs');
-const { assertPublicTranscriptText, appendChatTranscriptTurn, readChatTranscriptTail, clearChatTranscript } = require('../chat/chat-transcript.cjs');
+const { createVisionReconciler } = require('./vision-reconciler.cjs');
+const { appendChatTranscriptTurn, upsertChatTranscriptTurn, removeChatTranscriptTurn, appendPrivateThoughtRecord, readChatTranscriptTail, clearChatTranscript } = require('../chat/chat-transcript.cjs');
 const { buildFlokiLifecycleStatus } = require('../chat/floki-lifecycle-status.cjs');
 const {
   readChatWebcamVisionStatus,
@@ -23,6 +27,7 @@ const {
   getLiveChatConfig,
   getModelConfig,
   getPathConfig,
+  getKnowledgeConfig,
   getSleepConfig,
   getVisionConfig
 } = require('../config/floki-config.cjs');
@@ -31,6 +36,10 @@ const { newId } = require('../util/ids.cjs');
 const { getInterfaceSettings } = require('../config/interface-settings.cjs');
 const { readManualNapState, beginManualNap, wakeManualNap, claimDueRemCycle, finishRemCycle } = require('../chat/manual-nap.cjs');
 const { runDreamEngineOnce } = require('../chat/dream-engine.cjs');
+const { createSelfImprovementApi } = require('../self-improvement/api.cjs');
+const { reconcileDreamArchive } = require('../chat/dream-archive.cjs');
+const { createChatLocalInterfaceApi } = require('./chat-local-interface-api.cjs');
+const { createKnowledgeRuntimeBootstrap } = require('../chat/knowledge-runtime-bootstrap.cjs');
 
 const DEFAULT_HOST = getLiveChatConfig('chat').runtime_host;
 const DEFAULT_PORT = getLiveChatConfig('chat').runtime_port;
@@ -48,6 +57,22 @@ function writeJsonAtomic(filePath, value) {
   const temp = filePath + '.tmp-' + String(process.pid);
   fs.writeFileSync(temp, JSON.stringify(value, null, 2) + '\n');
   fs.renameSync(temp, filePath);
+}
+
+function assertPortAvailable(host, port) {
+  return new Promise((resolve, reject) => {
+    const client = net.connect({ host, port }, () => {
+      client.destroy();
+      reject(new Error('FLOKI_V2_CHAT_LOCAL_RUNTIME_PORT_IN_USE: ' + host + ':' + String(port) + ' is already in use'));
+    });
+    client.on('error', (error) => {
+      if (error && error.code === 'ECONNREFUSED') {
+        resolve();
+      } else {
+        reject(error);
+      }
+    });
+  });
 }
 
 function bodyJson(req, maxBytes = 1024 * 1024) {
@@ -149,35 +174,51 @@ function visionObservationTimestamp(visionContext) {
     null;
 }
 
-function buildGroundedVisionReply(visionContext, visionConfig = getVisionConfig('chat')) {
-  const available = Boolean(
-    visionContext &&
-    visionContext.available === true &&
-    visionContext.fresh === true &&
-    typeof visionContext.observation_summary === 'string' &&
-    visionContext.observation_summary.trim()
-  );
-  if (!available) {
-    return assertPublicTranscriptText(
-      visionConfig.direct_answer_unavailable_reply,
-      'configured unavailable vision reply'
-    );
+function configuredVisionHardwareQuestionPhrases(visionConfig = getVisionConfig('chat')) {
+  const configured = visionConfig && visionConfig.vision_hardware_question_phrases;
+  if (!configured || typeof configured !== 'object' || Array.isArray(configured)) return [];
+  return Object.values(configured).map(normalizeIntentText).filter(Boolean);
+}
+
+function looksLikeVisionHardwareQuestion(text, visionConfig = getVisionConfig('chat')) {
+  const normalized = normalizeIntentText(text);
+  if (!normalized) return false;
+  return configuredVisionHardwareQuestionPhrases(visionConfig).some((phrase) => normalized.includes(phrase));
+}
+
+function configuredProhibitedPublicVisionTerms(visionConfig = getVisionConfig('chat')) {
+  const configured = visionConfig && visionConfig.prohibited_public_vision_terms;
+  if (!configured || typeof configured !== 'object' || Array.isArray(configured)) return [];
+  return Object.values(configured).map((value) => String(value || '').toLowerCase().trim()).filter(Boolean);
+}
+
+function toFirstPersonInnerExperience(value) {
+  let text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (/^(?:I|I'm|I’m|I've|I’ve|I'll|I’ll|My|Me)\b/i.test(text)) return text;
+  text = text.replace(/^Floki\s+(?:is|was)\s+/i, 'I am ');
+  if (/^I\b/i.test(text)) return text;
+  return 'I am reflecting that ' + text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+function encodeWebSocketText(payload) {
+  const body = Buffer.from(JSON.stringify(payload), 'utf8');
+  if (body.length < 126) return Buffer.concat([Buffer.from([0x81, body.length]), body]);
+  if (body.length <= 0xffff) {
+    const header = Buffer.alloc(4); header[0] = 0x81; header[1] = 126; header.writeUInt16BE(body.length, 2);
+    return Buffer.concat([header, body]);
   }
-  const prefix = String(visionConfig.direct_answer_prefix || '');
-  const summary = String(visionContext.observation_summary || '').trim();
-  return assertPublicTranscriptText(prefix + summary, 'grounded live vision reply');
+  const header = Buffer.alloc(10); header[0] = 0x81; header[1] = 127; header.writeBigUInt64BE(BigInt(body.length), 2);
+  return Buffer.concat([header, body]);
 }
 
 async function waitForFreshVision(runtimeDir, options = {}) {
   const vision = getVisionConfig('chat');
-  const maxAgeMs = Number(options.max_age_ms || vision.direct_answer_max_age_ms);
-  const waitMs = Number(options.wait_ms || vision.direct_answer_wait_ms);
-  const preferDetection = options.prefer_detection === true;
-  const paths = visionRuntimePaths({ runtime_dir: runtimeDir });
+  const maxAgeMs = Number(options.max_age_ms || vision.vision_question_max_age_ms);
+  const waitMs = Number(options.wait_ms || vision.vision_question_wait_ms);
   const before = readLatestPrivateObservation({
     runtime_dir: runtimeDir,
-    max_age_ms: maxAgeMs,
-    prefer_detection: preferDetection
+    max_age_ms: maxAgeMs
   });
   const beforeTimestamp = visionObservationTimestamp(before);
   const requestFile = path.join(runtimeDir, 'chat-webcam-vision.refresh-request.json');
@@ -185,15 +226,14 @@ async function waitForFreshVision(runtimeDir, options = {}) {
     id: newId('visionrefresh'),
     requested_at: nowIso(),
     before_timestamp: beforeTimestamp,
-    reason: options.reason || 'direct_current_vision_question'
+    reason: options.reason || 'current_vision_question'
   });
 
   const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
     const latest = readLatestPrivateObservation({
       runtime_dir: runtimeDir,
-      max_age_ms: maxAgeMs,
-      prefer_detection: preferDetection
+      max_age_ms: maxAgeMs
     });
     const timestamp = visionObservationTimestamp(latest);
     const age = timestamp ? Date.now() - new Date(timestamp).getTime() : Infinity;
@@ -204,8 +244,7 @@ async function waitForFreshVision(runtimeDir, options = {}) {
   }
   return readLatestPrivateObservation({
     runtime_dir: runtimeDir,
-    max_age_ms: maxAgeMs,
-    prefer_detection: preferDetection
+    max_age_ms: maxAgeMs
   });
 }
 
@@ -223,11 +262,14 @@ function createChatLocalRuntime(options = {}) {
   const heartbeatMs = Number(liveConfig.runtime_heartbeat_ms);
   const lifecyclePollMs = Number(sleepConfig.lifecycle_status_poll_ms);
   const brain = options.runtime || createRuntime({ session_id: options.session_id || newId('chatruntime') });
+  const reconcileArchive = options.reconcile_dream_archive || reconcileDreamArchive;
   const model = getModelConfig('chat').cognition;
   const audioConfig = getAudioConfig('chat');
   const visionConfig = getVisionConfig('chat');
+  const selfImprovementApi = createSelfImprovementApi();
 
   let server = null;
+  let websocketClients = new Set();
   let stopping = false;
   let activeAbortController = null;
   let turnQueue = Promise.resolve();
@@ -264,12 +306,66 @@ function createChatLocalRuntime(options = {}) {
     last_grounded_vision_source: null,
     last_grounded_vision_observation_at: null,
     last_grounded_vision_available: null,
-    push_to_talk_active: false
+    push_to_talk_active: false,
+    websocket_ready: false,
+    websocket_clients: 0,
+    last_speech_final_transcript_at: null,
+    last_chat_user_message_inserted_at: null,
+    last_cognition_started_at: null,
+    last_first_response_token_at: null,
+    last_tts_started_at: null,
+    last_microphone_closed_for_tts_at: null,
+    last_microphone_reopened_at: null,
+    last_microphone_fresh_pcm_at: null,
+    knowledge_autoload: null,
+    knowledge_ready: false,
+    knowledge_refreshing: false,
+    knowledge_refresh_error: null,
+    knowledge_worker_started: false,
+    knowledge_worker_running: false
   };
 
   function appendLog(message) {
     fs.mkdirSync(runtimeDir, { recursive: true });
     fs.appendFileSync(logFile, '[' + nowIso() + '] ' + String(message || '') + '\n');
+  }
+
+  function broadcast(type, data) {
+    const frame = encodeWebSocketText({ type, data });
+    for (const socket of Array.from(websocketClients)) {
+      if (socket.destroyed || !socket.writable) { websocketClients.delete(socket); continue; }
+      try { socket.write(frame); } catch (error) { websocketClients.delete(socket); appendLog('websocket write failed: ' + error.message); }
+    }
+    state.websocket_clients = websocketClients.size;
+  }
+
+  function appendInnerExperience(text, category, extra = {}) {
+    const value = toFirstPersonInnerExperience(text);
+    if (!value) return Object.freeze({ written: false, reason: 'empty_inner_experience' });
+    const neuralSettings = getInterfaceSettings('chat').neuralStream;
+    const written = appendPrivateThoughtRecord({
+      text: value,
+      category: category || 'reflection',
+      severity: extra.severity || 'info',
+      source: extra.source || 'chat_local_runtime',
+      event_id: extra.event_id || null,
+      session_id: brain.session_id,
+      dedupe_window_ms: Number(neuralSettings.dedupeWindowMs || 0)
+    });
+    if (written.written) broadcast('inner-stream.entry', { id: written.entry.id, timestamp: Date.parse(written.entry.created_at), module: String(written.entry.category || 'reflection'), category: written.entry.category || 'reflection', summary: written.entry.text, severity: written.entry.severity || 'info' });
+    return written;
+  }
+
+  function upsertSpokenTranscript(event) {
+    const phase = event.phase === 'partial' ? 'partial' : 'final';
+    const written = upsertChatTranscriptTurn({ id: 'speech-' + String(event.id), role: 'user', text: event.text, input_modality: 'spoken', output_modality: 'none', spoken_aloud: false, source: 'live_audio_service', transcript_state: phase });
+    const insertedAt = nowIso();
+    state.last_chat_user_message_inserted_at = insertedAt;
+    if (phase === 'final') state.last_speech_final_transcript_at = event.transcribed_at || insertedAt;
+    broadcast('transcript.entry', { ...written.entry, insertion_time: insertedAt });
+    if (phase === 'final') appendInnerExperience('I hear the Maker asking, “' + String(event.text).replace(/[“”]/g, '') + '”', 'hearing', { source: 'live_audio_service' });
+    publish();
+    return written;
   }
 
   function status(extra = {}) {
@@ -292,9 +388,6 @@ function createChatLocalRuntime(options = {}) {
     );
     const visionReady = Boolean(
       sensesAllowed &&
-      vision.active === true &&
-      vision.camera_open === true &&
-      vision.first_frame_received === true &&
       vision.ready_for_chat === true &&
       !state.vision_start_error
     );
@@ -303,6 +396,10 @@ function createChatLocalRuntime(options = {}) {
     if (sensesAllowed && audio.last_error) degradedReasons.push('hearing_runtime: ' + audio.last_error);
     if (sensesAllowed && audio.last_wake_gate_error) degradedReasons.push('wake_gate: ' + audio.last_wake_gate_error);
     if (sensesAllowed && state.vision_start_error) degradedReasons.push('vision_start: ' + state.vision_start_error);
+    const knowledgeRequired = getKnowledgeConfig('chat').autoload_blocking_on_chat_local_start === true;
+    if (knowledgeRequired && state.knowledge_refreshing) degradedReasons.push('knowledge_refreshing');
+    if (knowledgeRequired && !state.knowledge_refreshing && state.knowledge_ready !== true) degradedReasons.push('knowledge_not_ready');
+    if (knowledgeRequired && state.knowledge_refresh_error) degradedReasons.push('knowledge_refresh: ' + state.knowledge_refresh_error);
     if (sensesAllowed && !hearingReady && degradedReasons.length === 0) degradedReasons.push('hearing_not_ready');
     if (sensesAllowed && !visionReady && degradedReasons.length === 0) degradedReasons.push('vision_not_ready');
     const sensoryReady = awaitingClient || sleeping || (hearingReady && visionReady);
@@ -310,6 +407,7 @@ function createChatLocalRuntime(options = {}) {
       state.api_ready &&
       state.brain_loaded &&
       state.memory_loaded &&
+      (!knowledgeRequired || state.knowledge_ready) &&
       sensoryReady &&
       !state.last_error &&
       degradedReasons.length === 0
@@ -344,6 +442,7 @@ function createChatLocalRuntime(options = {}) {
         latest_observation_at: vision.latest_private_observation_timestamp || null,
         last_error: vision.last_fatal_error || vision.last_vlm_error || vision.last_yolo_error || null
       },
+      self_improvement: selfImprovementApi.status(),
       ...extra
     });
   }
@@ -355,6 +454,7 @@ function createChatLocalRuntime(options = {}) {
     writeJsonAtomic(statusFile, payload);
     const heartbeat = { pid: process.pid, created_at: state.last_heartbeat_at, state: payload.state, ready: payload.ready };
     writeJsonAtomic(heartbeatFile, heartbeat);
+    if (state.websocket_ready) broadcast('status.update', payload);
     return payload;
   }
 
@@ -406,123 +506,44 @@ function createChatLocalRuntime(options = {}) {
     return output;
   }
 
-  function rememberGroundedVisionTurn(request, visionContext, reply) {
-    try {
-      const hippocampus = brain.requireModule('hippocampus');
-      const event = createBrainEvent({
-        type: 'system_text',
-        source: 'system',
-        modality: 'text',
-        created_at: nowIso(),
-        payload: {
-          text: 'I answered a direct sight question from my current webcam observation: ' + reply,
-          sensory_modality: 'vision',
-          source_type: visionContext && visionContext.source || 'webcam_unavailable',
-          addressed_to_floki: true,
-          user_text: request.transcript_user_text || request.cognition_text
-        },
-        provenance: {
-          observed_by: 'chat_local_runtime_grounded_vision',
-          confidence: visionContext && visionContext.available === true ? 0.95 : 1,
-          notes: 'Direct sensory answer used the current structured webcam observation without model invention.'
-        }
-      });
-      return hippocampus.safeRememberEvent(event, {
-        stream: 'short_term',
-        type: 'sensory_experience',
-        tags: ['vision', 'webcam', 'direct_question', 'grounded_reply'],
-        importance: 0.55,
-        content: {
-          summary: reply,
-          detail: JSON.stringify({
-            source: visionContext && visionContext.source || null,
-            observed_at: visionContext && visionContext.latest_private_observation_timestamp || null,
-            available: visionContext && visionContext.available === true
-          })
-        }
-      });
-    } catch (error) {
-      appendLog('grounded vision memory failed: ' + error.message);
-      return null;
-    }
-  }
-
   async function resolveVisionContext(text) {
     if (!looksLikeVisionQuestion(text, visionConfig)) return undefined;
     const readOptions = {
       runtime_dir: runtimeDir,
-      max_age_ms: visionConfig.direct_answer_max_age_ms,
-      prefer_detection: visionConfig.direct_answer_prefer_detection === true
+      max_age_ms: visionConfig.vision_question_max_age_ms
     };
     const current = readLatestPrivateObservation(readOptions);
     if (current && current.available === true && current.fresh === true) return current;
     return waitForFreshVision(runtimeDir, {
       reason: 'spoken_or_typed_vision_question',
-      max_age_ms: visionConfig.direct_answer_max_age_ms,
-      wait_ms: visionConfig.direct_answer_wait_ms,
-      prefer_detection: visionConfig.direct_answer_prefer_detection === true
-    });
-  }
-
-  function recordGroundedVisionTurn(request, visionContext) {
-    const reply = buildGroundedVisionReply(visionContext, visionConfig);
-    const source = request.source || 'chat_local_runtime';
-    appendChatTranscriptTurn({
-      role: 'user',
-      text: String(request.transcript_user_text || request.cognition_text),
-      input_modality: request.input_modality || 'text',
-      output_modality: 'none',
-      spoken_aloud: false,
-      source
-    });
-    appendChatTranscriptTurn({
-      role: 'floki',
-      text: reply,
-      input_modality: request.input_modality || 'text',
-      output_modality: request.output_modality || 'text',
-      spoken_aloud: request.spoken_aloud === true,
-      source: 'grounded_live_vision'
-    });
-    rememberGroundedVisionTurn(request, visionContext, reply);
-    state.last_reply = reply;
-    state.last_turn_completed_at = nowIso();
-    state.last_grounded_vision_reply_at = state.last_turn_completed_at;
-    state.last_grounded_vision_source = visionContext && visionContext.source || null;
-    state.last_grounded_vision_observation_at = visionContext && visionContext.latest_private_observation_timestamp || null;
-    state.last_grounded_vision_available = visionContext && visionContext.available === true;
-    appendLog(
-      'grounded vision reply source=' + String(state.last_grounded_vision_source || 'unavailable') +
-      ' observation_at=' + String(state.last_grounded_vision_observation_at || 'none')
-    );
-    return Object.freeze({
-      ok: true,
-      marker: 'FLOKI_V2_GROUNDED_LIVE_VISION_REPLY',
-      reply,
-      grounded_live_vision: true,
-      vision_available: state.last_grounded_vision_available,
-      vision_source: state.last_grounded_vision_source,
-      vision_observation_at: state.last_grounded_vision_observation_at,
-      transcript_recorded_now: true,
-      latency_events: []
+      max_age_ms: visionConfig.vision_question_max_age_ms,
+      wait_ms: visionConfig.vision_question_wait_ms
     });
   }
 
   function enqueueTurn(request) {
     const task = async () => {
       if (stopping) throw new Error('chat.local runtime is stopping');
+      selfImprovementApi.preempt('foreground_user_turn');
       state.active_turn = true;
       state.state = 'thinking';
       state.last_turn_started_at = nowIso();
+      state.last_cognition_started_at = state.last_turn_started_at;
+      appendInnerExperience('I am focusing on the Maker’s request: “' + String(request.cognition_text || '').replace(/[“”]/g, '').slice(0, 360) + '”', 'attention', { source: request.source || 'chat_local_runtime' });
       state.last_turn_modality = request.input_modality || 'text';
       activeAbortController = new AbortController();
       publish();
       try {
+        const visionQuestion = looksLikeVisionQuestion(request.cognition_text, visionConfig);
+        const visionHardwareQuestion = visionQuestion && looksLikeVisionHardwareQuestion(request.cognition_text, visionConfig);
         const visionContext = await resolveVisionContext(request.cognition_text);
-        if (
-          visionConfig.direct_answer_enabled === true &&
-          looksLikeVisionQuestion(request.cognition_text, visionConfig)
-        ) {
-          return recordGroundedVisionTurn(request, visionContext);
+        if (visionQuestion) {
+          if (visionContext && visionContext.available === true) {
+            const sceneThought = String(visionContext.scene_summary || visionContext.observation_summary || visionContext.grounding_summary || '').trim();
+            if (sceneThought) appendInnerExperience('I notice ' + sceneThought.replace(/^I\s+(?:can\s+)?see\s+/i, '').replace(/[.]+$/, '') + '.', 'perception', { source: 'cognition_grounded_live_sight' });
+          } else {
+            appendInnerExperience('I notice that my sight is unavailable, so I need to answer honestly.', 'perception', { source: 'cognition_grounded_live_sight' });
+          }
         }
         const result = await handleTypedText(brain, request.cognition_text, {
           signal: activeAbortController.signal,
@@ -531,12 +552,25 @@ function createChatLocalRuntime(options = {}) {
           spoken_aloud: request.spoken_aloud === true,
           source: request.source || 'chat_local_runtime',
           transcript_user_text: request.transcript_user_text || request.cognition_text,
+          user_transcript_recorded: request.user_transcript_recorded === true,
           chat_webcam_vision: visionContext,
-          print_public_text: false
+          vision_question: visionQuestion,
+          vision_hardware_question: visionHardwareQuestion,
+          print_public_text: false,
+          on_first_chunk() { if (!state.last_first_response_token_at || state.last_first_response_token_at < state.last_turn_started_at) state.last_first_response_token_at = nowIso(); publish(); },
+          on_inner_summary(summary) { appendInnerExperience(summary.text, summary.category || 'reflection', { source: request.source || 'chat_local_runtime', event_id: summary.event_id || null }); },
+          on_transcript_entry(entry) { broadcast('transcript.entry', entry); }
         });
         if (!result || result.ok !== true) throw new Error(result && result.error || 'brain response failed');
         state.last_reply = result.reply || '';
         state.last_turn_completed_at = nowIso();
+        if (visionQuestion) {
+          state.last_grounded_vision_reply_at = state.last_turn_completed_at;
+          state.last_grounded_vision_source = visionContext && visionContext.source || null;
+          state.last_grounded_vision_observation_at = visionContext && visionContext.latest_private_observation_timestamp || null;
+          state.last_grounded_vision_available = visionContext && visionContext.available === true;
+          appendLog('cognition-grounded sight reply source=' + String(state.last_grounded_vision_source || 'unavailable') + ' observation_at=' + String(state.last_grounded_vision_observation_at || 'none'));
+        }
         return result;
       } finally {
         activeAbortController = null;
@@ -550,16 +584,38 @@ function createChatLocalRuntime(options = {}) {
       }
     };
     const scheduled = turnQueue.then(task, task);
-    turnQueue = scheduled.catch(() => {});
+    turnQueue = scheduled.then(() => undefined, (error) => { appendLog('queued turn failed: ' + error.message); return undefined; });
     return scheduled;
   }
 
-  const liveAudio = createLiveAudioService({
+  const visionReconciler = options.vision_reconciler || createVisionReconciler({
+    readStatus: () => readChatWebcamVisionStatus({ runtime_dir: runtimeDir }),
+    startService: (options) => startChatWebcamVisionService({ ...options, runtime_dir: runtimeDir }),
+    stopService: (options) => stopChatWebcamVisionService({ ...options, runtime_dir: runtimeDir }),
+    log: appendLog
+  });
+
+  const liveAudio = options.live_audio_service || createLiveAudioService({
     runtime_dir: runtimeDir,
     session_id: brain.session_id,
     audio_config: audioConfig,
     initial_awake: false,
     on_ambient_observation: rememberAmbient,
+    on_transcript: upsertSpokenTranscript,
+    on_transcript_discard(event) {
+      const result = removeChatTranscriptTurn('speech-' + String(event.id));
+      if (result.removed) broadcast('transcript.remove', { id: result.id });
+      publish();
+      return result;
+    },
+    on_cognition_start(event) { state.last_cognition_started_at = event.started_at || nowIso(); publish(); },
+    on_tts_start(event) { state.last_tts_started_at = event.started_at || nowIso(); publish(); },
+    on_microphone_lifecycle(event) {
+      if (event.phase === 'closed_for_tts' && event.microphone_open === false) state.last_microphone_closed_for_tts_at = event.observed_at || nowIso();
+      if (event.phase === 'reopened_after_tts' && event.microphone_open && event.speaking === false) state.last_microphone_reopened_at = event.reopened_at || event.observed_at || nowIso();
+      if (event.fresh_pcm_received === true) state.last_microphone_fresh_pcm_at = event.observed_at || nowIso();
+      publish();
+    },
     async on_direct_speech(input) {
       const acceptedAt = nowIso();
       const result = await enqueueTurn({
@@ -568,12 +624,16 @@ function createChatLocalRuntime(options = {}) {
         input_modality: 'spoken',
         output_modality: 'spoken',
         spoken_aloud: true,
-        source: 'live_audio_service'
+        source: 'live_audio_service',
+        user_transcript_recorded: true,
+        transcript_id: input.transcript_id || input.utterance_id
       });
       appendLog('spoken turn ' + input.utterance_id + ' accepted_at=' + acceptedAt + ' completed_at=' + nowIso());
       return result;
     }
   });
+
+  const knowledgeBootstrap = options.knowledge_bootstrap || createKnowledgeRuntimeBootstrap({ runtime_dir: runtimeDir });
 
   async function applyLifecycle(next) {
     lifecycle = next;
@@ -591,32 +651,12 @@ function createChatLocalRuntime(options = {}) {
       appendLog('hearing lifecycle reconcile failed: ' + error.message);
     }
 
-    if (!visionEnabled) {
-      visionManagedSleeping = !awake;
-      try {
-        const vision = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
-        if (vision.active === true || vision.camera_open === true) {
-          await stopChatWebcamVisionService({ runtime_dir: runtimeDir, stop_tunnel: false });
-          appendLog(awake ? 'vision paused until interface ready' : 'vision paused for sleep');
-        }
-        state.vision_start_error = null;
-      } catch (error) {
-        state.vision_start_error = error.message;
-        appendLog('vision suspension failed: ' + error.message);
-      }
-    } else {
-      visionManagedSleeping = false;
-      try {
-        const vision = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
-        if (vision.active !== true || vision.camera_open !== true) {
-          await startChatWebcamVisionService({ runtime_dir: runtimeDir });
-          appendLog('vision enabled after interface ready');
-        }
-        state.vision_start_error = null;
-      } catch (error) {
-        state.vision_start_error = error.message;
-        appendLog('vision awake start failed: ' + error.message);
-      }
+    visionManagedSleeping = !visionEnabled && !awake;
+    try {
+      await visionReconciler.reconcile(visionEnabled, { awake });
+      state.vision_start_error = null;
+    } catch (error) {
+      state.vision_start_error = error.message;
     }
 
     const audioStatus = liveAudio.status();
@@ -639,8 +679,10 @@ function createChatLocalRuntime(options = {}) {
     const nap = beginManualNap({ consolidation });
     lastManualNapActive = true;
     await applyLifecycle(buildFlokiLifecycleStatus());
+    await processManualNap();
     const snapshot = status();
-    const verified = snapshot.lifecycle.manual_nap_active === true && snapshot.lifecycle.manual_nap_duration_minutes === 30 && snapshot.hearing.microphone_open === false && snapshot.vision.camera_open === false;
+    const verified = snapshot.lifecycle.manual_nap_active === true && snapshot.lifecycle.manual_nap_duration_minutes === sleepConfig.manual_nap_duration_minutes && snapshot.hearing.microphone_open === false && snapshot.vision.camera_open === false;
+    appendInnerExperience('I am settling into a nap and allowing the first REM cycle to begin.', 'sleep', { source: 'manual_nap' });
     return Object.freeze({ ok: verified, verified, marker: verified ? 'FLOKI_V22_MANUAL_NAP_REQUEST_PASS' : 'FLOKI_V22_MANUAL_NAP_REQUEST_FAIL', nap, consolidation, status: snapshot });
   }
   async function wakeFromManualNap() {
@@ -651,7 +693,73 @@ function createChatLocalRuntime(options = {}) {
     const nap = readManualNapState();
     if (!nap || nap.active !== true) { if (lastManualNapActive) { lastManualNapActive = false; await applyLifecycle(buildFlokiLifecycleStatus()); } return; }
     lastManualNapActive = true; if (manualNapDreamTask) return; const claim = claimDueRemCycle(); if (!claim) return;
-    manualNapDreamTask = runDreamEngineOnce({ sleep_kind: 'manual_nap', env: { ...process.env, FLOKI_ALLOW_DREAM_ENGINE: '1' }, rem_cycle_number: claim.cycle.cycle_number, sleep_window_start: claim.state.started_at, sleep_window_end: claim.state.wake_at }).then((result) => finishRemCycle(result, null)).catch((error) => { finishRemCycle(null, error); appendLog('manual nap REM failed: ' + error.message); }).finally(async () => { manualNapDreamTask = null; await applyLifecycle(buildFlokiLifecycleStatus()); });
+    appendInnerExperience('I am entering REM cycle ' + String(claim.cycle.cycle_number) + ' and beginning a dream.', 'dream', { source: 'manual_nap' });
+    manualNapDreamTask = runDreamEngineOnce({ sleep_kind: 'manual_nap', env: { ...process.env, FLOKI_ALLOW_DREAM_ENGINE: '1' }, rem_cycle_number: claim.cycle.cycle_number, sleep_window_start: claim.state.started_at, sleep_window_end: claim.state.wake_at }).then((result) => finishRemCycle(result, null)).catch((error) => {
+      const message = error && error.message ? error.message : String(error);
+      finishRemCycle(null, error);
+      if (message.startsWith('DREAM_QUALITY_CONTRACT_REJECTED_AFTER_')) {
+        appendLog('manual nap REM quality regeneration continuing: ' + message);
+      } else {
+        appendLog('manual nap REM architecture error: ' + message);
+      }
+    }).finally(async () => { manualNapDreamTask = null; await applyLifecycle(buildFlokiLifecycleStatus()); });
+  }
+
+  const interfaceApi = createChatLocalInterfaceApi({ runtime_dir: runtimeDir, status, started_at: startedAt, session_id: brain.session_id });
+
+  function runControlScript(script) {
+    const scriptPath = path.join(ROOT, 'bin', script);
+    const result = spawnSync('bash', [scriptPath], { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 360000 });
+    if (result.status !== 0) throw new Error(String(result.stderr || result.stdout || script + ' failed').trim());
+    return String(result.stdout || '').trim();
+  }
+
+  async function restartLiveAudio(label) {
+    const awake = lifecycle && lifecycle.is_awake === true && state.client_ready === true;
+    await liveAudio.stop();
+    await liveAudio.start();
+    await liveAudio.setAwake(awake);
+    const audioStatus = liveAudio.status();
+    const verified = awake
+      ? audioStatus.microphone_open === true && audioStatus.service_state === 'listening'
+      : audioStatus.microphone_open === false;
+    if (!verified) throw new Error(label + ' restart did not restore the expected microphone lifecycle');
+    await applyLifecycle(buildFlokiLifecycleStatus());
+    return { ok: true, verified: true, message: label + ' restarted through the authoritative chat.local runtime.', status: audioStatus };
+  }
+
+  async function controlAction(action, body = {}) {
+    if (action === 'startChat') {
+      const current = status();
+      return { ok: current.api_ready === true, verified: current.api_ready === true, message: 'The authoritative chat.local runtime is already running.', status: current };
+    }
+    if (action === 'stopChat') {
+      setTimeout(() => { void stop().catch((error) => appendLog('runtime stop control failed: ' + error.message)); }, 50);
+      return { ok: true, verified: true, message: 'Authoritative chat.local shutdown accepted.' };
+    }
+    if (action === 'restartChat') {
+      setTimeout(() => {
+        void (async () => {
+          await stop();
+          stopping = false;
+          state.shutdown_requested = false;
+          await start();
+        })().catch((error) => {
+          state.last_error = 'runtime restart control failed: ' + error.message;
+          appendLog(state.last_error);
+        });
+      }, 50);
+      return { ok: true, verified: true, message: 'Authoritative chat.local restart accepted.' };
+    }
+    if (action === 'interrupt') { const hadTurn = Boolean(activeAbortController); if (activeAbortController) activeAbortController.abort(); const speech = await liveAudio.interruptSpeech(); return { ok: true, verified: hadTurn || speech.interrupted === true, interrupted: hadTurn || speech.interrupted === true, speech }; }
+    if (action === 'requestSleep') return requestManualNap();
+    if (action === 'wake') return wakeFromManualNap();
+    if (action === 'pauseSleep' || action === 'pauseAutoSleep') return { ok: true, verified: true, message: runControlScript('floki-sleep-scheduler-stop.sh') };
+    if (action === 'resumeSleep' || action === 'restartScheduler') return { ok: true, verified: true, message: runControlScript('floki-sleep-scheduler-start.sh') };
+    if (action === 'restartVision') { runControlScript('floki-chat-vision-stop.sh'); return { ok: true, verified: true, message: runControlScript('floki-chat-vision-start.sh') }; }
+    if (action === 'restartHearing') return restartLiveAudio('Hearing');
+    if (action === 'restartSpeech') return restartLiveAudio('Speech');
+    return { ok: false, verified: false, available: false, error: 'Unknown chat.local control: ' + String(action || '') };
   }
 
   async function route(req, res) {
@@ -675,6 +783,24 @@ function createChatLocalRuntime(options = {}) {
       sendJson(res, 200, { ok: true, entries: readChatTranscriptTail(limit) });
       return;
     }
+    if (req.method === 'GET' && url.pathname === '/interface/status') { sendJson(res, 200, interfaceApi.buildInitialStatus()); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/services') { sendJson(res, 200, interfaceApi.buildServices()); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/transcript') { const limit = Math.max(1, Math.min(5000, Number(url.searchParams.get('limit') || 200))); sendJson(res, 200, interfaceApi.getTranscript(limit)); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/vision/frame') { sendJson(res, 200, interfaceApi.buildVisionFrame()); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/vision/frame/base64') { sendJson(res, 200, { data: interfaceApi.latestFrameBase64() }); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/vision/observation') { sendJson(res, 200, interfaceApi.buildObservation()); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/emotion') { sendJson(res, 200, interfaceApi.buildEmotion()); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/emotion/history') { sendJson(res, 200, interfaceApi.buildAffectHistory(Number(url.searchParams.get('limit') || 360))); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/sleep') { sendJson(res, 200, interfaceApi.buildSleep()); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/neural') { sendJson(res, 200, interfaceApi.buildNeuralEvents(Number(url.searchParams.get('limit') || 250))); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/dreams') { sendJson(res, 200, interfaceApi.buildDreamTimeline()); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/settings') { sendJson(res, 200, interfaceApi.getSettings()); return; }
+    if (req.method === 'GET' && url.pathname === '/interface/coverage') { sendJson(res, 200, interfaceApi.coverage()); return; }
+    if (req.method === 'GET' && url.pathname.startsWith('/interface/log/')) { sendJson(res, 200, interfaceApi.logPath(decodeURIComponent(url.pathname.slice('/interface/log/'.length)))); return; }
+    if (req.method === 'POST' && url.pathname === '/interface/settings/update') { const body = await bodyJson(req); const settings = interfaceApi.updateSettings(String(body.section || ''), body.values || {}); await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, settings); return; }
+    if (req.method === 'POST' && url.pathname === '/interface/settings/reset') { const body = await bodyJson(req); const settings = interfaceApi.resetSettings(body.section == null ? null : String(body.section)); await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, settings); return; }
+    if (req.method === 'POST' && url.pathname === '/interface/settings/import') { const body = await bodyJson(req); const settings = interfaceApi.importSettings(body.settings || {}); await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, settings); return; }
+    if (req.method === 'POST' && url.pathname.startsWith('/interface/control/')) { const action = decodeURIComponent(url.pathname.slice('/interface/control/'.length)); const body = await bodyJson(req); sendJson(res, 200, await controlAction(action, body)); return; }
     if (req.method === 'POST' && url.pathname === '/client-ready') {
       state.client_ready = true;
       state.client_ready_at = nowIso();
@@ -713,12 +839,50 @@ function createChatLocalRuntime(options = {}) {
       sendJson(res, 200, result);
       return;
     }
-    if (req.method === 'POST' && url.pathname === '/interrupt') { const hadTurn = Boolean(activeAbortController); if (activeAbortController) activeAbortController.abort(); const speech = liveAudio.interruptSpeech(); sendJson(res, 200, { ok: true, interrupted: hadTurn || speech.interrupted === true, speech }); return; }
+    if (req.method === 'POST' && url.pathname === '/interrupt') { sendJson(res, 200, await controlAction('interrupt')); return; }
     if (req.method === 'POST' && url.pathname === '/nap/request') { sendJson(res, 200, await requestManualNap()); return; }
     if (req.method === 'POST' && url.pathname === '/nap/wake') { sendJson(res, 200, await wakeFromManualNap()); return; }
     if (req.method === 'GET' && url.pathname === '/nap/status') { sendJson(res, 200, { ok: true, nap: readManualNapState(), lifecycle: buildFlokiLifecycleStatus() }); return; }
     if (req.method === 'POST' && url.pathname === '/settings/reload') { await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, { ok: true, verified: true, settings: getInterfaceSettings('chat'), status: status() }); return; }
     if (req.method === 'POST' && url.pathname === '/audio/push-to-talk') { const body = await bodyJson(req); state.push_to_talk_active = body.active === true; await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, { ok: true, verified: true, active: state.push_to_talk_active, status: status() }); return; }
+    if (req.method === 'GET' && url.pathname === '/self-improvement/status') {
+      sendJson(res, 200, { ok: true, status: selfImprovementApi.status() });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/self-improvement/candidates') {
+      sendJson(res, 200, { ok: true, candidates: selfImprovementApi.listCandidates() });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/self-improvement/candidates/')) {
+      const id = decodeURIComponent(url.pathname.slice('/self-improvement/candidates/'.length));
+      sendJson(res, 200, { ok: true, candidate: selfImprovementApi.readCandidate(id) });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/self-improvement/approve') {
+      const body = await bodyJson(req);
+      sendJson(res, 202, selfImprovementApi.approve(body.id, body.token));
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/self-improvement/deny') {
+      const body = await bodyJson(req);
+      sendJson(res, 200, selfImprovementApi.deny(body.id, body.token, body.reason));
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/self-improvement/pause') {
+      const body = await bodyJson(req);
+      sendJson(res, 200, { ok: true, verified: true, status: selfImprovementApi.pause(body.token) });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/self-improvement/resume') {
+      const body = await bodyJson(req);
+      sendJson(res, 200, { ok: true, verified: true, status: selfImprovementApi.resume(body.token) });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/self-improvement/run-now') {
+      const body = await bodyJson(req);
+      sendJson(res, 202, selfImprovementApi.runNow(body.token, body.objective));
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/speak') {
       const body = await bodyJson(req);
       const text = String(body.text || '').trim();
@@ -736,6 +900,23 @@ function createChatLocalRuntime(options = {}) {
     state.state = 'starting';
     publish();
 
+    const knowledgeConfig = getKnowledgeConfig('chat');
+    const existingKnowledge = knowledgeBootstrap.inspect({ runtime_dir: runtimeDir });
+    state.knowledge_ready = existingKnowledge.ready === true || knowledgeConfig.autoload_enabled !== true;
+    state.knowledge_refresh_error = existingKnowledge.error || null;
+    state.knowledge_autoload = Object.freeze({
+      ...existingKnowledge,
+      phase: 'pending_refresh',
+      marker: existingKnowledge.marker
+    });
+    appendLog('knowledge bootstrap index: ' + String(existingKnowledge.marker) + ' sources=' + String(existingKnowledge.source_count || 0) + ' chunks=' + String(existingKnowledge.chunk_count || 0));
+
+    const archive = reconcileArchive();
+    appendLog('dream archive reconciled: discovered=' + String(archive.discovered) +
+      ' indexed=' + String(archive.indexed) +
+      ' already_indexed=' + String(archive.already_indexed) +
+      ' malformed=' + String(archive.malformed));
+
     lifecycle = buildFlokiLifecycleStatus();
     try {
       await liveAudio.start();
@@ -752,10 +933,26 @@ function createChatLocalRuntime(options = {}) {
         sendJson(res, 500, { ok: false, error: error.message });
       });
     });
+    server.on('upgrade', (request, socket) => {
+      try {
+        const url = new URL(request.url, 'http://' + host + ':' + String(port));
+        if (url.pathname !== '/ws') { socket.destroy(); return; }
+        const key = request.headers['sec-websocket-key'];
+        if (typeof key !== 'string' || !key) throw new Error('missing WebSocket key');
+        const accept = crypto.createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+        socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
+        websocketClients.add(socket); state.websocket_clients = websocketClients.size;
+        socket.on('close', () => { websocketClients.delete(socket); state.websocket_clients = websocketClients.size; });
+        socket.on('error', (error) => { websocketClients.delete(socket); state.websocket_clients = websocketClients.size; appendLog('websocket client error: ' + error.message); });
+        socket.write(encodeWebSocketText({ type: 'status.update', data: status() }));
+      } catch (error) { appendLog('websocket upgrade failed: ' + error.message); socket.destroy(); }
+    });
     server.on('error', (error) => {
       state.last_error = error.message;
       publish();
     });
+    await assertPortAvailable(host, port);
+
     await new Promise((resolve, reject) => {
       server.once('error', reject);
       server.listen(port, host, () => {
@@ -765,6 +962,41 @@ function createChatLocalRuntime(options = {}) {
     });
 
     state.api_ready = true;
+    state.websocket_ready = true;
+
+    if (knowledgeConfig.autoload_enabled === true) {
+      try {
+        const launch = knowledgeBootstrap.start({
+          runtime_dir: runtimeDir,
+          on_update(update) {
+            state.knowledge_refreshing = update.phase === 'refreshing';
+            state.knowledge_worker_running = update.phase === 'refreshing';
+            state.knowledge_refresh_error = update.error || null;
+            state.knowledge_ready = update.ready === true;
+            const existing = update.existing || {};
+            state.knowledge_autoload = Object.freeze({
+              ...(update.result || {}),
+              phase: update.phase,
+              marker: update.marker,
+              source_count: Number(existing.source_count || (update.result && update.result.source_count) || 0),
+              chunk_count: Number(existing.chunk_count || (update.result && update.result.chunk_count) || 0),
+              knowledge_root: existing.knowledge_root || (update.result && update.result.knowledge_root) || null,
+              error: update.error || null
+            });
+            appendLog('knowledge autoload ' + String(update.phase) + ': ' + String(update.marker) + ' sources=' + String(state.knowledge_autoload.source_count || 0) + ' chunks=' + String(state.knowledge_autoload.chunk_count || 0) + (update.error ? ' error=' + String(update.error) : ''));
+            publish();
+          }
+        });
+        state.knowledge_worker_started = launch.started === true;
+        state.knowledge_worker_running = launch.started === true;
+      } catch (error) {
+        state.knowledge_refreshing = false;
+        state.knowledge_worker_running = false;
+        state.knowledge_refresh_error = error.message;
+        appendLog('knowledge autoload worker launch failed: ' + error.message);
+      }
+    }
+
     const startupAudio = liveAudio.status();
     state.state = lifecycle.is_awake !== true
       ? 'sleeping'
@@ -799,7 +1031,13 @@ function createChatLocalRuntime(options = {}) {
     if (activeAbortController) activeAbortController.abort();
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (lifecycleTimer) clearInterval(lifecycleTimer);
+    knowledgeBootstrap.stop();
+    state.knowledge_worker_running = false;
     await liveAudio.stop();
+    for (const socket of Array.from(websocketClients)) { try { socket.end(); } catch (error) { appendLog('websocket close failed: ' + error.message); } }
+    websocketClients.clear();
+    state.websocket_clients = 0;
+    state.websocket_ready = false;
     if (server) await new Promise((resolve) => server.close(() => resolve()));
     fs.rmSync(pidFile, { force: true });
     state.api_ready = false;
@@ -847,7 +1085,10 @@ module.exports = {
   normalizeIntentText,
   configuredVisionQuestionPhrases,
   looksLikeVisionQuestion,
-  buildGroundedVisionReply,
+  configuredVisionHardwareQuestionPhrases,
+  looksLikeVisionHardwareQuestion,
+  configuredProhibitedPublicVisionTerms,
+  toFirstPersonInnerExperience,
   visionObservationTimestamp,
   waitForFreshVision,
   createChatLocalRuntime

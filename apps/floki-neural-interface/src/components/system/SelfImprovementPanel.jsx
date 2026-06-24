@@ -1,0 +1,314 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  AlertTriangle,
+  Beaker,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  CirclePause,
+  CirclePlay,
+  Code2,
+  ExternalLink,
+  FlaskConical,
+  RefreshCw,
+  ShieldCheck,
+  XCircle
+} from 'lucide-react'
+import flokiAdapter from '@/integrations/floki/adapter'
+import { toast } from 'sonner'
+
+function stateLabel(value) {
+  return String(value || 'unknown').replaceAll('_', ' ')
+}
+
+function riskClass(level) {
+  if (level === 'critical') return 'text-red-400 border-red-500/30 bg-red-500/10'
+  if (level === 'high') return 'text-orange-400 border-orange-500/30 bg-orange-500/10'
+  if (level === 'medium') return 'text-yellow-300 border-yellow-500/30 bg-yellow-500/10'
+  return 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+}
+
+export default function SelfImprovementPanel() {
+  const [status, setStatus] = useState(null)
+  const [candidates, setCandidates] = useState([])
+  const [selectedId, setSelectedId] = useState(null)
+  const [detail, setDetail] = useState(null)
+  const [expandedDiff, setExpandedDiff] = useState(false)
+  const [busy, setBusy] = useState(null)
+  const alertedCandidate = useRef(null)
+
+  const refresh = useCallback(async () => {
+    const [nextStatus, nextCandidates] = await Promise.all([
+      flokiAdapter.getSelfImprovementStatus(),
+      flokiAdapter.getSelfImprovementCandidates()
+    ])
+    setStatus(nextStatus)
+    setCandidates(Array.isArray(nextCandidates) ? nextCandidates : [])
+    const pending = (nextCandidates || []).find((candidate) => candidate.status === 'pending_review')
+    if (pending && alertedCandidate.current !== pending.id) {
+      alertedCandidate.current = pending.id
+      toast.warning('Floki has a verified self-improvement candidate ready for your review.')
+    }
+    if (!selectedId && pending) setSelectedId(pending.id)
+    return nextStatus
+  }, [selectedId])
+
+  useEffect(() => {
+    let active = true
+    let timer = null
+
+    const run = async () => {
+      try {
+        const nextStatus = await refresh()
+        const pollMs = Number(nextStatus?.ui_poll_ms)
+        if (!Number.isFinite(pollMs) || pollMs <= 0) {
+          throw new Error('self_improvement.ui_poll_ms is invalid')
+        }
+        if (active) timer = setTimeout(run, pollMs)
+      } catch (error) {
+        if (active) toast.error(`Self-improvement status failed: ${error.message}`)
+      }
+    }
+
+    run()
+    return () => {
+      active = false
+      if (timer) clearTimeout(timer)
+    }
+  }, [refresh])
+
+  useEffect(() => {
+    let active = true
+    if (!selectedId) {
+      setDetail(null)
+      return () => { active = false }
+    }
+    flokiAdapter.getSelfImprovementCandidate(selectedId)
+      .then((candidate) => { if (active) setDetail(candidate) })
+      .catch((error) => { if (active) toast.error(`Candidate load failed: ${error.message}`) })
+    return () => { active = false }
+  }, [selectedId])
+
+  const pending = useMemo(
+    () => candidates.filter((candidate) => candidate.status === 'pending_review'),
+    [candidates]
+  )
+
+  const act = useCallback(async (name, action) => {
+    if (busy) return
+    setBusy(name)
+    try {
+      const result = await action()
+      if (result?.ok === false) throw new Error(result.error || `${name} failed`)
+      toast.success(result?.message || `${name} completed`)
+      await refresh()
+      if (selectedId) {
+        setDetail(await flokiAdapter.getSelfImprovementCandidate(selectedId))
+      }
+    } catch (error) {
+      toast.error(`${name} failed: ${error.message}`)
+    } finally {
+      setBusy(null)
+    }
+  }, [busy, refresh, selectedId])
+
+  const approve = useCallback(() => {
+    if (!detail || detail.status !== 'pending_review') return
+    const confirmed = window.confirm(
+      `Approve ${detail.id} and activate it after fresh host validation?\n\n` +
+      'Floki will stop chat.local, apply the exact verified patch, run the full release gate, roll back automatically on failure, and reopen the interface.'
+    )
+    if (!confirmed) return
+    act('Approve candidate', () => flokiAdapter.approveSelfImprovement(detail.id))
+  }, [act, detail])
+
+  const deny = useCallback(() => {
+    if (!detail || detail.status !== 'pending_review') return
+    const reason = window.prompt('Optional reason Floki should remember for future improvement cycles:', '') || ''
+    act('Deny candidate', () => flokiAdapter.denySelfImprovement(detail.id, reason))
+  }, [act, detail])
+
+  return (
+    <section className="rounded-lg border border-neon-cyan/20 bg-card/70 overflow-hidden" data-testid="self-improvement-panel">
+      <div className="p-5 border-b border-border/50 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <FlaskConical className="w-5 h-5 text-neon-cyan" />
+            <h3 className="text-sm font-semibold tracking-wide">Recursive Self-Improvement</h3>
+            {pending.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-orange-500/15 border border-orange-500/30 text-orange-300">
+                {pending.length} REVIEW
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Writable isolated development environment with shell, current web research, MCP, verification, and Maker-only promotion.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => act(status?.paused ? 'Resume worker' : 'Pause worker', () =>
+              status?.paused ? flokiAdapter.resumeSelfImprovement() : flokiAdapter.pauseSelfImprovement()
+            )}
+            disabled={Boolean(busy)}
+            className="px-3 py-2 text-xs rounded-md border border-border hover:border-neon-cyan/40 disabled:opacity-50 flex items-center gap-2"
+          >
+            {status?.paused ? <CirclePlay className="w-4 h-4" /> : <CirclePause className="w-4 h-4" />}
+            {status?.paused ? 'Resume' : 'Pause'}
+          </button>
+          <button
+            onClick={() => {
+              const objective = window.prompt('Optional improvement objective. Leave blank for Floki to select one:', '') || ''
+              act('Queue improvement cycle', () => flokiAdapter.runSelfImprovementNow(objective))
+            }}
+            disabled={Boolean(busy) || pending.length > 0}
+            className="px-3 py-2 text-xs rounded-md border border-neon-cyan/30 bg-neon-cyan/10 hover:bg-neon-cyan/15 disabled:opacity-50 flex items-center gap-2"
+          >
+            <Beaker className="w-4 h-4" />
+            Run now
+          </button>
+          <button
+            onClick={refresh}
+            disabled={Boolean(busy)}
+            className="p-2 rounded-md border border-border hover:border-neon-cyan/40 disabled:opacity-50"
+            aria-label="Refresh self-improvement status"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="p-5 grid grid-cols-1 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)] gap-5">
+        <div className="space-y-4">
+          <div className="rounded-md border border-border/60 p-4 space-y-2 text-xs">
+            <div className="flex justify-between gap-3"><span className="text-muted-foreground">State</span><span className="font-mono capitalize">{stateLabel(status?.state)}</span></div>
+            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Phase</span><span className="font-mono text-right capitalize">{stateLabel(status?.phase)}</span></div>
+            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Worker</span><span className={status?.worker_running ? 'text-emerald-400' : 'text-red-400'}>{status?.worker_running ? 'Running' : 'Stopped'}</span></div>
+            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Sandbox</span><span className="font-mono truncate max-w-[16rem]">{status?.current_container || 'None'}</span></div>
+            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Last heartbeat</span><span className="font-mono">{status?.last_heartbeat_at ? new Date(status.last_heartbeat_at).toLocaleTimeString() : 'None'}</span></div>
+            {status?.last_error && (
+              <div className="mt-3 p-3 rounded border border-red-500/30 bg-red-500/10 text-red-300 whitespace-pre-wrap break-words">
+                {status.last_error}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <h4 className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono">Candidates</h4>
+            {candidates.length === 0 && (
+              <div className="text-xs text-muted-foreground border border-dashed border-border rounded-md p-4">
+                No candidate has been produced yet.
+              </div>
+            )}
+            {candidates.map((candidate) => (
+              <button
+                key={candidate.id}
+                onClick={() => setSelectedId(candidate.id)}
+                className={`w-full text-left rounded-md border p-3 transition-colors ${
+                  selectedId === candidate.id ? 'border-neon-cyan/50 bg-neon-cyan/5' : 'border-border/60 hover:border-border'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-mono truncate">{candidate.id}</span>
+                  <span className="text-[10px] uppercase text-muted-foreground">{stateLabel(candidate.status)}</span>
+                </div>
+                <p className="text-xs mt-2 line-clamp-2">{candidate.objective}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="min-w-0">
+          {!detail ? (
+            <div className="h-full min-h-72 rounded-md border border-dashed border-border flex items-center justify-center text-sm text-muted-foreground">
+              Select a candidate to review its evidence and exact patch.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-md border border-border/60 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold">{detail.objective}</h4>
+                    <p className="text-xs text-muted-foreground font-mono mt-1">{detail.id}</p>
+                  </div>
+                  <span className={`px-2 py-1 rounded border text-[10px] uppercase ${riskClass(detail.risk_level)}`}>
+                    {detail.risk_level} risk
+                  </span>
+                </div>
+                <p className="text-sm mt-4 whitespace-pre-wrap">{detail.summary_markdown}</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="rounded-md border border-border/60 p-3">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 mb-2" />
+                  <div className="text-xs font-semibold">Verification</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {detail.test_results?.filter((row) => row.ok).length || 0}/{detail.test_results?.length || 0} passed
+                  </div>
+                </div>
+                <div className="rounded-md border border-border/60 p-3">
+                  <Code2 className="w-4 h-4 text-neon-cyan mb-2" />
+                  <div className="text-xs font-semibold">Changed files</div>
+                  <div className="text-xs text-muted-foreground mt-1">{detail.changed_files?.length || 0}</div>
+                </div>
+                <div className="rounded-md border border-border/60 p-3">
+                  <ExternalLink className="w-4 h-4 text-violet-400 mb-2" />
+                  <div className="text-xs font-semibold">Current sources</div>
+                  <div className="text-xs text-muted-foreground mt-1">{detail.research_sources?.length || 0}</div>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-border/60 overflow-hidden">
+                <button
+                  onClick={() => setExpandedDiff((value) => !value)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold hover:bg-secondary/30"
+                >
+                  Exact candidate patch
+                  {expandedDiff ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+                {expandedDiff && (
+                  <pre className="max-h-[34rem] overflow-auto p-4 text-[11px] leading-5 bg-black/30 border-t border-border/60 whitespace-pre">
+                    {detail.diff}
+                  </pre>
+                )}
+              </div>
+
+              <div className="rounded-md border border-border/60 p-4">
+                <h5 className="text-xs font-semibold mb-2">Risk assessment</h5>
+                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{detail.risk_notes}</p>
+              </div>
+
+              {detail.status === 'pending_review' && (
+                <div className="flex flex-wrap justify-end gap-3 pt-2">
+                  <button
+                    onClick={deny}
+                    disabled={Boolean(busy)}
+                    className="px-4 py-2 rounded-md border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/15 disabled:opacity-50 flex items-center gap-2 text-sm"
+                  >
+                    <XCircle className="w-4 h-4" />
+                    Deny
+                  </button>
+                  <button
+                    onClick={approve}
+                    disabled={Boolean(busy)}
+                    className="px-4 py-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 disabled:opacity-50 flex items-center gap-2 text-sm"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    Approve and activate
+                  </button>
+                </div>
+              )}
+
+              {detail.status === 'promotion_failed' && (
+                <div className="rounded-md border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300 flex gap-3">
+                  <AlertTriangle className="w-5 h-5 flex-none" />
+                  <span>{detail.failure || 'Promotion failed. The active runtime was not left on an unverified candidate.'}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
