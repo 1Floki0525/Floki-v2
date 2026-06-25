@@ -187,9 +187,15 @@ function stopChatVisionTunnel(options = {}) {
     encoding: 'utf8'
   });
   if (check.status === 0) {
-    spawnSync('ssh', ['-S', config.socket, '-O', 'exit', config.target], {
+    const exit = spawnSync('ssh', ['-S', config.socket, '-O', 'exit', config.target], {
       encoding: 'utf8'
     });
+    if (exit.status !== 0) {
+      throw new Error(
+        'could not stop chat vision SSH tunnel: ' +
+        String(exit.stderr || exit.stdout || '').trim()
+      );
+    }
   }
   fs.rmSync(config.socket, { force: true });
   return Object.freeze({

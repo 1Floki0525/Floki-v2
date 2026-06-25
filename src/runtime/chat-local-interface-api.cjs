@@ -56,6 +56,38 @@ function safeDirectChildFileWithin(root, candidate, expectedBasename) {
   }
 }
 
+function newestDirectChildFileWithin(root, expectedBasename) {
+  let entries;
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch (_error) {
+    return null;
+  }
+
+  let newest = null;
+  let newestMtimeMs = -1;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const candidate = safeDirectChildFileWithin(
+      root,
+      path.join(root, entry.name, expectedBasename),
+      expectedBasename
+    );
+    if (!candidate) continue;
+    let mtimeMs = 0;
+    try {
+      mtimeMs = Number(fs.statSync(candidate).mtimeMs || 0);
+    } catch (_error) {
+      continue;
+    }
+    if (mtimeMs > newestMtimeMs) {
+      newest = candidate;
+      newestMtimeMs = mtimeMs;
+    }
+  }
+  return newest;
+}
+
 const INTERFACE_TAB_CONTRACT = Object.freeze({
   chat: Object.freeze({ reads: Object.freeze(['status', 'transcript']), writes: Object.freeze(['sendMessage', 'clearTranscript', 'interrupt']), live_events: Object.freeze(['transcript.entry', 'transcript.remove', 'status.update']) }),
   dreams: Object.freeze({ reads: Object.freeze(['dreamTimeline', 'sleep']), writes: Object.freeze(['requestSleep', 'wake']), live_events: Object.freeze(['status.update', 'inner-stream.entry']) }),
@@ -467,9 +499,14 @@ function createChatLocalInterfaceApi(options = {}) {
     const candidate = status?.last_sandbox_log_file
       ? String(status.last_sandbox_log_file)
       : null;
-    return safeDirectChildFileWithin(
+    const recorded = safeDirectChildFileWithin(
       selfImprovementConfig.workspace_root,
       candidate,
+      selfImprovementConfig.sandbox_log_file_name
+    );
+    if (recorded) return recorded;
+    return newestDirectChildFileWithin(
+      selfImprovementConfig.workspace_root,
       selfImprovementConfig.sandbox_log_file_name
     );
   }

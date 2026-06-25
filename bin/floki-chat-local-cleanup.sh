@@ -1,121 +1,128 @@
 #!/usr/bin/env bash
+set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-
 cd "$ROOT" || exit 1
+
 if [ -s "$HOME/.nvm/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"
   . "$HOME/.nvm/nvm.sh"
   nvm use 24.17.0 >/dev/null 2>&1 || nvm use 24 >/dev/null 2>&1
 fi
-CHAT_RUNTIME_DIR="$(node - <<'NODE'
+
+mapfile -t CLEANUP_CONFIG < <(node - <<'NODE'
 'use strict';
 const path = require('node:path');
-const { PROJECT_ROOT, getPathConfig } = require('./src/config/floki-config.cjs');
-process.stdout.write(path.resolve(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root));
-NODE
-)" || exit 1
-timeout 20s bash bin/floki-self-improvement-stop.sh >/dev/null 2>&1 || true
-
-
-timeout 20s bash bin/floki-chat-stop.sh >/dev/null 2>&1 || true
-
-timeout 20s bash bin/floki-chat-vision-stop.sh >/dev/null 2>&1 || true
-timeout 20s bash bin/floki-sleep-scheduler-stop.sh >/dev/null 2>&1 || true
-
-python3 - "$ROOT" <<'PY'
-import os
-import signal
-import sys
-import time
-from pathlib import Path
-
-root = str(Path(sys.argv[1]).resolve())
-needles = (
-    f"{root}/src/vision/chat-webcam-vision-service.cjs --service",
-    f"{root}/.floki-tools/yolo-config/yolo-worker.py",
-    f"{root}/.floki-tools/grounding-dino/grounding-dino-worker.py",
-    f"{root}/src/chat/sleep-cycle-scheduler.cjs --service",
-    f"{root}/src/runtime/chat-local-runtime.cjs",
-    f"{root}/src/senses/chat-mode-loop.cjs",
-    f"{root}/src/senses/silero-vad-worker.py",
-    f"{root}/.floki-tools/repos/whisper.cpp/build/bin/whisper-cli",
-    f"{root}/.floki-tools/repos/whisper.cpp/build/bin/whisper-server",
-    f"{root}/.floki-tools/venv-chat-embodiment/bin/piper",
-    f"{root}/apps/floki-neural-interface/node_modules/.bin/electron",
-    "arecord -q",
-    "aplay ",
-)
-
-processes = {}
-for entry in Path('/proc').iterdir():
-    if not entry.name.isdigit():
-        continue
-    pid = int(entry.name)
-    try:
-        cmdline = (entry / 'cmdline').read_bytes().replace(b'\0', b' ').decode('utf-8', 'replace').strip()
-        status = (entry / 'status').read_text(encoding='utf-8', errors='replace')
-        ppid = 0
-        for line in status.splitlines():
-            if line.startswith('PPid:'):
-                ppid = int(line.split()[1])
-                break
-        processes[pid] = {'ppid': ppid, 'cmdline': cmdline}
-    except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError):
-        pass
-
-targets = {
-    pid for pid, info in processes.items()
-    if any(needle in info['cmdline'] for needle in needles)
+const {
+  PROJECT_ROOT,
+  getPathConfig,
+  getVisionConfig,
+  getSelfImprovementConfig
+} = require('./src/config/floki-config.cjs');
+const paths = getPathConfig('chat');
+const vision = getVisionConfig('chat');
+const rsi = getSelfImprovementConfig('chat');
+const resolveProject = (value) => path.isAbsolute(value)
+  ? value
+  : path.resolve(PROJECT_ROOT, value);
+const chatRuntimeRoot = path.resolve(PROJECT_ROOT, paths.chat_runtime_root);
+for (const value of [
+  chatRuntimeRoot,
+  resolveProject(rsi.runtime_root),
+  rsi.sandbox_engine,
+  rsi.container_name_prefix,
+  rsi.service_stop_attempts,
+  rsi.service_stop_poll_seconds,
+  rsi.service_stop_command_timeout_seconds,
+  rsi.worker_pid_file_name,
+  rsi.run_request_file_name,
+  rsi.current_container_file_name,
+  resolveProject(rsi.model_proxy_root),
+  rsi.model_proxy_socket_name,
+  vision.vlm_ssh_tunnel_enabled,
+  path.join(chatRuntimeRoot, vision.vlm_ssh_tunnel_socket_name),
+  vision.vlm_ssh_tunnel_target,
+  Math.ceil(Number(vision.vlm_ssh_tunnel_check_timeout_ms) / 1000)
+]) {
+  process.stdout.write(String(value) + '\n');
 }
+NODE
+) || exit 1
 
-changed = True
-while changed:
-    changed = False
-    for pid, info in processes.items():
-        if info['ppid'] in targets and pid not in targets:
-            targets.add(pid)
-            changed = True
+CHAT_RUNTIME_DIR="${CLEANUP_CONFIG[0]}"
+RSI_RUNTIME_DIR="${CLEANUP_CONFIG[1]}"
+RSI_SANDBOX_ENGINE="${CLEANUP_CONFIG[2]}"
+RSI_CONTAINER_PREFIX="${CLEANUP_CONFIG[3]}"
+RSI_STOP_ATTEMPTS="${CLEANUP_CONFIG[4]}"
+RSI_STOP_POLL_SECONDS="${CLEANUP_CONFIG[5]}"
+RSI_STOP_COMMAND_TIMEOUT_SECONDS="${CLEANUP_CONFIG[6]}"
+RSI_WORKER_PID_NAME="${CLEANUP_CONFIG[7]}"
+RSI_RUN_REQUEST_NAME="${CLEANUP_CONFIG[8]}"
+RSI_CURRENT_CONTAINER_NAME="${CLEANUP_CONFIG[9]}"
+RSI_MODEL_PROXY_ROOT="${CLEANUP_CONFIG[10]}"
+RSI_MODEL_PROXY_SOCKET_NAME="${CLEANUP_CONFIG[11]}"
+VISION_SSH_TUNNEL_ENABLED="${CLEANUP_CONFIG[12]}"
+VISION_SSH_TUNNEL_SOCKET="${CLEANUP_CONFIG[13]}"
+VISION_SSH_TUNNEL_TARGET="${CLEANUP_CONFIG[14]}"
+VISION_SSH_TUNNEL_TIMEOUT_SECONDS="${CLEANUP_CONFIG[15]}"
 
-for pid in sorted(targets, reverse=True):
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
+timeout "${RSI_STOP_COMMAND_TIMEOUT_SECONDS}s" bash bin/floki-self-improvement-stop.sh >/dev/null 2>&1 || true
+timeout "${RSI_STOP_COMMAND_TIMEOUT_SECONDS}s" bash bin/floki-chat-stop.sh >/dev/null 2>&1 || true
+timeout "${RSI_STOP_COMMAND_TIMEOUT_SECONDS}s" bash bin/floki-chat-vision-stop.sh >/dev/null 2>&1 || true
+timeout "${RSI_STOP_COMMAND_TIMEOUT_SECONDS}s" bash bin/floki-sleep-scheduler-stop.sh >/dev/null 2>&1 || true
 
-deadline = time.time() + 6
-while time.time() < deadline:
-    alive = []
-    for pid in targets:
-        try:
-            os.kill(pid, 0)
-            alive.append(pid)
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            alive.append(pid)
-    if not alive:
-        break
-    time.sleep(0.2)
+if [ "$VISION_SSH_TUNNEL_ENABLED" = "true" ] &&
+   [ -S "$VISION_SSH_TUNNEL_SOCKET" ] &&
+   command -v ssh >/dev/null 2>&1; then
+  timeout "${VISION_SSH_TUNNEL_TIMEOUT_SECONDS}s" \
+    ssh -S "$VISION_SSH_TUNNEL_SOCKET" -O exit "$VISION_SSH_TUNNEL_TARGET" \
+    >/dev/null 2>&1 || true
+fi
 
-for pid in targets:
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
+if command -v "$RSI_SANDBOX_ENGINE" >/dev/null 2>&1; then
+  mapfile -t RSI_CONTAINERS < <(
+    "$RSI_SANDBOX_ENGINE" ps -a --format '{{.Names}}' 2>/dev/null |
+      awk -v prefix="$RSI_CONTAINER_PREFIX" 'index($0, prefix) == 1'
+  )
+  if [ "${#RSI_CONTAINERS[@]}" -gt 0 ]; then
+    "$RSI_SANDBOX_ENGINE" rm -f "${RSI_CONTAINERS[@]}" \
+      >/dev/null 2>&1 || true
+  fi
+fi
 
-print(f"FLOKI_CHAT_LOCAL_EXACT_CLEANUP_PASS count={len(targets)}")
-PY
+node src/runtime/chat-local-cleanup-ownership.cjs \
+  "$ROOT" \
+  "$RSI_STOP_ATTEMPTS" \
+  "$RSI_STOP_POLL_SECONDS" \
+  "$VISION_SSH_TUNNEL_SOCKET" \
+  "$VISION_SSH_TUNNEL_TARGET"
 
 STATUS="$?"
 
-rm -f \
+node - \
   "$CHAT_RUNTIME_DIR/chat-webcam-vision.pid" \
   "$CHAT_RUNTIME_DIR/sleep-cycle-scheduler.pid" \
   "$CHAT_RUNTIME_DIR/chat-local-runtime.pid" \
   "$CHAT_RUNTIME_DIR/chat-mode-loop.pid" \
   "$CHAT_RUNTIME_DIR/chat-mode-loop.stop" \
   "$CHAT_RUNTIME_DIR/chat-webcam-vision.refresh-request.json" \
-  "$CHAT_RUNTIME_DIR/chat-vision-ssh-tunnel.sock"
+  "$CHAT_RUNTIME_DIR/chat-vision-ssh-tunnel.sock" \
+  "$RSI_RUNTIME_DIR/$RSI_WORKER_PID_NAME" \
+  "$RSI_RUNTIME_DIR/$RSI_RUN_REQUEST_NAME" \
+  "$RSI_RUNTIME_DIR/$RSI_CURRENT_CONTAINER_NAME" \
+  "$RSI_RUNTIME_DIR/$RSI_CURRENT_CONTAINER_NAME.stop.lock" \
+  "$RSI_MODEL_PROXY_ROOT/$RSI_MODEL_PROXY_SOCKET_NAME" <<'NODE'
+'use strict';
+const {
+  removeStaleRuntimeFiles
+} = require('./src/runtime/chat-local-cleanup-ownership.cjs');
 
-exit "$STATUS"
+removeStaleRuntimeFiles(process.argv.slice(2));
+NODE
+
+if [ "$STATUS" -ne 0 ]; then
+  echo "FLOKI_V2_CHAT_LOCAL_CLEANUP_FAIL: surviving Floki processes remain" >&2
+  exit "$STATUS"
+fi
+
+echo "FLOKI_V2_CHAT_LOCAL_CLEANUP_PASS ollama_preserved=true"

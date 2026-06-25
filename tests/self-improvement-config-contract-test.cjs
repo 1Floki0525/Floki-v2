@@ -27,6 +27,9 @@ const requiredNumberKeys = [
   'cooldown_seconds',
   'worker_preemption_poll_ms',
   'ui_poll_ms',
+  'run_now_ack_timeout_ms',
+  'run_now_ack_poll_ms',
+  'service_stop_command_timeout_seconds',
   'context_window',
   'max_agent_iterations',
   'max_command_ms',
@@ -92,7 +95,9 @@ const requiredNumberKeys = [
   'model_proxy_start_timeout_ms',
   'model_proxy_request_timeout_ms',
   'model_response_max_bytes',
-  'sandbox_error_tail_chars'
+  'sandbox_error_tail_chars',
+  'agent_ollama_request_max_attempts',
+  'agent_ollama_request_retry_backoff_ms'
 ];
 
 const requiredStringKeys = [

@@ -49,9 +49,19 @@ assertOrdered(localStart, [
   '[FLOKI STARTUP 6/7]',
   'npm run build',
   'npm run test:integration',
-  '[FLOKI STARTUP 7/7]',
-  'exec ./node_modules/.bin/electron .'
+  '[FLOKI STARTUP 7/7]'
 ]);
+const localLaunch = localStart.slice(
+  localStart.lastIndexOf('echo "[FLOKI STARTUP 7/7]')
+);
+assertOrdered(localLaunch, [
+  '[FLOKI STARTUP 7/7]',
+  'run_supervised_electron'
+]);
+assert.match(localStart, /runtime_watchdog_poll_ms/, 'Electron handoff must use YAML runtime watchdog poll timing');
+assert.match(localStart, /runtime_watchdog_request_timeout_ms/, 'Electron handoff must use YAML runtime watchdog request timeout');
+assert.match(localStart, /\.\/node_modules\/\.bin\/electron \. &/, 'Electron must run as a supervised child process');
+assert.doesNotMatch(localStart, /exec \.\/node_modules\/\.bin\/electron \./, 'Electron must not replace the launcher shell');
 
 const readyToShow = electron.slice(
   electron.indexOf("mainWindow.once('ready-to-show'"),

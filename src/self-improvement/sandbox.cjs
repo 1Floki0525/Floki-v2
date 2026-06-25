@@ -208,6 +208,66 @@ function stopCurrentContainer(reason = 'preempted', config = loadSelfImprovement
   return true;
 }
 
+function inspectContainerStart(containerName, config = loadSelfImprovementConfig()) {
+  const result = spawnSync(
+    config.sandbox_engine,
+    [
+      'inspect',
+      '--format',
+      '{{.State.Running}} {{.State.StartedAt}}',
+      containerName
+    ],
+    {
+      encoding: 'utf8',
+      timeout: config.container_stop_command_timeout_ms,
+      maxBuffer: config.podman_output_buffer_bytes
+    }
+  );
+  if (result.status !== 0) {
+    return Object.freeze({
+      found: false,
+      running: false,
+      started_at: null,
+      error: String(result.stderr || result.stdout || '').trim()
+    });
+  }
+
+  const text = String(result.stdout || '').trim();
+  const [runningText, ...startedParts] = text.split(/\s+/);
+  const startedAt = startedParts.join(' ').trim();
+  return Object.freeze({
+    found: true,
+    running: runningText === 'true',
+    started_at:
+      startedAt && !startedAt.startsWith('0001-01-01')
+        ? startedAt
+        : null,
+    error: null
+  });
+}
+
+async function waitForContainerStart(
+  containerName,
+  config = loadSelfImprovementConfig()
+) {
+  const deadline = Date.now() + config.run_now_ack_timeout_ms;
+  let last = null;
+  while (Date.now() <= deadline) {
+    last = inspectContainerStart(containerName, config);
+    if (last.found && last.started_at) return last;
+    await new Promise((resolve) =>
+      setTimeout(resolve, config.run_now_ack_poll_ms)
+    );
+  }
+  throw new Error(
+    'self-improvement sandbox container did not start within ' +
+    String(config.run_now_ack_timeout_ms) +
+    ' ms: ' +
+    containerName +
+    (last?.error ? ' (' + last.error + ')' : '')
+  );
+}
+
 function verificationCommands(config) {
   return [
     config.verification_command_1,
@@ -235,7 +295,29 @@ function agentConfig(snapshot, options, config) {
     model_timeout_ms: config.model.timeout_ms,
     model_keep_alive: config.model.keep_alive,
     context_window: config.context_window,
+    model_thinking_enabled: config.model_thinking_enabled,
+    agent_message_history_max_chars:
+      config.agent_message_history_max_chars,
+    agent_recent_message_count: config.agent_recent_message_count,
     max_agent_iterations: config.max_agent_iterations,
+    discovery_tool_limit: config.discovery_tool_limit,
+    research_tool_limit: config.research_tool_limit,
+    repeated_tool_signature_limit: config.repeated_tool_signature_limit,
+    objective_selection_deadline_iteration: config.objective_selection_deadline_iteration,
+    implementation_start_deadline_iteration: config.implementation_start_deadline_iteration,
+    search_only_streak_limit: config.search_only_streak_limit,
+    failed_lookup_limit: config.failed_lookup_limit,
+    max_no_change_iterations: config.max_no_change_iterations,
+    environment_check_command_timeout_ms:
+      config.environment_check_command_timeout_ms,
+    shell_command_progress_interval_ms:
+      config.shell_command_progress_interval_ms,
+    iteration_wall_clock_budget_ms:
+      config.iteration_wall_clock_budget_ms,
+    agent_ollama_request_max_attempts:
+      config.agent_ollama_request_max_attempts,
+    agent_ollama_request_retry_backoff_ms:
+      config.agent_ollama_request_retry_backoff_ms,
     max_command_ms: config.max_command_ms,
     max_changed_files: config.max_changed_files,
     max_patch_bytes: config.max_patch_bytes,
@@ -243,6 +325,10 @@ function agentConfig(snapshot, options, config) {
     objective: String(options.objective || config.default_objective),
     general_web_enabled: config.general_web_enabled,
     context7_enabled: config.context7_enabled,
+    research_corpus_catalog_relative_path: config.research_corpus_catalog_relative_path,
+    research_corpus_search_default_limit: config.research_corpus_search_default_limit,
+    research_corpus_search_max_limit: config.research_corpus_search_max_limit,
+    research_corpus_fetch_max_chars: config.research_corpus_fetch_max_chars,
     context7_package_name: config.context7_package_name,
     context7_package_version: config.context7_package_version,
     context7_call_timeout_ms: config.context7_call_timeout_ms,
@@ -391,28 +477,6 @@ function runSandbox(snapshot, options = {}) {
   const workerLogFile = path.join(config.runtime_root, config.worker_log_name);
   fs.writeFileSync(runLogFile, '', { mode: 0o600 });
 
-  atomicJson(p.currentContainerFile, {
-    marker: 'FLOKI_V2_SELF_IMPROVEMENT_CONTAINER',
-    run_id: snapshot.run_id,
-    name: containerName,
-    started_at: new Date().toISOString(),
-    log_file: runLogFile
-  }, config);
-
-  updateStatus({
-    state: 'experimenting',
-    phase: 'sandbox_agent_running',
-    current_run_id: snapshot.run_id,
-    current_container: containerName,
-    current_objective: options.objective || config.default_objective,
-    last_sandbox_log_file: runLogFile
-  }, config);
-  appendAudit(
-    'sandbox_started',
-    { run_id: snapshot.run_id, container: containerName, log_file: runLogFile },
-    config
-  );
-
   const child = spawn(config.sandbox_engine, args, {
     cwd: config.project_root,
     env: process.env,
@@ -443,6 +507,40 @@ function runSandbox(snapshot, options = {}) {
     read_stop_request() {
       return readCurrentStopRequest(config);
     },
+    async wait_for_container_start() {
+      const inspected = await waitForContainerStart(containerName, config);
+      const startedAt = new Date().toISOString();
+      atomicJson(p.currentContainerFile, {
+        marker: 'FLOKI_V2_SELF_IMPROVEMENT_CONTAINER',
+        run_id: snapshot.run_id,
+        name: containerName,
+        started_at: startedAt,
+        podman_started_at: inspected.started_at,
+        podman_running_at_ack: inspected.running === true,
+        log_file: runLogFile
+      }, config);
+
+      updateStatus({
+        state: 'experimenting',
+        phase: 'sandbox_agent_running',
+        current_run_id: snapshot.run_id,
+        current_container: containerName,
+        current_objective: options.objective || config.default_objective,
+        last_sandbox_log_file: runLogFile
+      }, config);
+      appendAudit(
+        'sandbox_started',
+        {
+          run_id: snapshot.run_id,
+          container: containerName,
+          log_file: runLogFile,
+          podman_started_at: inspected.started_at,
+          podman_running_at_ack: inspected.running === true
+        },
+        config
+      );
+      return inspected;
+    },
     cleanup() {
       fs.rmSync(p.currentContainerFile, { force: true });
       fs.rmSync(currentContainerStopLock(config), { force: true });
@@ -457,10 +555,12 @@ module.exports = {
   ensureImage,
   engineRun,
   imageSourceFingerprint,
+  inspectContainerStart,
   inspectImageFingerprint,
   readCurrentContainer,
   readCurrentStopRequest,
   runSandbox,
   smokeImage,
-  stopCurrentContainer
+  stopCurrentContainer,
+  waitForContainerStart
 };

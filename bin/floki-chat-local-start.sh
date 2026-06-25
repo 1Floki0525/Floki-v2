@@ -2,6 +2,10 @@
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$PROJECT_DIR/apps/floki-neural-interface"
+RUNTIME_PID_FILE=""
+RUNTIME_STATUS_URL=""
+WATCHDOG_POLL_SECONDS=""
+WATCHDOG_REQUEST_TIMEOUT_MS=""
 
 fail() {
   echo "FLOKI_V2_CHAT_LOCAL_START_FAIL: $1" >&2
@@ -62,8 +66,92 @@ fetch(config.url, { signal: AbortSignal.timeout(config.timeout_ms) })
 NODE
 }
 
+resolve_runtime_monitor_settings() {
+  mapfile -t MONITOR_VALUES < <(node - <<'NODE'
+'use strict';
+const path = require('node:path');
+const {
+  PROJECT_ROOT,
+  getLiveChatConfig,
+  getPathConfig
+} = require('./src/config/floki-config.cjs');
+const live = getLiveChatConfig('chat');
+const paths = getPathConfig('chat');
+const pidFile = path.resolve(
+  PROJECT_ROOT,
+  paths.chat_runtime_root,
+  'chat-local-runtime.pid'
+);
+process.stdout.write([
+  pidFile,
+  'http://' + live.runtime_host + ':' + String(live.runtime_port) + '/status',
+  String(live.runtime_watchdog_poll_ms / 1000),
+  String(live.runtime_watchdog_request_timeout_ms)
+].join('\n'));
+NODE
+  ) || fail "could not read runtime watchdog settings from YAML"
+
+  [ "${#MONITOR_VALUES[@]}" -eq 4 ] ||
+    fail "runtime watchdog settings were incomplete"
+  RUNTIME_PID_FILE="${MONITOR_VALUES[0]}"
+  RUNTIME_STATUS_URL="${MONITOR_VALUES[1]}"
+  WATCHDOG_POLL_SECONDS="${MONITOR_VALUES[2]}"
+  WATCHDOG_REQUEST_TIMEOUT_MS="${MONITOR_VALUES[3]}"
+}
+
+runtime_backend_alive() {
+  local runtime_pid
+  [ -f "$RUNTIME_PID_FILE" ] || return 1
+  runtime_pid="$(cat "$RUNTIME_PID_FILE" 2>/dev/null || true)"
+  [ -n "$runtime_pid" ] || return 1
+  kill -0 "$runtime_pid" >/dev/null 2>&1 || return 1
+  if [ -r "/proc/$runtime_pid/cmdline" ]; then
+    local cmdline
+    cmdline="$(tr '\000' ' ' < "/proc/$runtime_pid/cmdline")"
+    case "$cmdline" in
+      *src/runtime/chat-local-runtime.cjs*) return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+  return 1
+}
+
+runtime_api_ready() {
+  node - "$RUNTIME_STATUS_URL" "$WATCHDOG_REQUEST_TIMEOUT_MS" <<'NODE'
+'use strict';
+const url = process.argv[2];
+const timeoutMs = Number(process.argv[3]);
+fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
+  .then((response) => {
+    if (!response.ok) throw new Error('runtime returned HTTP ' + response.status);
+    return response.json();
+  })
+  .then((payload) => {
+    if (payload.api_ready !== true || payload.brain_loaded !== true) {
+      throw new Error('runtime is not api_ready/brain_loaded');
+    }
+  })
+  .catch(() => process.exit(1));
+NODE
+}
+
+run_supervised_electron() {
+  ./node_modules/.bin/electron . &
+  local electron_pid="$!"
+  while kill -0 "$electron_pid" >/dev/null 2>&1; do
+    if ! runtime_backend_alive || ! runtime_api_ready; then
+      echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_FAIL: authoritative runtime disappeared while Electron was open" >&2
+      kill "$electron_pid" >/dev/null 2>&1 || true
+      return 1
+    fi
+    sleep "$WATCHDOG_POLL_SECONDS"
+  done
+  wait "$electron_pid"
+}
+
 cd "$PROJECT_DIR" || fail "could not enter project directory"
 load_node_24
+resolve_runtime_monitor_settings
 
 [ -d "$APP_DIR" ] || fail "interface directory missing: $APP_DIR"
 [ -f "$APP_DIR/package.json" ] || fail "interface package.json missing"
@@ -92,4 +180,4 @@ cd "$APP_DIR" || fail "could not enter interface directory"
 bash "$PROJECT_DIR/bin/floki-self-improvement-start.sh" || fail "recursive self-improvement worker did not start"
 
 echo "[FLOKI STARTUP 7/7] Opening the neural interface for the authoritative live runtime; the visible window will release awake eyes and ears"
-exec ./node_modules/.bin/electron .
+run_supervised_electron

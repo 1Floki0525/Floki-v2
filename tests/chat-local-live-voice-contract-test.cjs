@@ -10,6 +10,7 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 const start = read('bin/floki-start.sh');
 const hearingStart = read('bin/floki-chat-start.sh');
 const cleanup = read('bin/floki-chat-local-cleanup.sh');
+const cleanupOwnership = read('src/runtime/chat-local-cleanup-ownership.cjs');
 const runtime = read('src/runtime/chat-local-runtime.cjs');
 const audio = read('src/senses/live-audio-service.cjs');
 const whisper = read('src/senses/live-whisper-service.cjs');
@@ -25,7 +26,8 @@ assert.match(start, /start_chat_hearing/);
 assert.match(hearingStart, /src\/runtime\/chat-local-runtime\.cjs/);
 assert.doesNotMatch(hearingStart, /src\/senses\/chat-mode-loop\.cjs/);
 assert.match(cleanup, /chat-local-runtime\.pid/);
-assert.match(cleanup, /whisper-server/);
+assert.match(cleanup, /chat-local-cleanup-ownership\.cjs/);
+assert.match(cleanupOwnership, /whisper-server/);
 
 assert.match(runtime, /const brain = options\.runtime \|\| createRuntime/);
 assert.match(runtime, /input_modality: 'spoken'/);

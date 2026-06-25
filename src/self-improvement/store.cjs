@@ -116,17 +116,38 @@ function readStatus(config = loadSelfImprovementConfig()) {
   const pid = Number(String((() => {
     try { return fs.readFileSync(p.pidFile, 'utf8'); } catch (_error) { return ''; }
   })()).trim());
+  const workerRunning = processAlive(pid);
   const workerHeartbeat = readWorkerHeartbeat(config);
   const sandboxHeartbeat = readSandboxHeartbeat(config);
+  const activeWithoutWorker =
+    !workerRunning &&
+    ['starting', 'experimenting', 'verifying'].includes(
+      String(current?.state || '')
+    );
+  const derivedPatch = activeWithoutWorker
+    ? {
+        state: 'failed',
+        phase: 'worker_not_running',
+        current_container: null,
+        last_error:
+          current.last_error ||
+          'self-improvement worker is not running; active sandbox status is stale'
+      }
+    : {};
   return Object.freeze({
     ...defaultStatus(config),
     ...(current || {}),
+    ...derivedPatch,
     enabled: config.enabled === true,
     paused: fs.existsSync(p.pauseFile),
-    worker_running: processAlive(pid),
-    worker_pid: processAlive(pid) ? pid : null,
-    worker_alive_at: workerHeartbeat ? workerHeartbeat.observed_at : null,
-    sandbox_alive_at: sandboxHeartbeat ? sandboxHeartbeat.observed_at : null,
+    worker_running: workerRunning,
+    worker_pid: workerRunning ? pid : null,
+    worker_alive_at: workerRunning && workerHeartbeat
+      ? workerHeartbeat.observed_at
+      : null,
+    sandbox_alive_at: workerRunning && sandboxHeartbeat
+      ? sandboxHeartbeat.observed_at
+      : null,
     ui_poll_ms: config.ui_poll_ms,
     pending_review_count: listCandidates(config)
       .filter((candidate) => [

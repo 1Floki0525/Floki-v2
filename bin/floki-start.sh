@@ -116,10 +116,6 @@ cleanup_chat_local() {
   CHAT_LOCAL_CLEANUP_DONE=1
   trap - EXIT INT TERM HUP
 
-  if [ "$CHAT_LOCAL_HANDED_OFF" = "1" ] && [ "$SIGNAL_RECEIVED" = "0" ] && [ "$last_exit" -eq 0 ]; then
-    return 0
-  fi
-
   timeout 30s bash bin/floki-chat-local-cleanup.sh >/dev/null 2>&1
   local cleanup_exit="$?"
   if [ "$cleanup_exit" -ne 0 ]; then

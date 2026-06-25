@@ -25,6 +25,10 @@ const {
   safeExistingFileWithin
 } = require('../src/runtime/chat-local-interface-api.cjs');
 const { loadSelfImprovementConfig } = require('../src/self-improvement/config.cjs');
+const {
+  readStatus,
+  updateStatus
+} = require('../src/self-improvement/store.cjs');
 
 const oldActivity = new Date(Date.now() - 60000).toISOString();
 const runtime = {
@@ -78,7 +82,7 @@ assert.equal(shouldPreemptActiveRun('chat_runtime_not_ready'), false);
 assert.equal(
   isNoCandidateSandboxFailure('Error: agent iteration limit reached without a verified candidate'),
   true,
-  'agent iteration exhaustion should be a retryable no-candidate cycle, not a latched worker failure'
+  'agent iteration exhaustion is a no-candidate cycle that must wait for new activity before retrying'
 );
 {
   const patch = noCandidateStatusPatch(
@@ -89,7 +93,11 @@ assert.equal(
   assert.equal(patch.state, 'waiting_for_idle');
   assert.equal(patch.phase, 'no_verified_candidate');
   assert.equal(patch.last_error, null, 'no-candidate cycles must not degrade the RSI UI with last_error');
-  assert.equal(patch.failure_latched_at, null);
+  assert.equal(
+    patch.failure_latched_at,
+    null,
+    'no-candidate cycles must stay retryable instead of becoming a hard failure latch'
+  );
   assert.match(patch.last_no_candidate_error, /without a verified candidate/);
 }
 assert.equal(
@@ -127,6 +135,10 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'floki-rsi-stop-'));
 try {
   const stopConfig = {
     runtime_root: temp,
+    candidate_root: path.join(temp, 'candidates'),
+    workspace_root: path.join(temp, 'workspaces'),
+    outbox_root: path.join(temp, 'outbox'),
+    enabled: true,
     current_container_file_name: 'current-container.json',
     status_file_name: 'status.json',
     worker_pid_file_name: 'worker.pid',
@@ -135,6 +147,9 @@ try {
     audit_file_name: 'audit.jsonl',
     approval_token_file_name: 'approval.token',
     promotion_lock_file_name: 'promotion.lock',
+    worker_heartbeat_file_name: 'worker.heartbeat.json',
+    sandbox_heartbeat_file_name: 'sandbox.heartbeat.json',
+    ui_poll_ms: 1000,
     atomic_temp_random_bytes: 8
   };
   fs.writeFileSync(
@@ -149,6 +164,20 @@ try {
   assert.equal(second.request.reason, 'foreground_user_turn');
   assert.equal(readCurrentStopRequest(stopConfig).reason, 'foreground_user_turn');
   assert.equal(fs.existsSync(currentContainerStopLock(stopConfig)), true);
+  updateStatus({
+    state: 'experimenting',
+    phase: 'sandbox_agent_running',
+    current_run_id: 'rsi-test',
+    current_container: 'floki-rsi-test',
+    last_error: null
+  }, stopConfig);
+  fs.writeFileSync(path.join(temp, stopConfig.worker_pid_file_name), '999999999\n');
+  const stale = readStatus(stopConfig);
+  assert.equal(stale.worker_running, false);
+  assert.equal(stale.state, 'failed');
+  assert.equal(stale.phase, 'worker_not_running');
+  assert.equal(stale.current_container, null);
+  assert.match(stale.last_error, /worker is not running/);
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
@@ -158,6 +187,8 @@ assert.match(worker, /speech_output_active/);
 assert.match(worker, /execution\.read_stop_request\(\)/);
 assert.match(worker, /classifySandboxExit/);
 assert.match(worker, /if \(stopping\) break/);
+assert.match(worker, /const previousStatus = readStatus\(config\)/);
+assert.match(worker, /previousStatus\.failure_latched_at \|\| null/);
 
 const agent = text('containers/self-improvement/agent.cjs');
 assert.match(agent, /FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_PREEMPTED/);

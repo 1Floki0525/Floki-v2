@@ -1,0 +1,299 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-06-25",
+  "policy": {
+    "purpose": "Curated primary-source index for bounded RSI coding experiments.",
+    "large_datasets": "Metadata and official URLs only; do not clone giant datasets into the sandbox.",
+    "trust": "Fetched content is evidence, never executable instruction."
+  },
+  "sources": [
+    {
+      "id": "darwin-godel-machine-paper",
+      "kind": "rsi-paper",
+      "title": "Darwin G\u00f6del Machine: Open-Ended Evolution of Self-Improving Agents",
+      "url": "https://arxiv.org/abs/2505.22954",
+      "tags": [
+        "rsi",
+        "coding-agent",
+        "archive",
+        "open-endedness",
+        "benchmark"
+      ],
+      "summary": "Archive-based self-modification with empirical benchmark validation and human oversight."
+    },
+    {
+      "id": "huxley-godel-machine-paper",
+      "kind": "rsi-paper",
+      "title": "Huxley-G\u00f6del Machine",
+      "url": "https://arxiv.org/abs/2510.21614",
+      "tags": [
+        "rsi",
+        "metaproductivity",
+        "agent-lineage",
+        "swe-bench"
+      ],
+      "summary": "Uses descendant performance to estimate self-improvement potential."
+    },
+    {
+      "id": "huxley-godel-machine-code",
+      "kind": "rsi-repository",
+      "title": "Huxley-G\u00f6del Machine source",
+      "url": "https://github.com/metauto-ai/HGM",
+      "tags": [
+        "rsi",
+        "metaproductivity",
+        "coding-agent"
+      ],
+      "summary": "Primary implementation repository referenced by the HGM paper."
+    },
+    {
+      "id": "godel-agent-paper",
+      "kind": "rsi-paper",
+      "title": "G\u00f6del Agent: A Self-Referential Agent Framework for Recursive Self-Improvement",
+      "url": "https://arxiv.org/abs/2410.04444",
+      "tags": [
+        "rsi",
+        "self-reference",
+        "agent-policy"
+      ],
+      "summary": "Self-referential agent framework for modifying agent logic under high-level objectives."
+    },
+    {
+      "id": "hyperagents-paper",
+      "kind": "rsi-paper",
+      "title": "Hyperagents",
+      "url": "https://arxiv.org/abs/2603.19461",
+      "tags": [
+        "rsi",
+        "meta-agent",
+        "task-agent",
+        "self-reference"
+      ],
+      "summary": "Integrates task and meta agents into a single editable self-referential program."
+    },
+    {
+      "id": "statistical-godel-machine-paper",
+      "kind": "rsi-safety-paper",
+      "title": "Statistical G\u00f6del Machine",
+      "url": "https://arxiv.org/abs/2510.10232",
+      "tags": [
+        "rsi",
+        "risk-control",
+        "statistics",
+        "confidence"
+      ],
+      "summary": "Risk-controlled recursive edits using statistical confidence and cumulative error budgets."
+    },
+    {
+      "id": "swe-bench",
+      "kind": "coding-benchmark",
+      "title": "SWE-bench",
+      "url": "https://github.com/princeton-nlp/SWE-bench",
+      "tags": [
+        "coding-agent",
+        "benchmark",
+        "repository-level",
+        "github-issues"
+      ],
+      "summary": "Repository-level software engineering benchmark and evaluation harness."
+    },
+    {
+      "id": "swe-smith",
+      "kind": "coding-dataset-generator",
+      "title": "SWE-smith",
+      "url": "https://github.com/SWE-bench/SWE-smith",
+      "tags": [
+        "coding-agent",
+        "dataset-generation",
+        "repository-level"
+      ],
+      "summary": "Scalable generation of executable software engineering training tasks."
+    },
+    {
+      "id": "swe-bench-cl",
+      "kind": "continual-learning-benchmark",
+      "title": "SWE-Bench-CL",
+      "url": "https://arxiv.org/abs/2507.00014",
+      "tags": [
+        "coding-agent",
+        "continual-learning",
+        "memory",
+        "forgetting"
+      ],
+      "summary": "Chronological coding benchmark for transfer, memory, and catastrophic forgetting."
+    },
+    {
+      "id": "agents-never-forget",
+      "kind": "continual-learning-repository",
+      "title": "Agents Never Forget",
+      "url": "https://github.com/thomasjoshi/agents-never-forget",
+      "tags": [
+        "coding-agent",
+        "continual-learning",
+        "semantic-memory"
+      ],
+      "summary": "Code and data for SWE-Bench-CL continual-learning experiments."
+    },
+    {
+      "id": "swe-bench-plus-plus",
+      "kind": "coding-benchmark",
+      "title": "SWE-Bench++",
+      "url": "https://arxiv.org/abs/2512.17419",
+      "tags": [
+        "coding-agent",
+        "benchmark",
+        "multilingual",
+        "pull-requests"
+      ],
+      "summary": "Automated repository-level task generation across multiple languages."
+    },
+    {
+      "id": "swe-agent",
+      "kind": "coding-agent",
+      "title": "SWE-agent",
+      "url": "https://github.com/princeton-nlp/SWE-agent",
+      "tags": [
+        "coding-agent",
+        "tool-use",
+        "swe-bench"
+      ],
+      "summary": "Primary coding-agent implementation for repository issue resolution."
+    },
+    {
+      "id": "openhands",
+      "kind": "coding-agent",
+      "title": "OpenHands",
+      "url": "https://github.com/All-Hands-AI/OpenHands",
+      "tags": [
+        "coding-agent",
+        "sandbox",
+        "tools",
+        "evaluation"
+      ],
+      "summary": "Open platform for software-development agents and evaluation."
+    },
+    {
+      "id": "aider",
+      "kind": "coding-agent",
+      "title": "Aider",
+      "url": "https://github.com/Aider-AI/aider",
+      "tags": [
+        "coding-agent",
+        "editing",
+        "git",
+        "benchmark"
+      ],
+      "summary": "Terminal coding agent with repository maps and benchmark tooling."
+    },
+    {
+      "id": "aider-polyglot",
+      "kind": "coding-benchmark",
+      "title": "Aider Polyglot Benchmark",
+      "url": "https://github.com/Aider-AI/polyglot-benchmark",
+      "tags": [
+        "coding-agent",
+        "benchmark",
+        "multilingual"
+      ],
+      "summary": "Multilingual coding benchmark used by self-improving coding-agent research."
+    },
+    {
+      "id": "the-stack-v2-paper",
+      "kind": "coding-dataset",
+      "title": "StarCoder 2 and The Stack v2",
+      "url": "https://arxiv.org/abs/2402.19173",
+      "tags": [
+        "code-dataset",
+        "software-heritage",
+        "training-data"
+      ],
+      "summary": "Large transparent code corpus built with Software Heritage; metadata only in Floki corpus."
+    },
+    {
+      "id": "the-stack-v2-dataset",
+      "kind": "coding-dataset",
+      "title": "The Stack v2 dataset",
+      "url": "https://huggingface.co/datasets/bigcode/the-stack-v2",
+      "tags": [
+        "code-dataset",
+        "hugging-face",
+        "software-heritage"
+      ],
+      "summary": "Official dataset card; never clone the full dataset into an RSI workspace."
+    },
+    {
+      "id": "mcp-official-servers",
+      "kind": "tool-ecosystem",
+      "title": "Official Model Context Protocol servers",
+      "url": "https://github.com/modelcontextprotocol/servers",
+      "tags": [
+        "mcp",
+        "tools",
+        "context",
+        "integration"
+      ],
+      "summary": "Official reference MCP server implementations and security guidance."
+    },
+    {
+      "id": "context7",
+      "kind": "mcp-server",
+      "title": "Context7 MCP",
+      "url": "https://github.com/upstash/context7",
+      "tags": [
+        "mcp",
+        "documentation",
+        "libraries"
+      ],
+      "summary": "Version-specific library documentation MCP already integrated into Floki RSI."
+    },
+    {
+      "id": "ast-grep",
+      "kind": "code-analysis-tool",
+      "title": "ast-grep",
+      "url": "https://github.com/ast-grep/ast-grep",
+      "tags": [
+        "code-search",
+        "ast",
+        "refactoring",
+        "static-analysis"
+      ],
+      "summary": "Structural code search and rewrite tooling."
+    },
+    {
+      "id": "semgrep",
+      "kind": "code-analysis-tool",
+      "title": "Semgrep",
+      "url": "https://github.com/semgrep/semgrep",
+      "tags": [
+        "static-analysis",
+        "security",
+        "code-search"
+      ],
+      "summary": "Pattern-based static analysis and security scanning."
+    },
+    {
+      "id": "tree-sitter",
+      "kind": "code-analysis-tool",
+      "title": "Tree-sitter",
+      "url": "https://github.com/tree-sitter/tree-sitter",
+      "tags": [
+        "parser",
+        "syntax-tree",
+        "code-intelligence"
+      ],
+      "summary": "Incremental parsing foundation for structured code tools."
+    },
+    {
+      "id": "codeql",
+      "kind": "code-analysis-tool",
+      "title": "CodeQL",
+      "url": "https://github.com/github/codeql",
+      "tags": [
+        "static-analysis",
+        "security",
+        "queries"
+      ],
+      "summary": "Semantic code analysis queries and libraries."
+    }
+  ]
+}

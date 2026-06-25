@@ -21,6 +21,10 @@ const cleanup = fs.readFileSync(
   path.join(root, 'bin/floki-chat-local-cleanup.sh'),
   'utf8'
 );
+const cleanupOwnership = fs.readFileSync(
+  path.join(root, 'src/runtime/chat-local-cleanup-ownership.cjs'),
+  'utf8'
+);
 const localStart = fs.readFileSync(
   path.join(root, 'bin/floki-chat-local-start.sh'),
   'utf8'
@@ -63,15 +67,27 @@ assert.equal(
 assert.match(mainStart, /trap cleanup_chat_local EXIT/);
 assert.match(mainStart, /trap interrupt_chat_local INT TERM HUP/);
 assert.match(mainStart, /bin\/floki-chat-local-cleanup\.sh/);
+assert.doesNotMatch(
+  mainStart,
+  /CHAT_LOCAL_HANDED_OFF[^\n]*last_exit[^\n]*-eq 0/,
+  'normal Electron exit must not skip cleanup'
+);
 
 assert.match(visionStart, /--kill-after=5s 45s/);
 assert.match(visionStart, /handle_interrupt/);
 assert.match(visionStart, /floki-chat-local-cleanup\.sh/);
 
-assert.match(cleanup, /grounding-dino-worker\.py/);
-assert.match(cleanup, /yolo-worker\.py/);
-assert.match(cleanup, /sleep-cycle-scheduler\.cjs --service/);
-assert.match(cleanup, /apps\/floki-neural-interface\/node_modules\/\.bin\/electron/);
+assert.match(cleanup, /chat-local-cleanup-ownership\.cjs/);
+assert.match(cleanup, /ssh -S "\$VISION_SSH_TUNNEL_SOCKET" -O exit "\$VISION_SSH_TUNNEL_TARGET"/);
+assert.match(cleanupOwnership, /grounding-dino-worker\.py/);
+assert.match(cleanupOwnership, /yolo-worker\.py/);
+assert.match(cleanupOwnership, /src\/chat\/sleep-cycle-scheduler\.cjs/);
+assert.match(cleanupOwnership, /apps\/floki-neural-interface\/node_modules\/\.bin\/electron/);
+assert.match(cleanupOwnership, /node_modules\/electron\/dist\/electron/);
+assert.match(cleanupOwnership, /src\/self-improvement\/worker\.cjs/);
+assert.match(cleanupOwnership, /sshControlMasterOwned/);
+assert.match(cleanup, /container_name_prefix/);
+assert.match(cleanup, /ollama_preserved=true/);
 
 assert.match(mainStart, /startup_stage "1\/7"/);
 assert.match(mainStart, /startup_stage "2\/7"/);
@@ -97,7 +113,7 @@ assert.match(mainStart, /start_chat_hearing/);
 assert.match(mainStart, /bin\/floki-chat-start\.sh/);
 assert.match(cleanup, /bin\/floki-chat-stop\.sh/);
 assert.match(cleanup, /chat-mode-loop\.pid/);
-assert.match(cleanup, /src\/senses\/chat-mode-loop\.cjs/);
+assert.match(cleanupOwnership, /src\/senses\/chat-mode-loop\.cjs/);
 
 
 const statusReadyForChat = Function(

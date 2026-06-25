@@ -492,6 +492,8 @@ live_chat:
   runtime_host: 127.0.0.1
   runtime_port: 7700
   runtime_heartbeat_ms: 1000
+  runtime_watchdog_poll_ms: 1000
+  runtime_watchdog_request_timeout_ms: 3000
   public_sentence_min_characters: 12
   latency_log_max_bytes: 8388608
   history_limit: 500
@@ -619,8 +621,21 @@ self_improvement:
   cooldown_seconds: 60
   worker_preemption_poll_ms: 1000
   ui_poll_ms: 3000
+  run_now_ack_timeout_ms: 120000
+  run_now_ack_poll_ms: 100
   context_window: 32768
-  max_agent_iterations: 80
+  model_thinking_enabled: true
+  agent_message_history_max_chars: 60000
+  agent_recent_message_count: 14
+  max_agent_iterations: 10000
+  discovery_tool_limit: 18
+  research_tool_limit: 10
+  repeated_tool_signature_limit: 2
+  objective_selection_deadline_iteration: 8
+  implementation_start_deadline_iteration: 12
+  search_only_streak_limit: 6
+  failed_lookup_limit: 5
+  max_no_change_iterations: 6
   max_command_ms: 900000
   max_changed_files: 200
   max_patch_bytes: 5242880
@@ -664,6 +679,10 @@ self_improvement:
   container_smoke_command: "node --version && git --version && chromium --version && command -v npx"
   general_web_enabled: true
   context7_enabled: true
+  research_corpus_catalog_relative_path: "config/rsi-research-corpus.json"
+  research_corpus_search_default_limit: 12
+  research_corpus_search_max_limit: 30
+  research_corpus_fetch_max_chars: 60000
   workspace_root: "state/floki/self-improvement/workspaces"
   candidate_root: "state/floki/self-improvement/candidates"
   outbox_root: "state/floki/self-improvement/outbox"
@@ -715,7 +734,7 @@ self_improvement:
   agent_git_output_buffer_bytes: 134217728
   agent_git_show_buffer_bytes: 67108864
   agent_command_audit_max_chars: 30000
-  agent_tool_result_max_chars: 40000
+  agent_tool_result_max_chars: 12000
   agent_test_output_tail_chars: 12000
   agent_min_command_timeout_ms: 1000
   agent_fetch_default_timeout_ms: 30000
@@ -761,6 +780,7 @@ self_improvement:
   service_start_log_tail_lines: 80
   service_stop_attempts: 40
   service_stop_poll_seconds: 0.25
+  service_stop_command_timeout_seconds: 20
   agent_home_path: "/tmp/floki-home"
   agent_npm_cache_path: "/tmp/npm-cache"
   agent_pip_cache_path: "/tmp/pip-cache"
@@ -787,11 +807,11 @@ self_improvement:
   environment_check_command_timeout_ms: 60000
   shell_command_progress_interval_ms: 5000
   shell_command_stalled_threshold_ms: 30000
-  iteration_wall_clock_budget_ms: 1800000
+  iteration_wall_clock_budget_ms: 86400000
   command_timeout_overrides_ms: "environment_check_ms=60000|git_diff_ms=300000|git_commit_ms=300000|npm_ci_ms=600000|agent_git_show_ms=30000"
   agent_git_show_timeout_ms: 30000
-  agent_ollama_request_max_attempts: 2
-  agent_ollama_request_retry_backoff_ms: 250
+  agent_ollama_request_max_attempts: 5
+  agent_ollama_request_retry_backoff_ms: 2000
   worker_heartbeat_file_name: worker.heartbeat.json
   sandbox_heartbeat_file_name: sandbox.heartbeat.json
   sandbox_heartbeat_refresh_ms: 5000

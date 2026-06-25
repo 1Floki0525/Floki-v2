@@ -13,7 +13,7 @@ function matchLiveChat(key) {
 }
 
 function main() {
-  for (const key of ['history_limit', 'transcript_tail_max', 'neural_event_max_display_chars', 'audio_voice_lock_ttl_ms', 'piper_text_max_chars', 'piper_request_timeout_ms', 'control_action_defer_ms']) {
+  for (const key of ['history_limit', 'transcript_tail_max', 'neural_event_max_display_chars', 'audio_voice_lock_ttl_ms', 'piper_text_max_chars', 'piper_request_timeout_ms', 'control_action_defer_ms', 'runtime_watchdog_poll_ms', 'runtime_watchdog_request_timeout_ms']) {
     const v = matchLiveChat(key);
     if (v === null) assert.fail(key + ' must be defined in live_chat section');
     if (!Number.isFinite(v) || v <= 0) assert.fail(key + ' must be a positive number');

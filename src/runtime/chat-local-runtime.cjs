@@ -1015,7 +1015,14 @@ function createChatLocalRuntime(options = {}) {
     }
     if (req.method === 'POST' && url.pathname === '/self-improvement/run-now') {
       const body = await bodyJson(req);
-      sendJson(res, 202, selfImprovementApi.runNow(body.token, body.objective));
+      sendJson(
+        res,
+        202,
+        await selfImprovementApi.runNow(
+          body.token,
+          body.objective
+        )
+      );
       return;
     }
     if (req.method === 'POST' && url.pathname === '/speak') {

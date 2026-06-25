@@ -50,15 +50,21 @@ function run() {
   assert.match(chatStart, /<\/dev\/null/, 'backend stdin must be detached from the launcher');
   assert.match(chatStart, /disown "\$STARTED_PID"/, 'backend must be disowned from the launcher shell');
 
-  // 2. Cleanup trap must not kill a successfully started backend when the launcher hands off.
+  // 2. Cleanup trap must run when the Electron app exits normally.
   assert.match(start, /CHAT_LOCAL_HANDED_OFF=1/, 'launcher must mark the hand-off before starting Electron');
   assert.match(start, /CHAT_LOCAL_HANDED_OFF=1\s*\n\s*bash bin\/floki-chat-local-start\.sh/, 'hand-off marker must precede Electron launcher invocation');
-  assert.match(start, /if \[ "\$CHAT_LOCAL_HANDED_OFF" = "1" \] && \[ "\$SIGNAL_RECEIVED" = "0" \] && \[ "\$last_exit" -eq 0 \]; then/, 'cleanup must skip on normal hand-off exit');
   assert.doesNotMatch(
     start,
-    /bash bin\/floki-chat-local-start\.sh "\$@"\s*\n\s*CHAT_LOCAL_STATUS="\$\?"\s*\n\s*cleanup_chat_local/,
-    'launcher must not unconditionally call cleanup after Electron exits'
+    /CHAT_LOCAL_HANDED_OFF[^\n]*last_exit[^\n]*-eq 0/,
+    'normal Electron exit status 0 must not skip authoritative cleanup'
   );
+  assert.match(start, /trap cleanup_chat_local EXIT/, 'launcher must keep cleanup on EXIT after hand-off');
+  assert.match(localStart, /resolve_runtime_monitor_settings/, 'Electron launcher must resolve runtime watchdog settings from YAML');
+  assert.match(localStart, /runtime_watchdog_poll_ms/, 'runtime watchdog poll interval must come from YAML');
+  assert.match(localStart, /runtime_watchdog_request_timeout_ms/, 'runtime watchdog request timeout must come from YAML');
+  assert.match(localStart, /run_supervised_electron/, 'Electron must be supervised by the launcher shell');
+  assert.match(localStart, /FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_FAIL/, 'runtime death while Electron is open must fail closed');
+  assert.doesNotMatch(localStart, /exec \.\/node_modules\/\.bin\/electron \./, 'Electron must not replace the supervising launcher shell');
 
   // 3. Exactly one backend process may own the runtime port.
   assert.match(chatStart, /if runtime_active "\$EXISTING_PID"/, 'launcher must check for an existing backend PID');
@@ -86,7 +92,8 @@ function run() {
     launcher_uses_temp_files: true,
     backend_detached_stdin: true,
     backend_disowned: true,
-    cleanup_skips_on_handoff: true,
+    cleanup_runs_on_normal_electron_exit: true,
+    runtime_watchdog_fail_closed: true,
     single_backend_port_owner: true,
     dry_run_returns_immediately: true,
     chat_mode_only: true,

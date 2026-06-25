@@ -111,7 +111,8 @@ export default function SelfImprovementPanel() {
       const result = await action()
       if (result?.ok === false) throw new Error(result.error || `${name} failed`)
       const nextStatus = await refresh()
-      if (verify && verify(nextStatus, result) !== true) {
+      const verifiedStatus = result?.status || nextStatus
+      if (verify && verify(verifiedStatus, result) !== true) {
         throw new Error(`${name} verification failed`)
       }
       const message = result?.message || `${name} completed and verified`
@@ -201,7 +202,6 @@ export default function SelfImprovementPanel() {
           <button
             type="button"
             onClick={() => openLog('Self-Improvement Sandbox', 'latest self-improvement sandbox log')}
-            disabled={!status?.last_sandbox_log_file}
             className="px-3 py-2 text-xs rounded-md border border-border hover:border-neon-cyan/40 disabled:opacity-50 flex items-center gap-2"
           >
             <FileText className="w-4 h-4" />
@@ -233,20 +233,29 @@ export default function SelfImprovementPanel() {
           </button>
           <button
             onClick={() => {
-              const objective = window.prompt('Optional improvement objective. Leave blank for Floki to select one:', '') || ''
               act(
-                'Queue improvement cycle',
-                () => flokiAdapter.runSelfImprovementNow(objective),
+                'Run improvement cycle',
+                () => flokiAdapter.runSelfImprovementNow(''),
                 (nextStatus, result) => {
-                  const verifiedStatus = result?.status || nextStatus
                   if (
-                    verifiedStatus?.worker_running === true &&
-                    verifiedStatus?.state === 'queued' &&
-                    verifiedStatus?.phase === 'maker_requested_cycle'
+                    result?.ok === true &&
+                    result?.verified === true &&
+                    result?.wake_signal_sent === true &&
+                    result?.bypass_idle_timer === true &&
+                    result?.sandbox_started === true &&
+                    result?.marker ===
+                      'FLOKI_V2_SELF_IMPROVEMENT_RUN_NOW_IMMEDIATE' &&
+                    typeof nextStatus?.current_run_id === 'string' &&
+                    nextStatus.current_run_id.length > 0 &&
+                    typeof nextStatus?.current_container === 'string' &&
+                    nextStatus.current_container.length > 0 &&
+                    ['experimenting', 'verifying'].includes(nextStatus?.state)
                   ) {
                     return true
                   }
-                  throw new Error('Run now verification failed')
+                  throw new Error(
+                    'Run now did not start the sandbox immediately'
+                  )
                 }
               )
             }}
@@ -254,7 +263,17 @@ export default function SelfImprovementPanel() {
               Boolean(busy) ||
               pending.length > 0 ||
               status?.worker_running !== true ||
-              status?.paused === true
+              status?.model_proxy_ready !== true ||
+              status?.paused === true ||
+              Boolean(status?.current_run_id) ||
+              status?.phase === 'maker_requested_cycle' ||
+              [
+                'queued',
+                'starting',
+                'researching',
+                'experimenting',
+                'verifying'
+              ].includes(status?.state)
             }
             className="px-3 py-2 text-xs rounded-md border border-neon-cyan/30 bg-neon-cyan/10 hover:bg-neon-cyan/15 disabled:opacity-50 flex items-center gap-2"
           >

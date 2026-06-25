@@ -83,7 +83,10 @@ for (const key of [
   'snapshot_sanitized_npmrc_lines',
   'sandbox_log_file_name',
   'sandbox_error_tail_chars',
-  'failure_requires_new_activity'
+  'failure_requires_new_activity',
+  'run_now_ack_timeout_ms',
+  'run_now_ack_poll_ms',
+  'service_stop_command_timeout_seconds'
 ]) {
   assert.match(configTemplate, new RegExp('^  ' + key + ':', 'm'));
 }
@@ -127,6 +130,19 @@ assert.deepEqual(
   { eligible: false, reason: 'failure_waiting_for_new_activity' }
 );
 assert.equal(idleEligibility(runtime, status, config, true).eligible, true);
+
+const {
+  noCandidateStatusPatch
+} = require('../src/self-improvement/worker.cjs');
+assert.equal(
+  noCandidateStatusPatch(
+    'agent iteration limit reached without a verified candidate',
+    { log_file: '/tmp/sandbox.log' },
+    new Date().toISOString()
+  ).failure_latched_at,
+  null,
+  'no-candidate cycles must not become failure_waiting_for_new_activity'
+);
 
 console.log(JSON.stringify({
   ok: true,

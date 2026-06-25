@@ -21,6 +21,47 @@ const {
 } = require('./store.cjs');
 const { stopCurrentContainer } = require('./sandbox.cjs');
 
+const ACTIVE_RUN_STATES = new Set([
+  'queued',
+  'starting',
+  'researching',
+  'experimenting',
+  'verifying'
+]);
+
+function signalWorkerRunNow(pidFile) {
+  let pid;
+  try {
+    pid = Number(
+      String(fs.readFileSync(pidFile, 'utf8')).trim()
+    );
+  } catch (error) {
+    throw new Error(
+      'self-improvement worker PID is unavailable: ' +
+      error.message
+    );
+  }
+
+  if (!Number.isInteger(pid) || pid <= 0) {
+    throw new Error(
+      'self-improvement worker PID is invalid'
+    );
+  }
+
+  try {
+    process.kill(pid, 0);
+    process.kill(pid, 'SIGUSR1');
+  } catch (error) {
+    throw new Error(
+      'self-improvement worker could not be woken: ' +
+      error.message
+    );
+  }
+
+  return pid;
+}
+
+
 function pause(token, config = loadSelfImprovementConfig()) {
   assertApprovalToken(token, config);
   const p = ensureLayout(config);
@@ -29,6 +70,65 @@ function pause(token, config = loadSelfImprovementConfig()) {
   updateStatus({ state: 'paused', phase: null, paused: true }, config);
   appendAudit('maker_paused_worker', {}, config);
   return readStatus(config);
+}
+
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function manualRunSandboxStarted(status, requestId) {
+  return (
+    status?.manual_run_request_id === requestId &&
+    typeof status?.manual_run_acknowledged_at === 'string' &&
+    status.manual_run_acknowledged_at.length > 0 &&
+    typeof status?.current_run_id === 'string' &&
+    status.current_run_id.length > 0 &&
+    typeof status?.current_container === 'string' &&
+    status.current_container.length > 0 &&
+    ['experimenting', 'verifying'].includes(String(status.state || ''))
+  );
+}
+
+async function waitForManualRunSandboxStart(
+  requestId,
+  workerPid,
+  config
+) {
+  const deadline = Date.now() + config.run_now_ack_timeout_ms;
+  let lastStatus = null;
+
+  while (Date.now() <= deadline) {
+    lastStatus = readStatus(config);
+    if (manualRunSandboxStarted(lastStatus, requestId)) {
+      return lastStatus;
+    }
+    if (
+      lastStatus?.manual_run_request_id === requestId &&
+      lastStatus?.state === 'failed'
+    ) {
+      throw new Error(
+        lastStatus.last_error ||
+        'self-improvement worker failed before starting the sandbox'
+      );
+    }
+    if (
+      lastStatus?.worker_running !== true ||
+      Number(lastStatus?.worker_pid) !== Number(workerPid)
+    ) {
+      throw new Error(
+        'self-improvement worker stopped before starting the sandbox'
+      );
+    }
+    await wait(config.run_now_ack_poll_ms);
+  }
+
+  throw new Error(
+    'self-improvement worker did not start the sandbox within ' +
+    String(config.run_now_ack_timeout_ms) +
+    ' ms; last state=' + String(lastStatus?.state || 'unknown') +
+    '; phase=' + String(lastStatus?.phase || 'unknown')
+  );
 }
 
 function resume(token, config = loadSelfImprovementConfig()) {
@@ -40,34 +140,144 @@ function resume(token, config = loadSelfImprovementConfig()) {
   return readStatus(config);
 }
 
-function runNow(token, objective = '', config = loadSelfImprovementConfig()) {
+async function runNow(
+  token,
+  objective = '',
+  config = loadSelfImprovementConfig()
+) {
   assertApprovalToken(token, config);
   const p = ensureLayout(config);
+  const current = readStatus(config);
+
+  if (current.paused === true) {
+    throw new Error('self-improvement worker is paused');
+  }
+  if (current.worker_running !== true) {
+    throw new Error('self-improvement worker is not running');
+  }
+  if (current.model_proxy_ready !== true) {
+    throw new Error('self-improvement worker is not ready');
+  }
+  if (
+    current.current_run_id ||
+    current.current_container ||
+    ACTIVE_RUN_STATES.has(String(current.state || ''))
+  ) {
+    throw new Error('a self-improvement cycle is already active');
+  }
+
+  const requestedAt = nowIso();
+  const requestId = crypto.randomUUID();
+  const requestedObjective = String(objective || '').trim();
+
   atomicJson(p.runRequestFile, {
     marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_REQUEST',
-    requested_at: nowIso(),
+    request_id: requestId,
+    requested_at: requestedAt,
     force: true,
-    objective: String(objective || '').trim()
+    objective: requestedObjective
   }, config);
-  const queuedAt = nowIso();
-  const queuedStatus = updateStatus({
+
+  updateStatus({
     state: 'queued',
     phase: 'maker_requested_cycle',
-    current_objective: String(objective || '').trim() || config.default_objective,
-    queued_at: queuedAt,
+    current_objective:
+      requestedObjective || config.default_objective,
+    queued_at: requestedAt,
+    manual_run_request_id: requestId,
+    manual_run_requested_at: requestedAt,
+    manual_run_acknowledged_at: null,
     last_error: null,
     failure_latched_at: null
   }, config);
+
+  let workerPid;
+  try {
+    workerPid = signalWorkerRunNow(p.pidFile);
+  } catch (error) {
+    fs.rmSync(p.runRequestFile, { force: true });
+    updateStatus({
+      state: 'failed',
+      phase: 'manual_run_signal_failed',
+      manual_run_request_id: requestId,
+      last_error: error.message,
+      failure_latched_at: nowIso()
+    }, config);
+    appendAudit('maker_run_now_signal_failed', {
+      request_id: requestId,
+      objective: requestedObjective,
+      error: error.message
+    }, config);
+    throw error;
+  }
+
   appendAudit('maker_requested_cycle', {
-    objective: String(objective || '').trim(),
-    queued_at: queuedAt
+    request_id: requestId,
+    objective: requestedObjective,
+    requested_at: requestedAt,
+    worker_pid: workerPid,
+    wake_signal_sent: true,
+    bypass_idle_timer: true
   }, config);
+
+  let startedStatus;
+  try {
+    startedStatus = await waitForManualRunSandboxStart(
+      requestId,
+      workerPid,
+      config
+    );
+  } catch (error) {
+    const pending = (() => {
+      try {
+        return JSON.parse(fs.readFileSync(p.runRequestFile, 'utf8'));
+      } catch (_readError) {
+        return null;
+      }
+    })();
+    if (pending?.request_id === requestId) {
+      fs.rmSync(p.runRequestFile, { force: true });
+    }
+    const latest = readStatus(config);
+    if (!manualRunSandboxStarted(latest, requestId)) {
+      updateStatus({
+        state: 'failed',
+        phase: 'manual_run_sandbox_start_failed',
+        manual_run_request_id: requestId,
+        last_error: error.message,
+        failure_latched_at: nowIso()
+      }, config);
+      appendAudit('maker_run_now_sandbox_start_failed', {
+        request_id: requestId,
+        objective: requestedObjective,
+        worker_pid: workerPid,
+        error: error.message
+      }, config);
+      throw error;
+    }
+    startedStatus = latest;
+  }
+
+  appendAudit('maker_run_now_sandbox_started', {
+    request_id: requestId,
+    run_id: startedStatus.current_run_id,
+    container: startedStatus.current_container,
+    acknowledged_at: startedStatus.manual_run_acknowledged_at
+  }, config);
+
   return {
     ok: true,
     verified: true,
-    message: 'Self-improvement cycle queued and verified.',
-    marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_QUEUED',
-    status: queuedStatus
+    message: 'Self-improvement sandbox started immediately.',
+    marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_NOW_IMMEDIATE',
+    request_id: requestId,
+    wake_signal_sent: true,
+    bypass_idle_timer: true,
+    sandbox_started: true,
+    worker_pid: workerPid,
+    run_id: startedStatus.current_run_id,
+    container: startedStatus.current_container,
+    status: startedStatus
   };
 }
 
@@ -142,5 +352,8 @@ module.exports = {
   denyCandidate,
   pause,
   resume,
-  runNow
+  runNow,
+  signalWorkerRunNow,
+  manualRunSandboxStarted,
+  waitForManualRunSandboxStart
 };

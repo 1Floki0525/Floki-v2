@@ -63,7 +63,8 @@ function isNoCandidateSandboxFailure(message) {
   const text = String(message || '').toLowerCase();
   return (
     text.includes('agent iteration limit reached without a verified candidate') ||
-    text.includes('agent iteration wall-clock budget exceeded')
+    text.includes('agent iteration wall-clock budget exceeded') ||
+    text.includes('convergence policy ended the cycle without a verified candidate')
   );
 }
 
@@ -84,6 +85,64 @@ function noCandidateStatusPatch(message, execution, completedAt = nowIso()) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createServiceWakeController() {
+  let pendingReason = null;
+  let waiter = null;
+
+  function wake(reason = 'manual_run_signal') {
+    pendingReason = String(reason || 'manual_run_signal');
+    if (!waiter) return;
+    const current = waiter;
+    waiter = null;
+    const resolvedReason = pendingReason;
+    pendingReason = null;
+    current.resolve(resolvedReason);
+  }
+
+  function wait(ms) {
+    const delay = Number(ms);
+    if (!Number.isFinite(delay) || delay < 0) {
+      throw new Error(
+        'worker wait duration must be a non-negative YAML-derived number'
+      );
+    }
+
+    if (pendingReason) {
+      const resolvedReason = pendingReason;
+      pendingReason = null;
+      return Promise.resolve(resolvedReason);
+    }
+
+    if (waiter) {
+      throw new Error(
+        'self-improvement worker already has an active wait'
+      );
+    }
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        if (waiter && waiter.timer === timer) {
+          waiter = null;
+        }
+        resolve('timeout');
+      }, delay);
+
+      waiter = {
+        timer,
+        resolve: (reason) => {
+          clearTimeout(timer);
+          resolve(reason);
+        }
+      };
+    });
+  }
+
+  return Object.freeze({
+    wake,
+    wait
+  });
 }
 
 function readRuntimeStatus(config) {
@@ -164,6 +223,29 @@ function clearRunRequest(config) {
   fs.rmSync(paths(config).runRequestFile, { force: true });
 }
 
+
+function resolveManualRunRequest(fileRequest, status, config) {
+  if (fileRequest?.force === true) {
+    return fileRequest;
+  }
+  if (
+    status?.state === 'queued' &&
+    status?.phase === 'maker_requested_cycle' &&
+    typeof status?.manual_run_request_id === 'string' &&
+    status.manual_run_request_id.length > 0
+  ) {
+    return Object.freeze({
+      marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_REQUEST_STATUS_FALLBACK',
+      request_id: status.manual_run_request_id,
+      requested_at:
+        status.manual_run_requested_at || status.queued_at || null,
+      force: true,
+      objective: status.current_objective || config.default_objective
+    });
+  }
+  return fileRequest;
+}
+
 async function runCycle(options = {}) {
   const config = options.config || loadSelfImprovementConfig();
   if (pendingCandidateExists(config)) {
@@ -196,6 +278,30 @@ async function runCycle(options = {}) {
   });
   let preemptReason = null;
   const cycleStartMs = Date.now();
+  try {
+    await execution.wait_for_container_start();
+    if (options.manual_request_id) {
+      const acknowledgedAt = nowIso();
+      updateStatus({
+        manual_run_request_id: options.manual_request_id,
+        manual_run_acknowledged_at: acknowledgedAt
+      }, config);
+      appendAudit('manual_run_acknowledged', {
+        request_id: options.manual_request_id,
+        requested_at: options.manual_requested_at || null,
+        run_id: snapshot.run_id,
+        container: execution.container_name,
+        acknowledged_at: acknowledgedAt
+      }, config);
+    }
+  } catch (error) {
+    try {
+      execution.child.kill('SIGTERM');
+    } catch (_killError) {
+    }
+    execution.cleanup();
+    throw error;
+  }
   const preemptTimer = setInterval(() => {
     const status = readStatus(config);
     updateStatus({}, config);
@@ -204,7 +310,8 @@ async function runCycle(options = {}) {
     const lastSandboxHeartbeat = readSandboxHeartbeat(config);
     const lastSandboxMs = lastSandboxHeartbeat ? Date.parse(lastSandboxHeartbeat.observed_at || '') : null;
     const stallMs = lastSandboxMs ? (Date.now() - lastSandboxMs) : 0;
-    const stalled = stallMs > (config.shell_command_stalled_threshold_ms || 30000);
+    const stalled =
+      stallMs > config.shell_command_stalled_threshold_ms;
     const runtime = readRuntimeStatus(config);
     const eligibility = idleEligibility(
       runtime,
@@ -328,9 +435,17 @@ async function runCycle(options = {}) {
   return { ok: true, candidate_id: candidate.id };
 }
 
-async function serviceLoop() {
-  const config = loadSelfImprovementConfig();
+async function serviceLoop(options = {}) {
+  const config = options.config || loadSelfImprovementConfig();
   const p = ensureLayout(config);
+  const wakeController = createServiceWakeController();
+  const onManualRunSignal = () => {
+    wakeController.wake('manual_run_signal');
+    appendAudit('worker_manual_run_signal_received', {
+      pid: process.pid
+    }, config);
+  };
+  process.on('SIGUSR1', onManualRunSignal);
   const modelProxy = createModelProxy(config);
   await modelProxy.start();
   fs.writeFileSync(p.pidFile, String(process.pid) + '\n', { mode: 0o600 });
@@ -341,12 +456,38 @@ async function serviceLoop() {
   );
 
   let stopping = false;
-  for (const signal of ['SIGTERM', 'SIGINT']) {
-    process.once(signal, () => {
-      stopping = true;
-      stopCurrentContainer('worker_shutdown', config);
-    });
+  const requestStop = (reason = 'worker_shutdown') => {
+    if (stopping) return;
+    stopping = true;
+    stopCurrentContainer(reason, config);
+    wakeController.wake(reason);
+  };
+  const signalNames = options.process_signal_names || ['SIGTERM', 'SIGINT'];
+  const signalHandlers = new Map();
+  for (const signal of signalNames) {
+    const handler = () => {
+      requestStop('worker_shutdown');
+    };
+    signalHandlers.set(signal, handler);
+    process.once(signal, handler);
   }
+  if (options.stop_signal) {
+    if (options.stop_signal.aborted) {
+      requestStop('worker_shutdown');
+    } else {
+      options.stop_signal.addEventListener(
+        'abort',
+        () => {
+          requestStop('worker_shutdown');
+        },
+        { once: true }
+      );
+    }
+  }
+
+  const previousStatus = readStatus(config);
+  const previousFailureLatch =
+    previousStatus.failure_latched_at || null;
 
   updateStatus({
     state: config.enabled ? 'waiting_for_idle' : 'disabled',
@@ -355,10 +496,10 @@ async function serviceLoop() {
     model_proxy_ready: true,
     started_at: nowIso(),
     last_error: null,
-    failure_latched_at: null,
-    last_no_candidate_at: null,
-    last_no_candidate_error: null,
-    last_sandbox_log_file: null,
+    failure_latched_at: previousFailureLatch,
+    last_no_candidate_at: previousStatus.last_no_candidate_at || null,
+    last_no_candidate_error:
+      previousStatus.last_no_candidate_error || null,
     current_run_id: null,
     current_container: null,
     current_command: null,
@@ -377,12 +518,12 @@ async function serviceLoop() {
     const status = readStatus(config);
     if (!config.enabled) {
       updateStatus({ state: 'disabled', phase: null }, config);
-      await sleep(config.poll_ms);
+      await wakeController.wait(config.poll_ms);
       continue;
     }
     if (status.paused) {
       updateStatus({ state: 'paused', phase: null }, config);
-      await sleep(config.poll_ms);
+      await wakeController.wait(config.poll_ms);
       continue;
     }
     if (pendingCandidateExists(config)) {
@@ -390,11 +531,16 @@ async function serviceLoop() {
         state: 'pending_review',
         phase: 'awaiting_maker_decision'
       }, config);
-      await sleep(config.poll_ms);
+      await wakeController.wait(config.poll_ms);
       continue;
     }
 
-    const request = readRunRequest(config);
+    const fileRequest = readRunRequest(config);
+    const request = resolveManualRunRequest(
+      fileRequest,
+      status,
+      config
+    );
     const runtime = readRuntimeStatus(config);
     const eligibility = idleEligibility(
       runtime,
@@ -408,8 +554,21 @@ async function serviceLoop() {
         phase: eligibility.reason,
         current_objective: request?.objective || null
       }, config);
-      await sleep(config.poll_ms);
+      await wakeController.wait(config.poll_ms);
       continue;
+    }
+
+    if (request?.force === true) {
+      updateStatus({
+        state: 'starting',
+        phase: 'manual_run_starting',
+        manual_run_request_id: request.request_id || null,
+        manual_run_acknowledged_at: null,
+        current_objective:
+          request.objective || config.default_objective,
+        last_error: null,
+        failure_latched_at: null
+      }, config);
     }
 
     clearRunRequest(config);
@@ -417,7 +576,11 @@ async function serviceLoop() {
       await runCycle({
         config,
         force: request?.force === true,
-        objective: request?.objective || ''
+        objective: request?.objective || '',
+        manual_request_id:
+          request?.force === true ? request.request_id || null : null,
+        manual_requested_at:
+          request?.force === true ? request.requested_at || null : null
       });
     } catch (error) {
       const failedAt = nowIso();
@@ -437,9 +600,16 @@ async function serviceLoop() {
       );
     }
     if (stopping) break;
-    await sleep(config.cooldown_seconds * 1000);
+    await wakeController.wait(config.cooldown_seconds * 1000);
   }
 
+  process.removeListener(
+    'SIGUSR1',
+    onManualRunSignal
+  );
+  for (const [signal, handler] of signalHandlers) {
+    process.removeListener(signal, handler);
+  }
   await modelProxy.stop();
   updateStatus({
     state: 'stopped',
@@ -473,11 +643,13 @@ if (require.main === module) {
 }
 
 module.exports = {
+  createServiceWakeController,
   idleEligibility,
   latestActivityMs,
   memoryAvailableMb,
   pendingCandidateExists,
   readRuntimeStatus,
+  resolveManualRunRequest,
   classifySandboxExit,
   isNoCandidateSandboxFailure,
   noCandidateStatusPatch,
