@@ -204,7 +204,9 @@ sleep:
     cycle_46: 460
     cycle_47: 470
   manual_nap_duration_minutes: 30
-  manual_nap_rem_offset_minutes: 10
+  manual_nap_rem_offset_minutes: 0
+  manual_nap_max_rem_cycles: 3
+  manual_nap_dream_max_retry_count: 3
 dream:
   temperature: 0.45
   top_p: 0.85
