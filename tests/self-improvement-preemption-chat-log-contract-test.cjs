@@ -11,6 +11,7 @@ const {
   classifySandboxExit,
   idleEligibility,
   isNoCandidateSandboxFailure,
+  noCandidateStatusPatch,
   shouldPreemptActiveRun
 } = require('../src/self-improvement/worker.cjs');
 const {
@@ -79,6 +80,18 @@ assert.equal(
   true,
   'agent iteration exhaustion should be a retryable no-candidate cycle, not a latched worker failure'
 );
+{
+  const patch = noCandidateStatusPatch(
+    'Error: agent iteration limit reached without a verified candidate',
+    { log_file: '/tmp/sandbox.log' },
+    '2026-06-25T00:00:00.000Z'
+  );
+  assert.equal(patch.state, 'waiting_for_idle');
+  assert.equal(patch.phase, 'no_verified_candidate');
+  assert.equal(patch.last_error, null, 'no-candidate cycles must not degrade the RSI UI with last_error');
+  assert.equal(patch.failure_latched_at, null);
+  assert.match(patch.last_no_candidate_error, /without a verified candidate/);
+}
 assert.equal(
   isNoCandidateSandboxFailure('Error: write EPIPE'),
   false,

@@ -1031,6 +1031,7 @@ function getSelfImprovementConfig(mode = 'chat') {
     snapshot_evidence_subdir: stringValue('snapshot_evidence_subdir'),
     snapshot_runtime_evidence_file_name: stringValue('snapshot_runtime_evidence_file_name'),
     snapshot_exclude_patterns: stringValue('snapshot_exclude_patterns'),
+    snapshot_sanitized_npmrc_lines: stringValue('snapshot_sanitized_npmrc_lines'),
     snapshot_command_timeout_ms: numberValue('snapshot_command_timeout_ms'),
     snapshot_rsync_timeout_ms: numberValue('snapshot_rsync_timeout_ms'),
     snapshot_output_buffer_bytes: numberValue('snapshot_output_buffer_bytes'),

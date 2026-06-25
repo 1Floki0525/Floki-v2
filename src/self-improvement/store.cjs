@@ -82,6 +82,8 @@ function defaultStatus(config = loadSelfImprovementConfig()) {
     last_cycle_completed_at: null,
     last_error: null,
     failure_latched_at: null,
+    last_no_candidate_at: null,
+    last_no_candidate_error: null,
     last_sandbox_log_file: null,
     model_proxy_ready: false,
     queued_at: null,

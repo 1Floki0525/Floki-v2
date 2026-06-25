@@ -67,6 +67,21 @@ function isNoCandidateSandboxFailure(message) {
   );
 }
 
+function noCandidateStatusPatch(message, execution, completedAt = nowIso()) {
+  return Object.freeze({
+    state: 'waiting_for_idle',
+    phase: 'no_verified_candidate',
+    current_run_id: null,
+    current_container: null,
+    last_error: null,
+    failure_latched_at: null,
+    last_no_candidate_at: completedAt,
+    last_no_candidate_error: String(message || ''),
+    last_sandbox_log_file: execution?.log_file || null,
+    last_cycle_completed_at: completedAt
+  });
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -269,16 +284,7 @@ async function runCycle(options = {}) {
     const message = summary ? base + '\n\n' + summary : base;
     const failedAt = nowIso();
     if (isNoCandidateSandboxFailure(message)) {
-      updateStatus({
-        state: 'waiting_for_idle',
-        phase: 'no_verified_candidate',
-        current_run_id: null,
-        current_container: null,
-        last_error: message,
-        failure_latched_at: null,
-        last_sandbox_log_file: execution.log_file,
-        last_cycle_completed_at: failedAt
-      }, config);
+      updateStatus(noCandidateStatusPatch(message, execution, failedAt), config);
       appendAudit(
         'cycle_no_candidate',
         {
@@ -329,6 +335,10 @@ async function serviceLoop() {
   await modelProxy.start();
   fs.writeFileSync(p.pidFile, String(process.pid) + '\n', { mode: 0o600 });
   process.once('exit', () => fs.rmSync(p.pidFile, { force: true }));
+  fs.rmSync(
+    path.join(config.runtime_root, config.sandbox_heartbeat_file_name),
+    { force: true }
+  );
 
   let stopping = false;
   for (const signal of ['SIGTERM', 'SIGINT']) {
@@ -345,6 +355,17 @@ async function serviceLoop() {
     model_proxy_ready: true,
     started_at: nowIso(),
     last_error: null,
+    failure_latched_at: null,
+    last_no_candidate_at: null,
+    last_no_candidate_error: null,
+    last_sandbox_log_file: null,
+    current_run_id: null,
+    current_container: null,
+    current_command: null,
+    current_command_started_at: null,
+    current_command_elapsed_ms: 0,
+    last_real_progress_at: null,
+    stalled: false,
     worker_alive_at: nowIso(),
     sandbox_alive_at: null
   }, config);
@@ -459,6 +480,7 @@ module.exports = {
   readRuntimeStatus,
   classifySandboxExit,
   isNoCandidateSandboxFailure,
+  noCandidateStatusPatch,
   runCycle,
   serviceLoop,
   shouldPreemptActiveRun

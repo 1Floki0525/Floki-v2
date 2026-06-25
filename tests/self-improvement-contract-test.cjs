@@ -152,6 +152,7 @@ assert.match(configTemplate, /web_search_url_template:/);
 assert.match(configTemplate, /promotion_restart_command:/);
 assert.match(configTemplate, /snapshot_exclude_patterns:.*\.env/);
 assert.match(configTemplate, /snapshot_exclude_patterns:.*\.npmrc/);
+assert.match(configTemplate, /snapshot_sanitized_npmrc_lines:\s*"engine-strict=true"/);
 
 console.log(JSON.stringify({
   ok: true,

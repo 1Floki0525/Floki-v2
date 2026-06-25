@@ -34,7 +34,7 @@ if [ -f "$PID_FILE" ]; then
   rm -f "$PID_FILE"
 fi
 
-nohup bash "$NODE_RUN" node src/self-improvement/worker.cjs --service \
+setsid nohup bash "$NODE_RUN" node src/self-improvement/worker.cjs --service \
   >>"$LOG_FILE" 2>&1 < /dev/null &
 PID="$!"
 echo "$PID" > "$PID_FILE"

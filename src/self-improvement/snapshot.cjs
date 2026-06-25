@@ -46,6 +46,16 @@ function commandOptions(config, cwd = undefined, timeout = undefined) {
   };
 }
 
+function writeSanitizedNpmrc(repoDir, config) {
+  const lines = splitPipe(config.snapshot_sanitized_npmrc_lines)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return null;
+  const file = path.join(repoDir, '.npmrc');
+  fs.writeFileSync(file, lines.join('\n') + '\n', { mode: 0o600 });
+  return file;
+}
+
 function createSourceSnapshot(options = {}) {
   const config = options.config || loadSelfImprovementConfig();
   const runId = options.run_id || newRunId(config);
@@ -58,6 +68,7 @@ function createSourceSnapshot(options = {}) {
   for (const pattern of excludes) args.push('--exclude=' + pattern);
   args.push(config.project_root + '/', repoDir + '/');
   run('rsync', args, commandOptions(config, undefined, config.snapshot_rsync_timeout_ms));
+  writeSanitizedNpmrc(repoDir, config);
 
   const runtimeStatusFile = path.join(config.chat_runtime_root, 'chat-local-runtime.status.json');
   let runtimeEvidence = null;
@@ -162,6 +173,7 @@ function createSourceSnapshot(options = {}) {
 module.exports = {
   createSourceSnapshot,
   newRunId,
+  writeSanitizedNpmrc,
   run,
   splitPipe
 };

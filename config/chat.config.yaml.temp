@@ -683,6 +683,7 @@ self_improvement:
   snapshot_evidence_subdir: ".floki-self-improvement"
   snapshot_runtime_evidence_file_name: "runtime-evidence.json"
   snapshot_exclude_patterns: ".git/|node_modules/|apps/floki-neural-interface/node_modules/|apps/floki-neural-interface/dist/|state/|secrets/|.floki-tools/models/|.floki-tools/repos/|.floki-tools/input/|.floki-tools/output/|.floki-tools/venv*/|.floki-tools/**/__pycache__/|reports/|*.tar|*.tar.gz|*.zip|*.mp4|*.mkv|*.wav|*.onnx|*.pt|*.bin|*.safetensors|models/|models/**|Qwen3.5-4B/|Qwen3.5-4B/**|data/dreams/|data/transcripts/|data/media/|data/memories/|data/knowledge/|.floki-self-improvement/|.env|.env.*|.npmrc|cookies.txt|**/cookies.txt|*.pem|*.key|*.p12|*.pfx"
+  snapshot_sanitized_npmrc_lines: "engine-strict=true"
   snapshot_command_timeout_ms: 300000
   snapshot_rsync_timeout_ms: 600000
   snapshot_output_buffer_bytes: 33554432

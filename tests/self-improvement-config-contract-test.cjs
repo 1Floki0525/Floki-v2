@@ -140,6 +140,7 @@ const requiredStringKeys = [
   'snapshot_evidence_subdir',
   'snapshot_runtime_evidence_file_name',
   'snapshot_exclude_patterns',
+  'snapshot_sanitized_npmrc_lines',
   'snapshot_git_user_name',
   'snapshot_git_user_email',
   'snapshot_git_commit_message',

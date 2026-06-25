@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 const text = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
+const { writeSanitizedNpmrc } = require('../src/self-improvement/snapshot.cjs');
 
 const proxy = text('src/self-improvement/model-proxy.cjs');
 assert.match(proxy, /socketPath/);
@@ -20,10 +21,17 @@ assert.match(sandbox, /config\.model_proxy_mount_path/);
 assert.match(sandbox, /config\.sandbox_error_tail_chars/);
 assert.doesNotMatch(sandbox, /--network[=',\s]+host/);
 
+const snapshot = text('src/self-improvement/snapshot.cjs');
+assert.match(snapshot, /writeSanitizedNpmrc/);
+assert.match(snapshot, /snapshot_sanitized_npmrc_lines/);
+
 const worker = text('src/self-improvement/worker.cjs');
 assert.match(worker, /failure_waiting_for_new_activity/);
 assert.match(worker, /failure_latched_at/);
 assert.match(worker, /execution\.read_error_tail/);
+assert.match(worker, /last_no_candidate_error/);
+assert.match(worker, /fs\.rmSync\([\s\S]*config\.sandbox_heartbeat_file_name/);
+assert.match(worker, /failure_latched_at:\s*null/);
 assert.match(worker, /createModelProxy/);
 assert.match(worker, /setInterval\(\(\) => \{[\s\S]*updateStatus\(\{\}, config\)/);
 
@@ -56,6 +64,9 @@ assert.match(panel, /setTimeout\(run,\s*pollMsRef\.current\)/);
 assert.match(panel, /Pause verification failed/);
 assert.match(panel, /Resume verification failed/);
 
+const startScript = text('bin/floki-self-improvement-start.sh');
+assert.match(startScript, /setsid nohup bash "\$NODE_RUN" node src\/self-improvement\/worker\.cjs --service/);
+
 const configTemplate = text('config/chat.config.yaml.temp');
 for (const key of [
   'image_source_label',
@@ -69,11 +80,27 @@ for (const key of [
   'model_proxy_start_timeout_ms',
   'model_proxy_request_timeout_ms',
   'model_response_max_bytes',
+  'snapshot_sanitized_npmrc_lines',
   'sandbox_log_file_name',
   'sandbox_error_tail_chars',
   'failure_requires_new_activity'
 ]) {
   assert.match(configTemplate, new RegExp('^  ' + key + ':', 'm'));
+}
+assert.match(configTemplate, /snapshot_exclude_patterns:.*\.npmrc/);
+assert.match(configTemplate, /snapshot_sanitized_npmrc_lines:\s*"engine-strict=true"/);
+
+const snapshotRoot = fs.mkdtempSync(path.join('/tmp', 'floki-rsi-snapshot-npmrc-'));
+try {
+  const npmrcFile = writeSanitizedNpmrc(snapshotRoot, {
+    snapshot_sanitized_npmrc_lines: 'engine-strict=true'
+  });
+  const npmrc = fs.readFileSync(npmrcFile, 'utf8');
+  assert.equal(path.basename(npmrcFile), '.npmrc');
+  assert.equal(npmrc, 'engine-strict=true\n');
+  assert.doesNotMatch(npmrc, /auth|token|password/i);
+} finally {
+  fs.rmSync(snapshotRoot, { recursive: true, force: true });
 }
 
 const { idleEligibility } = require('../src/self-improvement/worker.cjs');
