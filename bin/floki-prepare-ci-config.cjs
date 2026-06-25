@@ -52,7 +52,8 @@ function createLayout(options = {}) {
 
   const dreamRoot = path.join(externalRoot, 'Floki-memory-bank', 'dreams');
   const mediaRoot = path.join(externalRoot, 'Floki-media');
-  const youtubeRoot = path.join(mediaRoot, 'text', 'youtube');
+  const textRoot = path.join(mediaRoot, 'text');
+  const youtubeRoot = path.join(textRoot, 'youtube');
   const cookieFile = path.join(externalRoot, 'secrets', 'cookies.txt');
 
   return Object.freeze({
@@ -65,6 +66,7 @@ function createLayout(options = {}) {
     gameConfig: path.join(configDir, 'game.config.yaml'),
     dreamRoot,
     mediaRoot,
+    textRoot,
     youtubeRoot,
     cookieFile
   });
@@ -74,6 +76,7 @@ function ensureExternalPaths(layout) {
   for (const directory of [
     layout.dreamRoot,
     layout.mediaRoot,
+    layout.textRoot,
     layout.youtubeRoot,
     path.dirname(layout.cookieFile)
   ]) {
@@ -132,6 +135,7 @@ function validatePreparedConfig(
     'media_root',
     'youtube_transcript_root'
   ];
+  if (expectedMode === 'chat') required.push('text_root');
   if (includeCookie) required.push('youtube_cookies_file');
 
   for (const key of required) {
@@ -147,11 +151,19 @@ function validatePreparedConfig(
 
 function prepareCiConfig(options = {}) {
   const layout = createLayout(options);
+  const runningInCi = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+  const targetsLiveProject = layout.projectRoot === DEFAULT_PROJECT_ROOT;
+  if (targetsLiveProject && !runningInCi && options.allow_live_project !== true) {
+    throw new Error(
+      'HOST_CONFIG_OVERWRITE_BLOCKED: CI fixture generation may not replace the live ignored config/chat.config.yaml outside CI; pass an isolated projectRoot'
+    );
+  }
   ensureExternalPaths(layout);
 
   prepareConfig(layout.chatTemplate, layout.chatConfig, {
     dream_root: layout.dreamRoot,
     media_root: layout.mediaRoot,
+    text_root: layout.textRoot,
     youtube_transcript_root: layout.youtubeRoot,
     youtube_cookies_file: layout.cookieFile
   });
@@ -197,6 +209,7 @@ function prepareCiConfig(options = {}) {
 
     dream_root: layout.dreamRoot,
     media_root: layout.mediaRoot,
+    text_root: layout.textRoot,
     youtube_transcript_root: layout.youtubeRoot,
     youtube_cookies_file: layout.cookieFile,
 
@@ -207,6 +220,7 @@ function prepareCiConfig(options = {}) {
       gameConfig: layout.gameConfig,
       dream_root: layout.dreamRoot,
       media_root: layout.mediaRoot,
+      text_root: layout.textRoot,
       youtube_transcript_root: layout.youtubeRoot,
       youtube_cookies_file: layout.cookieFile
     }),

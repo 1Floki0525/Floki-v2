@@ -35,7 +35,7 @@ activate_node24_with_nvm() {
   fi
 
   . "$nvm_script" || fail "could not load nvm from $nvm_script"
-  nvm use 24 >/dev/null 2>&1 || fail "nvm could not activate Node 24"
+  nvm use 24.17.0 >/dev/null 2>&1 || nvm use 24 >/dev/null 2>&1 || fail "nvm could not activate Node v24.17.0"
 }
 
 if ! node_is_24; then
@@ -48,10 +48,10 @@ fi
 
 NODE_VERSION="$(node -v 2>/dev/null)"
 case "$NODE_VERSION" in
-  v24.*)
+  v24.17.0)
     ;;
   *)
-    fail "Floki-v2 requires Node 24 exclusively; active version is $NODE_VERSION"
+    fail "Floki-v2 requires Node v24.17.0 exclusively; active version is $NODE_VERSION"
     ;;
 esac
 

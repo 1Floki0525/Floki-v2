@@ -44,6 +44,7 @@ models/
 # Generated, corrective, and editor debris
 .#*
 #*#
+session-*.md
 apps/floki-neural-interface/node_modules/
 apps/floki-neural-interface/dist/
 

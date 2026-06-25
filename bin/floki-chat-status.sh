@@ -1,7 +1,23 @@
 #!/usr/bin/env bash
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RUNTIME_DIR="$PROJECT_DIR/state/floki/chat/runtime"
+load_node() {
+  if [ -s "$HOME/.nvm/nvm.sh" ]; then
+    export NVM_DIR="$HOME/.nvm"
+    . "$HOME/.nvm/nvm.sh"
+    nvm use 24.17.0 >/dev/null 2>&1 || nvm use 24 >/dev/null 2>&1
+  fi
+}
+
+cd "$PROJECT_DIR" || exit 1
+load_node
+RUNTIME_DIR="$(node - <<'NODE'
+'use strict';
+const path = require('node:path');
+const { PROJECT_ROOT, getPathConfig } = require('./src/config/floki-config.cjs');
+process.stdout.write(path.resolve(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root));
+NODE
+)" || exit 1
 PID_FILE="$RUNTIME_DIR/chat-local-runtime.pid"
 STATUS_FILE="$RUNTIME_DIR/chat-local-runtime.status.json"
 PID=""

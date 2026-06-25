@@ -15,7 +15,7 @@ const {
 
 async function main() {
   const runtimeDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'floki-scheduler-rejection-')
+    path.join(os.tmpdir(), 'floki-scheduler-repair-')
   );
 
   try {
@@ -26,10 +26,11 @@ async function main() {
 
     assert.equal(
       isRecoverableDreamQualityError(error),
-      true
+      true,
+      'legacy quality error remains recoverable'
     );
 
-    const result = await runSchedulerIteration({
+    const legacyResult = await runSchedulerIteration({
       runtime_dir: runtimeDir,
       write_report: false,
       tick_runner: async () => {
@@ -37,39 +38,45 @@ async function main() {
       }
     });
 
-    assert.equal(result.ok, true);
+    assert.equal(legacyResult.ok, true, 'legacy quality rejection must not crash scheduler');
     assert.equal(
-      result.marker,
-      'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_DREAM_REJECTED'
+      legacyResult.marker,
+      'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_DREAM_REPAIR_QUEUED'
     );
-    assert.equal(result.degraded, true);
-    assert.equal(result.dream_generated, false);
+
+    const result = await runSchedulerIteration({
+      runtime_dir: runtimeDir,
+      write_report: false,
+      tick_runner: async () => ({
+        ok: true,
+        marker: 'FLOKI_V2_SLEEP_CYCLE_CONTRACT_PASS',
+        within_sleep_window: true,
+        sleep_cycle_active: true,
+        dreams_generated_this_tick: 0,
+        rem_cycles_regenerating: 1
+      })
+    });
+
+    assert.equal(result.ok, true, 'scheduler iteration must pass while a cycle is regenerating');
+    assert.equal(result.marker, 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_TICK_PASS');
+    assert.equal(result.dreams_generated_this_tick, 0);
 
     const status = JSON.parse(
       fs.readFileSync(
-        path.join(
-          runtimeDir,
-          'sleep-cycle-scheduler.status.json'
-        ),
+        path.join(runtimeDir, 'sleep-cycle-scheduler.status.json'),
         'utf8'
       )
     );
 
     const heartbeat = JSON.parse(
       fs.readFileSync(
-        path.join(
-          runtimeDir,
-          'sleep-cycle-scheduler.heartbeat.json'
-        ),
+        path.join(runtimeDir, 'sleep-cycle-scheduler.heartbeat.json'),
         'utf8'
       )
     );
 
-    assert.equal(status.dream_generated, false);
-    assert.equal(
-      heartbeat.phase,
-      'idle_after_dream_rejection'
-    );
+    assert.equal(status.marker, 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_TICK_PASS');
+    assert.equal(heartbeat.phase, 'idle');
 
     await assert.rejects(
       runSchedulerIteration({
@@ -85,9 +92,11 @@ async function main() {
     console.log(JSON.stringify({
       ok: true,
       marker:
-        'FLOKI_SLEEP_SCHEDULER_DREAM_REJECTION_SURVIVAL_PASS',
+        'FLOKI_SLEEP_SCHEDULER_DREAM_REPAIR_QUEUE_SURVIVAL_PASS',
       rejected_dream_stored: false,
+      quality_repair_queued: true,
       scheduler_crashes_on_quality_rejection: false,
+      scheduler_survives_regenerating_cycle: true,
       architecture_errors_still_fatal: true,
       live_scheduler_started: false
     }, null, 2));

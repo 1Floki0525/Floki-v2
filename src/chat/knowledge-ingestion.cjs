@@ -17,8 +17,11 @@ const {
   readJsonlSync
 } = require('../util/jsonl.cjs');
 
-const { PROJECT_ROOT: ROOT, getPathConfig } = require('../config/floki-config.cjs');
-const FLOKI_MEDIA_ROOT = getPathConfig('chat').media_root;
+const { PROJECT_ROOT: ROOT, getPathConfig, getKnowledgeConfig } = require('../config/floki-config.cjs');
+const CHAT_PATHS = getPathConfig('chat');
+const FLOKI_MEDIA_ROOT = CHAT_PATHS.media_root;
+const FLOKI_TEXT_ROOT = CHAT_PATHS.text_root;
+const YOUTUBE_TRANSCRIPT_ROOT = CHAT_PATHS.youtube_transcript_root;
 const KNOWLEDGE_INGESTION_OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'output', 'knowledge-ingestion');
 
 const SUPPORTED_TEXT_EXTENSIONS = Object.freeze([
@@ -32,18 +35,24 @@ const SUPPORTED_TEXT_EXTENSIONS = Object.freeze([
   '.csv'
 ]);
 
+function knowledgeIngestionEnvName() {
+  return getKnowledgeConfig('chat').ingestion_enabled_env;
+}
+
 function knowledgeIngestionAllowed(env = process.env) {
-  return env.FLOKI_ALLOW_KNOWLEDGE_INGESTION === '1';
+  const envName = knowledgeIngestionEnvName();
+  return env[envName] === '1';
 }
 
 function knowledgeIngestionGuardStatus(env = process.env) {
   const allowed = knowledgeIngestionAllowed(env);
+  const envName = knowledgeIngestionEnvName();
 
   return Object.freeze({
     ok: true,
     marker: 'FLOKI_V2_KNOWLEDGE_INGESTION_GUARDED',
     allowed_now: allowed,
-    required_env: 'FLOKI_ALLOW_KNOWLEDGE_INGESTION=1',
+    required_env: envName + '=1',
     knowledge_ingestion_run_now: false,
     source_files_read: 0,
     chunks_written: 0,
@@ -119,14 +128,75 @@ function escapeRegExp(value) {
 
 function channelFolderFromPath(inputPath) {
   const normalized = normalizePath(inputPath);
-  const parts = normalized.split(path.sep);
-  const youtubeIndex = parts.lastIndexOf('youtube');
+  const configuredRoot = path.resolve(YOUTUBE_TRANSCRIPT_ROOT);
+  const relative = path.relative(configuredRoot, normalized);
+  if (relative && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) {
+    const first = relative.split(path.sep).filter(Boolean)[0];
+    if (first) return first;
+  }
+  return path.basename(normalized);
+}
 
-  if (youtubeIndex >= 0 && parts[youtubeIndex + 1]) {
-    return parts[youtubeIndex + 1];
+function pathIsInside(root, candidate) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (
+    !relative.startsWith('..' + path.sep) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+function sourceMetadataFromPath(filePath, options = {}) {
+  const absolutePath = normalizePath(filePath);
+  const textRoot = path.resolve(options.text_root || FLOKI_TEXT_ROOT);
+  const youtubeRoot = path.resolve(options.youtube_root || YOUTUBE_TRANSCRIPT_ROOT);
+  const insideTextRoot = pathIsInside(textRoot, absolutePath);
+  const insideYoutubeRoot = pathIsInside(youtubeRoot, absolutePath);
+  let sourceCollection = null;
+  let channelFolder = options.channel_folder || null;
+
+  if (insideTextRoot) {
+    const relativeParts = path.relative(textRoot, absolutePath)
+      .split(path.sep)
+      .filter(Boolean);
+    const directoryParts = relativeParts.slice(0, -1);
+    sourceCollection = directoryParts[0] || null;
+    if (!channelFolder) {
+      channelFolder = directoryParts.length >= 2
+        ? directoryParts[1]
+        : directoryParts[0] || null;
+    }
   }
 
-  return path.basename(normalized);
+  if (insideYoutubeRoot) {
+    const youtubeParts = path.relative(youtubeRoot, absolutePath)
+      .split(path.sep)
+      .filter(Boolean);
+    if (youtubeParts.length >= 2) channelFolder = youtubeParts[0];
+  } else if (options.collection_root_is_source_parent === true && insideTextRoot) {
+    const parts = path.relative(textRoot, absolutePath)
+      .split(path.sep)
+      .filter(Boolean);
+    if (parts.length >= 2) channelFolder = parts[0];
+  }
+
+  const youtubeTranscriptSource =
+    insideYoutubeRoot ||
+    options.input_type === 'youtube_transcript_dir';
+  const sourceType = options.source_type || (
+    youtubeTranscriptSource
+      ? path.basename(absolutePath) === 'transcripts.manifest.jsonl'
+        ? 'transcript_manifest'
+        : 'youtube_transcript'
+      : 'media_text'
+  );
+
+  return Object.freeze({
+    text_root: textRoot,
+    youtube_root: youtubeRoot,
+    source_collection: sourceCollection,
+    channel_folder: channelFolder,
+    source_type: sourceType
+  });
 }
 
 function detectKnowledgeInput(inputPath, options = {}) {
@@ -196,7 +266,17 @@ function detectKnowledgeInput(inputPath, options = {}) {
 
 function walkFiles(directoryPath, options = {}) {
   const out = [];
-  const maxFiles = Math.max(1, Math.min(5000, Number(options.max_files || 1000)));
+  const configuredMaxFiles = Number(
+    options.max_files === undefined
+      ? getKnowledgeConfig('chat').max_files
+      : options.max_files
+  );
+  if (!Number.isInteger(configuredMaxFiles) || configuredMaxFiles < 0) {
+    throw new Error('knowledge.max_files must be zero or a positive integer');
+  }
+  const maxFiles = configuredMaxFiles === 0
+    ? Number.POSITIVE_INFINITY
+    : configuredMaxFiles;
 
   function visit(currentPath) {
     if (out.length >= maxFiles) {
@@ -387,10 +467,8 @@ function readKnowledgeSource(filePath, options = {}) {
     ? String(manifestRecord.title_guess || manifestRecord.title)
     : titleFromFilename(absolutePath, videoId);
 
-  const inputType = options.input_type || 'text_file';
-  const sourceType = inputType === 'youtube_transcript_dir'
-    ? (path.basename(absolutePath) === 'transcripts.manifest.jsonl' ? 'transcript_manifest' : 'youtube_transcript')
-    : 'text_file';
+  const metadata = sourceMetadataFromPath(absolutePath, options);
+  const sourceType = metadata.source_type;
 
   return Object.freeze({
     source_id: sha256(absolutePath + '\n' + sourceSha).slice(0, 24),
@@ -402,7 +480,8 @@ function readKnowledgeSource(filePath, options = {}) {
     text_sha256: sourceSha,
     char_count: text.length,
     word_count: text.split(/\s+/).filter(Boolean).length,
-    channel_folder: options.channel_folder || null,
+    source_collection: metadata.source_collection,
+    channel_folder: metadata.channel_folder,
     video_id: videoId || null,
     manifest_record: manifestRecord || null,
     created_at: nowIso(options),
@@ -478,6 +557,7 @@ function chunkKnowledgeText(source, options = {}) {
       source_id: source.source_id,
       source_path: source.source_path,
       source_type: source.source_type,
+      source_collection: source.source_collection,
       title: source.title,
       channel_folder: source.channel_folder,
       video_id: source.video_id,
@@ -502,6 +582,30 @@ function loadExistingChunkHashes(options = {}) {
   }
 
   return new Set(readJsonlSync(paths.chunks_jsonl).map((record) => record && record.text_sha256).filter(Boolean));
+}
+
+function loadExistingSourceIds(options = {}) {
+  const paths = getKnowledgePaths(options);
+  if (!existsSync(paths.sources_jsonl)) return new Set();
+  return new Set(
+    readJsonlSync(paths.sources_jsonl)
+      .map((record) => record && record.source_id)
+      .filter(Boolean)
+  );
+}
+
+function loadExistingChunkCountsBySourceId(options = {}) {
+  const paths = getKnowledgePaths(options);
+  const counts = new Map();
+  if (!existsSync(paths.chunks_jsonl)) return counts;
+  for (const record of readJsonlSync(paths.chunks_jsonl)) {
+    if (!record || !record.source_id) continue;
+    counts.set(
+      record.source_id,
+      Number(counts.get(record.source_id) || 0) + 1
+    );
+  }
+  return counts;
 }
 
 function writeKnowledgeIndex(paths, options = {}) {
@@ -529,13 +633,26 @@ function persistKnowledgeChunks(chunks, source, options = {}) {
   ensureDirSync(paths.root);
 
   const existingHashes = options.existing_hashes || loadExistingChunkHashes(options);
+  const existingSourceIds = options.existing_source_ids || loadExistingSourceIds(options);
   const persisted = [];
   let duplicateCount = 0;
+
+  if (existingSourceIds.has(source.source_id)) {
+    return Object.freeze({
+      source_record: null,
+      source_skipped: true,
+      chunks_written: 0,
+      duplicate_chunk_count: 0,
+      persisted_chunks: Object.freeze([]),
+      index: options.defer_index === true ? null : writeKnowledgeIndex(paths, options)
+    });
+  }
 
   const sourceRecord = Object.freeze({
     source_id: source.source_id,
     source_path: source.source_path,
     source_type: source.source_type,
+    source_collection: source.source_collection,
     extension: source.extension,
     title: source.title,
     channel_folder: source.channel_folder,
@@ -549,6 +666,7 @@ function persistKnowledgeChunks(chunks, source, options = {}) {
   });
 
   appendJsonlSync(paths.sources_jsonl, sourceRecord);
+  existingSourceIds.add(source.source_id);
 
   for (const chunk of chunks) {
     if (existingHashes.has(chunk.text_sha256)) {
@@ -561,7 +679,9 @@ function persistKnowledgeChunks(chunks, source, options = {}) {
     persisted.push(chunk);
   }
 
-  const index = writeKnowledgeIndex(paths, options);
+  const index = options.defer_index === true
+    ? null
+    : writeKnowledgeIndex(paths, options);
 
   appendJsonlSync(paths.ingestion_events_jsonl, {
     event_type: 'knowledge_source_ingested',
@@ -695,10 +815,14 @@ function runKnowledgeIngestionOnce(options = {}) {
   const manifestRecords = parseManifestRecords(detected.manifest_file);
   const scrapeReport = readJsonSafe(detected.scrape_report_file);
   const existingHashes = loadExistingChunkHashes(options);
+  const existingSourceIds = loadExistingSourceIds(options);
+  const existingChunkCountsBySourceId =
+    loadExistingChunkCountsBySourceId(options);
 
   let sourceCount = 0;
   let chunkCount = 0;
   let duplicateChunkCount = 0;
+  let unchangedSourceCount = 0;
   let failedCount = 0;
   let totalChars = 0;
   let totalWords = 0;
@@ -709,7 +833,7 @@ function runKnowledgeIngestionOnce(options = {}) {
       const source = readKnowledgeSource(filePath, {
         ...options,
         input_type: detected.input_type,
-        channel_folder: detected.channel_folder,
+        channel_folder: options.channel_folder || detected.channel_folder,
         manifest_records: manifestRecords,
         scrape_report: scrapeReport
       });
@@ -718,13 +842,23 @@ function runKnowledgeIngestionOnce(options = {}) {
         continue;
       }
 
+      if (existingSourceIds.has(source.source_id)) {
+        unchangedSourceCount += 1;
+        duplicateChunkCount += Number(
+          existingChunkCountsBySourceId.get(source.source_id) || 0
+        );
+        continue;
+      }
+
       const chunks = chunkKnowledgeText(source, options);
       const persisted = persistKnowledgeChunks(chunks, source, {
         ...options,
-        existing_hashes: existingHashes
+        existing_hashes: existingHashes,
+        existing_source_ids: existingSourceIds,
+        defer_index: true
       });
 
-      sourceCount += 1;
+      sourceCount += persisted.source_skipped === true ? 0 : 1;
       chunkCount += persisted.chunks_written;
       duplicateChunkCount += persisted.duplicate_chunk_count;
       totalChars += source.char_count;
@@ -732,6 +866,7 @@ function runKnowledgeIngestionOnce(options = {}) {
       sourceSummaries.push({
         source_path: source.source_path,
         source_type: source.source_type,
+        source_collection: source.source_collection,
         title: source.title,
         channel_folder: source.channel_folder,
         video_id: source.video_id,
@@ -743,13 +878,18 @@ function runKnowledgeIngestionOnce(options = {}) {
     }
   }
 
-  const ok = failedCount === 0 && (sourceCount > 0 || listed.unsupported_files.length > 0);
+  const index = listed.supported_files.length > 0
+    ? writeKnowledgeIndex(getKnowledgePaths(options), options)
+    : null;
+  const ok = failedCount === 0 && listed.supported_files.length > 0;
   const status = Object.freeze({
     ok,
     marker: ok ? 'FLOKI_V2_KNOWLEDGE_INGESTION_CONTRACT_PASS' : 'FLOKI_V2_KNOWLEDGE_INGESTION_FAIL',
     input_path: detected.input_path,
     input_type: detected.input_type,
-    channel_folder: detected.channel_folder || null,
+    channel_folder: options.channel_folder || detected.channel_folder || null,
+    scanned_file_count: listed.supported_files.length,
+    unchanged_source_count: unchangedSourceCount,
     source_count: sourceCount,
     chunk_count: chunkCount,
     duplicate_chunk_count: duplicateChunkCount,
@@ -760,6 +900,7 @@ function runKnowledgeIngestionOnce(options = {}) {
     persistent_knowledge_used: true,
     knowledge_root: getKnowledgeRoot(options),
     knowledge_paths: getKnowledgePaths(options),
+    index,
     source_summaries: sourceSummaries,
     unsupported_files: listed.unsupported_files,
     model_called_now: false,
@@ -805,17 +946,23 @@ if (require.main === module) {
 module.exports = {
   ROOT,
   FLOKI_MEDIA_ROOT,
+  FLOKI_TEXT_ROOT,
+  YOUTUBE_TRANSCRIPT_ROOT,
   KNOWLEDGE_INGESTION_OUTPUT_DIR,
   SUPPORTED_TEXT_EXTENSIONS,
+  knowledgeIngestionEnvName,
   knowledgeIngestionAllowed,
   knowledgeIngestionGuardStatus,
   getKnowledgeRoot,
   getKnowledgePaths,
   detectKnowledgeInput,
+  sourceMetadataFromPath,
   listIngestibleFiles,
   readKnowledgeSource,
   chunkKnowledgeText,
   loadExistingChunkHashes,
+  loadExistingSourceIds,
+  loadExistingChunkCountsBySourceId,
   persistKnowledgeChunks,
   runKnowledgeIngestionOnce,
   printKnowledgeIngestionProof

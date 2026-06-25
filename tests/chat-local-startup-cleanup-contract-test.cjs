@@ -37,7 +37,9 @@ const yoloService = fs.readFileSync(
   'utf8'
 );
 
-assert.match(service, /const READY_TIMEOUT_MS = 30000;/);
+assert.match(service, /function readyTimeoutMs\(/);
+assert.match(service, /getTimeoutConfig\('chat'\)/);
+assert.match(service, /model_warmup_ms/);
 assert.match(service, /grounding-dino-worker\.py/);
 assert.match(service, /targets\.has\(processInfo\.parent_pid\)/);
 

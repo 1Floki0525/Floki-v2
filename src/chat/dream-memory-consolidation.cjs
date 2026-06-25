@@ -12,6 +12,7 @@ const {
   writeJsonFileAtomicSync
 } = require('../util/fs-safe.cjs');
 const { appendJsonlSync, readJsonlSync } = require('../util/jsonl.cjs');
+const { reconcileDreamArchive } = require('./dream-archive.cjs');
 const { newId } = require('../util/ids.cjs');
 const { rejectPrivateReasoningMarkers } = require('../model/ollama-client.cjs');
 const { isThirdPersonSelfReference } = require('../../brain/broca/index.cjs');
@@ -105,6 +106,7 @@ function listDreamRecords(options = {}) {
     return [];
   }
 
+  reconcileDreamArchive({ ...options, dream_root: getDreamRoot(options), index_file: indexFile });
   const records = readJsonlSync(indexFile);
   const maxScan = Math.max(1, Math.min(1000, Number(options.max_scan || options.scan_limit || 500)));
   return records

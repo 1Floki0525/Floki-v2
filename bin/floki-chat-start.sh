@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RUNTIME_DIR="$PROJECT_DIR/state/floki/chat/runtime"
-PID_FILE="$RUNTIME_DIR/chat-local-runtime.pid"
-COMPAT_PID_FILE="$RUNTIME_DIR/chat-mode-loop.pid"
-STATUS_FILE="$RUNTIME_DIR/chat-local-runtime.status.json"
-LOG_FILE="$RUNTIME_DIR/chat-local-runtime.log"
+RUNTIME_DIR=""
+PID_FILE=""
+COMPAT_PID_FILE=""
+STATUS_FILE=""
+LOG_FILE=""
 
 fail() {
   echo "{\"ok\":false,\"marker\":\"FLOKI_V2_CHAT_START_SCRIPT_FAIL\",\"error\":\"$1\",\"chat_mode_only\":true}" >&2
@@ -16,8 +16,22 @@ load_node() {
   if [ -s "$HOME/.nvm/nvm.sh" ]; then
     export NVM_DIR="$HOME/.nvm"
     . "$HOME/.nvm/nvm.sh"
-    nvm use 24 >/dev/null 2>&1
+    nvm use 24.17.0 >/dev/null 2>&1 || nvm use 24 >/dev/null 2>&1
   fi
+}
+
+resolve_runtime_paths() {
+  RUNTIME_DIR="$(node - <<'NODE'
+'use strict';
+const path = require('node:path');
+const { PROJECT_ROOT, getPathConfig } = require('./src/config/floki-config.cjs');
+process.stdout.write(path.resolve(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root));
+NODE
+)" || fail "could not resolve chat runtime path from YAML"
+  PID_FILE="$RUNTIME_DIR/chat-local-runtime.pid"
+  COMPAT_PID_FILE="$RUNTIME_DIR/chat-mode-loop.pid"
+  STATUS_FILE="$RUNTIME_DIR/chat-local-runtime.status.json"
+  LOG_FILE="$RUNTIME_DIR/chat-local-runtime.log"
 }
 
 runtime_active() {
@@ -83,9 +97,28 @@ stop_runtime_pid() {
   fi
 }
 
+port_in_use() {
+  local check_host="$1"
+  local check_port="$2"
+  node - "$check_host" "$check_port" <<'NODE'
+const net = require('net');
+const host = process.argv[2];
+const port = Number(process.argv[3]);
+const client = net.connect({ host, port }, () => {
+  console.log('in-use');
+  client.destroy();
+  process.exit(0);
+});
+client.on('error', (error) => {
+  process.exit(error.code === 'ECONNREFUSED' ? 1 : 2);
+});
+NODE
+}
+
 cd "$PROJECT_DIR" || fail "could not enter project directory"
 load_node
-case "$(node -v 2>/dev/null)" in v24.*) ;; *) fail "Node 24 is required" ;; esac
+case "$(node -v 2>/dev/null)" in v24.17.0) ;; *) fail "Node v24.17.0 is required" ;; esac
+resolve_runtime_paths
 mkdir -p "$RUNTIME_DIR"
 
 # YAML is the only authority for production chat/audio settings.
@@ -119,6 +152,8 @@ if (!Number.isFinite(live.runtime_start_poll_ms) || live.runtime_start_poll_ms <
 process.stdout.write(JSON.stringify({
   runtime_start_timeout_ms: live.runtime_start_timeout_ms,
   runtime_start_poll_ms: live.runtime_start_poll_ms,
+  runtime_host: live.runtime_host,
+  runtime_port: live.runtime_port,
   audio_config_loaded: true
 }));
 NODE
@@ -126,6 +161,8 @@ NODE
 
 START_TIMEOUT_MS="$(printf '%s' "$CONFIG_JSON" | node -e "let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>process.stdout.write(String(JSON.parse(s).runtime_start_timeout_ms)))")" || fail "could not read YAML runtime_start_timeout_ms"
 START_POLL_MS="$(printf '%s' "$CONFIG_JSON" | node -e "let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>process.stdout.write(String(JSON.parse(s).runtime_start_poll_ms)))")" || fail "could not read YAML runtime_start_poll_ms"
+RUNTIME_HOST="$(printf '%s' "$CONFIG_JSON" | node -e "let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>process.stdout.write(String(JSON.parse(s).runtime_host)));")" || fail "could not read YAML runtime_host"
+RUNTIME_PORT="$(printf '%s' "$CONFIG_JSON" | node -e "let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>process.stdout.write(String(JSON.parse(s).runtime_port)));")" || fail "could not read YAML runtime_port"
 MAX_POLLS="$(node -e "const timeout=Number(process.argv[1]);const poll=Number(process.argv[2]);if(!Number.isFinite(timeout)||timeout<=0||!Number.isFinite(poll)||poll<=0)process.exit(1);process.stdout.write(String(Math.ceil(timeout/poll)))" "$START_TIMEOUT_MS" "$START_POLL_MS")" || fail "invalid YAML runtime startup timing"
 POLL_SECONDS="$(node -e "const poll=Number(process.argv[1]);if(!Number.isFinite(poll)||poll<=0)process.exit(1);process.stdout.write(String(poll/1000))" "$START_POLL_MS")" || fail "invalid YAML runtime startup poll interval"
 
@@ -152,6 +189,10 @@ for ORPHAN_PID in $(runtime_pids_for_project); do
     stop_runtime_pid "$ORPHAN_PID"
   fi
 done
+
+if port_in_use "$RUNTIME_HOST" "$RUNTIME_PORT"; then
+  fail "runtime port $RUNTIME_HOST:$RUNTIME_PORT is already in use by a process that is not the reusable backend"
+fi
 
 STARTUP_LOG_FILE="$RUNTIME_DIR/chat-local-runtime.startup.log"
 

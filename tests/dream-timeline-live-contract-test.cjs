@@ -112,21 +112,18 @@ assert.equal(complete.dominantTheme, 'The Living Workshop');
 assert.equal(complete.fragments.length, 1);
 assert.equal(complete.fragments[0].narrative.includes('workshop'), true);
 
-const electronSource = fs.readFileSync(path.join(ROOT, 'apps/floki-neural-interface/electron/main.cjs'), 'utf8');
-assert.match(electronSource, /src\/chat\/dream-timeline\.cjs/);
-assert.match(electronSource, /function dreamTimeline\(\) \{\s*return buildDreamTimeline\(\);\s*\}/);
-assert.doesNotMatch(electronSource, /function dreamTimeline\(\)[\s\S]*?const stateRoot = path\.join\(PROJECT_ROOT, 'state\/floki'\)/);
-assert.doesNotMatch(electronSource, /function dreamTimeline\(\)[\s\S]*?cycles:\s*\[\]/);
-
-const apiSource = fs.readFileSync(path.join(ROOT, 'apps/floki-neural-interface/backend/floki-local-api.cjs'), 'utf8');
-assert.match(apiSource, /buildSharedDreamTimeline/);
-assert.match(apiSource, /function buildDreamTimeline\(\) \{\s*return buildSharedDreamTimeline\(\);\s*\}/);
-
-const dashboardSource = fs.readFileSync(path.join(ROOT, 'apps/floki-neural-interface/src/pages/DreamsDashboard.jsx'), 'utf8');
-assert.match(dashboardSource, /setInterval\(refresh, REFRESH_INTERVAL_MS\)/);
-assert.match(dashboardSource, /flokiStatus\?\.sleepState/);
-assert.match(dashboardSource, /REM DREAMING/);
-assert.match(dashboardSource, /activeSession/);
+const { createChatLocalInterfaceApi } = require(path.join(ROOT, 'src/runtime/chat-local-interface-api.cjs'));
+const interfaceApi = createChatLocalInterfaceApi({
+  runtime_dir: temp,
+  status: () => ({ api_ready: true, websocket_ready: true, brain_loaded: true, memory_loaded: true, lifecycle: { is_awake: false }, hearing: {} })
+});
+const coverage = interfaceApi.coverage();
+assert.equal(coverage.connected, true);
+assert.equal(coverage.backend_owners, 1);
+assert.equal(coverage.mock_mode, false);
+assert.ok(coverage.tabs.dreams.reads.includes('dreamTimeline'));
+assert.ok(coverage.tabs.dreams.reads.includes('sleep'));
+assert.ok(coverage.tabs.dreams.writes.includes('requestSleep'));
 
 fs.rmSync(temp, { recursive: true, force: true });
 console.log('FLOKI_V2_LIVE_DREAM_TIMELINE_PASS');

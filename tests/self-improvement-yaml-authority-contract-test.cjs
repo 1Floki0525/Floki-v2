@@ -13,6 +13,7 @@ function text(relative) {
 const operationalFiles = [
   'src/self-improvement/config.cjs',
   'src/self-improvement/config-cli.cjs',
+  'src/self-improvement/model-proxy.cjs',
   'src/self-improvement/store.cjs',
   'src/self-improvement/snapshot.cjs',
   'src/self-improvement/sandbox.cjs',

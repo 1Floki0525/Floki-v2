@@ -24,7 +24,6 @@ const { createModelProxy } = require('./model-proxy.cjs');
 
 const ACTIVE_RUN_PREEMPT_REASONS = new Set([
   'foreground_turn_active',
-  'sleep_or_rem_priority',
   'memory_pressure'
 ]);
 
@@ -58,6 +57,14 @@ function classifySandboxExit(exit, stopRequest, preemptReason) {
     phase: exit?.code === 0 ? 'completed' : 'sandbox_failed',
     reason: exit?.code === 0 ? null : 'sandbox_failed'
   });
+}
+
+function isNoCandidateSandboxFailure(message) {
+  const text = String(message || '').toLowerCase();
+  return (
+    text.includes('agent iteration limit reached without a verified candidate') ||
+    text.includes('agent iteration wall-clock budget exceeded')
+  );
 }
 
 function sleep(ms) {
@@ -261,6 +268,31 @@ async function runCycle(options = {}) {
         (exit.signal ? ' signal ' + exit.signal : '');
     const message = summary ? base + '\n\n' + summary : base;
     const failedAt = nowIso();
+    if (isNoCandidateSandboxFailure(message)) {
+      updateStatus({
+        state: 'waiting_for_idle',
+        phase: 'no_verified_candidate',
+        current_run_id: null,
+        current_container: null,
+        last_error: message,
+        failure_latched_at: null,
+        last_sandbox_log_file: execution.log_file,
+        last_cycle_completed_at: failedAt
+      }, config);
+      appendAudit(
+        'cycle_no_candidate',
+        {
+          run_id: snapshot.run_id,
+          exit_code: exit.code,
+          signal: exit.signal,
+          reason: 'no_verified_candidate',
+          error: message,
+          sandbox_log_file: execution.log_file
+        },
+        config
+      );
+      return { ok: false, no_candidate: true, error: message };
+    }
     updateStatus({
       state: 'failed',
       phase: classification.phase,
@@ -426,6 +458,7 @@ module.exports = {
   pendingCandidateExists,
   readRuntimeStatus,
   classifySandboxExit,
+  isNoCandidateSandboxFailure,
   runCycle,
   serviceLoop,
   shouldPreemptActiveRun

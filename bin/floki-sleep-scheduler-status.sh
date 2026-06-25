@@ -16,15 +16,15 @@ cd "$PROJECT_DIR" || fail "Could not cd into $PROJECT_DIR"
 if [ -s "$HOME/.nvm/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"
   . "$HOME/.nvm/nvm.sh"
-  nvm use 24 >/dev/null 2>&1
+  nvm use 24.17.0 >/dev/null 2>&1 || nvm use 24 >/dev/null 2>&1
 fi
 
 NODE_VERSION="$(node -v 2>/dev/null)"
 case "$NODE_VERSION" in
-  v24.*)
+  v24.17.0)
     ;;
   *)
-    fail "Node 24 required, got $NODE_VERSION"
+    fail "Node v24.17.0 required, got $NODE_VERSION"
     ;;
 esac
 

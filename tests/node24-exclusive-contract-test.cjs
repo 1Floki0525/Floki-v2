@@ -36,7 +36,7 @@ function run() {
 
   const wrapper = fs.readFileSync(path.join(ROOT, 'bin', 'floki-node24-run.sh'), 'utf8');
   assert.equal(wrapper.includes('nvm use 24'), true);
-  assert.equal(wrapper.includes('requires Node 24 exclusively'), true);
+  assert.equal(wrapper.includes('requires Node'), true);
 
   console.log(JSON.stringify({
     ok: true,

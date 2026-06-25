@@ -19,7 +19,8 @@ function run() {
   assert.match(source, /createLiveWhisperService/);
   assert.match(source, /createLivePiperService/);
   assert.match(source, /await stopRecorder\(\)/);
-  assert.match(source, /if \(state\.awake && !stopping\) startRecorder\(\)/);
+  assert.match(source, /verifyMicrophoneReady\(\)/);
+  assert.match(source, /startRecorder\(\)/);
   assert.match(source, /fs\.rmSync\(wavFile, \{ force: true \}\)/);
   assert.match(source, /ambient_speech/);
   assert.match(source, /ambient_sound/);
@@ -52,6 +53,16 @@ function run() {
   assert.match(source, /rolling_attention_scan/);
   assert.match(source, /highPriorityAudioTasks/);
   assert.match(source, /last_ambient_sink_error/);
+  assert.match(source, /createVoiceOutputLock/);
+  assert.match(source, /canOpenMicrophone/);
+  assert.match(source, /scheduleRecorderRestart/);
+  assert.match(source, /verifyMicrophoneReady/);
+  assert.match(source, /injectVadProbability/);
+  assert.match(source, /wake_phrase_detected_in_current_utterance/);
+  assert.match(source, /pendingWakePhraseDetection/);
+  assert.ok(config.rolling_buffer_seconds > 0);
+  assert.ok(config.vad_endpoint_silence_ms > 0);
+  assert.ok(config.hearing_duplicate_window_ms >= 0);
 
   const parsed = parseWhisperResult('[dog barking] ' + wakePhrase + ', what do you see?');
   assert.deepEqual(parsed.ambient_labels, ['dog barking']);

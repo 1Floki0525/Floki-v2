@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
 
-ROOT="/media/binary-god/1tb-ssd/Floki-v2"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 cd "$ROOT" || exit 1
+if [ -s "$HOME/.nvm/nvm.sh" ]; then
+  export NVM_DIR="$HOME/.nvm"
+  . "$HOME/.nvm/nvm.sh"
+  nvm use 24.17.0 >/dev/null 2>&1 || nvm use 24 >/dev/null 2>&1
+fi
+CHAT_RUNTIME_DIR="$(node - <<'NODE'
+'use strict';
+const path = require('node:path');
+const { PROJECT_ROOT, getPathConfig } = require('./src/config/floki-config.cjs');
+process.stdout.write(path.resolve(PROJECT_ROOT, getPathConfig('chat').chat_runtime_root));
+NODE
+)" || exit 1
 timeout 20s bash bin/floki-self-improvement-stop.sh >/dev/null 2>&1 || true
 
 
@@ -98,12 +110,12 @@ PY
 STATUS="$?"
 
 rm -f \
-  state/floki/chat/runtime/chat-webcam-vision.pid \
-  state/floki/chat/runtime/sleep-cycle-scheduler.pid \
-  state/floki/chat/runtime/chat-local-runtime.pid \
-  state/floki/chat/runtime/chat-mode-loop.pid \
-  state/floki/chat/runtime/chat-mode-loop.stop \
-  state/floki/chat/runtime/chat-webcam-vision.refresh-request.json \
-  state/floki/chat/runtime/chat-vision-ssh-tunnel.sock
+  "$CHAT_RUNTIME_DIR/chat-webcam-vision.pid" \
+  "$CHAT_RUNTIME_DIR/sleep-cycle-scheduler.pid" \
+  "$CHAT_RUNTIME_DIR/chat-local-runtime.pid" \
+  "$CHAT_RUNTIME_DIR/chat-mode-loop.pid" \
+  "$CHAT_RUNTIME_DIR/chat-mode-loop.stop" \
+  "$CHAT_RUNTIME_DIR/chat-webcam-vision.refresh-request.json" \
+  "$CHAT_RUNTIME_DIR/chat-vision-ssh-tunnel.sock"
 
 exit "$STATUS"

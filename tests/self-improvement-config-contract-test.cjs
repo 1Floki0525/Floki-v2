@@ -17,7 +17,8 @@ const requiredBooleanKeys = [
   'general_web_enabled',
   'context7_enabled',
   'allow_existing_test_changes',
-  'ollama_stream'
+  'ollama_stream',
+  'failure_requires_new_activity'
 ];
 
 const requiredNumberKeys = [
@@ -87,7 +88,11 @@ const requiredNumberKeys = [
   'service_start_poll_seconds',
   'service_start_log_tail_lines',
   'service_stop_attempts',
-  'service_stop_poll_seconds'
+  'service_stop_poll_seconds',
+  'model_proxy_start_timeout_ms',
+  'model_proxy_request_timeout_ms',
+  'model_response_max_bytes',
+  'sandbox_error_tail_chars'
 ];
 
 const requiredStringKeys = [
@@ -168,6 +173,15 @@ const requiredStringKeys = [
   'arxiv_accept',
   'crossref_search_url_template',
   'crossref_accept',
+  'image_source_label',
+  'image_source_files',
+  'image_fingerprint_algorithm',
+  'model_proxy_root',
+  'model_proxy_socket_name',
+  'model_proxy_mount_path',
+  'model_proxy_mount_options',
+  'model_proxy_health_path',
+  'sandbox_log_file_name',
   'context7_protocol_version',
   'context7_client_name',
   'context7_client_version',

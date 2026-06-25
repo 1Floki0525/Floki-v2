@@ -24,6 +24,14 @@ function run() {
       sight_scope: 'maker_world_external',
       observation_summary: 'A person is seated in a room with framed photographs.'
     },
+    vision_response_contract: {
+      question: true,
+      hardware_question: false,
+      require_narrative: true,
+      scene_instruction: 'Answer from my own current sight in natural first-person language.',
+      unavailable_instruction: 'Say my sight is temporarily unavailable for this moment.',
+      prohibited_terms: ['camera', 'detector']
+    },
     identity: {
       name: 'Floki',
       self_model: {

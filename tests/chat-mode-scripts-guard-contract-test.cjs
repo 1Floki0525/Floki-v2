@@ -5,11 +5,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { PROJECT_ROOT: ROOT } = require('../src/config/floki-config.cjs');
+const { PROJECT_ROOT: ROOT, getPathConfig } = require('../src/config/floki-config.cjs');
 const START = path.join(ROOT, 'bin', 'floki-chat-start.sh');
 const STOP = path.join(ROOT, 'bin', 'floki-chat-stop.sh');
 const PROOF = path.join(ROOT, 'bin', 'floki-chat-proof.sh');
-const PID_FILE = path.join(ROOT, 'state', 'floki', 'chat', 'runtime', 'chat-mode-loop.pid');
+const PID_FILE = path.join(ROOT, getPathConfig('chat').chat_runtime_root, 'chat-mode-loop.pid');
 
 function runShell(script) {
   return spawnSync('bash', [script], {

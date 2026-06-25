@@ -19,7 +19,8 @@ function run() {
   assert.match(runtime, /on_ambient_observation: rememberAmbient/);
   assert.match(runtime, /await liveAudio\.setAwake\(hearingEnabled\)/);
   assert.match(runtime, /const visionEnabled = awake && state\.client_ready === true/);
-  assert.match(runtime, /if \(!visionEnabled\)/);
+  assert.match(runtime, /createVisionReconciler\(/);
+  assert.match(runtime, /visionReconciler\.reconcile\(visionEnabled/);
   assert.match(runtime, /stopChatWebcamVisionService/);
   assert.match(runtime, /startChatWebcamVisionService/);
   assert.match(runtime, /chat-webcam-vision\.refresh-request\.json/);

@@ -87,6 +87,22 @@ function run() {
   });
   assert.equal(notReadyNoObservation.ready_for_chat, false);
 
+  const strictBase = {
+    ...status,
+    heartbeat_fresh: true,
+    tunnel_status: { active: true },
+    detection_heartbeat_fresh: true
+  };
+  assert.equal(statusReadyForChat(strictBase), true, 'strict base status must be ready');
+
+  assert.equal(statusReadyForChat({ ...strictBase, heartbeat_fresh: false }), false, 'stale heartbeat must block readiness');
+  assert.equal(statusReadyForChat({ ...strictBase, tunnel_status: { active: false } }), false, 'inactive tunnel must block readiness');
+  assert.equal(statusReadyForChat({ ...strictBase, detection_heartbeat_fresh: false }), false, 'stale detection heartbeat must block readiness');
+
+  const serviceSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'vision', 'chat-webcam-vision-service.cjs'), 'utf8');
+  assert.equal(serviceSource.includes('options.signal'), true, 'waitForReady must accept a cancellation signal');
+  assert.equal(serviceSource.includes('signal.addEventListener'), true, 'waitForReady must listen for signal abort');
+
   const publicOnly = publicStatus({
     ...status,
     observation_summary: 'private observation',
@@ -116,10 +132,11 @@ function run() {
   assert.equal(observation.public_transcript_visible, false);
   assert.equal(observation.observation_summary, 'A private live webcam observation is available.');
 
-  const serviceSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'vision', 'chat-webcam-vision-service.cjs'), 'utf8');
   assert.equal(serviceSource.includes('raw_frame_storage_enabled: false'), true);
   assert.equal(serviceSource.includes('desktop_screenshot_run_now: false'), true);
   assert.equal(serviceSource.includes('desktop_automation_used_for_sight: false'), true);
+  assert.equal(serviceSource.includes('function readyTimeoutMs'), true, 'ready timeout must be config-driven');
+  assert.equal(serviceSource.includes('getTimeoutConfig'), true, 'ready timeout must come from floki-config');
 
   console.log(JSON.stringify({
     ok: true,

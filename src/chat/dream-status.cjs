@@ -10,6 +10,7 @@ const {
   writeJsonFileAtomicSync
 } = require('../util/fs-safe.cjs');
 const { readJsonlSync } = require('../util/jsonl.cjs');
+const { reconcileDreamArchive } = require('./dream-archive.cjs');
 const {
   dreamRootFallback,
   getDreamRoot
@@ -110,6 +111,7 @@ function latestByCreatedAt(records) {
 function latestDreamInfo(options = {}) {
   const dreamRoot = getDreamRoot(options);
   const dreamIndexFile = options.dream_index_file || path.join(dreamRoot, 'dream-index.jsonl');
+  const reconciliation = reconcileDreamArchive({ ...options, dream_root: dreamRoot, index_file: dreamIndexFile });
   const memoryIndexFile = options.dream_memory_index_file || getDreamMemoryIndexFile(options);
   const dreamRecords = readJsonlSafe(dreamIndexFile);
   const memoryRecords = readJsonlSafe(memoryIndexFile);
@@ -135,6 +137,7 @@ function latestDreamInfo(options = {}) {
     dream_index_file: dreamIndexFile,
     dream_memory_index_file: memoryIndexFile,
     dream_count_indexed: dreamRecords.length,
+    dream_archive_reconciliation: reconciliation,
     dream_memory_count_indexed: memoryRecords.length,
     latest_dream_file: latestDream && latestDream.dream_txt_file ? latestDream.dream_txt_file : null,
     latest_dream_metadata_file: latestDream && latestDream.dream_metadata_file ? latestDream.dream_metadata_file : null,
@@ -203,6 +206,7 @@ function buildDreamStatus(options = {}) {
     latest_dream_memory_id: latest.latest_dream_memory_id,
     dream_count_indexed: latest.dream_count_indexed,
     dream_memory_count_indexed: latest.dream_memory_count_indexed,
+    dream_archive_reconciliation: latest.dream_archive_reconciliation,
     dream_root: dreamRoot,
     cold_storage_available: coldStorageAvailable,
     cold_storage_dream_path_used: path.resolve(dreamRoot) === path.resolve(dreamRootFallback),

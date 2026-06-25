@@ -13,6 +13,7 @@ function text(relative) {
 const required = [
   'src/self-improvement/config.cjs',
   'src/self-improvement/config-cli.cjs',
+  'src/self-improvement/model-proxy.cjs',
   'src/self-improvement/store.cjs',
   'src/self-improvement/snapshot.cjs',
   'src/self-improvement/sandbox.cjs',
@@ -43,6 +44,8 @@ assert.match(sandbox, /config\.network_mode/);
 assert.match(sandbox, /config\.workspace_mount_path/);
 assert.match(sandbox, /config\.outbox_mount_path/);
 assert.match(sandbox, /config\.sandbox_engine/);
+assert.match(sandbox, /imageSourceFingerprint/);
+assert.match(sandbox, /config\.model_proxy_mount_path/);
 assert.doesNotMatch(sandbox, /--network[=',\s]+host/);
 assert.doesNotMatch(sandbox, /docker\.sock|podman\.sock/);
 assert.doesNotMatch(sandbox, /project_root\s*\+\s*['"]:\/workspace/);
@@ -147,6 +150,8 @@ assert.match(configTemplate, /approval_required:\s+true/);
 assert.match(configTemplate, /context7_package_version:/);
 assert.match(configTemplate, /web_search_url_template:/);
 assert.match(configTemplate, /promotion_restart_command:/);
+assert.match(configTemplate, /snapshot_exclude_patterns:.*\.env/);
+assert.match(configTemplate, /snapshot_exclude_patterns:.*\.npmrc/);
 
 console.log(JSON.stringify({
   ok: true,

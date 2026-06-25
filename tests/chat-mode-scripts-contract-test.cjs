@@ -30,8 +30,12 @@ function run() {
     assert.equal(script.includes('chat_mode_only'), true, name + ' must report chat_mode_only');
   }
 
-  assert.equal(startScript.includes('state/floki/chat/runtime'), true);
-  assert.equal(stopScript.includes('state/floki/chat/runtime'), true);
+  assert.equal(startScript.includes("getPathConfig('chat').chat_runtime_root"), true);
+  assert.equal(stopScript.includes("getPathConfig('chat').chat_runtime_root"), true);
+  assert.equal(statusScript.includes("getPathConfig('chat').chat_runtime_root"), true);
+  assert.equal(startScript.includes('state/floki/chat/runtime'), false);
+  assert.equal(stopScript.includes('state/floki/chat/runtime'), false);
+  assert.equal(statusScript.includes('state/floki/chat/runtime'), false);
   assert.equal(startScript.includes('src/runtime/chat-local-runtime.cjs'), true);
   assert.equal(startScript.includes('chat-local-runtime.pid'), true);
   assert.equal(startScript.includes('FLOKI_V2_CHAT_START_SCRIPT_PASS'), true);

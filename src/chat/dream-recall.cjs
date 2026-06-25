@@ -7,6 +7,7 @@ const { getDreamRoot } = require('./dream-engine.cjs');
 const { getDreamMemoryIndexFile } = require('./dream-memory-consolidation.cjs');
 const { existsSync } = require('../util/fs-safe.cjs');
 const { readJsonlSync } = require('../util/jsonl.cjs');
+const { reconcileDreamArchive } = require('./dream-archive.cjs');
 const { rejectPrivateReasoningMarkers } = require('../model/ollama-client.cjs');
 
 function isDreamRecallQuestion(text) {
@@ -39,13 +40,22 @@ function safeText(value, limit = 600) {
 }
 
 function readDreamMemoryIndex(options = {}) {
-  const indexFile = options.dream_memory_index_file || getDreamMemoryIndexFile(options);
-
-  if (!existsSync(indexFile)) {
-    return [];
+  const dreamRoot = getDreamRoot(options);
+  const archiveIndexFile = options.dream_index_file || path.join(dreamRoot, 'dream-index.jsonl');
+  reconcileDreamArchive({ ...options, dream_root: dreamRoot, index_file: archiveIndexFile });
+  const memoryIndexFile = options.dream_memory_index_file || getDreamMemoryIndexFile(options);
+  const archiveRecords = existsSync(archiveIndexFile)
+    ? readJsonlSync(archiveIndexFile).filter((record) => record && typeof record === 'object')
+    : [];
+  const memoryRecords = existsSync(memoryIndexFile)
+    ? readJsonlSync(memoryIndexFile).filter((record) => record && typeof record === 'object')
+    : [];
+  const merged = new Map();
+  for (const record of archiveRecords.concat(memoryRecords)) {
+    const key = String(record.dream_id || record.id || record.dream_metadata_file || record.dream_txt_file || '');
+    if (key && !merged.has(key)) merged.set(key, record);
   }
-
-  return readJsonlSync(indexFile).filter((record) => record && typeof record === 'object');
+  return Array.from(merged.values());
 }
 
 function compactDreamIndexRecord(record) {

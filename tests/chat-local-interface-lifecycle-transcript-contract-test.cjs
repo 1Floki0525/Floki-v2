@@ -54,7 +54,7 @@ function run() {
   assert.match(runtime, /url\.pathname === '\/transcript\/clear'/);
   assert.match(runtime, /await liveAudio\.setAwake\(hearingEnabled\)/);
   assert.match(runtime, /const visionEnabled = awake && state\.client_ready === true/);
-  assert.match(runtime, /if \(!visionEnabled\)/);
+  assert.match(runtime, /visionReconciler\.reconcile\(visionEnabled/);
   assert.match(runtime, /state\.client_ready !== true\s*\? 'awaiting_client'/);
 
   assert.match(electron, /mainWindow\.show\(\);\s*void runtimeRequest\('POST', '\/client-ready'/s);
