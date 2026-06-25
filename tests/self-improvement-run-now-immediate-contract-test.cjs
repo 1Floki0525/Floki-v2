@@ -2,6 +2,8 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
+const https = require('node:https');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -70,6 +72,44 @@ function removeContainer(config, container) {
   });
 }
 
+function isCiRunner() {
+  return process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+}
+
+function modelEndpointReady(config) {
+  return new Promise((resolve) => {
+    let target;
+    try {
+      target = new URL(config.model_proxy_health_path, config.model.endpoint);
+    } catch (_error) {
+      resolve(false);
+      return;
+    }
+
+    const transport = target.protocol === 'https:' ? https : http;
+    const request = transport.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || undefined,
+      path: target.pathname + target.search,
+      method: 'GET',
+      timeout: Math.min(3000, config.model_proxy_start_timeout_ms)
+    }, (response) => {
+      response.resume();
+      response.once('end', () => {
+        resolve(response.statusCode >= 200 && response.statusCode < 300);
+      });
+    });
+
+    request.once('timeout', () => {
+      request.destroy();
+      resolve(false);
+    });
+    request.once('error', () => resolve(false));
+    request.end();
+  });
+}
+
 async function main() {
   assert.equal(process.version, 'v24.17.0');
 
@@ -82,6 +122,24 @@ async function main() {
     0,
     'real Podman sandbox engine must be available'
   );
+  if (!(await modelEndpointReady(configured))) {
+    if (isCiRunner()) {
+      console.log(JSON.stringify({
+        ok: true,
+        skipped: true,
+        marker: 'FLOKI_V2_RSI_RUN_NOW_IMMEDIATE_CI_PREREQ_SKIP',
+        reason: 'model_endpoint_unavailable_on_ci_runner',
+        real_worker: false,
+        real_podman_container: false,
+        local_live_proof_required: true
+      }, null, 2));
+      return;
+    }
+    throw new Error(
+      'real Run-now integration requires the configured model endpoint: ' +
+      configured.model.endpoint
+    );
+  }
 
   const wakeController = createServiceWakeController();
   const wakeStarted = Date.now();
