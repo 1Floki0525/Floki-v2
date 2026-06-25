@@ -18,6 +18,10 @@ function main() {
   );
   assert.match(reconciler, /sleep_overrides_vision_start/, 'chat-local-runtime must read sleep_overrides_vision_start');
   assert.match(reconciler, /external_eyes_enabled/, 'chat-local-runtime must read external_eyes_enabled');
+  assert.match(reconciler, /window_visible: state\.window_visible === true/, 'chat-local-runtime must implement the YAML window_visible start gate');
+  assert.match(reconciler, /state\.window_visible = true/, 'client-ready must mark the chat interface window visible');
+  assert.match(reconciler, /state\.window_visible = false/, 'client-detached and shutdown must mark the chat interface window hidden');
+  assert.match(reconciler, /const noActiveStart = true/, 'no_active_start must not revoke desired awake vision while a start is in flight');
   assert.match(reconciler, /vision_camera_stop_timeout_ms/, 'chat-local-runtime must read vision_camera_stop_timeout_ms');
 
   console.log(JSON.stringify({
@@ -25,6 +29,8 @@ function main() {
     marker: 'FLOKI_V2_VISION_LIFECYCLE_SLEEP_OVERRIDE_PASS',
     desired_state_gates_required: true,
     sleep_overrides_vision_start: true,
+    window_visible_gate_implemented: true,
+    no_active_start_does_not_cancel_in_flight_start: true,
     chat_mode_only: true,
     game_mode_started: false
   }, null, 2));

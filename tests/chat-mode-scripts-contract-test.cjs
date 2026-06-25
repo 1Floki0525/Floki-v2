@@ -37,6 +37,7 @@ function run() {
   assert.equal(stopScript.includes('state/floki/chat/runtime'), false);
   assert.equal(statusScript.includes('state/floki/chat/runtime'), false);
   assert.equal(startScript.includes('src/runtime/chat-local-runtime.cjs'), true);
+  assert.equal(startScript.includes('setsid nohup node src/runtime/chat-local-runtime.cjs'), true);
   assert.equal(startScript.includes('chat-local-runtime.pid'), true);
   assert.equal(startScript.includes('FLOKI_V2_CHAT_START_SCRIPT_PASS'), true);
   assert.equal(startScript.includes('FLOKI_ALLOW_CHAT_MODE_LOOP=1'), false);
@@ -74,6 +75,7 @@ function run() {
     stop_script_marker: stopStatus.marker,
     proof_script_marker: proofStatus.marker,
     no_broad_process_kill: true,
+    runtime_detached_from_launcher_session: true,
     start_does_not_unload_ollama: true,
     chat_mode_only: true
   }, null, 2));

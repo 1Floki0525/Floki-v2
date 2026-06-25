@@ -202,7 +202,7 @@ rm -f \
   "$STATUS_FILE" \
   "$STARTUP_LOG_FILE"
 
-nohup node src/runtime/chat-local-runtime.cjs \
+setsid nohup node src/runtime/chat-local-runtime.cjs \
   </dev/null \
   >>"$STARTUP_LOG_FILE" 2>&1 &
 

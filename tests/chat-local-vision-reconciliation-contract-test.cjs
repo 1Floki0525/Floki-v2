@@ -182,6 +182,17 @@ async function run() {
     assert.equal(service.active, false, 'stale start must not leave service active');
   }
 
+  // 8. Awake/client-ready reconciliation must restart if the actual vision process stopped.
+  {
+    const service = makeService();
+    const reconciler = createVisionReconciler(service);
+    await reconciler.reconcile(true, { awake: true });
+    service.active = false;
+    const restart = await reconciler.reconcile(true, { awake: true });
+    assert.equal(restart.transition, 'started', 'stopped vision must start again while awake');
+    assert.equal(service.calls.filter((c) => c.op === 'start').length, 2, 'actual stopped service must trigger a second start');
+  }
+
   console.log(JSON.stringify({
     ok: true,
     marker: 'FLOKI_V2_CHAT_LOCAL_VISION_RECONCILIATION_PASS',
@@ -192,6 +203,7 @@ async function run() {
     cancellation_handled: true,
     exact_readiness_failure_reported: true,
     stale_completion_ignored: true,
+    stopped_vision_restarted_while_awake: true,
     chat_mode_only: true,
     game_mode_started: false
   }, null, 2));

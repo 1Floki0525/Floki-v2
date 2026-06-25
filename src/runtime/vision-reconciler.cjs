@@ -30,6 +30,7 @@ function createVisionReconciler(deps) {
   let currentTaskOp = null;
   let lastAwake = true;
   let lastLoggedKey = null;
+  let lastCompletedOk = false;
 
   function logOnce(key, message) {
     if (lastLoggedKey !== key) {
@@ -53,6 +54,7 @@ function createVisionReconciler(deps) {
         throw new Error('stale completion ignored');
       }
       lastCompletedGeneration = opDesiredGen;
+      lastCompletedOk = true;
       const stopMessage = lastAwake
         ? 'vision paused until interface ready'
         : 'vision paused for sleep';
@@ -65,6 +67,7 @@ function createVisionReconciler(deps) {
         throw new Error('stale completion ignored');
       }
       lastCompletedGeneration = opDesiredGen;
+      lastCompletedOk = false;
       logOnce(active ? 'start-fail' : 'stop-fail',
         (active ? 'vision awake start failed: ' : 'vision suspension failed: ') + error.message);
       throw error;
@@ -73,6 +76,18 @@ function createVisionReconciler(deps) {
         currentTaskAbortController = null;
       }
     }
+  }
+
+  function statusMatchesDesired(active, status) {
+    if (!status || typeof status !== 'object') {
+      return active === false;
+    }
+    if (active) {
+      return status.ready_for_chat === true &&
+        status.active === true &&
+        status.service_process_alive !== false;
+    }
+    return status.active !== true && status.service_process_alive !== true;
   }
 
   function reconcile(active, context = {}) {
@@ -86,14 +101,20 @@ function createVisionReconciler(deps) {
 
     const gen = desiredGeneration;
 
-    // Already reconciled to the desired state and nothing is running.
+    // Already reconciled to the desired state and nothing is running. For
+    // successful starts, verify the actual service is still alive before no-op.
     if (!currentTask && lastCompletedGeneration >= gen) {
-      return Promise.resolve({
-        ok: true,
-        transition: 'noop',
-        active,
-        status: readStatus()
-      });
+      const status = readStatus();
+      if (lastCompletedOk && !statusMatchesDesired(active, status)) {
+        lastCompletedGeneration = gen - 1;
+      } else {
+        return Promise.resolve({
+          ok: true,
+          transition: 'noop',
+          active,
+          status
+        });
+      }
     }
 
     // All callers that see the same desired generation share one in-flight promise.
@@ -106,7 +127,7 @@ function createVisionReconciler(deps) {
       if (currentTaskAbortController) {
         currentTaskAbortController.abort();
       }
-      const afterCancel = currentTask.catch((error) => { if (typeof options.log === 'function') options.log('vision reconciliation task rejected: ' + error.message); }).then(() => {
+      const afterCancel = currentTask.catch((error) => { logOnce('task-rejected', 'vision reconciliation task rejected: ' + error.message); }).then(() => {
         if (currentTask === afterCancel) {
           currentTask = null;
           currentTaskGeneration = 0;

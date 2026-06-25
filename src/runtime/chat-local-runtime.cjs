@@ -298,6 +298,7 @@ function createChatLocalRuntime(options = {}) {
     last_reply: '',
     api_ready: false,
     client_ready: false,
+    window_visible: false,
     client_ready_at: null,
     client_detached_at: null,
     senses_enabled: false,
@@ -650,10 +651,13 @@ function createChatLocalRuntime(options = {}) {
     const sleepOverrides = vision.sleep_overrides_vision_start !== false;
     const externalEyesEnabled = vision.external_eyes_enabled === true;
     const cameraAvailable = state.camera_availability !== false;
-    const noActiveStart = !state.vision_start_in_flight;
+    // The reconciler owns duplicate-start suppression. This gate must not turn
+    // desired vision off while an awake start is already in flight.
+    const noActiveStart = true;
     const desiredGates = String(vision.desired_state_gates_required_for_start || '').split('|').map((s) => s.trim()).filter(Boolean);
     const gates = {
       client_ready: state.client_ready === true,
+      window_visible: state.window_visible === true,
       awake: awake,
       inside_awake_window: awake || next.is_asleep !== true,
       external_eyes_enabled: externalEyesEnabled,
@@ -932,6 +936,7 @@ function createChatLocalRuntime(options = {}) {
     if (req.method === 'POST' && url.pathname.startsWith('/interface/control/')) { const action = decodeURIComponent(url.pathname.slice('/interface/control/'.length)); const body = await bodyJson(req); sendJson(res, 200, await controlAction(action, body)); return; }
     if (req.method === 'POST' && url.pathname === '/client-ready') {
       state.client_ready = true;
+      state.window_visible = true;
       state.client_ready_at = nowIso();
       state.client_detached_at = null;
       appendLog('interface ready; reconciling awake sensory services');
@@ -941,6 +946,7 @@ function createChatLocalRuntime(options = {}) {
     }
     if (req.method === 'POST' && url.pathname === '/client-detached') {
       state.client_ready = false;
+      state.window_visible = false;
       state.client_detached_at = nowIso();
       appendLog('interface detached; suspending external senses');
       await applyLifecycle(buildFlokiLifecycleStatus());
@@ -1153,6 +1159,7 @@ function createChatLocalRuntime(options = {}) {
     if (stopping) return;
     stopping = true;
     state.client_ready = false;
+    state.window_visible = false;
     state.senses_enabled = false;
     state.shutdown_requested = true;
     state.state = 'stopping';
