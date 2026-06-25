@@ -1,60 +1,68 @@
-'use strict'
+'use strict';
 
-const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const path = require('node:path')
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
-const app = path.resolve(__dirname, '..')
-const root = path.resolve(app, '..', '..')
-const read = (relative) => fs.readFileSync(path.join(app, relative), 'utf8')
+const app = path.resolve(__dirname, '..');
+const root = path.resolve(app, '..', '..');
+const { createChatLocalInterfaceApi, INTERFACE_TAB_CONTRACT } = require(path.join(root, 'src/runtime/chat-local-interface-api.cjs'));
+const { upsertChatTranscriptTurn, appendPrivateThoughtRecord } = require(path.join(root, 'src/chat/chat-transcript.cjs'));
 
-assert.equal(fs.existsSync(path.join(app, 'electron/main.cjs')), true)
-assert.equal(fs.existsSync(path.join(app, 'electron/preload.cjs')), true)
-assert.equal(fs.existsSync(path.join(app, 'dist/index.html')), true)
-assert.match(read('package.json'), /"main": "electron\/main\.cjs"/)
-assert.doesNotMatch(read('package.json'), /base44|recharts/i)
-assert.doesNotMatch(read('vite.config.js'), /base44/i)
+assert.equal(fs.existsSync(path.join(app, 'electron/main.cjs')), true);
+assert.equal(fs.existsSync(path.join(app, 'electron/preload.cjs')), true);
+assert.equal(fs.existsSync(path.join(app, 'backend/floki-local-api.cjs')), false, 'parallel local API owner must not exist');
 
-const settingsPage = read('src/pages/SettingsPage.jsx')
-const settingsStore = read('src/stores/settingsStore.js')
-assert.match(settingsPage, /Electron IPC/)
-assert.match(settingsPage, /Local API URL/)
-assert.match(settingsPage, /Local WebSocket URL/)
-assert.match(settingsPage, /Mock Mode/)
-assert.match(settingsStore, /mockMode:\s*false/)
-assert.match(settingsStore, /localApiUrl/)
-assert.match(settingsStore, /localWsUrl/)
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'floki-interface-contract-'));
+try {
+  const transcriptDir = path.join(temp, 'interface');
+  upsertChatTranscriptTurn({ id: 'spoken-1', role: 'user', text: 'Hey Floki, what can you see?', input_modality: 'spoken', transcript_state: 'final' }, { transcript_dir: transcriptDir });
+  appendPrivateThoughtRecord({ text: 'I hear the Maker asking what I can see.', category: 'hearing' }, { transcript_dir: transcriptDir });
 
-const main = read('electron/main.cjs')
-assert.doesNotMatch(main, /handleTypedText\s*\(/)
-assert.doesNotMatch(main, /createRuntime\s*\(/)
-assert.equal(main.includes("runtimeRequest('POST', '/chat'"), true)
-assert.match(main, /readChatTranscriptTail/)
-assert.match(main, /floki:clear-transcript/)
-assert.match(main, /runtimeRequest\('POST', '\/client-ready'/)
-assert.match(main, /readChatWebcamVisionStatus/)
-assert.match(main, /loadAffectState/)
-assert.match(main, /buildFlokiLifecycleStatus/)
-assert.match(fs.readFileSync(path.join(root, 'bin/floki-start.sh'), 'utf8'), /chat\.local/)
-const chatPanel = read('src/components/chat/ChatPanel.jsx')
-assert.match(chatPanel, /getTranscript\(500\)/)
-assert.match(chatPanel, /Clear chat/)
-assert.doesNotMatch(chatPanel, /syncSpokenTranscript/)
+  const api = createChatLocalInterfaceApi({
+    runtime_dir: temp,
+    transcript_options: { transcript_dir: transcriptDir },
+    status: () => ({
+      api_ready: true,
+      websocket_ready: true,
+      brain_loaded: true,
+      memory_loaded: true,
+      ready: true,
+      state: 'listening',
+      lifecycle: { is_awake: true },
+      hearing: { service_state: 'listening', piper_ready: true, playback_ready: true }
+    })
+  });
 
-const forbidden = []
-function walk(dir) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (['node_modules', 'dist', 'tests'].includes(entry.name)) continue
-    const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) walk(full)
-    else if (/\.(js|jsx|cjs|mjs|json|md|html)$/i.test(entry.name)) {
-      const text = fs.readFileSync(full, 'utf8')
-      if (/base44|FLOKI_INTEGRATION_PLACEHOLDER/i.test(text)) forbidden.push(path.relative(app, full))
-    }
+  const coverage = api.coverage();
+  assert.equal(coverage.connected, true);
+  assert.equal(coverage.authoritative_backend, 'src/runtime/chat-local-runtime.cjs');
+  assert.equal(coverage.backend_owners, 1);
+  assert.equal(coverage.mock_mode, false);
+  assert.deepEqual(Object.keys(coverage.tabs).sort(), ['chat', 'dreams', 'neural', 'settings', 'system']);
+  assert.deepEqual(Object.keys(coverage.tabs).sort(), Object.keys(INTERFACE_TAB_CONTRACT).sort());
+  for (const [tab, contract] of Object.entries(coverage.tabs)) {
+    assert.ok(contract.reads.length > 0, `${tab} must read authoritative backend state`);
+    assert.ok(contract.live_events.length > 0, `${tab} must declare live backend events`);
   }
-}
-walk(app)
-assert.deepEqual(forbidden, [], `obsolete generated-platform placeholders remain: ${forbidden.join(', ')}`)
-assert.equal(fs.existsSync(path.join(app, 'src/integrations/floki/mockAdapter.js')), false, 'mock adapter must not be active production code')
 
-console.log('FLOKI_V2_CHAT_LOCAL_CONTRACT_PASS')
+  const transcript = api.getTranscript(20);
+  assert.equal(transcript.length, 1);
+  assert.equal(transcript[0].content, 'Hey Floki, what can you see?');
+  assert.equal(transcript[0].isPartial, false);
+  const neural = api.buildNeuralEvents(20);
+  assert.equal(neural.length, 1);
+  assert.equal(neural[0].summary, 'I hear the Maker asking what I can see.');
+  assert.equal(/^I\b/.test(neural[0].summary), true);
+  assert.equal(api.getSettings().connection.mockMode, false);
+
+  const services = api.buildServices();
+  assert.equal(Array.isArray(services), true);
+  assert.equal(services.some((service) => service.name === 'Authoritative API'), true);
+  assert.equal(services.some((service) => /Minecraft|Unreal|Local API/i.test(service.name)), false);
+
+  console.log('FLOKI_V2_CHAT_LOCAL_CONTRACT_PASS');
+} finally {
+  fs.rmSync(temp, { recursive: true, force: true });
+}

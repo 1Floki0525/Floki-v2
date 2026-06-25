@@ -1,36 +1,95 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import flokiAdapter from '@/integrations/floki/adapter'
+import { ServiceStatus } from '@/integrations/floki/types'
 import ServiceCard from '@/components/system/ServiceCard'
 import SystemControls from '@/components/system/SystemControls'
 import SelfImprovementPanel from '@/components/system/SelfImprovementPanel'
 import { toast } from 'sonner'
 
+function selfImprovementService(status) {
+  const failed = status?.state === 'failed' || Boolean(status?.last_error)
+  const running = status?.worker_running === true
+  const state = String(status?.state || 'unknown').replaceAll('_', ' ')
+  const phase = String(status?.phase || '').replaceAll('_', ' ')
+  return {
+    name: 'Recursive Self-Improvement',
+    status: failed
+      ? ServiceStatus.DEGRADED
+      : running
+        ? ServiceStatus.RUNNING
+        : ServiceStatus.STOPPED,
+    lastHeartbeat: status?.last_heartbeat_at
+      ? Date.parse(status.last_heartbeat_at)
+      : Date.now(),
+    uptime: status?.started_at
+      ? Math.max(0, Date.now() - Date.parse(status.started_at))
+      : 0,
+    latency: 0,
+    lastError: status?.last_error || null,
+    detail: [
+      running ? 'Worker running' : 'Worker stopped',
+      state,
+      phase
+    ].filter(Boolean).join(' · '),
+    restartAvailable: false,
+    logAvailable: true,
+    logKey: 'Self-Improvement Worker'
+  }
+}
+
 export default function SystemDashboard() {
   const [services, setServices] = useState([])
   const [busyAction, setBusyAction] = useState(null)
+  const pollMsRef = React.useRef(null)
+
+  const loadServices = useCallback(async () => {
+    const [next, rsiStatus] = await Promise.all([
+      flokiAdapter.getSystemStatus(),
+      flokiAdapter.getSelfImprovementStatus()
+    ])
+    const pollMs = Number(rsiStatus?.ui_poll_ms)
+    if (!Number.isFinite(pollMs) || pollMs <= 0) {
+      throw new Error('self_improvement.ui_poll_ms is invalid')
+    }
+    return {
+      rows: [
+        ...(Array.isArray(next) ? next : []),
+        selfImprovementService(rsiStatus)
+      ],
+      pollMs
+    }
+  }, [])
 
   const refresh = useCallback(async () => {
-    const next = await flokiAdapter.getSystemStatus()
-    setServices(Array.isArray(next) ? next : [])
-  }, [])
+    const loaded = await loadServices()
+    setServices(loaded.rows)
+    return loaded
+  }, [loadServices])
 
   useEffect(() => {
     let active = true
+    let timer = null
     const run = async () => {
-      try {
-        const next = await flokiAdapter.getSystemStatus()
-        if (active) setServices(Array.isArray(next) ? next : [])
-      } catch (error) {
-        if (active) toast.error(`System status failed: ${error.message}`)
-      }
-    }
+	      try {
+	        const loaded = await loadServices()
+	        if (active) {
+	          pollMsRef.current = loaded.pollMs
+	          setServices(loaded.rows)
+	          timer = setTimeout(run, loaded.pollMs)
+	        }
+	      } catch (error) {
+	        if (active) toast.error(`System status failed: ${error.message}`)
+	        if (active && Number.isFinite(pollMsRef.current) && pollMsRef.current > 0) {
+	          timer = setTimeout(run, pollMsRef.current)
+	        }
+	      }
+	    }
     run()
-    const timer = setInterval(run, 3000)
     return () => {
       active = false
-      clearInterval(timer)
+      if (timer) clearTimeout(timer)
     }
-  }, [])
+  }, [loadServices])
 
   const execute = useCallback(async (action, label) => {
     if (!action || busyAction) return

@@ -24,6 +24,7 @@ const { createModelProxy } = require('./model-proxy.cjs');
 
 const ACTIVE_RUN_PREEMPT_REASONS = new Set([
   'foreground_turn_active',
+  'sleep_or_rem_priority',
   'memory_pressure'
 ]);
 
@@ -92,6 +93,12 @@ function latestActivityMs(runtime) {
 function idleEligibility(runtime, status, config, force = false) {
   if (!runtime || runtime.api_ready !== true) {
     return { eligible: false, reason: 'chat_runtime_not_ready' };
+  }
+  if (runtime.active_turn === true) {
+    return { eligible: false, reason: 'foreground_turn_active' };
+  }
+  if (runtime.hearing?.speaking === true) {
+    return { eligible: false, reason: 'speech_output_active' };
   }
   if (status.paused === true) {
     return { eligible: false, reason: 'paused' };
@@ -168,9 +175,10 @@ async function runCycle(options = {}) {
   let preemptReason = null;
   const cycleStartMs = Date.now();
   const preemptTimer = setInterval(() => {
+    const status = readStatus(config);
+    updateStatus({}, config);
     touchWorkerHeartbeat(config);
     touchSandboxHeartbeat(config, snapshot.run_id);
-    const status = readStatus(config);
     const lastSandboxHeartbeat = readSandboxHeartbeat(config);
     const lastSandboxMs = lastSandboxHeartbeat ? Date.parse(lastSandboxHeartbeat.observed_at || '') : null;
     const stallMs = lastSandboxMs ? (Date.now() - lastSandboxMs) : 0;

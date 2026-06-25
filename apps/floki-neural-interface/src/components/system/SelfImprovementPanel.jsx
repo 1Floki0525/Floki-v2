@@ -9,6 +9,7 @@ import {
   CirclePlay,
   Code2,
   ExternalLink,
+  FileText,
   FlaskConical,
   RefreshCw,
   ShieldCheck,
@@ -35,7 +36,10 @@ export default function SelfImprovementPanel() {
   const [detail, setDetail] = useState(null)
   const [expandedDiff, setExpandedDiff] = useState(false)
   const [busy, setBusy] = useState(null)
+  const [actionFeedback, setActionFeedback] = useState(null)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(null)
   const alertedCandidate = useRef(null)
+  const pollMsRef = useRef(null)
 
   const refresh = useCallback(async () => {
     const [nextStatus, nextCandidates] = await Promise.all([
@@ -43,6 +47,7 @@ export default function SelfImprovementPanel() {
       flokiAdapter.getSelfImprovementCandidates()
     ])
     setStatus(nextStatus)
+    setLastRefreshedAt(Date.now())
     setCandidates(Array.isArray(nextCandidates) ? nextCandidates : [])
     const pending = (nextCandidates || []).find((candidate) => candidate.status === 'pending_review')
     if (pending && alertedCandidate.current !== pending.id) {
@@ -57,18 +62,22 @@ export default function SelfImprovementPanel() {
     let active = true
     let timer = null
 
-    const run = async () => {
-      try {
-        const nextStatus = await refresh()
-        const pollMs = Number(nextStatus?.ui_poll_ms)
-        if (!Number.isFinite(pollMs) || pollMs <= 0) {
-          throw new Error('self_improvement.ui_poll_ms is invalid')
-        }
-        if (active) timer = setTimeout(run, pollMs)
-      } catch (error) {
-        if (active) toast.error(`Self-improvement status failed: ${error.message}`)
-      }
-    }
+	    const run = async () => {
+	      try {
+	        const nextStatus = await refresh()
+	        const pollMs = Number(nextStatus?.ui_poll_ms)
+	        if (!Number.isFinite(pollMs) || pollMs <= 0) {
+	          throw new Error('self_improvement.ui_poll_ms is invalid')
+	        }
+	        pollMsRef.current = pollMs
+	        if (active) timer = setTimeout(run, pollMs)
+	      } catch (error) {
+	        if (active) toast.error(`Self-improvement status failed: ${error.message}`)
+	        if (active && Number.isFinite(pollMsRef.current) && pollMsRef.current > 0) {
+	          timer = setTimeout(run, pollMsRef.current)
+	        }
+	      }
+	    }
 
     run()
     return () => {
@@ -94,23 +103,58 @@ export default function SelfImprovementPanel() {
     [candidates]
   )
 
-  const act = useCallback(async (name, action) => {
+  const act = useCallback(async (name, action, verify) => {
     if (busy) return
     setBusy(name)
+    setActionFeedback({ ok: null, message: `${name} in progress...` })
     try {
       const result = await action()
       if (result?.ok === false) throw new Error(result.error || `${name} failed`)
-      toast.success(result?.message || `${name} completed`)
-      await refresh()
+      const nextStatus = await refresh()
+      if (verify && verify(nextStatus, result) !== true) {
+        throw new Error(`${name} verification failed`)
+      }
+      const message = result?.message || `${name} completed and verified`
+      setActionFeedback({ ok: true, message })
+      toast.success(message)
       if (selectedId) {
         setDetail(await flokiAdapter.getSelfImprovementCandidate(selectedId))
       }
     } catch (error) {
-      toast.error(`${name} failed: ${error.message}`)
+      const message = `${name} failed: ${error.message}`
+      setActionFeedback({ ok: false, message })
+      toast.error(message)
     } finally {
       setBusy(null)
     }
   }, [busy, refresh, selectedId])
+
+  const manualRefresh = useCallback(async () => {
+    if (busy) return
+    setBusy('Refresh status')
+    setActionFeedback({ ok: null, message: 'Refreshing self-improvement status...' })
+    try {
+      await refresh()
+      setActionFeedback({ ok: true, message: 'Self-improvement status refreshed and verified.' })
+      toast.success('Self-improvement status refreshed')
+    } catch (error) {
+      const message = `Refresh status failed: ${error.message}`
+      setActionFeedback({ ok: false, message })
+      toast.error(message)
+    } finally {
+      setBusy(null)
+    }
+  }, [busy, refresh])
+
+  const openLog = useCallback(async (key, label) => {
+    try {
+      const result = await flokiAdapter.openLog(key)
+      if (!result?.ok) throw new Error(`${label} is not available`)
+      toast.success(`Opened ${label}`)
+    } catch (error) {
+      toast.error(`Could not open ${label}: ${error.message}`)
+    }
+  }, [])
 
   const approve = useCallback(() => {
     if (!detail || detail.status !== 'pending_review') return
@@ -147,10 +191,41 @@ export default function SelfImprovementPanel() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => act(status?.paused ? 'Resume worker' : 'Pause worker', () =>
-              status?.paused ? flokiAdapter.resumeSelfImprovement() : flokiAdapter.pauseSelfImprovement()
-            )}
-            disabled={Boolean(busy)}
+            type="button"
+            onClick={() => openLog('Self-Improvement Worker', 'self-improvement worker log')}
+            className="px-3 py-2 text-xs rounded-md border border-border hover:border-neon-cyan/40 flex items-center gap-2"
+          >
+            <FileText className="w-4 h-4" />
+            Worker log
+          </button>
+          <button
+            type="button"
+            onClick={() => openLog('Self-Improvement Sandbox', 'latest self-improvement sandbox log')}
+            disabled={!status?.last_sandbox_log_file}
+            className="px-3 py-2 text-xs rounded-md border border-border hover:border-neon-cyan/40 disabled:opacity-50 flex items-center gap-2"
+          >
+            <FileText className="w-4 h-4" />
+            Sandbox log
+          </button>
+          <button
+            onClick={() => status?.paused
+              ? act(
+                  'Resume worker',
+                  () => flokiAdapter.resumeSelfImprovement(),
+                  (nextStatus) => {
+                    if (nextStatus?.paused === false) return true
+                    throw new Error('Resume verification failed')
+                  }
+                )
+              : act(
+                  'Pause worker',
+                  () => flokiAdapter.pauseSelfImprovement(),
+                  (nextStatus) => {
+                    if (nextStatus?.paused === true) return true
+                    throw new Error('Pause verification failed')
+                  }
+                )}
+            disabled={Boolean(busy) || !status}
             className="px-3 py-2 text-xs rounded-md border border-border hover:border-neon-cyan/40 disabled:opacity-50 flex items-center gap-2"
           >
             {status?.paused ? <CirclePlay className="w-4 h-4" /> : <CirclePause className="w-4 h-4" />}
@@ -159,16 +234,35 @@ export default function SelfImprovementPanel() {
           <button
             onClick={() => {
               const objective = window.prompt('Optional improvement objective. Leave blank for Floki to select one:', '') || ''
-              act('Queue improvement cycle', () => flokiAdapter.runSelfImprovementNow(objective))
+              act(
+                'Queue improvement cycle',
+                () => flokiAdapter.runSelfImprovementNow(objective),
+                (nextStatus, result) => {
+                  const verifiedStatus = result?.status || nextStatus
+                  if (
+                    verifiedStatus?.worker_running === true &&
+                    verifiedStatus?.state === 'queued' &&
+                    verifiedStatus?.phase === 'maker_requested_cycle'
+                  ) {
+                    return true
+                  }
+                  throw new Error('Run now verification failed')
+                }
+              )
             }}
-            disabled={Boolean(busy) || pending.length > 0}
+            disabled={
+              Boolean(busy) ||
+              pending.length > 0 ||
+              status?.worker_running !== true ||
+              status?.paused === true
+            }
             className="px-3 py-2 text-xs rounded-md border border-neon-cyan/30 bg-neon-cyan/10 hover:bg-neon-cyan/15 disabled:opacity-50 flex items-center gap-2"
           >
             <Beaker className="w-4 h-4" />
             Run now
           </button>
           <button
-            onClick={refresh}
+            onClick={manualRefresh}
             disabled={Boolean(busy)}
             className="p-2 rounded-md border border-border hover:border-neon-cyan/40 disabled:opacity-50"
             aria-label="Refresh self-improvement status"
@@ -176,6 +270,23 @@ export default function SelfImprovementPanel() {
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
+      </div>
+
+      <div className="px-5 pt-4 flex flex-wrap items-center justify-between gap-3">
+        {actionFeedback ? (
+          <div className={`text-xs rounded border px-3 py-2 ${
+            actionFeedback.ok === true
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+              : actionFeedback.ok === false
+                ? 'border-red-500/30 bg-red-500/10 text-red-300'
+                : 'border-neon-cyan/30 bg-neon-cyan/10 text-neon-cyan'
+          }`}>
+            {actionFeedback.message}
+          </div>
+        ) : <span />}
+        <span className="text-[10px] font-mono text-muted-foreground">
+          {lastRefreshedAt ? `Last refreshed ${new Date(lastRefreshedAt).toLocaleTimeString()}` : 'Not refreshed yet'}
+        </span>
       </div>
 
       <div className="p-5 grid grid-cols-1 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)] gap-5">

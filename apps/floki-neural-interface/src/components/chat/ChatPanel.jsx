@@ -16,7 +16,7 @@ function transcriptMessage(entry) {
     content: entry.content,
     type: entry.type === MessageType.SPOKEN ? MessageType.SPOKEN : MessageType.TYPED,
     timestamp: entry.timestamp,
-    isStreaming: false,
+    isStreaming: entry.isPartial === true,
   })
 }
 
@@ -24,11 +24,22 @@ function transcriptIdentity(message) {
   return [message.role, message.type, String(message.content || '').trim()].join('\n')
 }
 
+function isAuthoritativeAssistantForPending(message, authoritative) {
+  if (message.role !== 'assistant') return false
+  const startedAt = Number(message.clientTurnStartedAt || message.timestamp || 0)
+  return authoritative.some((entry) =>
+    entry.role === 'assistant' &&
+    entry.isStreaming !== true &&
+    Number(entry.timestamp || 0) >= startedAt
+  )
+}
+
 export default function ChatPanel({ flokiStatus }) {
   const [messages, setMessages] = useState([])
   const [flokiState, setFlokiState] = useState(FlokiState.IDLE)
   const [isResponding, setIsResponding] = useState(false)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
+  const [transcriptPollMs, setTranscriptPollMs] = useState(null)
   const [isClearing, setIsClearing] = useState(false)
   const scrollRef = useRef(null)
   const abortRef = useRef(null)
@@ -48,8 +59,11 @@ export default function ChatPanel({ flokiStatus }) {
 
     setMessages((previous) => {
       const pending = previous.filter((message) =>
-        message.isStreaming === true ||
-        (message.optimistic === true && !authoritativeIdentities.has(transcriptIdentity(message)))
+        !isAuthoritativeAssistantForPending(message, authoritative) &&
+        (
+          message.isStreaming === true ||
+          (message.optimistic === true && !authoritativeIdentities.has(transcriptIdentity(message)))
+        )
       )
       const authoritativeIds = new Set(authoritative.map((message) => message.id))
       const uniquePending = pending.filter((message) => !authoritativeIds.has(message.id))
@@ -70,12 +84,35 @@ export default function ChatPanel({ flokiStatus }) {
       }
     }
 
-    poll()
-    const timer = setInterval(poll, 750)
+    let timer = null
+    const begin = async () => {
+      try {
+        const settings = await flokiAdapter.getSettings()
+        if (!active) return
+        const interval = Number(settings?.chat?.transcriptPollMs)
+        if (!Number.isFinite(interval) || interval <= 0) throw new Error('chat.transcriptPollMs is missing from authoritative settings')
+        setTranscriptPollMs(interval)
+        await poll()
+        if (active) timer = setInterval(poll, interval)
+      } catch (error) {
+        console.error('authoritative transcript polling setup failed', error)
+      }
+    }
+    void begin()
     return () => {
       active = false
-      clearInterval(timer)
+      if (timer) clearInterval(timer)
     }
+  }, [syncTranscript])
+
+  useEffect(() => {
+    let unsubscribe = null
+    let active = true
+    flokiAdapter.subscribeRuntimeEvents((event) => {
+      if (!active || !['transcript.entry', 'transcript.remove', 'stream.error', 'stream.connected', 'stream.closed'].includes(event?.type)) return
+      void syncTranscript()
+    }).then((stop) => { if (active) unsubscribe = stop; else stop(); }).catch((error) => console.error('transcript event stream failed', error))
+    return () => { active = false; if (unsubscribe) unsubscribe(); }
   }, [syncTranscript])
 
   const handleScroll = useCallback(() => {
@@ -90,15 +127,24 @@ export default function ChatPanel({ flokiStatus }) {
       return
     }
 
+    const clientTurnId = crypto.randomUUID()
+    const clientTurnStartedAt = Date.now()
     const userMsg = {
-      ...createChatMessage({ role: 'user', content: text, type: MessageType.TYPED }),
+      ...createChatMessage({ role: 'user', content: text, type: MessageType.TYPED, timestamp: clientTurnStartedAt }),
       optimistic: true,
+      clientTurnId,
+      clientTurnStartedAt,
     }
     const flokiMsgId = crypto.randomUUID()
     setMessages((previous) => [
       ...previous,
       userMsg,
-      createChatMessage({ id: flokiMsgId, role: 'assistant', content: '', isStreaming: true }),
+      {
+        ...createChatMessage({ id: flokiMsgId, role: 'assistant', content: '', isStreaming: true, timestamp: clientTurnStartedAt + 1 }),
+        optimistic: true,
+        clientTurnId,
+        clientTurnStartedAt,
+      },
     ])
     setIsResponding(true)
     const controller = new AbortController()
@@ -158,7 +204,7 @@ export default function ChatPanel({ flokiStatus }) {
 
   const handleInterrupt = useCallback(() => {
     if (abortRef.current) abortRef.current.abort()
-    flokiAdapter.interruptResponse().catch(() => {})
+    flokiAdapter.interruptResponse().catch((error) => console.error('interrupt request failed', error))
     abortRef.current = null
     setIsResponding(false)
     setFlokiState(FlokiState.IDLE)
@@ -193,7 +239,7 @@ export default function ChatPanel({ flokiStatus }) {
   }, [isResponding])
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-transcript-poll-ms={transcriptPollMs || undefined}>
       <div className="border-b border-border/30 bg-background/50 flex items-center justify-between gap-3 pr-3">
         <FlokiStateIndicator state={flokiState} />
         <button

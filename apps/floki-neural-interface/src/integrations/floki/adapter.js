@@ -42,34 +42,13 @@ class FlokiAdapter {
     let stopped = false;
     let socket = null;
     let reconnectTimer = null;
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = Number(settings?.connection?.maxReconnectAttempts);
-    const reconnectJitterMs = Number(settings?.connection?.reconnectJitterMs);
-    const reconnectBackoffMaxMs = Number(settings?.connection?.reconnectBackoffMaxMs);
-
-    function computeReconnectDelay() {
-      const base = Number(reconnectDelay) || 3000;
-      const jitter = Number.isFinite(reconnectJitterMs) ? Math.random() * reconnectJitterMs : 0;
-      const backoff = Number.isFinite(reconnectBackoffMaxMs)
-        ? Math.min(reconnectBackoffMaxMs, base * Math.pow(2, Math.min(reconnectAttempts, 6)))
-        : base;
-      return Math.min(backoff, Number.isFinite(reconnectBackoffMaxMs) ? reconnectBackoffMaxMs : backoff) + jitter;
-    }
 
     const scheduleReconnect = () => {
       if (stopped || !autoReconnect || reconnectTimer) return;
-      if (Number.isFinite(maxReconnectAttempts) && maxReconnectAttempts > 0 && reconnectAttempts >= maxReconnectAttempts) {
-        onEvent({
-          type: 'stream.exhausted',
-          data: { attempts: reconnectAttempts, max: maxReconnectAttempts }
-        });
-        return;
-      }
-      reconnectAttempts += 1;
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         connect();
-      }, computeReconnectDelay());
+      }, reconnectDelay);
     };
 
     const connect = () => {

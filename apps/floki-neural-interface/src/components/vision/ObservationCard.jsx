@@ -24,16 +24,21 @@ export default function ObservationCard() {
           flokiAdapter.getVisionFrame(),
         ]);
         if (!active) return;
-        setObs(next);
+        const frameLive = frame?.connectionStatus === 'active' && frame?.frame?.fresh === true;
+        const observationFresh = frameLive && next?.fresh === true && next?.stale !== true;
+        setObs(observationFresh ? next : null);
         setMeta({
-          fresh: next?.fresh === true,
-          stale: next?.stale === true,
-          age: next?.observation_age_ms ?? null,
-          source: next?.source || frame?.service?.camera_device || null,
-          ts: next?.latest_private_observation_timestamp || next?.created_at || null,
+          fresh: observationFresh,
+          stale: frameLive ? next?.stale === true : true,
+          age: next?.observation_age_ms ?? frame?.frame?.ageMs ?? null,
+          source: observationFresh ? (next?.source || frame?.service?.camera_device || null) : null,
+          ts: observationFresh ? (next?.latest_private_observation_timestamp || next?.created_at || null) : null,
         });
       } catch (error) {
         console.error(error);
+        if (!active) return;
+        setObs(null);
+        setMeta({ fresh: false, stale: false, age: null, source: null, ts: null });
       }
     };
     refresh();
