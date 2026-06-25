@@ -231,6 +231,13 @@ dream:
   quality_retry_backoff_max_seconds: 600
   max_dream_retry_per_cycle: 3
   max_quality_retry_per_cycle: 3
+  novelty_thresholds:
+    opening_similarity: 0.42
+    narrative_arc_similarity: 0.78
+    scene_progression_similarity: 0.68
+    ending_similarity: 0.78
+    paraphrase_similarity: 0.62
+    symbol_sequence_similarity: 0.78
 timeouts:
   ollama_http_ms: 120000
   model_warmup_ms: 30000
