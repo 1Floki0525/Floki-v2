@@ -353,6 +353,10 @@ dream:
   grounding_knowledge_limit: 3
   recent_dream_avoidance_count: 12
   quality_regeneration_attempts: 8
+  quality_retry_backoff_seconds: 60
+  quality_retry_backoff_max_seconds: 600
+  max_dream_retry_per_cycle: 3
+  max_quality_retry_per_cycle: 3
 wake_gate:
   required_phrase: hey floki
   accepted_phrases:

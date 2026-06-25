@@ -75,10 +75,8 @@ async function main() {
     setYamlScalar('pre_roll_ms', 0);
     setYamlScalar('post_roll_ms', 0);
     setYamlScalar('attention_scan_enabled', 'false');
-    fixtureText = fixtureText.replace(
-      /(^\s*quality_regeneration_attempts:\s*.+$)/m,
-      '$1\n  quality_retry_backoff_seconds: 1\n  quality_retry_backoff_max_seconds: 2'
-    );
+    setYamlScalar('quality_retry_backoff_seconds', 1);
+    setYamlScalar('quality_retry_backoff_max_seconds', 2);
     fs.writeFileSync(fixtureFile, fixtureText, 'utf8');
     const fixture = loadYamlFile(fixtureFile);
 
