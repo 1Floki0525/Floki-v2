@@ -154,6 +154,7 @@ function compactCognitionContext(context = {}) {
     reinforcement_score: typeof memory.reinforcement_score === 'number' ? memory.reinforcement_score : 0
   }));
   const persistent = context.persistent_chat_memory || {};
+  const knowledge = context.knowledge_context || {};
   const emotional = context.emotional_reinforcement || {};
   const dreamMemory = persistent.dream_memory_context || {};
   const webcamVision = normalizeChatWebcamVisionContext(context.chat_webcam_vision || {});
@@ -169,6 +170,17 @@ function compactCognitionContext(context = {}) {
       long_term: Array.isArray(persistent.long_term) ? persistent.long_term.slice(0, 10) : [],
       emotional_state: persistent.emotional_state || {},
       recall_ready_for_cognition: persistent.recall_ready_for_cognition === true
+    },
+    learned_knowledge_context: {
+      persistent_knowledge_used: knowledge.persistent_knowledge_used === true,
+      knowledge_chunk_count_total: Number(knowledge.knowledge_chunk_count_total || 0),
+      matches: Array.isArray(knowledge.knowledge_matches) ? knowledge.knowledge_matches.slice(0, 8).map((match) => ({
+        title: safeText(match.title || '', '').slice(0, 220),
+        channel_folder: safeText(match.channel_folder || '', '').slice(0, 160),
+        source_type: safeText(match.source_type || '', '').slice(0, 80),
+        summary: safeText(match.summary || '', '').slice(0, 900),
+        score: Number(match.score || 0)
+      })) : []
     },
     dream_memory_context: {
       dream_recall_question: dreamMemory.dream_recall_question === true,
@@ -187,10 +199,16 @@ function compactCognitionContext(context = {}) {
       source: webcamVision.source || null,
       sight_scope: webcamVision.sight_scope || null,
       latest_private_observation_timestamp: webcamVision.latest_private_observation_timestamp || null,
-      observation_summary: safeText(webcamVision.observation_summary || '', '').slice(0, 500),
+      observation_summary: safeText(webcamVision.observation_summary || '', '').slice(0, 1600),
+      scene_summary: safeText(webcamVision.scene_summary || '', '').slice(0, 1600),
+      detected_people_count: Number(webcamVision.detected_people_count || 0),
+      detected_objects: Array.isArray(webcamVision.detected_objects) ? webcamVision.detected_objects.slice(0, 64) : [],
+      grounding_summary: safeText(webcamVision.grounding_summary || '', '').slice(0, 1600),
+      detection_grounding_used: webcamVision.detection_grounding_used === true,
       unavailable_reason: webcamVision.unavailable_reason || null,
       public_transcript_visible: false
     },
+    vision_response_contract: context.vision_response_contract || null,
     emotional_reinforcement_state: emotional.state || null,
     personality: context.personality || null,
     identity: context.identity || null,
@@ -230,12 +248,19 @@ function buildCognitionPrompt(context) {
     '- Do not mention recalled topics unless the user directly asked for them.',
     '- For simple greetings or status questions, answer the greeting/status directly.',
     '- Do not drag old proof topics, old test topics, trust, hope, dreams, or transcript topics into the reply unless relevant to the current user text.',
+    '- learned_knowledge_context contains material I have read and learned from saved transcripts and documents.',
+    '- When the user asks about a learned source and relevant learned_knowledge_context.matches exist, answer from those matches and never claim that the only record is the current question.',
+    '- Describe learned material honestly as something I remember reading or learning, not as a physical event I personally witnessed.',
+    '- Never expose chunk IDs, source paths, transport metadata, or raw retrieval scores in the public reply.',
     '- chat_webcam_vision is current Maker-world sight only; it is not Minecraft game-world sight.',
-    '- If chat_webcam_vision.available is true, answer visual questions directly from observation_summary in first person.',
-    '- When live Maker-world sight is available, do not claim permanent blindness, no eyes, disembodiment, or lack of visual input.',
+    '- When vision_response_contract.question is true and sight is available, form a genuine natural thought about the whole grounded scene before answering.',
+    '- Follow vision_response_contract.scene_instruction exactly. Do not turn detected_people_count or detected_objects into a bare inventory.',
+    '- Use scene_summary for relationships, layout, activity, and atmosphere; use detected objects only as grounding facts that can enrich the scene.',
+    '- Mention only details supported by scene_summary, grounding_summary, detected_people_count, or detected_objects. Do not invent unseen objects or identities.',
     '- Describe visible people as a person or people unless the observation itself establishes identity; do not assume the person is the user.',
-    '- If chat_webcam_vision.available is false, say the current webcam view is temporarily unavailable, stale, or offline. Do not claim that I permanently have no eyes.',
-    '- Never use Maker-world webcam observations as Minecraft game-world vision.',
+    '- When vision_response_contract.question is true and vision_response_contract.hardware_question is false, do not mention any vision_response_contract.prohibited_terms.',
+    '- When sight is unavailable, say that my current Maker-world sight is temporarily unavailable, follow vision_response_contract.unavailable_instruction, and do not claim permanent blindness.',
+    '- Never use Maker-world sight as game-world vision.',
     ...BROCA_FIRST_PERSON_FIELD_INSTRUCTIONS,
     '- If the user asks about dreams, use dream_memory_context as self-continuity.',
     '- If dream_memory_context.has_dreams is false, be honest that I do not have a saved dream yet.',
@@ -258,10 +283,14 @@ function buildCognitionRetryPrompt(context, previousError) {
     '- Current live user request has priority over recalled memories.',
     '- Do not mention recalled topics unless the user directly asked for them.',
     '- For simple greetings or status questions, answer the greeting/status directly.',
+    '- If learned_knowledge_context has relevant matches, use them directly and do not deny that the learned source exists.',
+    '- Phrase transcript-derived knowledge as something I remember reading or learning.',
     '- chat_webcam_vision is current Maker-world sight only; it is not Minecraft game-world sight.',
-    '- If chat_webcam_vision.available is true, answer visual questions directly from observation_summary in first person.',
-    '- If chat_webcam_vision.available is false, say the current webcam view is temporarily unavailable, stale, or offline. Do not claim that I permanently have no eyes.',
-    '- Never use Maker-world webcam observations as Minecraft game-world vision.',
+    '- For a sight question, produce a natural first-person scene description through cognition, not a detector-style inventory.',
+    '- Follow vision_response_contract.scene_instruction and mention only grounded details.',
+    '- If vision_response_contract.hardware_question is false, do not mention vision_response_contract.prohibited_terms.',
+    '- If sight is unavailable, say that my current Maker-world sight is temporarily unavailable, follow vision_response_contract.unavailable_instruction, and do not claim permanent blindness.',
+    '- Never use Maker-world sight as game-world vision.',
     '- If the user asks about dreams, use dream_memory_context as self-continuity.',
     '- If dream files or dream memories exist, answer from them; do not invent dreams.',
     ...BROCA_FIRST_PERSON_FIELD_INSTRUCTIONS,

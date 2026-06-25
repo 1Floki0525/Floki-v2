@@ -69,6 +69,7 @@ modules:
 policies:
   chat_world_camera_detection_enabled_now: true
   chat_world_vision_enabled_now: true
+  vision_awake_window_only: true
   raw_private_reasoning_storage: false
 
 vision:
@@ -115,6 +116,10 @@ vision:
   cognition_scene_require_narrative: true
   cognition_scene_instruction: "Answer from my own current sight in natural first-person language. Integrate the whole grounded scene into one to three flowing sentences instead of reciting a label list. Mention only people, objects, relationships, and scene details supported by the fresh observation."
   cognition_unavailable_instruction: "Say naturally that my sight is unavailable right now without describing implementation details."
+  desired_state_gates_required_for_start: "client_ready|window_visible|awake|inside_awake_window|external_eyes_enabled|policy_enabled|camera_available|no_active_start"
+  sleep_overrides_vision_start: true
+  vision_camera_stop_timeout_ms: 10000
+  vision_camera_availability_probe_timeout_ms: 3000
   prohibited_public_vision_terms:
     term_01: camera
     term_02: webcam
@@ -254,6 +259,7 @@ paths:
   chat_transcript_root: state/floki/chat/interface
   dream_root: /absolute/path/to/Floki-memory-bank/dreams
   media_root: /absolute/path/to/Floki-media
+  text_root: /absolute/path/to/Floki-media/text
   youtube_transcript_root: /absolute/path/to/Floki-media/text/youtube
   youtube_cookies_file: /absolute/path/outside/repository/cookies.txt
 
@@ -319,6 +325,8 @@ sleep:
     cycle_47: 470
   manual_nap_duration_minutes: 30
   manual_nap_rem_offset_minutes: 0
+  manual_nap_max_rem_cycles: 3
+  manual_nap_dream_max_retry_count: 3
 dream:
   temperature: 0.45
   top_p: 0.85
@@ -401,6 +409,16 @@ audio:
   whisper_server_host: 127.0.0.1
   whisper_server_port: 7788
   whisper_server_start_timeout_ms: 15000
+  whisper_singleton_enforced: true
+  whisper_singleton_lock_file: "state/floki/chat/runtime/whisper-server.lock"
+  whisper_process_root: "/proc"
+  whisper_server_probe_path: "/"
+  whisper_server_probe_timeout_ms: 1500
+  whisper_server_probe_request_timeout_ms: 500
+  whisper_server_probe_poll_ms: 150
+  whisper_process_stop_timeout_ms: 8000
+  whisper_process_stop_poll_ms: 100
+  whisper_error_tail_chars: 1000
   voice_lock_ttl_ms: 120000
   piper_voice_name: en_US-ryan-high
   piper_voice_size: large
@@ -422,6 +440,13 @@ audio:
   hearing_freshness_max_age_ms: 5000
   piper_incremental_enabled: true
   piper_playback_command: aplay
+  audio_drain_timeout_ms: 3000
+  ambient_memory_rate_limit_per_minute: 12
+  ambient_memory_backoff_seconds: 300
+  ambient_memory_failure_log_max_chars: 4000
+  ambient_memory_failure_log_name: "ambient-memory-failures.jsonl"
+  max_frame_queue_size: 200
+  whisper_drain_timeout_ms: 8000
 
 timeouts:
   ollama_http_ms: 120000
@@ -444,9 +469,10 @@ knowledge:
   sleep_consolidation_summary_chars: 900
   autoload_min_seconds: 900
   ingestion_enabled_env: FLOKI_ALLOW_KNOWLEDGE_INGESTION
-  max_files: 5000
+  max_files: 0
   target_chunk_chars: 1800
   max_chunk_chars: 2500
+  max_knowledge_chunks: 0
 
 live_chat:
   warm_cognition_on_start: true
@@ -468,6 +494,13 @@ live_chat:
   runtime_heartbeat_ms: 1000
   public_sentence_min_characters: 12
   latency_log_max_bytes: 8388608
+  history_limit: 500
+  transcript_tail_max: 5000
+  neural_event_max_display_chars: 280
+  audio_voice_lock_ttl_ms: 120000
+  piper_text_max_chars: 4000
+  piper_request_timeout_ms: 60000
+  control_action_defer_ms: 50
 
 life_clock:
   ticks_per_second: 20
@@ -509,6 +542,9 @@ interface:
     local_ws_url: ws://127.0.0.1:7700/ws
     auto_reconnect: true
     reconnect_delay_ms: 3000
+    reconnect_jitter_ms: 500
+    reconnect_backoff_max_ms: 30000
+    max_reconnect_attempts: 0
     request_timeout_ms: 120000
     mock_mode: false
   chat:
@@ -646,7 +682,7 @@ self_improvement:
   snapshot_metadata_file_name: "snapshot.json"
   snapshot_evidence_subdir: ".floki-self-improvement"
   snapshot_runtime_evidence_file_name: "runtime-evidence.json"
-  snapshot_exclude_patterns: ".git/|node_modules/|apps/floki-neural-interface/node_modules/|apps/floki-neural-interface/dist/|state/|secrets/|.floki-tools/models/|.floki-tools/repos/|.floki-tools/input/|.floki-tools/output/|.floki-tools/venv*/|.floki-tools/**/__pycache__/|reports/|*.tar|*.tar.gz|*.zip|*.mp4|*.mkv|*.wav|*.onnx|*.pt|*.bin"
+  snapshot_exclude_patterns: ".git/|node_modules/|apps/floki-neural-interface/node_modules/|apps/floki-neural-interface/dist/|state/|secrets/|.floki-tools/models/|.floki-tools/repos/|.floki-tools/input/|.floki-tools/output/|.floki-tools/venv*/|.floki-tools/**/__pycache__/|reports/|*.tar|*.tar.gz|*.zip|*.mp4|*.mkv|*.wav|*.onnx|*.pt|*.bin|*.safetensors|models/|models/**|Qwen3.5-4B/|Qwen3.5-4B/**|data/dreams/|data/transcripts/|data/media/|data/memories/|data/knowledge/|.floki-self-improvement/|.env|.env.*|.npmrc|cookies.txt|**/cookies.txt|*.pem|*.key|*.p12|*.pfx"
   snapshot_command_timeout_ms: 300000
   snapshot_rsync_timeout_ms: 600000
   snapshot_output_buffer_bytes: 33554432
@@ -731,3 +767,36 @@ self_improvement:
   github_accept: "application/vnd.github+json"
   arxiv_accept: "application/atom+xml"
   crossref_accept: "application/json"
+  image_source_label: "io.floki.self-improvement.source-sha256"
+  image_source_files: "containers/self-improvement/Containerfile|containers/self-improvement/agent.cjs"
+  image_fingerprint_algorithm: "sha256"
+  model_proxy_root: "state/floki/self-improvement/model-proxy"
+  model_proxy_socket_name: "ollama.sock"
+  model_proxy_mount_path: "/run/floki-rsi-model"
+  model_proxy_mount_options: "ro,Z"
+  model_proxy_health_path: "/api/tags"
+  model_proxy_start_timeout_ms: 30000
+  model_proxy_request_timeout_ms: 120000
+  model_response_max_bytes: 134217728
+  model_proxy_connection_header: "close"
+  model_request_max_bytes: 134217728
+  sandbox_log_file_name: "sandbox.log"
+  sandbox_error_tail_chars: 20000
+  failure_requires_new_activity: true
+  environment_check_command_timeout_ms: 60000
+  shell_command_progress_interval_ms: 5000
+  shell_command_stalled_threshold_ms: 30000
+  iteration_wall_clock_budget_ms: 1800000
+  command_timeout_overrides_ms: "environment_check_ms=60000|git_diff_ms=300000|git_commit_ms=300000|npm_ci_ms=600000|agent_git_show_ms=30000"
+  agent_git_show_timeout_ms: 30000
+  agent_ollama_request_max_attempts: 2
+  agent_ollama_request_retry_backoff_ms: 250
+  worker_heartbeat_file_name: worker.heartbeat.json
+  sandbox_heartbeat_file_name: sandbox.heartbeat.json
+  sandbox_heartbeat_refresh_ms: 5000
+  sandbox_heartbeat_stale_ms: 30000
+  model_queue_depth: 8
+  model_queue_timeout_ms: 180000
+  model_queue_request_timeout_ms: 120000
+  model_queue_per_request_cancel_enabled: true
+  promote_deny_during_active_sandbox: true

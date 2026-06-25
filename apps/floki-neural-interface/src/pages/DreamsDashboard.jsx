@@ -25,7 +25,7 @@ function sessionLabel(session) {
   if (session.status === 'failed') return 'DREAM FAILED';
   if (session.status === 'complete') return 'DREAM COMPLETE';
   return session.kind === 'manual_nap'
-    ? 'ASLEEP — 30-MINUTE NAP'
+    ? `ASLEEP — ${Number(session.durationMinutes || 0)}-MINUTE NAP`
     : 'ASLEEP — NIGHTLY SLEEP';
 }
 
@@ -63,6 +63,37 @@ export default function DreamsDashboard({ flokiStatus }) {
   }, [refreshTimeline]);
 
   useEffect(() => {
+    let unsubscribe = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (typeof flokiAdapter.subscribeRuntimeEvents === 'function') {
+          unsubscribe = await flokiAdapter.subscribeRuntimeEvents((event) => {
+            if (cancelled) return;
+            const type = event && event.type;
+            if (
+              type === 'status.update' ||
+              type === 'inner-stream.entry' ||
+              type === 'transcript.entry' ||
+              type === 'stream.connected'
+            ) {
+              refreshTimeline();
+            }
+          });
+        }
+      } catch (error) {
+        console.error('dreams dashboard live subscription failed', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (typeof unsubscribe === 'function') {
+        try { unsubscribe(); } catch (error) { /* ignore */ }
+      }
+    };
+  }, [refreshTimeline]);
+
+  useEffect(() => {
     setClock(Date.now());
     const timer = setInterval(() => setClock(Date.now()), COUNTDOWN_INTERVAL_MS);
     return () => clearInterval(timer);
@@ -75,6 +106,25 @@ export default function DreamsDashboard({ flokiStatus }) {
   const selectedDream = useMemo(() => (
     timeline?.dreams?.find((dream) => dream.id === selectedDreamId) || null
   ), [timeline, selectedDreamId]);
+
+  const [busyAction, setBusyAction] = useState(null);
+  const [actionError, setActionError] = useState(null);
+
+  const handleAction = useCallback(async (action) => {
+    setBusyAction(action);
+    setActionError(null);
+    try {
+      const result = await flokiAdapter.control(action);
+      if (result && result.ok === false && result.verified === false) {
+        setActionError(result.message || result.error || `${action} failed`);
+      }
+      await refreshTimeline();
+    } catch (error) {
+      setActionError(error.message || String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }, [refreshTimeline]);
 
   if (!timeline) {
     return (
@@ -97,10 +147,16 @@ export default function DreamsDashboard({ flokiStatus }) {
   const nextRemCountdownMs = activeSession?.nextRemCycleAt
     ? Math.max(0, new Date(activeSession.nextRemCycleAt).getTime() - clock)
     : null;
-  const completedCycles = Array.isArray(timeline.cycles)
-    ? timeline.cycles.filter((cycle) => cycle.status === 'complete').length
-    : 0;
-  const totalCycles = Array.isArray(timeline.cycles) ? timeline.cycles.length : 0;
+  const completedCycles = Number.isFinite(Number(activeSession?.completedRemCycles))
+    ? Number(activeSession.completedRemCycles)
+    : Array.isArray(timeline.cycles)
+      ? timeline.cycles.filter((cycle) => cycle.status === 'complete').length
+      : 0;
+  const totalCycles = Number.isFinite(Number(activeSession?.totalRemCycles))
+    ? Number(activeSession.totalRemCycles)
+    : Array.isArray(timeline.cycles)
+      ? timeline.cycles.length
+      : 0;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -125,6 +181,31 @@ export default function DreamsDashboard({ flokiStatus }) {
                 {activeSession.lastError && (
                   <p className="mt-1 text-[11px] text-red-400 font-mono">{activeSession.lastError}</p>
                 )}
+                {actionError && (
+                  <p className="mt-1 text-[11px] text-red-400 font-mono">Dreams action failed: {actionError}</p>
+                )}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleAction('wake')}
+                    disabled={busyAction !== null}
+                    data-testid="dreams-wake-control"
+                    aria-busy={busyAction === 'wake'}
+                    className="text-[10px] font-mono px-3 py-1.5 rounded border border-neon-amber/40 bg-neon-amber/10 text-neon-amber hover:bg-neon-amber/20 disabled:opacity-40 disabled:cursor-wait"
+                  >
+                    {busyAction === 'wake' ? 'Waking…' : 'Wake Floki'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAction('requestSleep')}
+                    disabled={busyAction !== null}
+                    data-testid="dreams-request-sleep-control"
+                    aria-busy={busyAction === 'requestSleep'}
+                    className="text-[10px] font-mono px-3 py-1.5 rounded border border-neon-blue/40 bg-neon-blue/10 text-neon-blue hover:bg-neon-blue/20 disabled:opacity-40 disabled:cursor-wait"
+                  >
+                    {busyAction === 'requestSleep' ? 'Requesting…' : 'Request Sleep'}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-[300px] font-mono">

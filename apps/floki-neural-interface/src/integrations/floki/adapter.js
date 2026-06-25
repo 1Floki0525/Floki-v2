@@ -21,6 +21,7 @@ class FlokiAdapter {
   async getNeuralEvents(limit = 250) { return bridge().getNeuralEvents(limit); }
   async getDreamTimeline() { return bridge().getDreamTimeline(); }
   async getInitialStatus() { return bridge().getInitialStatus(); }
+  async getSettings() { return bridge().getSettings(); }
   async getTranscript(limit = 200) { return bridge().getTranscript(limit); }
   async clearTranscript() { return bridge().clearTranscript(); }
   async control(action, argument = null) { return bridge().control(action, argument); }
@@ -28,12 +29,86 @@ class FlokiAdapter {
   async interruptResponse() { return bridge().interrupt(); }
   async setPushToTalk(active) { return bridge().setPushToTalk(active); }
   async subscribeRuntimeEvents(onEvent) {
-    const url = await bridge().getRuntimeWebSocketUrl();
-    const socket = new WebSocket(url);
-    socket.addEventListener('message', (event) => { try { onEvent(JSON.parse(event.data)); } catch (error) { console.error('invalid runtime event', error); } });
-    socket.addEventListener('error', () => onEvent({ type: 'stream.error', data: { error: 'Authoritative runtime event stream disconnected.' } }));
-    return () => socket.close();
+    const [url, settings] = await Promise.all([
+      bridge().getRuntimeWebSocketUrl(),
+      bridge().getSettings(),
+    ]);
+    const autoReconnect = settings?.connection?.autoReconnect === true;
+    const reconnectDelay = Number(settings?.connection?.reconnectDelay);
+    if (!Number.isFinite(reconnectDelay) || reconnectDelay <= 0) {
+      throw new Error('connection.reconnectDelay is missing from authoritative settings');
+    }
+
+    let stopped = false;
+    let socket = null;
+    let reconnectTimer = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = Number(settings?.connection?.maxReconnectAttempts);
+    const reconnectJitterMs = Number(settings?.connection?.reconnectJitterMs);
+    const reconnectBackoffMaxMs = Number(settings?.connection?.reconnectBackoffMaxMs);
+
+    function computeReconnectDelay() {
+      const base = Number(reconnectDelay) || 3000;
+      const jitter = Number.isFinite(reconnectJitterMs) ? Math.random() * reconnectJitterMs : 0;
+      const backoff = Number.isFinite(reconnectBackoffMaxMs)
+        ? Math.min(reconnectBackoffMaxMs, base * Math.pow(2, Math.min(reconnectAttempts, 6)))
+        : base;
+      return Math.min(backoff, Number.isFinite(reconnectBackoffMaxMs) ? reconnectBackoffMaxMs : backoff) + jitter;
+    }
+
+    const scheduleReconnect = () => {
+      if (stopped || !autoReconnect || reconnectTimer) return;
+      if (Number.isFinite(maxReconnectAttempts) && maxReconnectAttempts > 0 && reconnectAttempts >= maxReconnectAttempts) {
+        onEvent({
+          type: 'stream.exhausted',
+          data: { attempts: reconnectAttempts, max: maxReconnectAttempts }
+        });
+        return;
+      }
+      reconnectAttempts += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, computeReconnectDelay());
+    };
+
+    const connect = () => {
+      if (stopped) return;
+      socket = new WebSocket(url);
+      socket.addEventListener('open', () => {
+        reconnectAttempts = 0;
+        onEvent({ type: 'stream.connected', data: { url } });
+      });
+      socket.addEventListener('message', (event) => {
+        try {
+          onEvent(JSON.parse(event.data));
+        } catch (error) {
+          console.error('invalid runtime event', error);
+        }
+      });
+      socket.addEventListener('error', () => {
+        onEvent({
+          type: 'stream.error',
+          data: { error: 'Authoritative runtime event stream disconnected.' },
+        });
+        scheduleReconnect();
+      });
+      socket.addEventListener('close', () => {
+        socket = null;
+        onEvent({ type: 'stream.closed', data: { url } });
+        scheduleReconnect();
+      });
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+    };
   }
+
 
   async sendMessage(text) {
     return bridge().sendMessage(text);

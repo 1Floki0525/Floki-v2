@@ -30,6 +30,46 @@ function jsonStatus(ok, marker, extra = {}) {
   return Object.freeze({ ok, marker, ...extra, chat_mode_only: true, game_mode_started: false });
 }
 
+function firstPersonInnerSummary(category, value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (/^(?:I|I'm|I’m|I've|I’ve|I'll|I’ll|My|Me)\b/i.test(text)) return text;
+  const lowered = text.charAt(0).toLowerCase() + text.slice(1);
+  if (category === 'emotion') return 'I feel that ' + lowered;
+  if (category === 'memory') return 'I connect this with ' + lowered;
+  if (category === 'identity') return 'I notice that ' + lowered;
+  if (category === 'intention') return 'I intend to ' + lowered;
+  return 'I reflect that ' + lowered;
+}
+
+function cognitionInnerEvents(cognition, result, options = {}) {
+  const eventId = result && result.event && result.event.id ? result.event.id : null;
+  const source = options.source || 'live_chat_interface';
+  const events = [];
+  const add = (category, text) => {
+    const normalized = firstPersonInnerSummary(category, text);
+    if (!normalized) return;
+    events.push(Object.freeze({ text: normalized, category, source, event_id: eventId }));
+  };
+
+  add('reflection', cognition.safe_thought_summary);
+  add('emotion', cognition.felt_interpretation);
+  for (const value of Array.isArray(cognition.memory_links) ? cognition.memory_links : []) add('memory', value);
+  for (const value of Array.isArray(cognition.personality_implications) ? cognition.personality_implications : []) add('identity', value);
+  for (const value of Array.isArray(cognition.identity_implications) ? cognition.identity_implications : []) add('identity', value);
+  add('memory', cognition.new_memory_summary);
+
+  const knowledge = result && result.knowledgeContext && Array.isArray(result.knowledgeContext.knowledge_matches)
+    ? result.knowledgeContext.knowledge_matches[0]
+    : null;
+  if (knowledge && knowledge.summary) {
+    const origin = [knowledge.title, knowledge.channel_folder].filter(Boolean).join(' from ');
+    add('memory', 'I remember reading' + (origin ? ' “' + origin + '”' : ' saved knowledge') + ': ' + String(knowledge.summary).slice(0, 600));
+  }
+
+  return Object.freeze(events);
+}
+
 function trimOutput(value, maxLength = 4000) {
   const text = String(value || '').trim();
   if (text.length <= maxLength) return text;
@@ -255,7 +295,10 @@ async function handleTypedText(runtime, text, options = {}) {
   });
 
   trace.emit('request_accepted', { input_character_count: String(text || '').length });
-  appendChatTranscriptTurn({ role: 'user', text: String(options.transcript_user_text || text), input_modality: options.input_modality || 'text', output_modality: 'none', spoken_aloud: false, source: options.source || 'live_chat_interface' });
+  if (options.user_transcript_recorded !== true) {
+    const userTranscript = appendChatTranscriptTurn({ role: 'user', text: String(options.transcript_user_text || text), input_modality: options.input_modality || 'text', output_modality: 'none', spoken_aloud: false, source: options.source || 'live_chat_interface' });
+    if (userTranscript.written && typeof options.on_transcript_entry === 'function') options.on_transcript_entry(userTranscript.entry);
+  }
 
   const cachedVision = options.chat_webcam_vision !== undefined
     ? options.chat_webcam_vision
@@ -274,6 +317,8 @@ async function handleTypedText(runtime, text, options = {}) {
   let displayedText = null;
   const result = await handleUserText(runtime, text, {
     chat_webcam_vision: cachedVision,
+    vision_question: options.vision_question === true,
+    vision_hardware_question: options.vision_hardware_question === true,
     persistent_chat_memory: livingTurn.persistent_chat_memory,
     emotional_reinforcement: livingTurn.emotional_reinforcement,
     soul_context: livingTurn.soul_context,
@@ -341,7 +386,7 @@ async function handleTypedText(runtime, text, options = {}) {
     input_modality: options.input_modality || 'text'
   });
 
-  appendChatTranscriptTurn({
+  const assistantTranscript = appendChatTranscriptTurn({
     role: 'floki',
     text: reply,
     input_modality: options.input_modality || 'text',
@@ -350,8 +395,10 @@ async function handleTypedText(runtime, text, options = {}) {
     source: options.source || 'live_chat_interface',
     event_id: result.event && result.event.id ? result.event.id : null
   });
-  if (cognition.safe_thought_summary) {
-    appendPrivateThoughtRecord({ text: cognition.safe_thought_summary, source: options.source || 'live_chat_interface', event_id: result.event && result.event.id ? result.event.id : null });
+  if (assistantTranscript.written && typeof options.on_transcript_entry === 'function') options.on_transcript_entry(assistantTranscript.entry);
+  for (const innerSummary of cognitionInnerEvents(cognition, result, options)) {
+    if (typeof options.on_inner_summary === 'function') options.on_inner_summary(innerSummary);
+    else appendPrivateThoughtRecord(innerSummary);
   }
   trace.emit('response_completed', { completion_status: 'completed', response_character_count: reply.length, safe_public_text_length: reply.length });
 
@@ -484,6 +531,8 @@ module.exports = {
   ROOT,
   startKnowledgeAutoload,
   startKnowledgeAutoloadBackground,
+  firstPersonInnerSummary,
+  cognitionInnerEvents,
   startSpeechLoop,
   stopSpeechLoop,
   printStatus,

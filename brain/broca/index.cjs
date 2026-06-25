@@ -10,6 +10,45 @@ const { nowIso } = require('../../src/util/time.cjs');
 const MODULE_NAME = 'broca';
 const THIRD_PERSON_SELF_REFERENCE_CODE = 'BROCA_THIRD_PERSON_SELF_REFERENCE';
 
+
+function containsConfiguredPhrase(text, phrase) {
+  const source = String(text || '').toLowerCase();
+  const target = String(phrase || '').toLowerCase().trim();
+  if (!target) return false;
+  if (/^[a-z0-9]+$/.test(target)) {
+    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp('\\b' + escaped + '\\b', 'i').test(source);
+  }
+  return source.includes(target);
+}
+
+function rejectInvalidVisionNarration(text, context = {}) {
+  const contract = context && context.vision_response_contract;
+  if (!contract || contract.question !== true) return true;
+  const value = String(text || '').trim();
+
+  if (context.chat_webcam_vision && context.chat_webcam_vision.available === true) {
+    if (!/\b(?:i|i'm|i’m|my|me)\b/i.test(value)) {
+      throw new Error('vision response must be first-person speech from Floki');
+    }
+    if (contract.require_narrative === true) {
+      if (/objects? including/i.test(value) || /(?:^|[.!?]\s*)i can see[^.!?]*;[^.!?]*[.!?]?$/i.test(value)) {
+        throw new Error('vision response is a detector-style inventory instead of a natural scene thought');
+      }
+    }
+  }
+
+  if (contract.hardware_question !== true) {
+    const terms = Array.isArray(contract.prohibited_terms) ? contract.prohibited_terms : [];
+    for (const term of terms) {
+      if (containsConfiguredPhrase(value, term)) {
+        throw new Error('vision response exposed prohibited technical framing: ' + String(term));
+      }
+    }
+  }
+  return true;
+}
+
 const CONTRACT = createModuleContract({
   name: MODULE_NAME,
   production: true,
@@ -178,6 +217,7 @@ function rejectUnsafeSpeech(text, context = {}) {
   }
 
   rejectThirdPersonSelfReference(text);
+  rejectInvalidVisionNarration(text, context);
 
   return true;
 }

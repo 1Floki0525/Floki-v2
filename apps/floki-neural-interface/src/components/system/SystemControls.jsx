@@ -18,7 +18,7 @@ export const SYSTEM_CONTROLS = [
   { id: 'stopChat', label: 'Stop Chat Mode', icon: Square, color: 'red' },
   { id: 'restartChat', label: 'Restart Chat Mode', icon: RotateCw, color: 'cyan' },
   { id: 'wake', label: 'Wake Floki', icon: Sun, color: 'amber' },
-  { id: 'requestSleep', label: 'Request 30-Minute Nap', icon: Moon, color: 'blue' },
+  { id: 'requestSleep', label: 'Request Configured Nap', icon: Moon, color: 'blue' },
   { id: 'pauseSleep', label: 'Pause Nightly Scheduler', icon: Pause, color: 'cyan' },
   { id: 'resumeSleep', label: 'Resume Nightly Scheduler', icon: Play, color: 'cyan' },
   { id: 'restartVision', label: 'Restart Vision', icon: Eye, color: 'cyan' },

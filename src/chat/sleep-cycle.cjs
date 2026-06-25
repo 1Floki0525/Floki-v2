@@ -12,8 +12,10 @@ const {
 } = require('../util/fs-safe.cjs');
 const { appendJsonlSync } = require('../util/jsonl.cjs');
 const { runDreamEngineOnce } = require('./dream-engine.cjs');
+const { computeBackoffSeconds } = require('./dream-novelty.cjs');
+const { runPreRemMemoryPreparation } = require('./pre-rem-memory-preparation.cjs');
 
-const { PROJECT_ROOT: ROOT, getSleepConfig } = require('../config/floki-config.cjs');
+const { PROJECT_ROOT: ROOT, getSleepConfig, getDreamConfig } = require('../config/floki-config.cjs');
 const SLEEP_CYCLE_OUTPUT_DIR = path.join(ROOT, '.floki-tools', 'output', 'sleep-cycle');
 
 function getSleepDefaults(mode) {
@@ -34,6 +36,10 @@ const sleepStartFallback = DEFAULTS.start_hhmm;
 const sleepEndFallback = DEFAULTS.end_hhmm;
 const DEFAULT_IDLE_RESUME_SECONDS = DEFAULTS.idle_resume_seconds;
 const DEFAULT_REM_INTERVAL_MINUTES = DEFAULTS.rem_interval_minutes;
+
+function isDreamQualityRetry(error) {
+  return String(error && error.message || error).startsWith('DREAM_QUALITY_CONTRACT_REJECTED_AFTER_');
+}
 const DEFAULT_STATE_FILE = statePath('chat/sleep/sleep-cycle-state.json');
 const DEFAULT_EVENTS_FILE = statePath('chat/sleep/sleep-events.jsonl');
 
@@ -232,12 +238,16 @@ function buildRemSchedule(sleepWindow, options = {}) {
       cycle_number: index + 1,
       scheduled_at: new Date(startMs + minutes * 60000).toISOString(),
       status: 'pending',
+      stage: 'pending',
       dream_txt_file: null,
       dream_metadata_file: null,
       dreaming_started_at: null,
       dreaming_process_pid: null,
       completed_at: null,
-      last_transition_at: null
+      last_transition_at: null,
+      quality_retry_count: 0,
+      dream_attempt_count: 0,
+      next_retry_at: null
     }))
     .filter((cycle) => new Date(cycle.scheduled_at).getTime() < endMs);
 }
@@ -276,14 +286,21 @@ function reconcileRemSchedule(state, sleepWindow, options = {}) {
 
   const merged = desired.map((cycle, index) => {
     const existing = existingByTime.get(cycle.scheduled_at);
-    return Object.freeze(existing
-      ? {
-          ...cycle,
-          ...existing,
-          cycle_number: index + 1,
-          scheduled_at: cycle.scheduled_at
-        }
-      : cycle);
+    if (!existing) return cycle;
+    const oldQualityFailure = existing.status === 'failed' &&
+      isDreamQualityRetry(existing.last_error || existing.last_attempt_error);
+    return Object.freeze({
+      ...cycle,
+      ...existing,
+      cycle_number: index + 1,
+      scheduled_at: cycle.scheduled_at,
+      status: oldQualityFailure ? 'pending' : (existing.status || 'pending'),
+      stage: oldQualityFailure ? 'pending' : (existing.stage || 'pending'),
+      dreaming_started_at: oldQualityFailure ? null : existing.dreaming_started_at || null,
+      dreaming_process_pid: oldQualityFailure ? null : existing.dreaming_process_pid || null,
+      completed_at: oldQualityFailure ? null : existing.completed_at || null,
+      next_retry_at: oldQualityFailure ? null : existing.next_retry_at || null
+    });
   });
 
   return Object.freeze({
@@ -342,6 +359,59 @@ function saveSleepCycleState(state, options = {}) {
   return state;
 }
 
+async function ensurePreRemMemoryConsolidation(state, options = {}) {
+  if (state && state.pre_rem_memory_consolidation && state.pre_rem_memory_consolidation.completed === true) {
+    return Object.freeze({ state, ran_now: false, result: state.pre_rem_memory_consolidation });
+  }
+  const preparationRunner = options.pre_rem_memory_preparation_runner || runPreRemMemoryPreparation;
+  const customStateFile = options.state_file && path.resolve(options.state_file) !== path.resolve(DEFAULT_STATE_FILE);
+  const isolatedRoot = customStateFile
+    ? path.join(path.dirname(path.resolve(options.state_file)), 'pre-rem-knowledge')
+    : null;
+  const knowledgeOptions = options.knowledge_options || (isolatedRoot ? {
+    text_root: path.join(isolatedRoot, 'text'),
+    youtube_root: path.join(isolatedRoot, 'text', 'youtube'),
+    knowledge_root: path.join(isolatedRoot, 'knowledge'),
+    memory_base_dir: path.join(isolatedRoot, 'memory'),
+    runtime_dir: path.join(isolatedRoot, 'runtime'),
+    stamp_file: path.join(isolatedRoot, 'runtime', 'knowledge-autoload.last-run')
+  } : {});
+  const prepared = await Promise.resolve(preparationRunner({
+    ...knowledgeOptions,
+    write_report: options.write_report,
+    knowledge_consolidation_report_file: options.knowledge_consolidation_report_file,
+    knowledge_autoload_runner: options.knowledge_autoload_runner,
+    knowledge_memory_consolidation_runner: options.knowledge_memory_consolidation_runner
+  }));
+  if (!prepared || prepared.ok !== true) {
+    throw new Error('nightly pre-REM memory preparation failed');
+  }
+  const completedAt = nowDate(options).toISOString();
+  const record = Object.freeze({
+    completed: true,
+    completed_at: completedAt,
+    autoload_marker: prepared.autoload && prepared.autoload.marker || null,
+    source_count: Number(prepared.source_count || 0),
+    chunk_count: Number(prepared.chunk_count || 0),
+    scanned_file_count: Number(prepared.scanned_file_count || 0),
+    unchanged_source_count: Number(prepared.unchanged_source_count || 0),
+    memories_written: Number(prepared.memories_written || 0),
+    short_term_memories_promoted: Number(prepared.short_term_memories_promoted || 0)
+  });
+  const nextState = Object.freeze({
+    ...state,
+    pre_rem_memory_consolidation: record,
+    last_transition_at: completedAt
+  });
+  saveSleepCycleState(nextState, options);
+  appendSleepEvent({
+    type: 'pre_rem_memory_consolidation_complete',
+    ...record,
+    at: completedAt
+  }, options);
+  return Object.freeze({ state: nextState, ran_now: true, result: record });
+}
+
 function appendSleepEvent(record, options = {}) {
   appendJsonlSync(eventsFile(options), {
     ...record,
@@ -370,14 +440,28 @@ function recoverStaleDreamingCycles(state, options = {}) {
   const alive = options.process_is_alive || processIsAlive;
   const at = nowDate(options).toISOString();
   const recoveredCycles = [];
+  const STALE_GENERATING_STAGES = new Set([
+    'claimed',
+    'gathering_context',
+    'planning_novelty',
+    'generating',
+    'validating'
+  ]);
+
   const nextCycles = state.rem_cycles.map((cycle) => {
-    if (!cycle || cycle.status !== 'dreaming') return cycle;
-    if (alive(Number(cycle.dreaming_process_pid || 0))) return cycle;
+    if (!cycle) return cycle;
+    const isDreaming = cycle.status === 'dreaming';
+    const isStaleStage = STALE_GENERATING_STAGES.has(cycle.stage);
+    const pidAlive = alive(Number(cycle.dreaming_process_pid || 0));
+
+    if (!isDreaming && !isStaleStage) return cycle;
+    if (pidAlive) return cycle;
 
     recoveredCycles.push(cycle.cycle_number);
     return Object.freeze({
       ...cycle,
       status: 'pending',
+      stage: 'pending',
       dreaming_started_at: null,
       dreaming_process_pid: null,
       last_transition_at: at
@@ -640,12 +724,14 @@ async function runSleepCycleTick(options = {}) {
     }
   }
 
+  const preRem = await ensurePreRemMemoryConsolidation(state, options);
+  state = preRem.state;
   const dreamRunner = options.dream_runner || runDreamEngineOnce;
   let dreamsGenerated = 0;
 
   for (let cycleIndex = 0; cycleIndex < state.rem_cycles.length; cycleIndex += 1) {
     const cycle = state.rem_cycles[cycleIndex];
-    if (cycle.status !== 'pending' || new Date(cycle.scheduled_at) > now) {
+    if (cycle.status !== 'pending' || new Date(cycle.scheduled_at) > now || (cycle.next_retry_at && new Date(cycle.next_retry_at) > now)) {
       continue;
     }
 
@@ -653,6 +739,7 @@ async function runSleepCycleTick(options = {}) {
     const dreamingCycle = Object.freeze({
       ...cycle,
       status: 'dreaming',
+      stage: 'generating',
       dreaming_started_at: transitionAt,
       dreaming_process_pid: process.pid,
       last_transition_at: transitionAt
@@ -686,6 +773,7 @@ async function runSleepCycleTick(options = {}) {
       const requeuedCycle = Object.freeze({
         ...dreamingCycle,
         status: 'pending',
+        stage: 'pending',
         dreaming_started_at: null,
         dreaming_process_pid: null,
         dream_attempt_count: Number(cycle.dream_attempt_count || 0) + 1,
@@ -710,12 +798,52 @@ async function runSleepCycleTick(options = {}) {
       throw error;
     }
 
+    if (dream && dream.regeneration_needed === true) {
+      const errorAt = nowDate(options).toISOString();
+      const dreamConfig = getDreamConfig(options.mode || 'chat');
+      const nextAttemptCount = Number(cycle.quality_retry_count || 0) + 1;
+      const backoffMs = computeBackoffSeconds(nextAttemptCount, dreamConfig) * 1000;
+      const requeuedCycle = Object.freeze({
+        ...dreamingCycle,
+        status: 'pending',
+        stage: 'regenerating',
+        dreaming_started_at: null,
+        dreaming_process_pid: null,
+        next_retry_at: new Date(new Date(errorAt).getTime() + backoffMs).toISOString(),
+        dream_attempt_count: Number(cycle.dream_attempt_count || 0) + 1,
+        quality_retry_count: nextAttemptCount,
+        last_attempt_error: dream.last_error || dream.marker,
+        last_attempt_at: errorAt,
+        last_transition_at: errorAt,
+        last_diagnostics: dream.diagnostics || null
+      });
+      state = Object.freeze({
+        ...state,
+        rem_cycles: state.rem_cycles.map((item, index) => index === cycleIndex ? requeuedCycle : item),
+        last_transition_at: errorAt,
+        last_quality_retry_at: errorAt,
+        last_quality_retry: dream.last_error || dream.marker,
+        last_architecture_error_at: null,
+        last_architecture_error: null
+      });
+      saveSleepCycleState(state, options);
+      appendSleepEvent({
+        type: 'rem_dream_quality_retry',
+        rem_cycle_number: cycle.cycle_number,
+        error: dream.last_error || dream.marker,
+        retry_at: requeuedCycle.next_retry_at,
+        at: errorAt
+      }, options);
+      continue;
+    }
+
     if (!dream || dream.ok !== true || !dream.dream_txt_file) {
       const error = new Error(dream && dream.marker ? dream.marker : 'dream engine did not complete');
       const errorAt = nowDate(options).toISOString();
       const requeuedCycle = Object.freeze({
         ...dreamingCycle,
         status: 'pending',
+        stage: 'pending',
         dreaming_started_at: null,
         dreaming_process_pid: null,
         dream_attempt_count: Number(cycle.dream_attempt_count || 0) + 1,
@@ -746,6 +874,7 @@ async function runSleepCycleTick(options = {}) {
     const completedCycle = Object.freeze({
       ...dreamingCycle,
       status: 'complete',
+      stage: 'complete',
       dream_txt_file: dream.dream_txt_file,
       dream_metadata_file: dream.dream_metadata_file || null,
       dreaming_process_pid: null,
@@ -784,6 +913,7 @@ async function runSleepCycleTick(options = {}) {
     interrupted_now: interruptedNow,
     resumed_after_idle: resumedAfterIdle,
     idle_resume_seconds: state.idle_resume_seconds,
+    pre_rem_memory_consolidation: state.pre_rem_memory_consolidation || null,
     dreams_generated_this_tick: dreamsGenerated,
     dream_files_written: dreamFilesWritten,
     chat_mode_only: true,
@@ -840,6 +970,7 @@ module.exports = {
   markAwakeInterruption,
   shouldResumeSleepAfterIdle,
   recordWakeActivityIfSleeping,
+  ensurePreRemMemoryConsolidation,
   runSleepCycleTick,
   printSleepCycleProof
 };

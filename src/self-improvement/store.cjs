@@ -71,6 +71,8 @@ function defaultStatus(config = loadSelfImprovementConfig()) {
     phase: null,
     paused: false,
     worker_running: false,
+    worker_alive_at: null,
+    sandbox_alive_at: null,
     current_run_id: null,
     current_objective: null,
     current_container: null,
@@ -79,10 +81,19 @@ function defaultStatus(config = loadSelfImprovementConfig()) {
     last_cycle_started_at: null,
     last_cycle_completed_at: null,
     last_error: null,
+    failure_latched_at: null,
+    last_sandbox_log_file: null,
+    model_proxy_ready: false,
+    queued_at: null,
     pending_review_count: 0,
     latest_candidate_id: null,
     promotion: null,
-    ui_poll_ms: config.ui_poll_ms
+    ui_poll_ms: config.ui_poll_ms,
+    current_command: null,
+    current_command_started_at: null,
+    current_command_elapsed_ms: 0,
+    last_real_progress_at: null,
+    stalled: false
   };
 }
 
@@ -103,6 +114,8 @@ function readStatus(config = loadSelfImprovementConfig()) {
   const pid = Number(String((() => {
     try { return fs.readFileSync(p.pidFile, 'utf8'); } catch (_error) { return ''; }
   })()).trim());
+  const workerHeartbeat = readWorkerHeartbeat(config);
+  const sandboxHeartbeat = readSandboxHeartbeat(config);
   return Object.freeze({
     ...defaultStatus(config),
     ...(current || {}),
@@ -110,6 +123,8 @@ function readStatus(config = loadSelfImprovementConfig()) {
     paused: fs.existsSync(p.pauseFile),
     worker_running: processAlive(pid),
     worker_pid: processAlive(pid) ? pid : null,
+    worker_alive_at: workerHeartbeat ? workerHeartbeat.observed_at : null,
+    sandbox_alive_at: sandboxHeartbeat ? sandboxHeartbeat.observed_at : null,
     ui_poll_ms: config.ui_poll_ms,
     pending_review_count: listCandidates(config)
       .filter((candidate) => [
@@ -124,15 +139,67 @@ function readStatus(config = loadSelfImprovementConfig()) {
 
 function updateStatus(patch, config = loadSelfImprovementConfig()) {
   const p = ensureLayout(config);
+  const current = safeJson(p.statusFile, {}) || {};
+  const patchWithHeartbeat = (patch && Object.prototype.hasOwnProperty.call(patch, 'last_heartbeat_at'))
+    ? patch
+    : { ...(patch || {}), last_heartbeat_at: nowIso() };
   const next = {
     ...defaultStatus(config),
-    ...(safeJson(p.statusFile, {}) || {}),
-    ...(patch || {}),
-    ui_poll_ms: config.ui_poll_ms,
-    last_heartbeat_at: nowIso()
+    ...current,
+    ...patchWithHeartbeat,
+    ui_poll_ms: config.ui_poll_ms
   };
   atomicJson(p.statusFile, next, config);
   return Object.freeze(next);
+}
+
+function touchWorkerHeartbeat(config = loadSelfImprovementConfig()) {
+  const p = ensureLayout(config);
+  const file = path.join(config.runtime_root, config.worker_heartbeat_file_name || 'worker.heartbeat.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const observed = nowIso();
+  fs.writeFileSync(file, JSON.stringify({
+    marker: 'FLOKI_V2_SELF_IMPROVEMENT_WORKER_HEARTBEAT',
+    pid: process.pid,
+    observed_at: observed,
+    chat_mode_only: true,
+    game_mode_started: false
+  }, null, 2) + '\n', { mode: 0o600 });
+  const current = safeJson(p.statusFile, {}) || {};
+  const nowPatch = { last_heartbeat_at: observed };
+  if (current.worker_alive_at !== observed) nowPatch.worker_alive_at = observed;
+  atomicJson(p.statusFile, { ...current, ...nowPatch }, config);
+}
+
+function readWorkerHeartbeat(config = loadSelfImprovementConfig()) {
+  const file = path.join(config.runtime_root, config.worker_heartbeat_file_name || 'worker.heartbeat.json');
+  if (!fs.existsSync(file)) return null;
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_error) { return null; }
+}
+
+function touchSandboxHeartbeat(config = loadSelfImprovementConfig(), runId) {
+  const p = ensureLayout(config);
+  const file = path.join(config.runtime_root, config.sandbox_heartbeat_file_name || 'sandbox.heartbeat.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const observed = nowIso();
+  fs.writeFileSync(file, JSON.stringify({
+    marker: 'FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_HEARTBEAT',
+    pid: process.pid,
+    run_id: runId || null,
+    observed_at: observed,
+    chat_mode_only: true,
+    game_mode_started: false
+  }, null, 2) + '\n', { mode: 0o600 });
+  const current = safeJson(p.statusFile, {}) || {};
+  const nowPatch = { last_heartbeat_at: observed };
+  if (current.sandbox_alive_at !== observed) nowPatch.sandbox_alive_at = observed;
+  atomicJson(p.statusFile, { ...current, ...nowPatch }, config);
+}
+
+function readSandboxHeartbeat(config = loadSelfImprovementConfig()) {
+  const file = path.join(config.runtime_root, config.sandbox_heartbeat_file_name || 'sandbox.heartbeat.json');
+  if (!fs.existsSync(file)) return null;
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_error) { return null; }
 }
 
 function appendAudit(type, detail = {}, config = loadSelfImprovementConfig()) {
@@ -296,8 +363,12 @@ module.exports = {
   paths,
   processAlive,
   readCandidate,
+  readSandboxHeartbeat,
   readStatus,
+  readWorkerHeartbeat,
   safeJson,
+  touchSandboxHeartbeat,
+  touchWorkerHeartbeat,
   updateStatus,
   validId
 };

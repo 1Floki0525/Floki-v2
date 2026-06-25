@@ -29,8 +29,9 @@ const { createPineal } = require('../pineal/index.cjs');
 const { createFrontal } = require('../frontal/index.cjs');
 const { createBroca } = require('../broca/index.cjs');
 
-const { PROJECT_ROOT: ROOT, getLiveChatConfig } = require('../../src/config/floki-config.cjs');
+const { PROJECT_ROOT: ROOT, getLiveChatConfig, getVisionConfig } = require('../../src/config/floki-config.cjs');
 const { createReleaseGate } = require('../../src/chat/public-response-stream.cjs');
+const { retrieveKnowledgeContext } = require('../../src/chat/knowledge-context.cjs');
 const CONFIG_VERSION = 'floki-v2-core-brain-config-v1';
 
 const CHAT_REQUIRED_MODULES = Object.freeze([
@@ -382,13 +383,15 @@ function requireModule(core, name) {
   return module;
 }
 
-function memoryMatchesForContext(recallOutput) {
+function memoryMatchesForContext(recallOutput, excludedMemoryIds = []) {
   if (!recallOutput || !recallOutput.payload || !Array.isArray(recallOutput.payload.matches)) {
     return [];
   }
 
+  const excluded = new Set(Array.isArray(excludedMemoryIds) ? excludedMemoryIds.filter(Boolean) : []);
   return recallOutput.payload.matches.map(function(match) {
     const record = match.record || match;
+    if (excluded.has(record.id)) return null;
 
     return {
       memory_id: record.id || null,
@@ -396,7 +399,7 @@ function memoryMatchesForContext(recallOutput) {
       tags: Array.isArray(record.tags) ? record.tags : [],
       affect: record.affect || {}
     };
-  });
+  }).filter(Boolean);
 }
 
 async function handleChatText(core, text, options = {}) {
@@ -408,6 +411,17 @@ async function handleChatText(core, text, options = {}) {
   const chatWebcamVision = normalizeChatWebcamVisionContext(options.chat_webcam_vision || {});
   const runtimeCapabilities = buildChatRuntimeCapabilities(chatWebcamVision);
   const liveChat = getLiveChatConfig('chat');
+  const visionConfig = getVisionConfig('chat');
+  const visionQuestion = options.vision_question === true;
+  const visionHardwareQuestion = options.vision_hardware_question === true;
+  const visionResponseContract = Object.freeze({
+    question: visionQuestion,
+    hardware_question: visionHardwareQuestion,
+    require_narrative: visionConfig.cognition_scene_require_narrative === true,
+    scene_instruction: visionConfig.cognition_scene_instruction,
+    unavailable_instruction: visionConfig.cognition_unavailable_instruction,
+    prohibited_terms: Object.freeze(Object.values(visionConfig.prohibited_public_vision_terms))
+  });
   const trace = options.latency_trace || null;
 
   const thalamus = requireModule(core, 'thalamus');
@@ -450,14 +464,16 @@ async function handleChatText(core, text, options = {}) {
     streams: ['short_term', 'episodic', 'semantic', 'autobiographical'],
     limit: 5
   });
-  const memoryMatches = memoryMatchesForContext(recallOutput);
-  if (trace) trace.emit('memory_context_ready', { memory_match_count: memoryMatches.length });
+  const memoryMatches = memoryMatchesForContext(recallOutput, [memoryOutput.payload.record.id]);
+  const knowledgeContext = retrieveKnowledgeContext(text, { limit: 8 });
+  if (trace) trace.emit('memory_context_ready', { memory_match_count: memoryMatches.length, knowledge_match_count: knowledgeContext.knowledge_matches.length });
 
   const brocaContext = {
     parent_event_ids: [event.id],
     include_stage_truth: true,
     chat_webcam_vision: chatWebcamVision,
     runtime_capabilities: runtimeCapabilities,
+    vision_response_contract: visionResponseContract,
     tone: 'plain',
     audience: 'user'
   };
@@ -490,9 +506,11 @@ async function handleChatText(core, text, options = {}) {
     affect: affectSummary,
     memories: memoryMatches,
     persistent_chat_memory: options.persistent_chat_memory || null,
+    knowledge_context: knowledgeContext,
     emotional_reinforcement: options.emotional_reinforcement || null,
     soul: options.soul_context || null,
     chat_webcam_vision: chatWebcamVision,
+    vision_response_contract: visionResponseContract,
     personality: personalityOutput.payload.current,
     identity: identityOutput.payload.current,
     core_brain: {
@@ -571,6 +589,8 @@ async function handleChatText(core, text, options = {}) {
     personalityOutput,
     identityOutput,
     recallOutput,
+    memoryMatches,
+    knowledgeContext,
     cognitionOutput,
     speechOutput,
     chatWebcamVision,
@@ -595,6 +615,10 @@ function cognitionJsonFromOutput(cognitionOutput) {
     model: cognitionOutput.payload.model,
     safe_thought_summary: cognitionOutput.payload.cognition.safe_thought_summary,
     felt_interpretation: cognitionOutput.payload.cognition.felt_interpretation,
+    memory_links: Array.isArray(cognitionOutput.payload.cognition.memory_links) ? cognitionOutput.payload.cognition.memory_links.slice() : [],
+    personality_implications: Array.isArray(cognitionOutput.payload.cognition.personality_implications) ? cognitionOutput.payload.cognition.personality_implications.slice() : [],
+    identity_implications: Array.isArray(cognitionOutput.payload.cognition.identity_implications) ? cognitionOutput.payload.cognition.identity_implications.slice() : [],
+    new_memory_summary: cognitionOutput.payload.cognition.new_memory_summary || '',
     response_intent_for_broca: cognitionOutput.payload.cognition.response_intent_for_broca,
     normalized_model_json: cognitionOutput.payload.normalized_model_json === true,
     raw_private_reasoning_stored: cognitionOutput.payload.raw_private_reasoning_stored === true

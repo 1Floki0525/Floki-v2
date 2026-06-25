@@ -127,6 +127,7 @@ function loadFlokiConfig(mode) {
     configDraft.wake_gate = buildWakeGateSection(raw.wake_gate, mode);
     configDraft.audio = buildAudioSection(raw.audio, mode);
     configDraft.live_chat = buildLiveChatSection(raw.live_chat, mode);
+    configDraft.interface_yaml = buildInterfaceYamlSection(raw.interface, mode);
     if (raw.game_world_vision !== undefined) {
       throw new Error('chat config must not contain inactive game_world_vision section');
     }
@@ -226,6 +227,10 @@ function buildVisionSection(section, mode) {
       vlm_ssh_tunnel_remote_port: requireNumber(section.vlm_ssh_tunnel_remote_port, 'vision.vlm_ssh_tunnel_remote_port'),
       vlm_ssh_tunnel_socket_name: requireString(section.vlm_ssh_tunnel_socket_name, 'vision.vlm_ssh_tunnel_socket_name'),
       vlm_ssh_tunnel_check_timeout_ms: requireNumber(section.vlm_ssh_tunnel_check_timeout_ms, 'vision.vlm_ssh_tunnel_check_timeout_ms'),
+    desired_state_gates_required_for_start: requireString(section.desired_state_gates_required_for_start, 'vision.desired_state_gates_required_for_start'),
+    sleep_overrides_vision_start: requireBoolean(section.sleep_overrides_vision_start, 'vision.sleep_overrides_vision_start'),
+    vision_camera_stop_timeout_ms: requireNumber(section.vision_camera_stop_timeout_ms, 'vision.vision_camera_stop_timeout_ms'),
+    vision_camera_availability_probe_timeout_ms: requireNumber(section.vision_camera_availability_probe_timeout_ms, 'vision.vision_camera_availability_probe_timeout_ms'),
       vision_question_max_age_ms: requireNumber(section.vision_question_max_age_ms, 'vision.vision_question_max_age_ms'),
       vision_question_wait_ms: requireNumber(section.vision_question_wait_ms, 'vision.vision_question_wait_ms'),
       cognition_scene_max_detected_objects: requireNumber(section.cognition_scene_max_detected_objects, 'vision.cognition_scene_max_detected_objects'),
@@ -309,6 +314,26 @@ function buildPinealVisionSection(section, mode) {
   });
 }
 
+function buildInterfaceYamlSection(section, mode) {
+  if (!section) failMissingYamlKey(mode, 'interface');
+  const conn = requireObject(section.connection, 'interface.connection');
+  return Object.freeze({
+    settings_version: requireNumber(section.settings_version, 'interface.settings_version'),
+    connection: Object.freeze({
+      transport: requireString(conn.transport, 'interface.connection.transport'),
+      local_api_url: requireString(conn.local_api_url, 'interface.connection.local_api_url'),
+      local_ws_url: requireString(conn.local_ws_url, 'interface.connection.local_ws_url'),
+      auto_reconnect: requireBoolean(conn.auto_reconnect, 'interface.connection.auto_reconnect'),
+      reconnect_delay_ms: requireNumber(conn.reconnect_delay_ms, 'interface.connection.reconnect_delay_ms'),
+      reconnect_jitter_ms: requireNumber(conn.reconnect_jitter_ms, 'interface.connection.reconnect_jitter_ms'),
+      reconnect_backoff_max_ms: requireNumber(conn.reconnect_backoff_max_ms, 'interface.connection.reconnect_backoff_max_ms'),
+      max_reconnect_attempts: requireNumber(conn.max_reconnect_attempts, 'interface.connection.max_reconnect_attempts'),
+      request_timeout_ms: requireNumber(conn.request_timeout_ms, 'interface.connection.request_timeout_ms'),
+      mock_mode: requireBoolean(conn.mock_mode, 'interface.connection.mock_mode')
+    })
+  });
+}
+
 function buildPathsSection(section, mode) {
   if (!section) failMissingYamlKey(mode, 'paths');
 
@@ -321,6 +346,7 @@ function buildPathsSection(section, mode) {
     media_root: requireString(section.media_root, 'paths.media_root'),
     youtube_transcript_root: requireString(section.youtube_transcript_root, 'paths.youtube_transcript_root'),
     ...(mode === 'chat' ? {
+      text_root: requireString(section.text_root, 'paths.text_root'),
       chat_runtime_root: requireString(section.chat_runtime_root, 'paths.chat_runtime_root'),
       chat_transcript_root: requireString(section.chat_transcript_root, 'paths.chat_transcript_root'),
       youtube_cookies_file: requireString(section.youtube_cookies_file, 'paths.youtube_cookies_file')
@@ -359,7 +385,9 @@ function buildSleepSection(section, mode) {
     } : {}),
     lifecycle_transition_notifications_enabled: requireBoolean(section.lifecycle_transition_notifications_enabled, 'sleep.lifecycle_transition_notifications_enabled'),
     manual_nap_duration_minutes: requireNumber(section.manual_nap_duration_minutes, 'sleep.manual_nap_duration_minutes'),
-    manual_nap_rem_offset_minutes: (() => { const value = requireNumber(section.manual_nap_rem_offset_minutes, 'sleep.manual_nap_rem_offset_minutes'); if (value < 0) throw new Error('sleep.manual_nap_rem_offset_minutes must be zero or greater'); return value; })()
+    manual_nap_rem_offset_minutes: (() => { const value = requireNumber(section.manual_nap_rem_offset_minutes, 'sleep.manual_nap_rem_offset_minutes'); if (value < 0) throw new Error('sleep.manual_nap_rem_offset_minutes must be zero or greater'); return value; })(),
+    manual_nap_max_rem_cycles: requireNumber(section.manual_nap_max_rem_cycles, 'sleep.manual_nap_max_rem_cycles'),
+    manual_nap_dream_max_retry_count: requireNumber(section.manual_nap_dream_max_retry_count, 'sleep.manual_nap_dream_max_retry_count')
   });
 }
 
@@ -419,6 +447,8 @@ function buildDreamSection(section, mode) {
     quality_regeneration_attempts: requireNumber(section.quality_regeneration_attempts, 'dream.quality_regeneration_attempts'),
     quality_retry_backoff_seconds: requireNumber(section.quality_retry_backoff_seconds, 'dream.quality_retry_backoff_seconds'),
     quality_retry_backoff_max_seconds: requireNumber(section.quality_retry_backoff_max_seconds, 'dream.quality_retry_backoff_max_seconds'),
+    max_dream_retry_per_cycle: requireNumber(section.max_dream_retry_per_cycle, 'dream.max_dream_retry_per_cycle'),
+    max_quality_retry_per_cycle: requireNumber(section.max_quality_retry_per_cycle, 'dream.max_quality_retry_per_cycle'),
     novelty_thresholds: requireNoveltyThresholds(section.novelty_thresholds, 'dream.novelty_thresholds')
   });
 }
@@ -493,6 +523,16 @@ function buildAudioSection(section, mode) {
     whisper_server_host: requireString(section.whisper_server_host, 'audio.whisper_server_host'),
     whisper_server_port: requireNumber(section.whisper_server_port, 'audio.whisper_server_port'),
     whisper_server_start_timeout_ms: requireNumber(section.whisper_server_start_timeout_ms, 'audio.whisper_server_start_timeout_ms'),
+    whisper_singleton_enforced: requireBoolean(section.whisper_singleton_enforced, 'audio.whisper_singleton_enforced'),
+    whisper_singleton_lock_file: requireString(section.whisper_singleton_lock_file, 'audio.whisper_singleton_lock_file'),
+    whisper_process_root: requireString(section.whisper_process_root, 'audio.whisper_process_root'),
+    whisper_server_probe_path: requireString(section.whisper_server_probe_path, 'audio.whisper_server_probe_path'),
+    whisper_server_probe_timeout_ms: requireNumber(section.whisper_server_probe_timeout_ms, 'audio.whisper_server_probe_timeout_ms'),
+    whisper_server_probe_request_timeout_ms: requireNumber(section.whisper_server_probe_request_timeout_ms, 'audio.whisper_server_probe_request_timeout_ms'),
+    whisper_server_probe_poll_ms: requireNumber(section.whisper_server_probe_poll_ms, 'audio.whisper_server_probe_poll_ms'),
+    whisper_process_stop_timeout_ms: requireNumber(section.whisper_process_stop_timeout_ms, 'audio.whisper_process_stop_timeout_ms'),
+    whisper_process_stop_poll_ms: requireNumber(section.whisper_process_stop_poll_ms, 'audio.whisper_process_stop_poll_ms'),
+    whisper_error_tail_chars: requireNumber(section.whisper_error_tail_chars, 'audio.whisper_error_tail_chars'),
     voice_lock_ttl_ms: requireNumber(section.voice_lock_ttl_ms, 'audio.voice_lock_ttl_ms'),
     piper_voice_name: requireString(section.piper_voice_name, 'audio.piper_voice_name'),
     piper_voice_size: requireString(section.piper_voice_size, 'audio.piper_voice_size'),
@@ -512,7 +552,14 @@ function buildAudioSection(section, mode) {
     hearing_duplicate_window_ms: requireNumber(section.hearing_duplicate_window_ms, 'audio.hearing_duplicate_window_ms'),
     hearing_freshness_max_age_ms: requireNumber(section.hearing_freshness_max_age_ms, 'audio.hearing_freshness_max_age_ms'),
     piper_incremental_enabled: requireBoolean(section.piper_incremental_enabled, 'audio.piper_incremental_enabled'),
-    piper_playback_command: requireString(section.piper_playback_command, 'audio.piper_playback_command')
+    piper_playback_command: requireString(section.piper_playback_command, 'audio.piper_playback_command'),
+    audio_drain_timeout_ms: requireNumber(section.audio_drain_timeout_ms, 'audio.audio_drain_timeout_ms'),
+    ambient_memory_rate_limit_per_minute: requireNumber(section.ambient_memory_rate_limit_per_minute, 'audio.ambient_memory_rate_limit_per_minute'),
+    ambient_memory_backoff_seconds: requireNumber(section.ambient_memory_backoff_seconds, 'audio.ambient_memory_backoff_seconds'),
+    ambient_memory_failure_log_max_chars: requireNumber(section.ambient_memory_failure_log_max_chars, 'audio.ambient_memory_failure_log_max_chars'),
+    ambient_memory_failure_log_name: requireString(section.ambient_memory_failure_log_name, 'audio.ambient_memory_failure_log_name'),
+    max_frame_queue_size: requireNumber(section.max_frame_queue_size, 'audio.max_frame_queue_size'),
+    whisper_drain_timeout_ms: requireNumber(section.whisper_drain_timeout_ms, 'audio.whisper_drain_timeout_ms')
   });
 }
 
@@ -575,7 +622,14 @@ function buildLiveChatSection(section, mode) {
     runtime_port: requireNumber(section.runtime_port, 'live_chat.runtime_port'),
     runtime_heartbeat_ms: requireNumber(section.runtime_heartbeat_ms, 'live_chat.runtime_heartbeat_ms'),
     public_sentence_min_characters: requireNumber(section.public_sentence_min_characters, 'live_chat.public_sentence_min_characters'),
-    latency_log_max_bytes: requireNumber(section.latency_log_max_bytes, 'live_chat.latency_log_max_bytes')
+    latency_log_max_bytes: requireNumber(section.latency_log_max_bytes, 'live_chat.latency_log_max_bytes'),
+    history_limit: requireNumber(section.history_limit, 'live_chat.history_limit'),
+    transcript_tail_max: requireNumber(section.transcript_tail_max, 'live_chat.transcript_tail_max'),
+    neural_event_max_display_chars: requireNumber(section.neural_event_max_display_chars, 'live_chat.neural_event_max_display_chars'),
+    audio_voice_lock_ttl_ms: requireNumber(section.audio_voice_lock_ttl_ms, 'live_chat.audio_voice_lock_ttl_ms'),
+    piper_text_max_chars: requireNumber(section.piper_text_max_chars, 'live_chat.piper_text_max_chars'),
+    piper_request_timeout_ms: requireNumber(section.piper_request_timeout_ms, 'live_chat.piper_request_timeout_ms'),
+    control_action_defer_ms: requireNumber(section.control_action_defer_ms, 'live_chat.control_action_defer_ms')
   });
 }
 
@@ -659,6 +713,11 @@ function getPinealVisionConfig(mode) {
   return loadFlokiConfig(mode).pineal_vision;
 }
 
+function getInterfaceYamlConfig(mode) {
+  if (mode !== 'chat') throw new Error('interface yaml config is chat-mode only');
+  return loadFlokiConfig(mode).interface_yaml;
+}
+
 function resolveProjectPath(relativePath) {
   if (typeof relativePath !== 'string' || relativePath.trim() === '') {
     throw new TypeError('relativePath must be a non-empty string');
@@ -712,6 +771,7 @@ module.exports = {
   getChatWorldVisionConfig,
   getGameWorldVisionConfig,
   getPinealVisionConfig,
+  getInterfaceYamlConfig,
   resolveProjectPath,
   resolveStatePath,
   resolveToolPath,
@@ -875,6 +935,26 @@ if (typeof module.exports.getFlokiConfig !== 'function') {
 function getSelfImprovementConfig(mode = 'chat') {
   const raw = loadRawYaml(mode);
   const section = requireObject(raw.self_improvement, 'self_improvement');
+  const numberFromMap = (value) => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+  };
+  const commandTimeoutOverrides = (() => {
+    const rawMap = section.command_timeout_overrides_ms;
+    if (typeof rawMap !== 'string' || !rawMap.trim()) return Object.freeze({});
+    const out = {};
+    for (const pair of rawMap.split('|')) {
+      const [key, value] = pair.split('=');
+      if (!key || !value) continue;
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) out[key.trim()] = parsed;
+    }
+    return Object.freeze(out);
+  })();
   const stringValue = (name) => requireString(section[name], 'self_improvement.' + name);
   const numberValue = (name) => requireNumber(section[name], 'self_improvement.' + name);
   const booleanValue = (name) => requireBoolean(section[name], 'self_improvement.' + name);
@@ -1034,7 +1114,40 @@ function getSelfImprovementConfig(mode = 'chat') {
     browser_profile_prefix: stringValue('browser_profile_prefix'),
     github_accept: stringValue('github_accept'),
     arxiv_accept: stringValue('arxiv_accept'),
-    crossref_accept: stringValue('crossref_accept')
+    crossref_accept: stringValue('crossref_accept'),
+    image_source_label: stringValue('image_source_label'),
+    image_source_files: stringValue('image_source_files'),
+    image_fingerprint_algorithm: stringValue('image_fingerprint_algorithm'),
+    model_proxy_root: stringValue('model_proxy_root'),
+    model_proxy_socket_name: stringValue('model_proxy_socket_name'),
+    model_proxy_mount_path: stringValue('model_proxy_mount_path'),
+    model_proxy_mount_options: stringValue('model_proxy_mount_options'),
+    model_proxy_health_path: stringValue('model_proxy_health_path'),
+    model_proxy_start_timeout_ms: numberValue('model_proxy_start_timeout_ms'),
+    model_proxy_request_timeout_ms: numberValue('model_proxy_request_timeout_ms'),
+    model_response_max_bytes: numberValue('model_response_max_bytes'),
+    model_proxy_connection_header: stringValue('model_proxy_connection_header'),
+    model_request_max_bytes: numberValue('model_request_max_bytes'),
+    sandbox_log_file_name: stringValue('sandbox_log_file_name'),
+    sandbox_error_tail_chars: numberValue('sandbox_error_tail_chars'),
+    failure_requires_new_activity: booleanValue('failure_requires_new_activity'),
+    environment_check_command_timeout_ms: numberValue('environment_check_command_timeout_ms'),
+    shell_command_progress_interval_ms: numberValue('shell_command_progress_interval_ms'),
+    shell_command_stalled_threshold_ms: numberValue('shell_command_stalled_threshold_ms'),
+    iteration_wall_clock_budget_ms: numberValue('iteration_wall_clock_budget_ms'),
+    command_timeout_overrides_ms: commandTimeoutOverrides,
+    agent_git_show_timeout_ms: numberValue('agent_git_show_timeout_ms'),
+    agent_ollama_request_max_attempts: numberValue('agent_ollama_request_max_attempts'),
+    agent_ollama_request_retry_backoff_ms: numberValue('agent_ollama_request_retry_backoff_ms'),
+    worker_heartbeat_file_name: stringValue('worker_heartbeat_file_name'),
+    sandbox_heartbeat_file_name: stringValue('sandbox_heartbeat_file_name'),
+    sandbox_heartbeat_refresh_ms: numberValue('sandbox_heartbeat_refresh_ms'),
+    sandbox_heartbeat_stale_ms: numberValue('sandbox_heartbeat_stale_ms'),
+    model_queue_depth: numberValue('model_queue_depth'),
+    model_queue_timeout_ms: numberValue('model_queue_timeout_ms'),
+    model_queue_request_timeout_ms: numberValue('model_queue_request_timeout_ms'),
+    model_queue_per_request_cancel_enabled: booleanValue('model_queue_per_request_cancel_enabled'),
+    promote_deny_during_active_sandbox: booleanValue('promote_deny_during_active_sandbox')
   });
 }
 module.exports.getSelfImprovementConfig = getSelfImprovementConfig;

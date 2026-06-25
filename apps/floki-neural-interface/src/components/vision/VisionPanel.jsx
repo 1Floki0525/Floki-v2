@@ -96,22 +96,28 @@ export default function VisionPanel() {
   const [persons, setPersons] = useState([]);
   const [sceneLabel, setSceneLabel] = useState('');
   const [sceneConf, setSceneConf] = useState(null);
+  const [detectionState, setDetectionState] = useState('warming');
   const [streamKey, setStreamKey] = useState(0);
   const [streamError, setStreamError] = useState(false);
+  const [streamLoaded, setStreamLoaded] = useState(false);
   const reconnectTimer = useRef(null);
 
   const refreshMeta = useCallback(async () => {
     try {
       const vision = await flokiAdapter.getVisionFrame();
+      const connectionStatus = vision.connectionStatus || 'offline';
+      const live = connectionStatus === 'active' && vision.frame?.fresh === true;
       setFrameMeta({
-        frameRate: Number(vision.frameRate || 0),
-        connectionStatus: vision.connectionStatus || 'offline',
+        frameRate: live ? Number(vision.frameRate || 0) : 0,
+        connectionStatus: live ? 'active' : connectionStatus,
         timestamp: vision.timestamp || Date.now(),
       });
-      setObjects(Array.isArray(vision.objects) ? vision.objects : []);
-      setPersons(Array.isArray(vision.persons) ? vision.persons : []);
-      setSceneLabel(vision.scene?.available === true ? String(vision.scene.label || '') : '');
-      const rawSceneConfidence = vision.scene?.confidence;
+      setObjects(live && Array.isArray(vision.objects) ? vision.objects : []);
+      setPersons(live && Array.isArray(vision.persons) ? vision.persons : []);
+      const detectionFresh = live && vision.detection?.fresh === true && vision.detection?.stale !== true;
+      setDetectionState(!live ? 'offline' : detectionFresh ? 'live' : vision.detection?.available ? 'stale' : 'warming');
+      setSceneLabel(live && vision.scene?.available === true ? String(vision.scene.label || '') : '');
+      const rawSceneConfidence = live ? vision.scene?.confidence : null;
       setSceneConf(
         rawSceneConfidence !== null &&
         rawSceneConfidence !== undefined &&
@@ -121,14 +127,27 @@ export default function VisionPanel() {
       );
     } catch (error) {
       console.error(error);
-      setFrameMeta((current) => ({ ...current, connectionStatus: 'offline', timestamp: Date.now() }));
+      setFrameMeta({ frameRate: 0, connectionStatus: 'offline', timestamp: Date.now() });
+      setObjects([]);
+      setPersons([]);
+      setSceneLabel('');
+      setSceneConf(null);
+      setDetectionState('offline');
+      setStreamLoaded(false);
+      setStreamError(true);
     }
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const url = await flokiAdapter.getMjpegUrl();
+      let url = null;
+      try {
+        url = await flokiAdapter.getMjpegUrl();
+      } catch (error) {
+        console.error(error);
+        setStreamError(true);
+      }
       if (cancelled) return;
       if (url) {
         setMjpegUrl(url);
@@ -139,18 +158,31 @@ export default function VisionPanel() {
   }, []);
 
   const handleStreamError = useCallback(() => {
+    setStreamLoaded(false);
     setStreamError(true);
+    setObjects([]);
+    setPersons([]);
+    setSceneLabel('');
+    setDetectionState('offline');
     clearTimeout(reconnectTimer.current);
-    reconnectTimer.current = setTimeout(async () => {
-      const vision = await flokiAdapter.getVisionFrame();
-      if (vision.connectionStatus !== 'active') return;
-      const url = await flokiAdapter.getMjpegUrl();
-      if (url) {
-        setMjpegUrl(url);
-        setStreamKey((key) => key + 1);
-        setStreamError(false);
+    const retry = async () => {
+      try {
+        const vision = await flokiAdapter.getVisionFrame();
+        if (vision.connectionStatus === 'active' && vision.frame?.fresh === true) {
+          const url = await flokiAdapter.getMjpegUrl();
+          if (url) {
+            const separator = url.includes('?') ? '&' : '?';
+            setMjpegUrl(url + separator + 'reconnect=' + Date.now());
+            setStreamKey((key) => key + 1);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error(error);
       }
-    }, 2000);
+      reconnectTimer.current = setTimeout(retry, 2000);
+    };
+    reconnectTimer.current = setTimeout(retry, 2000);
   }, []);
 
   useEffect(() => () => clearTimeout(reconnectTimer.current), []);
@@ -175,7 +207,7 @@ export default function VisionPanel() {
   }, [frozen]);
 
   const displayUrl = frozen ? frozenFrame : mjpegUrl;
-  const active = frameMeta.connectionStatus === 'active';
+  const active = frameMeta.connectionStatus === 'active' && streamLoaded && streamError === false;
 
   return (
     <NeonPanel title="Live Vision" badge={active ? 'LIVE' : 'OFFLINE'}>
@@ -187,11 +219,12 @@ export default function VisionPanel() {
               src={displayUrl}
               alt="Live webcam feed"
               data-testid="vision-feed"
-              className="w-full h-full object-cover"
+              className={cn('w-full h-full object-cover transition-opacity', active ? 'opacity-100' : 'opacity-0')}
               style={{ filter: blackout ? 'brightness(0)' : undefined }}
+              onLoad={() => { setStreamLoaded(true); setStreamError(false); }}
               onError={handleStreamError}
             />
-            {!blackout && showObjects && (
+            {active && !blackout && showObjects && (
               <DetectionLayer
                 detections={objects}
                 stroke="#84cc16"
@@ -200,7 +233,7 @@ export default function VisionPanel() {
                 showConf={showConf}
               />
             )}
-            {!blackout && showPersons && (
+            {active && !blackout && showPersons && (
               <DetectionLayer
                 detections={persons}
                 stroke="#22d3ee"
@@ -209,17 +242,25 @@ export default function VisionPanel() {
                 showConf={showConf}
               />
             )}
-            {!blackout && (
+            {active && !blackout && (
               <div className="absolute bottom-2 left-2 text-[9px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-muted-foreground">
                 {frameMeta.frameRate.toFixed(1)} FPS
               </div>
             )}
-            {!blackout && showScene && sceneLabel && (
+            {active && !blackout && showScene && sceneLabel && (
               <div className="absolute bottom-2 right-2 text-[9px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-muted-foreground max-w-[60%] truncate">
                 {showConf && sceneConf != null ? `${sceneLabel} (${(sceneConf * 100).toFixed(0)}%)` : sceneLabel}
               </div>
             )}
-            {frozen && !blackout && (
+            {!active && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/85">
+                <Camera className="w-8 h-8 mb-3 text-muted-foreground/40" />
+                <p className="text-sm text-foreground/80">
+                  {streamError ? 'Vision stream unavailable' : 'Vision service warming'}
+                </p>
+              </div>
+            )}
+            {active && frozen && !blackout && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <span className="text-[10px] font-mono px-2 py-1 rounded bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/40 backdrop-blur-sm">
                   <Snowflake className="w-3 h-3 inline mr-1" />FROZEN
@@ -241,6 +282,9 @@ export default function VisionPanel() {
         <span className="flex items-center gap-1">
           <Activity className="w-2.5 h-2.5" />
           {active ? 'Streaming' : 'Offline'}
+        </span>
+        <span className={cn(detectionState === 'live' ? 'text-emerald-400' : detectionState === 'stale' ? 'text-neon-amber' : 'text-muted-foreground/50')}>
+          Detector: {detectionState}
         </span>
         <span>{new Date(frameMeta.timestamp).toLocaleTimeString()}</span>
       </div>

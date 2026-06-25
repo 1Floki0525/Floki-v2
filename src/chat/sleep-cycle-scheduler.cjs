@@ -8,12 +8,13 @@ const {
   readJsonFileSync,
   writeJsonFileAtomicSync
 } = require('../util/fs-safe.cjs');
-const { PROJECT_ROOT: ROOT, getPathConfig } = require('../config/floki-config.cjs');
+const { PROJECT_ROOT: ROOT, getPathConfig, getSleepConfig } = require('../config/floki-config.cjs');
 const { runSleepCycleTick, loadSleepCycleState } = require('./sleep-cycle.cjs');
 
-const SCHEDULER_TICK_MS = 30000;
-const SCHEDULER_HEARTBEAT_STALE_MS = 90000;
-const SCHEDULER_HEARTBEAT_REFRESH_MS = 30000;
+const SCHEDULER_CONFIG = getSleepConfig('chat');
+const SCHEDULER_TICK_MS = Number(SCHEDULER_CONFIG.scheduler_tick_ms);
+const SCHEDULER_HEARTBEAT_STALE_MS = Number(SCHEDULER_CONFIG.scheduler_heartbeat_stale_ms);
+const SCHEDULER_HEARTBEAT_REFRESH_MS = Number(SCHEDULER_CONFIG.scheduler_heartbeat_refresh_ms);
 
 function runtimeDirFromConfig() {
   const configured = getPathConfig('chat').chat_runtime_root;
@@ -153,7 +154,7 @@ async function runSchedulerIteration(options = {}) {
     if (isRecoverableDreamQualityError(error)) {
       const record = Object.freeze({
         ok: true,
-        marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_DREAM_REJECTED',
+        marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_DREAM_REPAIR_QUEUED',
         pid: process.pid,
         degraded: true,
         dream_generated: false,
@@ -165,7 +166,7 @@ async function runSchedulerIteration(options = {}) {
 
       writeRuntimeRecord(paths.status_file, record);
       writeHeartbeat(paths, {
-        phase: 'idle_after_dream_rejection',
+        phase: 'idle_after_dream_repair_queued',
         degraded: true,
         dream_generated: false,
         rejection_error: error.message,

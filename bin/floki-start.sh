@@ -41,7 +41,7 @@ load_node_24() {
   if [ -s "$HOME/.nvm/nvm.sh" ]; then
     export NVM_DIR="$HOME/.nvm"
     . "$HOME/.nvm/nvm.sh"
-    nvm use 24 >/dev/null 2>&1
+    nvm use 24.17.0 >/dev/null 2>&1 || nvm use 24 >/dev/null 2>&1
   fi
 
   if ! command -v node >/dev/null 2>&1; then
@@ -50,17 +50,36 @@ load_node_24() {
 
   NODE_VERSION="$(node -v 2>/dev/null)"
   case "$NODE_VERSION" in
-    v24.*)
+    v24.17.0)
       ;;
     *)
-      fail "Node 24 required, got $NODE_VERSION"
+      fail "Node v24.17.0 required, got $NODE_VERSION"
       ;;
   esac
 }
 
+print_active_config_and_paths() {
+  node - <<'NODE'
+'use strict';
+const { configPathForMode, getPathConfig } = require('./src/config/floki-config.cjs');
+const mode = 'chat';
+const configFile = configPathForMode(mode);
+const paths = getPathConfig(mode);
+console.log('Active config file: ' + configFile);
+console.log('Resolved production paths:');
+for (const key of Object.keys(paths).sort()) {
+  console.log('  ' + key + ': ' + String(paths[key]));
+}
+NODE
+}
+
 start_sleep_scheduler() {
-  SCHEDULER_OUTPUT="$(bash bin/floki-sleep-scheduler-start.sh 2>&1)"
-  SCHEDULER_STATUS="$?"
+  local output_file
+  output_file="$(mktemp /tmp/floki-scheduler-start.XXXXXX)"
+  bash bin/floki-sleep-scheduler-start.sh > "$output_file" 2>&1
+  SCHEDULER_STATUS=$?
+  SCHEDULER_OUTPUT="$(cat "$output_file" 2>/dev/null || true)"
+  rm -f "$output_file"
 
   if [ "$SCHEDULER_STATUS" -ne 0 ]; then
     echo "$SCHEDULER_OUTPUT" >&2
@@ -85,21 +104,34 @@ VISION_STARTED=false
 
 # FLOKI_CHAT_LOCAL_LIFECYCLE_HELPERS_BEGIN
 CHAT_LOCAL_CLEANUP_DONE=0
+CHAT_LOCAL_HANDED_OFF=0
+SIGNAL_RECEIVED=0
 
 cleanup_chat_local() {
+  local last_exit="$?"
   if [ "$CHAT_LOCAL_CLEANUP_DONE" = "1" ]; then
-    return 0
+    return "$last_exit"
   fi
 
   CHAT_LOCAL_CLEANUP_DONE=1
   trap - EXIT INT TERM HUP
 
-  timeout 30s bash bin/floki-chat-local-cleanup.sh     >/dev/null 2>&1 || true
+  if [ "$CHAT_LOCAL_HANDED_OFF" = "1" ] && [ "$SIGNAL_RECEIVED" = "0" ] && [ "$last_exit" -eq 0 ]; then
+    return 0
+  fi
 
-  return 0
+  timeout 30s bash bin/floki-chat-local-cleanup.sh >/dev/null 2>&1
+  local cleanup_exit="$?"
+  if [ "$cleanup_exit" -ne 0 ]; then
+    echo "FLOKI_V2_CHAT_LOCAL_CLEANUP_FAIL: cleanup exited with status $cleanup_exit" >&2
+    return "$cleanup_exit"
+  fi
+
+  return "$last_exit"
 }
 
 interrupt_chat_local() {
+  SIGNAL_RECEIVED=1
   cleanup_chat_local
   echo "FLOKI_V2_CHAT_LOCAL_INTERRUPTED" >&2
   exit 130
@@ -130,8 +162,12 @@ stop_chat_webcam_vision() {
 HEARING_STARTED=false
 
 start_chat_hearing() {
-  HEARING_OUTPUT="$(bash bin/floki-chat-start.sh 2>&1)"
-  HEARING_STATUS="$?"
+  local output_file
+  output_file="$(mktemp /tmp/floki-chat-start.XXXXXX)"
+  bash bin/floki-chat-start.sh > "$output_file" 2>&1
+  HEARING_STATUS=$?
+  HEARING_OUTPUT="$(cat "$output_file" 2>/dev/null || true)"
+  rm -f "$output_file"
 
   if [ "$HEARING_STATUS" -ne 0 ]; then
     echo "$HEARING_OUTPUT" >&2
@@ -158,6 +194,11 @@ fi
 cd "$PROJECT_DIR" || fail "Could not cd into $PROJECT_DIR"
 load_node_24
 
+if [ "$COMMAND" = "chat" ] || [ "$COMMAND" = "chat.local" ]; then
+  node src/config/host-config-guard.cjs >/dev/null ||
+    fail "active host configuration failed protected-path validation"
+fi
+
 case "$COMMAND" in
   chat)
     start_sleep_scheduler
@@ -172,6 +213,7 @@ case "$COMMAND" in
     trap interrupt_chat_local INT TERM HUP
 
     startup_stage "1/7" "Node 24 runtime ready: $(node -v)"
+    print_active_config_and_paths
 
     startup_stage "2/7" "Loading and validating the complete chat-mode core brain"
     preflight_core_brain
@@ -200,10 +242,10 @@ NODE
     startup_stage "5/7" "Starting the authoritative backend with eyes and ears held off until the interface is visible"
     start_chat_hearing
 
+    CHAT_LOCAL_HANDED_OFF=1
     bash bin/floki-chat-local-start.sh "$@"
     CHAT_LOCAL_STATUS="$?"
 
-    cleanup_chat_local
     exit "$CHAT_LOCAL_STATUS"
     ;;
   text-chat)

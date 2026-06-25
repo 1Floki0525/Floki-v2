@@ -129,7 +129,7 @@ function createSourceSnapshot(options = {}) {
     ['config', 'user.email', config.snapshot_git_user_email],
     commandOptions(config, repoDir)
   );
-  run('git', ['add', '-A'], commandOptions(config, repoDir));
+  run('git', ['add', '-A', '--', '.'], commandOptions(config, repoDir));
   run(
     'git',
     ['commit', '-q', '-m', config.snapshot_git_commit_message],

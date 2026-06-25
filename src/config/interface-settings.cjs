@@ -8,31 +8,31 @@ const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const VERSION = 3;
 const DEFAULTS = Object.freeze({
   version: VERSION,
-  connection: { transport: 'electron-ipc', localApiUrl: 'http://127.0.0.1:7700', localWsUrl: 'ws://127.0.0.1:7700/ws', autoReconnect: true, reconnectDelay: 3000, requestTimeout: 120000, mockMode: false },
-  chat: { streamResponses: true, showTimestamps: true, markdownRendering: true, compactMessages: false, enterToSend: true, maxLocalHistory: 500 },
+  connection: { transport: 'electron-ipc', localApiUrl: 'http://127.0.0.1:7700', localWsUrl: 'ws://127.0.0.1:7700/ws', autoReconnect: true, reconnectDelay: 3000, reconnectJitterMs: 500, reconnectBackoffMaxMs: 30000, maxReconnectAttempts: 0, requestTimeout: 120000, mockMode: false },
+  chat: { streamResponses: true, showTimestamps: true, markdownRendering: true, compactMessages: false, enterToSend: true, maxLocalHistory: 500, transcriptPollMs: 750 },
   voice: { microphoneEnabled: true, speakerEnabled: true, handsFreeListening: true, pushToTalk: false, wakeWordEnabled: true, wakePhrase: 'Hey Floki', speechVolume: 80, speechRate: 1, interruptibleSpeech: true, showPartialTranscription: true },
-  vision: { showObjectBoxes: true, showPersonBoxes: true, showFaceBoxes: true, showRecognizedNames: true, showLabels: true, showConfidence: true, showSceneRecognition: true, observationFreshnessThreshold: 30, staleObservationWarning: true, privacyBlackoutDefault: false },
+  vision: { showObjectBoxes: true, showPersonBoxes: true, showFaceBoxes: true, showRecognizedNames: true, showLabels: true, showConfidence: true, showSceneRecognition: true, observationFreshnessThreshold: 30, detectionDisplayTtlMs: 2500, staleObservationWarning: true, privacyBlackoutDefault: false },
   emotions: { graphTimeRange: '5m', updateFrequency: 2000, graphSmoothing: 0.3 },
-  neuralStream: { autoScroll: true, maxEvents: 1000, compactView: false, defaultPrivacyFilter: 'all' },
+  neuralStream: { autoScroll: true, maxEvents: 1000, dedupeWindowMs: 900000, sessionOnly: true, compactView: false, defaultPrivacyFilter: 'all' },
   appearance: { neonIntensity: 70, glowIntensity: 50, animationLevel: 'normal', fontSize: 14, interfaceScale: 100, panelDensity: 'comfortable', reducedMotion: false },
   latency: { firstTokenTarget: 500, firstSpokenAudioTarget: 1500, slowWarningThreshold: 2000, criticalThreshold: 5000, showDetailedStageTiming: true },
   privacy: { hideVisionByDefault: false, hideRecognizedNames: false, redactPrivateMetadata: false, allowLocalExport: true, clearStoredPreferences: false }
 });
 const MAP = Object.freeze({
-  connection: { transport: 'transport', localApiUrl: 'local_api_url', localWsUrl: 'local_ws_url', autoReconnect: 'auto_reconnect', reconnectDelay: 'reconnect_delay_ms', requestTimeout: 'request_timeout_ms', mockMode: 'mock_mode' },
-  chat: { streamResponses: 'stream_responses', showTimestamps: 'show_timestamps', markdownRendering: 'markdown_rendering', compactMessages: 'compact_messages', enterToSend: 'enter_to_send', maxLocalHistory: 'max_local_history' },
+  connection: { transport: 'transport', localApiUrl: 'local_api_url', localWsUrl: 'local_ws_url', autoReconnect: 'auto_reconnect', reconnectDelay: 'reconnect_delay_ms', reconnectJitterMs: 'reconnect_jitter_ms', reconnectBackoffMaxMs: 'reconnect_backoff_max_ms', maxReconnectAttempts: 'max_reconnect_attempts', requestTimeout: 'request_timeout_ms', mockMode: 'mock_mode' },
+  chat: { streamResponses: 'stream_responses', showTimestamps: 'show_timestamps', markdownRendering: 'markdown_rendering', compactMessages: 'compact_messages', enterToSend: 'enter_to_send', maxLocalHistory: 'max_local_history', transcriptPollMs: 'transcript_poll_ms' },
   voice: { microphoneEnabled: 'microphone_enabled', speakerEnabled: 'speaker_enabled', handsFreeListening: 'hands_free_listening', pushToTalk: 'push_to_talk', wakeWordEnabled: 'wake_word_enabled', wakePhrase: 'wake_phrase', speechVolume: 'speech_volume', speechRate: 'speech_rate', interruptibleSpeech: 'interruptible_speech', showPartialTranscription: 'show_partial_transcription' },
-  vision: { showObjectBoxes: 'show_object_boxes', showPersonBoxes: 'show_person_boxes', showFaceBoxes: 'show_face_boxes', showRecognizedNames: 'show_recognized_names', showLabels: 'show_labels', showConfidence: 'show_confidence', showSceneRecognition: 'show_scene_recognition', observationFreshnessThreshold: 'observation_freshness_threshold', staleObservationWarning: 'stale_observation_warning', privacyBlackoutDefault: 'privacy_blackout_default' },
+  vision: { showObjectBoxes: 'show_object_boxes', showPersonBoxes: 'show_person_boxes', showFaceBoxes: 'show_face_boxes', showRecognizedNames: 'show_recognized_names', showLabels: 'show_labels', showConfidence: 'show_confidence', showSceneRecognition: 'show_scene_recognition', observationFreshnessThreshold: 'observation_freshness_threshold', detectionDisplayTtlMs: 'detection_display_ttl_ms', staleObservationWarning: 'stale_observation_warning', privacyBlackoutDefault: 'privacy_blackout_default' },
   emotions: { graphTimeRange: 'graph_time_range', updateFrequency: 'update_frequency', graphSmoothing: 'graph_smoothing' },
-  neuralStream: { autoScroll: 'auto_scroll', maxEvents: 'max_events', compactView: 'compact_view', defaultPrivacyFilter: 'default_privacy_filter' },
+  neuralStream: { autoScroll: 'auto_scroll', maxEvents: 'max_events', dedupeWindowMs: 'dedupe_window_ms', sessionOnly: 'session_only', compactView: 'compact_view', defaultPrivacyFilter: 'default_privacy_filter' },
   appearance: { neonIntensity: 'neon_intensity', glowIntensity: 'glow_intensity', animationLevel: 'animation_level', fontSize: 'font_size', interfaceScale: 'interface_scale', panelDensity: 'panel_density', reducedMotion: 'reduced_motion' },
   latency: { firstTokenTarget: 'first_token_target', firstSpokenAudioTarget: 'first_spoken_audio_target', slowWarningThreshold: 'slow_warning_threshold', criticalThreshold: 'critical_threshold', showDetailedStageTiming: 'show_detailed_stage_timing' },
   privacy: { hideVisionByDefault: 'hide_vision_by_default', hideRecognizedNames: 'hide_recognized_names', redactPrivateMetadata: 'redact_private_metadata', allowLocalExport: 'allow_local_export', clearStoredPreferences: 'clear_stored_preferences' }
 });
 const RANGE = Object.freeze({
-  'connection.reconnectDelay': [1000, 30000], 'connection.requestTimeout': [5000, 300000], 'chat.maxLocalHistory': [50, 5000],
-  'voice.speechVolume': [0, 100], 'voice.speechRate': [0.5, 2], 'vision.observationFreshnessThreshold': [5, 120],
-  'emotions.updateFrequency': [500, 10000], 'emotions.graphSmoothing': [0, 1], 'neuralStream.maxEvents': [100, 10000],
+  'connection.reconnectDelay': [1000, 30000], 'connection.reconnectJitterMs': [0, 30000], 'connection.reconnectBackoffMaxMs': [1000, 300000], 'connection.maxReconnectAttempts': [0, 1000], 'connection.requestTimeout': [5000, 300000], 'chat.maxLocalHistory': [50, 5000], 'chat.transcriptPollMs': [100, 5000],
+  'voice.speechVolume': [0, 100], 'voice.speechRate': [0.5, 2], 'vision.observationFreshnessThreshold': [5, 120], 'vision.detectionDisplayTtlMs': [250, 30000],
+  'emotions.updateFrequency': [500, 10000], 'emotions.graphSmoothing': [0, 1], 'neuralStream.maxEvents': [100, 10000], 'neuralStream.dedupeWindowMs': [0, 86400000],
   'appearance.neonIntensity': [0, 100], 'appearance.glowIntensity': [0, 100], 'appearance.fontSize': [10, 24], 'appearance.interfaceScale': [75, 150],
   'latency.firstTokenTarget': [100, 5000], 'latency.firstSpokenAudioTarget': [500, 10000], 'latency.slowWarningThreshold': [500, 10000], 'latency.criticalThreshold': [1000, 30000]
 });

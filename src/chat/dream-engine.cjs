@@ -8,11 +8,18 @@ const { buildRichDreamContext } = require('./rich-dream-context.cjs');
 const {
   resolveDreamQualityConfig,
   validateDreamQuality,
+  checkNoveltyViolations,
   formatDreamStoryParagraphs,
   buildDreamQualityInstructions,
   buildQualityRegenerationPrompt,
   groundedSourceDescriptions
 } = require('./dream-quality.cjs');
+const {
+  buildNoveltyPlan,
+  selectDifferentNoveltyPlan,
+  noveltyPlanToPrompt,
+  computeBackoffSeconds
+} = require('./dream-novelty.cjs');
 const {
   ensureDirSync,
   ensureParentDirSync,
@@ -166,6 +173,11 @@ function buildDreamContext(options = {}) {
 }
 
 function buildDreamPrompt(context, options = {}) {
+  const noveltyPlan = options.novelty_plan || context.novelty_plan || null;
+  const noveltyText = noveltyPlan
+    ? noveltyPlanToPrompt(noveltyPlan, { exact_violations: options.exact_violations })
+    : '';
+
   return [
     'Generate one grounded, vivid REM dream for Floki.',
     'Return only one JSON object matching the model-content schema.',
@@ -179,6 +191,8 @@ function buildDreamPrompt(context, options = {}) {
     '',
     buildDreamQualityInstructions(context, options),
     '',
+    noveltyText,
+    noveltyText ? '' : '',
     'Runtime-selected grounding plan:',
     JSON.stringify(context.dream_grounding_plan || {}, null, 2),
     '',
@@ -680,7 +694,6 @@ async function callDreamGenerator(prompt, context, options = {}) {
   let result;
   let retryUsed = false;
   let firstError = null;
-
   try {
     result = await generateJson(request);
   } catch (error) {
@@ -732,49 +745,139 @@ async function callDreamGenerator(prompt, context, options = {}) {
   });
 }
 
+function retryVariationConfig(attempt, qualityConfig, options) {
+  const base = getDreamConfig(options.mode || 'chat');
+  const scale = Math.max(0, attempt - 1);
+  return {
+    temperature: typeof options.temperature === 'number'
+      ? options.temperature
+      : Math.min(base.retry_temperature_max, base.retry_temperature + scale * base.retry_temperature_step),
+    top_p: typeof options.top_p === 'number'
+      ? options.top_p
+      : Math.min(base.retry_top_p_max, base.retry_top_p + scale * base.retry_top_p_step),
+    num_predict: Number(
+      options.retry_num_predict ||
+      options.num_predict ||
+      base.retry_num_predict
+    )
+  };
+}
+
 async function generateValidatedDream(prompt, context, options = {}) {
   const qualityConfig = resolveDreamQualityConfig(options);
-  const maxRegenerations = Math.max(
-    0,
-    Math.min(
-      1,
-      Number(qualityConfig.quality_regeneration_attempts)
-    )
-  );
+  const maxRegenerations = Number(qualityConfig.quality_regeneration_attempts);
+  if (!Number.isInteger(maxRegenerations) || maxRegenerations < 1) {
+    throw new Error('dream.quality_regeneration_attempts must be a positive integer');
+  }
 
   let currentPrompt = prompt;
   let lastError = null;
+  let diagnostics = [];
+  let noveltyPlan = buildNoveltyPlan(context, options);
 
   for (
     let attempt = 0;
     attempt <= maxRegenerations;
     attempt += 1
   ) {
-    const generation = await callDreamGenerator(
-      currentPrompt,
-      context,
-      options
-    );
+    const generationOptions = attempt === 0
+      ? { ...options, novelty_plan: noveltyPlan }
+      : {
+          ...options,
+          ...retryVariationConfig(attempt, qualityConfig, options),
+          novelty_attempt: attempt,
+          novelty_plan: noveltyPlan,
+          exact_violations: diagnostics
+        };
+
+    let generation = null;
+    let structuralError = null;
+    let generationFailure = false;
 
     try {
-      const modelDream = validateModelDreamJson(
-        generation.response_json
-      );
-      const dreamJson = composeRuntimeDream(
-        modelDream,
+      generation = await callDreamGenerator(
+        currentPrompt,
         context,
-        options
+        generationOptions
       );
-      const qualityMetrics = validateDreamQuality(
-        dreamJson,
-        context,
-        {
-          ...options,
-          quality_config: qualityConfig
-        }
-      );
+    } catch (error) {
+      if (!isJsonRepairableFailure(error)) {
+        throw error;
+      }
 
+      structuralError = error && error.message
+        ? error.message
+        : String(error);
+      generationFailure = true;
+
+      const modelConfig =
+        options.model_config || getCognitionConfig();
+
+      generation = Object.freeze({
+        model_called_now: true,
+        model: modelConfig.model,
+        response_json: null,
+        raw_stats: Object.freeze({
+          schema_constrained_json: true,
+          structural_generation_error:
+            structuralError,
+          structural_generation_retry:
+            attempt < maxRegenerations
+        })
+      });
+    }
+
+    let modelDream = null;
+    let dreamJson = null;
+    let qualityMetrics = null;
+    let violations = [];
+
+    if (!structuralError) {
+      try {
+        modelDream =
+          validateModelDreamJson(
+            generation.response_json
+          );
+
+        dreamJson =
+          composeRuntimeDream(
+            modelDream,
+            context,
+            options
+          );
+
+        violations =
+          checkNoveltyViolations(
+            dreamJson,
+            context,
+            {
+              quality_config:
+                qualityConfig
+            }
+          );
+
+        qualityMetrics =
+          validateDreamQuality(
+            dreamJson,
+            context,
+            {
+              ...options,
+              quality_config:
+                qualityConfig
+            }
+          );
+      } catch (error) {
+        structuralError =
+          error && error.message
+            ? error.message
+            : String(error);
+      }
+    }
+
+    if (!structuralError && violations.length === 0 && qualityMetrics) {
       return Object.freeze({
+        ok: true,
+        regeneration_needed: false,
         generation: Object.freeze({
           ...generation,
           raw_stats: {
@@ -787,43 +890,91 @@ async function generateValidatedDream(prompt, context, options = {}) {
         model_dream_json: modelDream,
         dream_json: dreamJson,
         quality_metrics: qualityMetrics,
+        novelty_plan: noveltyPlan,
+        diagnostics: Object.freeze(diagnostics.slice()),
         validation_retry_used: attempt > 0,
         validation_retry_first_error: lastError
       });
-    } catch (error) {
-      if (typeof options.dream_generator === 'function') {
-        throw error;
-      }
-
-      lastError = error && error.message
-        ? error.message
-        : String(error);
-
-      if (attempt >= maxRegenerations) {
-        throw new Error(
-          'DREAM_QUALITY_CONTRACT_REJECTED_AFTER_' +
-          String(maxRegenerations + 1) +
-          '_ATTEMPTS: ' +
-          lastError
-        );
-      }
-
-      currentPrompt = buildQualityRegenerationPrompt(
-        error,
-        generation.response_json,
-        context,
-        {
-          ...options,
-          quality_config: qualityConfig
-        }
-      );
     }
+
+    const rejectedDraft = generation.response_json || {};
+    const failureReason = structuralError
+      ? structuralError
+      : 'novelty violations: ' + violations.join('; ');
+
+    diagnostics.push(Object.freeze({
+      attempt,
+      reason: failureReason,
+      novelty_plan: noveltyPlan,
+      rejected_title: String(rejectedDraft.title || '').slice(0, 200),
+      rejected_opening: String(rejectedDraft.dream_story || '').split(/\s+/).slice(0, 70).join(' ')
+    }));
+
+    lastError = failureReason;
+
+    if (attempt >= maxRegenerations) {
+      return Object.freeze({
+        ok: false,
+        regeneration_needed: true,
+        stage: 'regenerating',
+        marker: 'FLOKI_V2_DREAM_ENGINE_REGENERATION_NEEDED',
+        generation: Object.freeze({
+          ...generation,
+          raw_stats: {
+            ...generation.raw_stats,
+            quality_regeneration_used: true,
+            quality_regeneration_attempts: attempt,
+            quality_first_error: lastError
+          }
+        }),
+        diagnostics: Object.freeze(diagnostics.slice()),
+        last_error: lastError,
+        novelty_plan: noveltyPlan
+      });
+    }
+
+    if (generationFailure) {
+      currentPrompt = buildDreamPrompt(context, {
+        ...options,
+        novelty_plan: noveltyPlan
+      });
+      continue;
+    }
+
+    noveltyPlan = selectDifferentNoveltyPlan(
+      noveltyPlan,
+      rejectedDraft,
+      violations,
+      context,
+      { ...options, novelty_attempt: attempt + 1 }
+    );
+
+    currentPrompt = buildQualityRegenerationPrompt(
+      new Error(failureReason),
+      rejectedDraft,
+      {
+        ...context,
+        quality_retry_attempt: attempt + 1,
+        novelty_plan: noveltyPlan,
+        rejected_opening: String(rejectedDraft.dream_story || '').split(/\s+/).slice(0, 70).join(' ')
+      },
+      {
+        ...options,
+        quality_config: qualityConfig,
+        novelty_plan: noveltyPlan,
+        exact_violations: violations
+      }
+    );
   }
 
-  throw new Error(
-    'DREAM_QUALITY_GENERATION_UNREACHABLE: ' +
-    String(lastError || 'unknown')
-  );
+  return Object.freeze({
+    ok: false,
+    regeneration_needed: true,
+    stage: 'regenerating',
+    marker: 'FLOKI_V2_DREAM_ENGINE_REGENERATION_NEEDED',
+    diagnostics: Object.freeze(diagnostics.slice()),
+    last_error: lastError || 'unknown quality regeneration failure'
+  });
 }
 
 function writeDreamEngineReport(status, options = {}) {
@@ -898,6 +1049,44 @@ async function runDreamEngineOnce(options = {}) {
     context,
     options
   );
+
+  if (!validated.ok || validated.regeneration_needed) {
+    const status = Object.freeze({
+      ok: false,
+      marker: validated.marker || 'FLOKI_V2_DREAM_ENGINE_REGENERATION_NEEDED',
+      stage: validated.stage || 'regenerating',
+      regeneration_needed: true,
+      dream_engine_run_now: true,
+      model_called_now: validated.generation && validated.generation.model_called_now === true,
+      schema_constrained_json: validated.generation && validated.generation.raw_stats && validated.generation.raw_stats.schema_constrained_json === true,
+      model_json_fallback_used: false,
+      dream_txt_written: false,
+      dream_txt_file: null,
+      dream_metadata_file: null,
+      dream_index_appended: false,
+      dream_root: getDreamRoot(options),
+      rem_cycle_number: Number(options.rem_cycle_number || 1),
+      sleep_window_start: context.sleep_window_start,
+      sleep_window_end: context.sleep_window_end,
+      cold_storage_dream_path_used:
+        getDreamRoot(options) ===
+        path.resolve(dreamRootFallback),
+      quality_regeneration_attempts:
+        validated.generation && validated.generation.raw_stats
+          ? validated.generation.raw_stats.quality_regeneration_attempts || 0
+          : 0,
+      last_error: validated.last_error || null,
+      diagnostics: validated.diagnostics || null,
+      chat_mode_only: true,
+      game_mode_started: false
+    });
+
+    return Object.freeze({
+      ...status,
+      report_file: writeDreamEngineReport(status, options)
+    });
+  }
+
   const generation = validated.generation;
   const dreamJson = validated.dream_json;
   const dreamText = renderDreamText(
@@ -974,6 +1163,7 @@ async function runDreamEngineOnce(options = {}) {
   const status = Object.freeze({
     ok: true,
     marker: 'FLOKI_V2_DREAM_ENGINE_CONTRACT_PASS',
+    stage: 'complete',
     dream_engine_run_now: true,
     model_called_now:
       generation.model_called_now === true,

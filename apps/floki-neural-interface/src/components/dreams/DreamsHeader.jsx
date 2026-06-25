@@ -11,7 +11,16 @@ function formatDuration(ms) {
 
 function stateLabel(timeline) {
   const session = timeline.activeSession;
-  if (!session?.active) return 'Awake';
+  if (!session?.active) {
+    if (timeline?.liveStatus?.lifecycleState) {
+      const live = String(timeline.liveStatus.lifecycleState).toLowerCase();
+      if (live === 'rem_dreaming') return 'REM Dreaming';
+      if (live === 'asleep') return 'Sleeping';
+      if (live === 'manual_nap') return 'Sleeping (Nap)';
+      if (live === 'manual_nap_rem') return 'REM Dreaming (Nap)';
+    }
+    return 'Awake';
+  }
   if (session.status === 'dreaming') return 'REM Dreaming';
   if (session.status === 'pre_rem') return 'Asleep';
   if (session.status === 'failed') return 'Dream Failed';

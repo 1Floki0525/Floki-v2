@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 
@@ -48,7 +49,11 @@ const WORKSPACE = requireString('workspace_path');
 const OUTBOX = requireString('outbox_path');
 const RUN_ID = requireString('run_id');
 const MODEL = requireString('model_name');
-const OLLAMA = requireString('model_endpoint').replace(/\/$/, '');
+const MODEL_SOCKET_PATH = requireString('model_socket_path');
+const MODEL_PROXY_HEALTH_PATH = requireString('model_proxy_health_path');
+const MODEL_RESPONSE_MAX_BYTES = requireNumber('model_response_max_bytes');
+const MODEL_REQUEST_MAX_BYTES = requireNumber('model_request_max_bytes');
+const MODEL_PROXY_CONNECTION_HEADER = requireString('model_proxy_connection_header');
 const MODEL_TEMPERATURE = requireNumber('model_temperature');
 const MODEL_TOP_P = requireNumber('model_top_p');
 const MODEL_TIMEOUT_MS = requireNumber('model_timeout_ms');
@@ -70,6 +75,17 @@ const COMMAND_AUDIT_MAX_CHARS = requireNumber('agent_command_audit_max_chars');
 const TOOL_RESULT_MAX_CHARS = requireNumber('agent_tool_result_max_chars');
 const TEST_OUTPUT_TAIL_CHARS = requireNumber('agent_test_output_tail_chars');
 const MIN_COMMAND_TIMEOUT_MS = requireNumber('agent_min_command_timeout_ms');
+const ENVIRONMENT_CHECK_TIMEOUT_MS = (() => {
+  const raw = CONFIG.environment_check_command_timeout_ms;
+  const fallback = CONFIG.max_command_ms;
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return Math.min(raw, CONFIG.max_command_ms);
+  return fallback;
+})();
+const SHELL_PROGRESS_INTERVAL_MS = (() => {
+  const raw = CONFIG.shell_command_progress_interval_ms;
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return Math.max(250, raw);
+  return 5000;
+})();
 const FETCH_DEFAULT_TIMEOUT_MS = requireNumber('agent_fetch_default_timeout_ms');
 const FETCH_MAX_TIMEOUT_MS = requireNumber('agent_fetch_max_timeout_ms');
 const FETCH_DEFAULT_MAX_CHARS = requireNumber('agent_fetch_default_max_chars');
@@ -122,6 +138,25 @@ const INTERFACE_PROJECT_PATH = requireString('interface_project_path');
 const SNAPSHOT_EVIDENCE_SUBDIR = requireString('snapshot_evidence_subdir');
 const SNAPSHOT_RUNTIME_EVIDENCE_FILE_NAME = requireString('snapshot_runtime_evidence_file_name');
 
+let shutdownSignal = null;
+function exitForShutdown(signal) {
+  if (shutdownSignal) return;
+  shutdownSignal = signal;
+  try {
+    fs.writeSync(2, JSON.stringify({
+      ok: true,
+      marker: 'FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_PREEMPTED',
+      signal
+    }) + '\n');
+  } catch (_error) {
+  } finally {
+    process.exit(0);
+  }
+}
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.once(signal, () => exitForShutdown(signal));
+}
+
 const runRoot = path.join(OUTBOX, RUN_ID + '.working');
 const finalRoot = path.join(OUTBOX, RUN_ID);
 fs.rmSync(runRoot, { recursive: true, force: true });
@@ -142,11 +177,14 @@ function sha256(value) {
 }
 
 function audit(type, detail) {
-  fs.appendFileSync(commandAuditFile, JSON.stringify({
+  const record = JSON.stringify({
+    marker: 'FLOKI_V2_SELF_IMPROVEMENT_AGENT_AUDIT',
     created_at: nowIso(),
     type,
     detail
-  }) + '\n');
+  });
+  fs.appendFileSync(commandAuditFile, record + '\n');
+  fs.writeSync(1, record + '\n');
 }
 
 function truncate(text, limit) {
@@ -158,9 +196,17 @@ function truncate(text, limit) {
   return value.slice(0, limit) + '\n...[truncated ' + (value.length - limit) + ' chars]';
 }
 
-function shell(command, timeoutMs = MAX_COMMAND_MS) {
+function shell(command, timeoutMs = MAX_COMMAND_MS, options = {}) {
+  const identity = String(options.identity || (command || '').slice(0, 80));
+  const progressIntervalMs = Math.max(250, Number(options.progress_interval_ms || 5000));
+  const cancelOnSignal = options.signal || null;
+  if (cancelOnSignal && cancelOnSignal.aborted) {
+    const err = new Error('shell command cancelled before execution');
+    err.code = 'SHELL_CANCELLED';
+    throw err;
+  }
   const started = Date.now();
-  const result = spawnSync('bash', ['-lc', command], {
+  const child = spawn('bash', ['-lc', command], {
     cwd: WORKSPACE,
     env: {
       ...process.env,
@@ -168,23 +214,110 @@ function shell(command, timeoutMs = MAX_COMMAND_MS) {
       npm_config_cache: NPM_CACHE_PATH,
       PIP_CACHE_DIR: PIP_CACHE_PATH
     },
-    encoding: 'utf8',
-    timeout: Math.min(
-      Math.max(Number(timeoutMs) || MAX_COMMAND_MS, MIN_COMMAND_TIMEOUT_MS),
-      MAX_COMMAND_MS
-    ),
-    maxBuffer: SHELL_OUTPUT_BUFFER_BYTES
+    stdio: ['ignore', 'pipe', 'pipe']
   });
-  const record = {
-    command,
-    status: result.status,
-    signal: result.signal || null,
-    duration_ms: Date.now() - started,
-    stdout: truncate(result.stdout || '', COMMAND_AUDIT_MAX_CHARS),
-    stderr: truncate(result.stderr || '', COMMAND_AUDIT_MAX_CHARS)
-  };
-  audit('shell', record);
-  return record;
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  let totalStdoutBytes = 0;
+  let totalStderrBytes = 0;
+  let cancelled = false;
+  let cancelReason = null;
+  let timedOut = false;
+  let resolved = false;
+  const deadline = Math.max(MIN_COMMAND_TIMEOUT_MS, Math.min(Number(timeoutMs) || MAX_COMMAND_MS, MAX_COMMAND_MS));
+
+  function recordProgress(reason) {
+    audit('shell_progress', {
+      command: identity,
+      reason,
+      elapsed_ms: Date.now() - started,
+      cancelled,
+      timed_out: timedOut
+    });
+  }
+
+  const progressTimer = setInterval(() => recordProgress('interval'), progressIntervalMs);
+  recordProgress('start');
+
+  const sigkillTimer = setTimeout(() => {
+    if (resolved) return;
+    timedOut = true;
+    cancelReason = 'configured_timeout';
+    try { child.kill('SIGTERM'); } catch (_error) {}
+    setTimeout(() => {
+      if (!resolved) {
+        try { child.kill('SIGKILL'); } catch (_error) {}
+      }
+    }, 5000);
+  }, deadline);
+
+  if (cancelOnSignal) {
+    cancelOnSignal.addEventListener('abort', () => {
+      if (resolved) return;
+      cancelled = true;
+      cancelReason = 'caller_aborted';
+      try { child.kill('SIGTERM'); } catch (_error) {}
+    }, { once: true });
+  }
+
+  child.stdout.on('data', (chunk) => {
+    const buffer = Buffer.from(chunk);
+    totalStdoutBytes += buffer.length;
+    if (totalStdoutBytes > SHELL_OUTPUT_BUFFER_BYTES) {
+      stdoutChunks.push(buffer.slice(0, SHELL_OUTPUT_BUFFER_BYTES - (totalStdoutBytes - buffer.length)));
+    } else {
+      stdoutChunks.push(buffer);
+    }
+  });
+  child.stderr.on('data', (chunk) => {
+    const buffer = Buffer.from(chunk);
+    totalStderrBytes += buffer.length;
+    if (totalStderrBytes > SHELL_OUTPUT_BUFFER_BYTES) {
+      stderrChunks.push(buffer.slice(0, SHELL_OUTPUT_BUFFER_BYTES - (totalStderrBytes - buffer.length)));
+    } else {
+      stderrChunks.push(buffer);
+    }
+  });
+
+  return new Promise((resolve, reject) => {
+    function finalize(exitCode, signal) {
+      if (resolved) return;
+      resolved = true;
+      clearInterval(progressTimer);
+      clearTimeout(sigkillTimer);
+      const record = {
+        command,
+        identity,
+        status: exitCode,
+        signal: signal || null,
+        duration_ms: Date.now() - started,
+        cancelled,
+        timed_out: timedOut,
+        cancel_reason: cancelReason,
+        stdout: truncate(Buffer.concat(stdoutChunks).toString('utf8'), COMMAND_AUDIT_MAX_CHARS),
+        stderr: truncate(Buffer.concat(stderrChunks).toString('utf8'), COMMAND_AUDIT_MAX_CHARS)
+      };
+      audit('shell_end', record);
+      resolve(record);
+    }
+    child.once('error', (error) => {
+      if (resolved) return;
+      resolved = true;
+      clearInterval(progressTimer);
+      clearTimeout(sigkillTimer);
+      audit('shell_end', {
+        command: identity,
+        status: -1,
+        signal: null,
+        duration_ms: Date.now() - started,
+        error: error.message,
+        cancelled,
+        timed_out: timedOut
+      });
+      reject(error);
+    });
+    child.once('close', (code, signal) => finalize(code, signal));
+  });
 }
 
 async function fetchText(url, options = {}) {
@@ -540,31 +673,120 @@ function mcpContext7Call(toolName, args) {
   });
 }
 
-async function ollamaChat(messages, tools) {
-  const response = await fetch(OLLAMA + OLLAMA_CHAT_PATH, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      tools,
-      stream: OLLAMA_STREAM,
-      keep_alive: MODEL_KEEP_ALIVE,
-      options: {
-        temperature: MODEL_TEMPERATURE,
-        top_p: MODEL_TOP_P,
-        num_ctx: CONTEXT_WINDOW
-      }
-    }),
-    signal: AbortSignal.timeout(MODEL_TIMEOUT_MS)
-  });
+function ollamaRequest(method, requestPath, payload = null, options = {}) {
+  return new Promise((resolve, reject) => {
+    const body = payload === null
+      ? null
+      : Buffer.from(JSON.stringify(payload));
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(
-      payload.error || 'Ollama chat failed with HTTP ' + response.status
-    );
-  }
+    if (body !== null && body.length > MODEL_REQUEST_MAX_BYTES) {
+      reject(new Error(
+        'Ollama request exceeded YAML-configured maximum bytes'
+      ));
+      return;
+    }
+
+    const maxAttempts = Math.max(1, Number(CONFIG.agent_ollama_request_max_attempts || 2));
+    const retryBackoffMs = Math.max(0, Number(CONFIG.agent_ollama_request_retry_backoff_ms || 250));
+    const externalSignal = options.signal || null;
+
+    const attempt = (retriesLeft) => {
+      if (externalSignal && externalSignal.aborted) {
+        reject(new Error('Ollama request was cancelled before execution'));
+        return;
+      }
+      const request = http.request({
+        socketPath: MODEL_SOCKET_PATH,
+        path: requestPath,
+        method,
+        headers: body === null
+          ? {
+              connection: MODEL_PROXY_CONNECTION_HEADER
+            }
+          : {
+              'content-type': 'application/json',
+              'content-length': body.length,
+              connection: MODEL_PROXY_CONNECTION_HEADER
+            }
+      }, (response) => {
+        const chunks = [];
+        let total = 0;
+
+        response.on('data', (chunk) => {
+          total += chunk.length;
+          if (total > MODEL_RESPONSE_MAX_BYTES) {
+            request.destroy(new Error(
+              'Ollama response exceeded YAML-configured maximum bytes'
+            ));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.once('aborted', () => {
+          reject(new Error('Ollama response was aborted'));
+        });
+        response.once('error', reject);
+        response.once('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          let parsed = {};
+          try {
+            parsed = raw ? JSON.parse(raw) : {};
+          } catch (error) {
+            reject(new Error(
+              'Ollama returned invalid JSON: ' + error.message
+            ));
+            return;
+          }
+          if (
+            response.statusCode < 200 ||
+            response.statusCode >= 300
+          ) {
+            reject(new Error(
+              parsed.error ||
+              'Ollama request failed with HTTP ' +
+              response.statusCode
+            ));
+            return;
+          }
+          resolve(parsed);
+        });
+      });
+
+      request.setTimeout(MODEL_TIMEOUT_MS, () => {
+        request.destroy(new Error('Ollama request timed out'));
+      });
+      if (externalSignal) {
+        externalSignal.addEventListener('abort', () => {
+          request.destroy(new Error('Ollama request was cancelled by caller'));
+        }, { once: true });
+      }
+      request.once('error', (error) => {
+        if (retriesLeft > 0 && (error.code === 'EPIPE' || error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT')) {
+          audit('ollama_retry', { method, requestPath, code: error.code, retries_left: retriesLeft - 1 });
+          setTimeout(() => attempt(retriesLeft - 1), retryBackoffMs);
+          return;
+        }
+        reject(error);
+      });
+      request.end(body === null ? undefined : body);
+    };
+    attempt(maxAttempts - 1);
+  });
+}
+
+async function ollamaChat(messages, tools) {
+  const payload = await ollamaRequest('POST', OLLAMA_CHAT_PATH, {
+    model: MODEL,
+    messages,
+    tools,
+    stream: OLLAMA_STREAM,
+    keep_alive: MODEL_KEEP_ALIVE,
+    options: {
+      temperature: MODEL_TEMPERATURE,
+      top_p: MODEL_TOP_P,
+      num_ctx: CONTEXT_WINDOW
+    }
+  });
   return payload.message || {};
 }
 
@@ -853,7 +1075,7 @@ async function executeTool(name, args) {
     case 'run_verification': {
       testResults.length = 0;
       for (const command of VERIFICATION) {
-        const result = shell(command, MAX_COMMAND_MS);
+        const result = await shell(command, MAX_COMMAND_MS);
         testResults.push({
           command,
           ok: result.status === 0,
@@ -878,35 +1100,101 @@ async function executeTool(name, args) {
       return { ok: true };
     case 'finalize_candidate':
       return finalizeCandidate(args);
+    case 'cancel_command':
+      return { ok: true, marker: 'FLOKI_V2_SELF_IMPROVEMENT_CANCEL_NOOP', reason: 'no command identity was supplied' };
     default:
       throw new Error('unknown tool: ' + name);
   }
 }
 
-function gitOutput(args) {
-  const result = spawnSync('git', args, {
+function gitOutput(args, options = {}) {
+  const started = Date.now();
+  const deadlineMs = Math.max(MIN_COMMAND_TIMEOUT_MS, Math.min(Number(options.timeout_ms || MAX_COMMAND_MS), MAX_COMMAND_MS));
+  const child = spawn('git', args, {
     cwd: WORKSPACE,
-    encoding: 'utf8',
-    timeout: MAX_COMMAND_MS,
-    maxBuffer: GIT_OUTPUT_BUFFER_BYTES
+    stdio: ['ignore', 'pipe', 'pipe']
   });
-  audit('git', {
-    args,
-    status: result.status,
-    stderr: truncate(result.stderr || '', COMMAND_AUDIT_MAX_CHARS)
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  let totalBytes = 0;
+  const totalStderr = [];
+  const sigkill = setTimeout(() => {
+    try { child.kill('SIGKILL'); } catch (_error) {}
+  }, deadlineMs + 5000);
+  const timer = setTimeout(() => {
+    try { child.kill('SIGTERM'); } catch (_error) {}
+  }, deadlineMs);
+  return new Promise((resolve, reject) => {
+    child.stdout.on('data', (chunk) => {
+      const buffer = Buffer.from(chunk);
+      totalBytes += buffer.length;
+      if (totalBytes <= GIT_OUTPUT_BUFFER_BYTES) stdoutChunks.push(buffer);
+    });
+    child.stderr.on('data', (chunk) => {
+      const buffer = Buffer.from(chunk);
+      totalStderr.push(buffer);
+      if (totalStderr.reduce((sum, b) => sum + b.length, 0) <= COMMAND_AUDIT_MAX_CHARS) stderrChunks.push(buffer);
+    });
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      clearTimeout(sigkill);
+      reject(error);
+    });
+    child.once('close', (code) => {
+      clearTimeout(timer);
+      clearTimeout(sigkill);
+      const stderrText = Buffer.concat(stderrChunks).toString('utf8');
+      audit('git', {
+        args,
+        status: code,
+        duration_ms: Date.now() - started,
+        stderr: truncate(stderrText, COMMAND_AUDIT_MAX_CHARS)
+      });
+      if (code !== 0) {
+        reject(new Error('git command failed: ' + stderrText));
+        return;
+      }
+      resolve(Buffer.concat(stdoutChunks).toString('utf8').trim());
+    });
   });
-  if (result.status !== 0) throw new Error('git command failed: ' + String(result.stderr || ''));
-  return String(result.stdout || '').trim();
 }
 
 function baselineFileHash(relative) {
-  const result = spawnSync('git', ['show', 'HEAD:' + relative], {
+  const started = Date.now();
+  const deadlineMs = Math.max(MIN_COMMAND_TIMEOUT_MS, Math.min(Number(CONFIG.agent_git_show_timeout_ms || MAX_COMMAND_MS), MAX_COMMAND_MS));
+  const child = spawn('git', ['show', 'HEAD:' + relative], {
     cwd: WORKSPACE,
-    encoding: null,
-    maxBuffer: GIT_SHOW_BUFFER_BYTES
+    stdio: ['ignore', 'pipe', 'pipe']
   });
-  if (result.status !== 0) return null;
-  return sha256(result.stdout);
+  const chunks = [];
+  let totalBytes = 0;
+  const sigkill = setTimeout(() => {
+    try { child.kill('SIGKILL'); } catch (_error) {}
+  }, deadlineMs + 5000);
+  const timer = setTimeout(() => {
+    try { child.kill('SIGTERM'); } catch (_error) {}
+  }, deadlineMs);
+  return new Promise((resolve) => {
+    child.stdout.on('data', (chunk) => {
+      const buffer = Buffer.from(chunk);
+      totalBytes += buffer.length;
+      if (totalBytes <= GIT_SHOW_BUFFER_BYTES) chunks.push(buffer);
+    });
+    child.once('error', () => {
+      clearTimeout(timer);
+      clearTimeout(sigkill);
+      resolve(null);
+    });
+    child.once('close', (code) => {
+      clearTimeout(timer);
+      clearTimeout(sigkill);
+      if (code !== 0) {
+        resolve(null);
+        return;
+      }
+      resolve(sha256(Buffer.concat(chunks)));
+    });
+  });
 }
 
 function currentFileHash(relative) {
@@ -915,18 +1203,19 @@ function currentFileHash(relative) {
   return sha256(fs.readFileSync(file));
 }
 
-function finalizeCandidate(args) {
+async function finalizeCandidate(args) {
   if (testResults.length !== VERIFICATION.length || testResults.some((row) => row.ok !== true)) {
     throw new Error('all verification commands must pass before candidate finalization');
   }
 
-  shell('git add -N .', MAX_COMMAND_MS);
-  const changedFiles = gitOutput(['diff', '--name-only', 'HEAD']).split(/\r?\n/).filter(Boolean);
+  await shell('git add -N .', MAX_COMMAND_MS, { identity: 'finalize_git_add', progress_interval_ms: SHELL_PROGRESS_INTERVAL_MS });
+  const diffNameOnly = await gitOutput(['diff', '--name-only', 'HEAD']);
+  const changedFiles = diffNameOnly.split(/\r?\n/).filter(Boolean);
   if (changedFiles.length === 0) throw new Error('no source changes were produced');
   if (changedFiles.length > MAX_CHANGED_FILES) {
     throw new Error('candidate changes ' + changedFiles.length + ' files; maximum is ' + MAX_CHANGED_FILES);
   }
-  const patch = gitOutput(['diff', '--binary', '--full-index', 'HEAD']) + '\n';
+  const patch = await gitOutput(['diff', '--binary', '--full-index', 'HEAD']) + '\n';
   if (Buffer.byteLength(patch) > MAX_PATCH_BYTES) {
     throw new Error('candidate patch exceeds maximum bytes: ' + Buffer.byteLength(patch));
   }
@@ -936,9 +1225,11 @@ function finalizeCandidate(args) {
   const beforeHashes = {};
   const afterHashes = {};
   for (const relative of changedFiles) {
-    beforeHashes[relative] = baselineFileHash(relative);
+    beforeHashes[relative] = await baselineFileHash(relative);
     afterHashes[relative] = currentFileHash(relative);
   }
+
+  const baseCommit = await gitOutput(['rev-parse', 'HEAD']);
 
   const manifest = {
     marker: 'FLOKI_V2_SELF_IMPROVEMENT_CANDIDATE',
@@ -950,7 +1241,7 @@ function finalizeCandidate(args) {
     expected_benefit: String(args.expected_benefit || ''),
     risk_level: String(args.risk_level || 'high'),
     risk_notes: String(args.risk_notes || ''),
-    base_commit: gitOutput(['rev-parse', 'HEAD']),
+    base_commit: baseCommit,
     changed_files: changedFiles,
     before_hashes: beforeHashes,
     after_hashes: afterHashes,
@@ -988,15 +1279,16 @@ function shellQuote(value) {
 }
 
 async function main() {
+  await ollamaRequest('GET', MODEL_PROXY_HEALTH_PATH);
   const environmentCheck = [
-    'git status --short',
+    'git status --short --untracked-files=no',
     'node --version',
     'npm --version',
     'python3 --version',
     shellQuote(BROWSER_COMMAND) + ' --version',
     'curl --version | head -1'
   ].join(' && ');
-  shell(environmentCheck, MAX_COMMAND_MS);
+  await shell(environmentCheck, ENVIRONMENT_CHECK_TIMEOUT_MS, { identity: 'environment_check', progress_interval_ms: SHELL_PROGRESS_INTERVAL_MS });
 
   const rootInstall = fs.existsSync(
     path.join(WORKSPACE, 'package-lock.json')
@@ -1011,16 +1303,17 @@ async function main() {
     ? DEPENDENCY_INSTALL_LOCKED_COMMAND
     : DEPENDENCY_INSTALL_UNLOCKED_COMMAND;
 
-  const rootDeps = shell(rootInstall, MAX_COMMAND_MS);
+  const rootDeps = await shell(rootInstall, MAX_COMMAND_MS, { identity: 'root_install', progress_interval_ms: SHELL_PROGRESS_INTERVAL_MS });
   if (rootDeps.status !== 0) {
     throw new Error('root dependency installation failed');
   }
 
   if (fs.existsSync(path.join(interfaceDir, 'package.json'))) {
-    const uiDeps = shell(
+    const uiDeps = await shell(
       'cd ' + shellQuote(INTERFACE_PROJECT_PATH) +
       ' && ' + interfaceInstall,
-      MAX_COMMAND_MS
+      MAX_COMMAND_MS,
+      { identity: 'interface_install', progress_interval_ms: SHELL_PROGRESS_INTERVAL_MS }
     );
     if (uiDeps.status !== 0) {
       throw new Error('interface dependency installation failed');
@@ -1066,7 +1359,13 @@ You may improve the self-improvement system itself, but the same verification an
     }
   ];
 
+  const iterationBudgetMs = Math.max(60000, Number(CONFIG.iteration_wall_clock_budget_ms || 1800000));
+  const iterationStartedAt = Date.now();
+
   for (let iteration = 0; iteration < MAX_ITERATIONS && !finalized; iteration += 1) {
+    if (Date.now() - iterationStartedAt > iterationBudgetMs) {
+      throw new Error('agent iteration wall-clock budget exceeded: ' + iterationBudgetMs + 'ms');
+    }
     const message = await ollamaChat(messages, tools);
     messages.push(message);
     const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];

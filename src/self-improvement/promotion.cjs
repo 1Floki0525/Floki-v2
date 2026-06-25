@@ -49,8 +49,26 @@ function runNow(token, objective = '', config = loadSelfImprovementConfig()) {
     force: true,
     objective: String(objective || '').trim()
   }, config);
-  appendAudit('maker_requested_cycle', { objective: String(objective || '').trim() }, config);
-  return { ok: true, verified: true, marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_QUEUED' };
+  const queuedAt = nowIso();
+  const queuedStatus = updateStatus({
+    state: 'queued',
+    phase: 'maker_requested_cycle',
+    current_objective: String(objective || '').trim() || config.default_objective,
+    queued_at: queuedAt,
+    last_error: null,
+    failure_latched_at: null
+  }, config);
+  appendAudit('maker_requested_cycle', {
+    objective: String(objective || '').trim(),
+    queued_at: queuedAt
+  }, config);
+  return {
+    ok: true,
+    verified: true,
+    message: 'Self-improvement cycle queued and verified.',
+    marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_QUEUED',
+    status: queuedStatus
+  };
 }
 
 function denyCandidate(id, token, reason = '', config = loadSelfImprovementConfig()) {

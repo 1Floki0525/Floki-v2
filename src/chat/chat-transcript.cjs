@@ -60,7 +60,20 @@ function assertPublicTranscriptText(text, fieldName = 'public transcript text') 
 function humanLine(entry) {
   const modality = entry.input_modality || entry.output_modality || 'unknown';
   const spoken = entry.spoken_aloud === true ? ' spoken' : '';
-  return '[' + entry.created_at + '] ' + entry.role + ' [' + modality + spoken + ']: ' + entry.text + '\n';
+  const partial = entry.transcript_state === 'partial' ? ' partial' : '';
+  return '[' + entry.created_at + '] ' + entry.role + ' [' + modality + spoken + partial + ']: ' + entry.text + '\n';
+}
+
+function writeTranscriptEntries(entries, options = {}) {
+  const paths = getTranscriptPaths(options);
+  fs.mkdirSync(paths.transcript_dir, { recursive: true });
+  const jsonTemp = paths.transcript_jsonl_file + '.tmp-' + process.pid;
+  const textTemp = paths.transcript_text_file + '.tmp-' + process.pid;
+  fs.writeFileSync(jsonTemp, entries.map((entry) => JSON.stringify(entry)).join('\n') + (entries.length ? '\n' : ''), 'utf8');
+  fs.writeFileSync(textTemp, entries.map(humanLine).join(''), 'utf8');
+  fs.renameSync(jsonTemp, paths.transcript_jsonl_file);
+  fs.renameSync(textTemp, paths.transcript_text_file);
+  return paths;
 }
 
 function appendChatTranscriptTurn(record, options = {}) {
@@ -80,12 +93,16 @@ function appendChatTranscriptTurn(record, options = {}) {
     output_modality: record.output_modality || 'unknown',
     spoken_aloud: record.spoken_aloud === true,
     source: record.source || 'unknown',
+    category: record.category || 'reflection',
+    severity: record.severity || 'info',
     event_id: record.event_id || null,
     report_file: record.report_file || null,
     hearing_report_file: record.hearing_report_file || null,
     bridge_report_file: record.bridge_report_file || null,
     spoken_reply_report_file: record.spoken_reply_report_file || null,
     piper_wav_output_file: record.piper_wav_output_file || null,
+    transcript_state: record.transcript_state === 'partial' ? 'partial' : 'final',
+    finalized_at: record.transcript_state === 'partial' ? null : (record.finalized_at || createdAt),
     private_thought_visible: false,
     chat_mode_only: true,
     game_mode_started: false
@@ -93,6 +110,55 @@ function appendChatTranscriptTurn(record, options = {}) {
   fs.appendFileSync(paths.transcript_jsonl_file, JSON.stringify(entry) + '\n', 'utf8');
   fs.appendFileSync(paths.transcript_text_file, humanLine(entry), 'utf8');
   return Object.freeze({ written: true, entry, transcript_jsonl_file: paths.transcript_jsonl_file, transcript_text_file: paths.transcript_text_file });
+}
+
+function upsertChatTranscriptTurn(record, options = {}) {
+  const paths = getTranscriptPaths(options);
+  fs.mkdirSync(paths.transcript_dir, { recursive: true });
+  const id = String(record.id || '').trim();
+  if (!id) throw new Error('upsertChatTranscriptTurn requires a stable record.id');
+  const text = assertPublicTranscriptText(record.text, 'public chat transcript text');
+  if (!text) return Object.freeze({ written: false, reason: 'empty_text', transcript_jsonl_file: paths.transcript_jsonl_file });
+  const entries = readJsonlTail(paths.transcript_jsonl_file, Number.MAX_SAFE_INTEGER);
+  const index = entries.findIndex((entry) => entry && entry.id === id);
+  const prior = index >= 0 ? entries[index] : null;
+  const createdAt = prior && prior.created_at || nowIso(options);
+  const entry = Object.freeze({
+    ...(prior || {}),
+    id,
+    created_at: createdAt,
+    role: record.role || prior && prior.role || 'user',
+    text,
+    input_modality: record.input_modality || prior && prior.input_modality || 'spoken',
+    output_modality: record.output_modality || prior && prior.output_modality || 'none',
+    spoken_aloud: record.spoken_aloud === true,
+    source: record.source || prior && prior.source || 'live_audio_service',
+    event_id: record.event_id || prior && prior.event_id || null,
+    transcript_state: record.transcript_state === 'partial' ? 'partial' : 'final',
+    finalized_at: record.transcript_state === 'partial' ? null : (record.finalized_at || nowIso(options)),
+    private_thought_visible: false,
+    chat_mode_only: true,
+    game_mode_started: false
+  });
+  if (index >= 0) entries[index] = entry;
+  else entries.push(entry);
+  writeTranscriptEntries(entries, options);
+  return Object.freeze({ written: true, replaced: index >= 0, entry, transcript_jsonl_file: paths.transcript_jsonl_file, transcript_text_file: paths.transcript_text_file });
+}
+
+function removeChatTranscriptTurn(id, options = {}) {
+  const stableId = String(id || '').trim();
+  if (!stableId) return Object.freeze({ removed: false, reason: 'missing_id' });
+  const paths = getTranscriptPaths(options);
+  const entries = readJsonlTail(paths.transcript_jsonl_file, Number.MAX_SAFE_INTEGER);
+  const remaining = entries.filter((entry) => entry && entry.id !== stableId);
+  if (remaining.length === entries.length) return Object.freeze({ removed: false, reason: 'not_found' });
+  writeTranscriptEntries(remaining, options);
+  return Object.freeze({ removed: true, id: stableId, transcript_jsonl_file: paths.transcript_jsonl_file, transcript_text_file: paths.transcript_text_file });
+}
+
+function normalizePrivateThoughtText(value) {
+  return cleanText(value).toLowerCase().replace(/[^a-z0-9\s]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function appendPrivateThoughtRecord(record, options = {}) {
@@ -103,13 +169,33 @@ function appendPrivateThoughtRecord(record, options = {}) {
   if (!text) {
     return Object.freeze({ written: false, reason: 'empty_private_thought', private_thought_jsonl_file: paths.private_thought_jsonl_file });
   }
+  const category = record.category || 'reflection';
+  const sessionId = record.session_id || options.session_id || null;
+  const dedupeWindowMs = Math.max(0, Number(record.dedupe_window_ms === undefined ? options.dedupe_window_ms || 0 : record.dedupe_window_ms));
+  const normalizedText = normalizePrivateThoughtText(text);
+  if (dedupeWindowMs > 0 && normalizedText) {
+    const cutoff = new Date(createdAt).getTime() - dedupeWindowMs;
+    const duplicate = readJsonlTail(paths.private_thought_jsonl_file, 2000).reverse().find((entry) => {
+      if (!entry || normalizePrivateThoughtText(entry.text) !== normalizedText) return false;
+      if (String(entry.category || 'reflection') !== String(category)) return false;
+      if (sessionId && entry.session_id !== sessionId) return false;
+      const when = Date.parse(entry.created_at || '');
+      return Number.isFinite(when) && when >= cutoff;
+    });
+    if (duplicate) {
+      return Object.freeze({ written: false, reason: 'duplicate_private_thought', duplicate_id: duplicate.id, private_thought_jsonl_file: paths.private_thought_jsonl_file });
+    }
+  }
   const entry = Object.freeze({
-    id: record.id || hashId([createdAt, 'private_thought', record.source || '', text].join('\n')),
+    id: record.id || hashId([createdAt, 'private_thought', record.source || '', category, sessionId || '', text].join('\n')),
     created_at: createdAt,
     role: 'floki_private_thought',
     text,
     source: record.source || 'unknown',
+    category,
+    severity: record.severity || 'info',
     event_id: record.event_id || null,
+    session_id: sessionId,
     report_file: record.report_file || null,
     public_transcript_visible: false,
     spoken_aloud: false,
@@ -163,7 +249,10 @@ module.exports = {
   getTranscriptPaths,
   assertPublicTranscriptText,
   appendChatTranscriptTurn,
+  upsertChatTranscriptTurn,
+  removeChatTranscriptTurn,
   appendPrivateThoughtRecord,
+  normalizePrivateThoughtText,
   readChatTranscriptTail,
   readPrivateThoughtTail,
   clearChatTranscript

@@ -10,7 +10,14 @@ const {
   writeJsonFileAtomicSync,
   existsSync
 } = require('../util/fs-safe.cjs');
-const { PROJECT_ROOT: ROOT, getModelConfig, getPathConfig, getVisionConfig } = require('../config/floki-config.cjs');
+const {
+  PROJECT_ROOT: ROOT,
+  getModelConfig,
+  getPathConfig,
+  getVisionConfig,
+  getTimeoutConfig,
+  getLiveChatConfig
+} = require('../config/floki-config.cjs');
 const { assertPublicTranscriptText } = require('../chat/chat-transcript.cjs');
 const { webcamCaptureConfig } = require('./webcam-capabilities.cjs');
 const { ffmpegPixelFormat } = require('./webcam-eyes-stream.cjs');
@@ -23,10 +30,29 @@ const {
   verifyDetectionFramePersons
 } = require('./person-presence-verifier.cjs');
 
-const READY_TIMEOUT_MS = 30000;
-const STATUS_STALE_MS = 5000;
-const HEARTBEAT_MS = 1000;
-const MAX_PIPE_BUFFER_BYTES = 16 * 1024 * 1024;
+function readyTimeoutMs(options = {}) {
+  if (options.timeout_ms) return Number(options.timeout_ms);
+  const timeouts = getTimeoutConfig('chat');
+  return Math.max(5000, Number(timeouts.model_warmup_ms));
+}
+
+const READY_TIMEOUT_MS = readyTimeoutMs();
+
+function statusStaleMs() {
+  const liveChat = getLiveChatConfig('chat');
+  return Math.max(3000, 3 * Number(liveChat.runtime_heartbeat_ms || 1000));
+}
+
+function heartbeatMs() {
+  const liveChat = getLiveChatConfig('chat');
+  return Math.max(500, Number(liveChat.runtime_heartbeat_ms || 1000));
+}
+
+function maxPipeBufferBytes() {
+  const vision = getVisionConfig('chat');
+  const frames = Math.max(1, Math.min(120, Number(vision.frame_buffer_size || 120)));
+  return Math.max(8 * 1024 * 1024, Math.min(256 * 1024 * 1024, frames * 1024 * 1024));
+}
 
 function assertNode24() {
   if (!process.version.startsWith('v24.')) {
@@ -345,13 +371,47 @@ function measuredFps(totalFrames, firstFrameAtMs, lastFrameAtMs) {
 }
 
 function statusReadyForChat(status) {
-  return Boolean(status &&
+  if (!status || typeof status !== 'object') return false;
+
+  const baseReady = Boolean(
     status.service_process_alive === true &&
-    status.ffmpeg_process_alive === true &&
+    status.ffmpeg_process_alive !== false &&
     status.camera_open === true &&
-    status.first_frame_received === true &&
+    status.first_frame_received !== false &&
     status.first_vlm_observation_succeeded === true &&
-    status.last_fatal_error === null);
+    status.last_fatal_error == null
+  );
+  if (!baseReady) return false;
+
+  const vision = getVisionConfig('chat');
+  const detection = getDetectionConfig();
+
+  // Frames must remain fresh (heartbeat written by the service process).
+  if (status.heartbeat_fresh === false) return false;
+
+  // Vision-model transport must be reachable when an SSH tunnel is configured.
+  if (vision.vlm_ssh_tunnel_enabled === true) {
+    const tunnel = status.tunnel_status;
+    if (tunnel && tunnel.active !== true) return false;
+  }
+
+  // Strict readiness still requires a live detector heartbeat when detection is enabled.
+  // UI camera liveness is reported separately through capture_live.
+  if (detection.enabled === true && status.detection_heartbeat_fresh === false) return false;
+
+  return true;
+}
+
+function captureLiveFromStatus(status) {
+  if (!status || typeof status !== 'object') return false;
+  return Boolean(
+    status.service_process_alive === true &&
+    status.ffmpeg_process_alive !== false &&
+    status.camera_open === true &&
+    status.first_frame_received !== false &&
+    status.heartbeat_fresh !== false &&
+    status.last_fatal_error == null
+  );
 }
 
 function buildOperationalStatus(state, extra = {}) {
@@ -378,6 +438,8 @@ function buildOperationalStatus(state, extra = {}) {
     last_yolo_inference_timestamp: state.last_yolo_inference_timestamp || null,
     last_detection_stored_at: state.last_detection_stored_at || null,
     last_detection_frame_sequence: Number(state.last_detection_frame_sequence || 0),
+    detection_in_flight: state.detection_in_flight === true,
+    last_detection_started_at: state.last_detection_started_at || null,
     detection_source: 'live_mjpeg_frame_buffer',
     detector_schedule: 'time_based_latest_live_frame',
     person_verifier_payload_mode: 'crop_only',
@@ -537,25 +599,44 @@ function readChatWebcamVisionStatus(options = {}) {
   const heartbeatAt = heartbeat && heartbeat.service_heartbeat
     ? new Date(heartbeat.service_heartbeat).getTime()
     : NaN;
+  const staleMs = statusStaleMs();
   const fresh = processAlive &&
     Number.isFinite(heartbeatAt) &&
-    Date.now() - heartbeatAt <= STATUS_STALE_MS;
-  return publicStatus(Object.freeze({
+    Date.now() - heartbeatAt <= staleMs;
+
+  const detectionConfig = getDetectionConfig();
+  const detectionHeartbeat = safeReadJson(path.join(paths.runtime_dir, 'yolo-detection.heartbeat.json'));
+  const detectionHeartbeatAt = detectionHeartbeat && detectionHeartbeat.service_heartbeat
+    ? new Date(detectionHeartbeat.service_heartbeat).getTime()
+    : NaN;
+  const detectionHeartbeatFresh = detectionConfig.enabled !== true ||
+    (Number.isFinite(detectionHeartbeatAt) &&
+      Date.now() - detectionHeartbeatAt <= Math.max(1000, Number(detectionConfig.maxAgeMs || 5000)));
+
+  const baseStatus = Object.freeze({
     ...(status || {}),
     active: processAlive && fresh,
-    service_process_alive: processAlive,
+    service_process_alive: processAlive && fresh,
     heartbeat_fresh: fresh,
+    detection_heartbeat_fresh: detectionHeartbeatFresh,
+  });
+  const enrichedStatus = Object.freeze({
+    ...baseStatus,
+    capture_live: captureLiveFromStatus(baseStatus),
+    detection_live: detectionHeartbeatFresh,
+    scene_live: captureLiveFromStatus(baseStatus) && baseStatus.first_vlm_observation_succeeded === true,
     pid,
     heartbeat_file: paths.heartbeat_file,
     status_file: paths.status_file,
     latest_private_observation_file: status && status.latest_private_observation_file
       ? status.latest_private_observation_file
       : paths.latest_observation_file,
-    tunnel_status: tunnelStatus,
-    ready_for_chat: statusReadyForChat({
-      ...(status || {}),
-      service_process_alive: processAlive && fresh
-    })
+    tunnel_status: tunnelStatus
+  });
+
+  return publicStatus(Object.freeze({
+    ...enrichedStatus,
+    ready_for_chat: statusReadyForChat(enrichedStatus)
   }));
 }
 
@@ -572,6 +653,7 @@ function normalizedDetectionLabel(detection) {
 
 function buildFreshDetectionObservation(options = {}) {
   const paths = runtimePaths(options);
+  const vision = getVisionConfig('chat');
   const latest = readLatestDetection({
     runtime_dir: paths.runtime_dir
   });
@@ -586,44 +668,32 @@ function buildFreshDetectionObservation(options = {}) {
   }
 
   const visible = latest.detection.detections
-    .map((detection) =>
-      classifyVerifiedDetectionForDisplay(detection)
-    )
-    .filter((entry) =>
-      entry &&
-      (entry.bucket === 'persons' || entry.bucket === 'objects')
-    );
+    .map((detection) => classifyVerifiedDetectionForDisplay(detection))
+    .filter((entry) => entry && (entry.bucket === 'persons' || entry.bucket === 'objects'));
 
-  const personCount = visible.filter(
-    (entry) => entry.bucket === 'persons'
-  ).length;
-  const objectLabels = Array.from(new Set(
-    visible
-      .filter((entry) => entry.bucket === 'objects')
-      .map((entry) => normalizedDetectionLabel(entry.detection))
-      .filter(Boolean)
-  )).slice(0, 12);
-
-  if (personCount === 0 && objectLabels.length === 0) {
-    return null;
+  const personCount = visible.filter((entry) => entry.bucket === 'persons').length;
+  const objectCounts = new Map();
+  for (const entry of visible) {
+    if (entry.bucket !== 'objects') continue;
+    const label = normalizedDetectionLabel(entry.detection);
+    if (!label) continue;
+    objectCounts.set(label, Number(objectCounts.get(label) || 0) + 1);
   }
 
-  const parts = [];
-  if (personCount > 0) {
-    parts.push(
-      String(personCount) +
-      (personCount === 1 ? ' person' : ' people')
-    );
-  }
-  if (objectLabels.length > 0) {
-    parts.push('objects including ' + objectLabels.join(', '));
+  const maxObjects = Math.max(1, Number(vision.cognition_scene_max_detected_objects));
+  const detectedObjects = Array.from(objectCounts.entries())
+    .map(([label, count]) => Object.freeze({ label, count }))
+    .slice(0, maxObjects);
+
+  if (personCount === 0 && detectedObjects.length === 0) return null;
+
+  const facts = [];
+  if (personCount > 0) facts.push(String(personCount) + (personCount === 1 ? ' person is visible' : ' people are visible'));
+  if (detectedObjects.length > 0) {
+    facts.push('visible objects include ' + detectedObjects.map((entry) => entry.count > 1 ? String(entry.count) + ' ' + entry.label : entry.label).join(', '));
   }
 
-  const timestamp =
-    latest.detection.stored_at ||
-    latest.detection.detected_at ||
-    nowIso();
-
+  const timestamp = latest.detection.stored_at || latest.detection.detected_at || nowIso();
   return Object.freeze({
     available: true,
     fresh: true,
@@ -632,8 +702,12 @@ function buildFreshDetectionObservation(options = {}) {
     latest_private_observation_timestamp: timestamp,
     source: 'webcam_live_detection',
     sight_scope: 'maker_world_external',
-    observation_summary:
-      'Current live detector view: ' + parts.join('; ') + '.',
+    observation_summary: facts.join('. ') + '.',
+    scene_summary: null,
+    detected_people_count: personCount,
+    detected_objects: Object.freeze(detectedObjects),
+    grounding_summary: facts.join('. ') + '.',
+    detection_grounding_used: true,
     detection_fallback_used: true,
     unavailable_reason: null,
     public_transcript_visible: false,
@@ -642,14 +716,10 @@ function buildFreshDetectionObservation(options = {}) {
   });
 }
 
-
 function readLatestPrivateObservation(options = {}) {
   const paths = runtimePaths(options);
   const vision = getVisionConfig('chat');
-  const preferredDetection = options.prefer_detection === true
-    ? buildFreshDetectionObservation(options)
-    : null;
-  if (preferredDetection) return preferredDetection;
+  const detection = buildFreshDetectionObservation(options);
   const observation = safeReadJson(paths.latest_observation_file);
   const unavailable = (reason, extra = {}) => Object.freeze({
     available: false,
@@ -660,6 +730,10 @@ function readLatestPrivateObservation(options = {}) {
     source: null,
     sight_scope: null,
     observation_summary: null,
+    scene_summary: null,
+    detected_people_count: 0,
+    detected_objects: Object.freeze([]),
+    grounding_summary: null,
     unavailable_reason: reason,
     public_transcript_visible: false,
     chat_mode_only: true,
@@ -667,52 +741,53 @@ function readLatestPrivateObservation(options = {}) {
   });
 
   if (!observation || observation.ok !== true) {
-    return buildFreshDetectionObservation(options) ||
-      unavailable('missing_observation');
+    return detection || unavailable('missing_observation');
   }
 
-  const summary = typeof observation.observation_summary === 'string'
+  const sceneSummary = typeof observation.observation_summary === 'string'
     ? observation.observation_summary.trim()
     : '';
-  if (!summary) {
-    return buildFreshDetectionObservation(options) ||
-      unavailable('empty_observation', {
-        timestamp: observation.created_at || null
-      });
+  if (!sceneSummary) {
+    return detection || unavailable('empty_observation', { timestamp: observation.created_at || null });
   }
 
   const timestampMs = new Date(observation.created_at || '').getTime();
   if (!Number.isFinite(timestampMs)) {
-    return buildFreshDetectionObservation(options) ||
-      unavailable('invalid_observation_timestamp', {
-        timestamp: observation.created_at || null
-      });
+    return detection || unavailable('invalid_observation_timestamp', { timestamp: observation.created_at || null });
   }
 
   const nowMs = Number(options.now_ms === undefined ? Date.now() : options.now_ms);
-  const maxAgeMs = Math.max(1, Number(
-    options.max_age_ms === undefined
-      ? vision.latest_observation_max_age_ms
-      : options.max_age_ms
-  ));
+  const maxAgeMs = Math.max(1, Number(options.max_age_ms === undefined ? vision.latest_observation_max_age_ms : options.max_age_ms));
   const ageMs = Math.max(0, nowMs - timestampMs);
   if (ageMs > maxAgeMs) {
-    return buildFreshDetectionObservation(options) ||
-      unavailable('stale_observation', {
-        timestamp: observation.created_at || null,
-        observation_age_ms: ageMs
-      });
+    return detection || unavailable('stale_observation', {
+      timestamp: observation.created_at || null,
+      observation_age_ms: ageMs
+    });
   }
+
+  const detectedObjects = detection && Array.isArray(detection.detected_objects)
+    ? detection.detected_objects
+    : [];
+  const people = detection ? Number(detection.detected_people_count || 0) : 0;
+  const groundingSummary = detection && detection.grounding_summary
+    ? detection.grounding_summary
+    : null;
 
   return Object.freeze({
     available: true,
     fresh: true,
     stale: false,
-    observation_age_ms: ageMs,
+    observation_age_ms: Math.min(ageMs, detection ? Number(detection.observation_age_ms || ageMs) : ageMs),
     latest_private_observation_timestamp: observation.created_at || null,
-    source: observation.source || 'webcam',
+    source: detection ? 'fused_live_sight' : (observation.source || 'live_scene_perception'),
     sight_scope: observation.sight_scope || 'maker_world_external',
-    observation_summary: summary,
+    observation_summary: sceneSummary,
+    scene_summary: sceneSummary,
+    detected_people_count: people,
+    detected_objects: Object.freeze(detectedObjects),
+    grounding_summary: groundingSummary,
+    detection_grounding_used: Boolean(detection),
     unavailable_reason: null,
     public_transcript_visible: false,
     chat_mode_only: true,
@@ -734,15 +809,32 @@ function writeStatus(paths, status) {
 }
 
 async function waitForReady(options = {}) {
-  const timeoutMs = Number(options.timeout_ms || READY_TIMEOUT_MS);
+  const timeoutMs = Number(options.timeout_ms || readyTimeoutMs(options));
   const started = Date.now();
+  const signal = options.signal;
   while (Date.now() - started < timeoutMs) {
+    if (signal && signal.aborted) {
+      throw new Error('chat webcam vision readiness wait cancelled');
+    }
     const status = readChatWebcamVisionStatus(options);
     if (status.ready_for_chat === true) return status;
     if (status.last_fatal_error) {
       throw new Error(status.last_fatal_error);
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, 250);
+      if (signal) {
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(new Error('chat webcam vision readiness wait cancelled'));
+        };
+        if (signal.aborted) {
+          onAbort();
+          return;
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+    });
   }
   throw new Error('chat webcam vision did not become ready before timeout');
 }
@@ -782,7 +874,7 @@ async function startChatWebcamVisionService(options = {}) {
   });
   child.unref();
   try {
-    const ready = await waitForReady({ ...options, timeout_ms: options.timeout_ms || READY_TIMEOUT_MS });
+    const ready = await waitForReady({ ...options, timeout_ms: options.timeout_ms || readyTimeoutMs(options) });
     return Object.freeze({ ...ready, tunnel_status: tunnelStatus, owner: true, duplicate_prevented: false });
   } catch (error) {
     await stopChatWebcamVisionService(options);
@@ -866,6 +958,8 @@ async function runChatWebcamVisionService(options = {}) {
     last_yolo_inference_timestamp: null,
     last_detection_stored_at: null,
     last_detection_frame_sequence: 0,
+    detection_in_flight: false,
+    last_detection_started_at: null,
     last_yolo_error: null,
     last_person_verifier_error: null,
     ffmpeg_pid: null,
@@ -909,7 +1003,7 @@ async function runChatWebcamVisionService(options = {}) {
   process.on('SIGTERM', requestStop);
   process.on('SIGINT', requestStop);
 
-  const heartbeat = setInterval(() => publish(), HEARTBEAT_MS);
+  const heartbeat = setInterval(() => publish(), heartbeatMs());
 
   async function maybeInfer(frame) {
     if (stopping) return;
@@ -1020,7 +1114,9 @@ async function runChatWebcamVisionService(options = {}) {
     // Complete one real scene observation before starting detector workers.
     // Otherwise rapid person detections repeatedly abort the first VLM request
     // and chat.local can never satisfy ready_for_chat.
+    // Don't start detection while an inference is in flight either.
     if (state.first_vlm_observation_succeeded !== true) return;
+    if (state.first_vlm_observation_succeeded === true && inFlightInference && vision.detection_continue_during_vlm !== true) return;
 
     const detectionConfig = getDetectionConfig();
     if (detectionConfig.enabled !== true) return;
@@ -1043,7 +1139,23 @@ async function runChatWebcamVisionService(options = {}) {
     }
 
     inFlightDetection = true;
+    state.detection_in_flight = true;
+    state.last_detection_started_at = nowIso();
     lastDetectionStartedAtMs = nowMs;
+
+    const detectionHeartbeatFile = path.join(paths.runtime_dir, 'yolo-detection.heartbeat.json');
+    const heartbeatIntervalMs = Math.max(250, Number(detectionConfig.detection_heartbeat_interval_ms || 1000));
+    const writeDetectionHeartbeat = (phase) => {
+      writeJsonFileAtomicSync(detectionHeartbeatFile, {
+        service_heartbeat: nowIso(),
+        phase,
+        detection_in_flight: state.detection_in_flight === true,
+        last_detection_started_at: state.last_detection_started_at,
+        last_detection_stored_at: state.last_detection_stored_at || null
+      });
+    };
+    writeDetectionHeartbeat('running');
+    const detectionHeartbeatTimer = setInterval(() => writeDetectionHeartbeat('running'), heartbeatIntervalMs);
 
     const capturedAt = state.last_frame_timestamp || nowIso();
     const frameSequence = Number(state.total_frames_received || 0);
@@ -1272,15 +1384,20 @@ async function runChatWebcamVisionService(options = {}) {
         });
       }
     } finally {
+      clearInterval(detectionHeartbeatTimer);
       fs.rmSync(detectionFramePath, { force: true });
       inFlightDetection = false;
+      state.detection_in_flight = false;
+      writeDetectionHeartbeat(state.last_yolo_error ? 'error' : 'idle');
+      publish();
     }
   }
 
   ffmpeg.stdout.on('data', (chunk) => {
+    const maxBufferBytes = maxPipeBufferBytes();
     pipeBuffer = Buffer.concat([pipeBuffer, chunk]);
-    if (pipeBuffer.length > MAX_PIPE_BUFFER_BYTES) {
-      pipeBuffer = pipeBuffer.subarray(pipeBuffer.length - MAX_PIPE_BUFFER_BYTES);
+    if (pipeBuffer.length > maxBufferBytes) {
+      pipeBuffer = pipeBuffer.subarray(pipeBuffer.length - maxBufferBytes);
     }
     const parsed = extractJpegFrames(pipeBuffer);
     pipeBuffer = parsed.remaining;
@@ -1417,6 +1534,7 @@ module.exports = {
   extractJpegFrames,
   measuredFps,
   statusReadyForChat,
+  captureLiveFromStatus,
   buildOperationalStatus,
   publicStatus,
   formatChatWebcamVisionLines,

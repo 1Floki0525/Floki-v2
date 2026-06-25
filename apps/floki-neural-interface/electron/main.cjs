@@ -11,6 +11,7 @@ const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
 const { getLiveChatConfig, getVisionConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
 const { runtimePaths } = require(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'));
 const { createMjpegFileStreamServer } = require('./mjpeg-file-stream.cjs');
+const { createRuntimeRequest } = require('./runtime-request.cjs');
 
 const runtimeConfig = getLiveChatConfig('chat');
 const visionConfig = getVisionConfig('chat');
@@ -22,21 +23,10 @@ let mainWindow = null;
 let requestInFlight = false;
 let mjpegTransport = null;
 
-async function runtimeRequest(method, pathname, body = null) {
-  const response = await fetch(RUNTIME_URL + pathname, {
-    method,
-    headers: body === null ? undefined : { 'content-type': 'application/json' },
-    body: body === null ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(Number(runtimeConfig.stream_timeout_ms))
-  });
-  const raw = await response.text();
-  let payload = {};
-  if (raw) {
-    try { payload = JSON.parse(raw); } catch (error) { throw new Error('authoritative runtime returned invalid JSON: ' + error.message); }
-  }
-  if (!response.ok) throw new Error(payload.error || `runtime HTTP ${response.status}`);
-  return payload;
-}
+const runtimeRequest = createRuntimeRequest({
+  base_url: RUNTIME_URL,
+  timeout_ms: Number(runtimeConfig.stream_timeout_ms)
+});
 
 function cleanupMjpeg() {
   if (!mjpegTransport) return;
@@ -136,8 +126,12 @@ function registerIpc() {
   ipcMain.handle('floki:open-log', async (_event, payload = {}) => {
     const result = await runtimeRequest('GET', '/interface/log/' + encodeURIComponent(String(payload.service || '')));
     if (!result.exists || !result.path) throw new Error('The selected backend log is not available.');
-    const openError = await shell.openPath(result.path);
-    if (openError) throw new Error(openError);
+    shell.showItemInFolder(result.path);
+    void shell.openPath(result.path).then((openError) => {
+      if (openError) console.error('FLOKI_V2_LOG_OPEN_FAIL: ' + openError);
+    }).catch((error) => {
+      console.error('FLOKI_V2_LOG_OPEN_FAIL: ' + (error && error.message ? error.message : String(error)));
+    });
     return { ok: true, file: result.path };
   });
   ipcMain.handle('floki:get-runtime-websocket-url', () => 'ws://' + runtimeConfig.runtime_host + ':' + String(runtimeConfig.runtime_port) + '/ws');

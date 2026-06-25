@@ -11,6 +11,14 @@ function normalizeChatWebcamVisionContext(input = {}) {
     : '';
   const available = input.available === true && summary.length > 0;
   const ageMs = finiteNumber(input.observation_age_ms);
+  const detectedObjects = Array.isArray(input.detected_objects)
+    ? input.detected_objects
+        .filter((entry) => entry && typeof entry.label === 'string' && entry.label.trim())
+        .map((entry) => Object.freeze({
+          label: entry.label.trim().slice(0, 120),
+          count: Math.max(1, Number(entry.count || 1))
+        }))
+    : [];
 
   return Object.freeze({
     available,
@@ -29,7 +37,16 @@ function normalizeChatWebcamVisionContext(input = {}) {
           ? input.sight_scope.trim()
           : 'maker_world_external')
       : null,
-    observation_summary: available ? summary.slice(0, 1000) : null,
+    observation_summary: available ? summary.slice(0, 1600) : null,
+    scene_summary: available && typeof input.scene_summary === 'string' && input.scene_summary.trim()
+      ? input.scene_summary.trim().slice(0, 1600)
+      : (available ? summary.slice(0, 1600) : null),
+    detected_people_count: available ? Math.max(0, Number(input.detected_people_count || 0)) : 0,
+    detected_objects: available ? Object.freeze(detectedObjects) : Object.freeze([]),
+    grounding_summary: available && typeof input.grounding_summary === 'string' && input.grounding_summary.trim()
+      ? input.grounding_summary.trim().slice(0, 1600)
+      : null,
+    detection_grounding_used: available && input.detection_grounding_used === true,
     unavailable_reason: available
       ? null
       : (typeof input.unavailable_reason === 'string' && input.unavailable_reason.trim()

@@ -27,6 +27,7 @@ function loadSelfImprovementConfig() {
     candidate_root: resolveProjectPath(raw.candidate_root),
     outbox_root: resolveProjectPath(raw.outbox_root),
     runtime_root: resolveProjectPath(raw.runtime_root),
+    model_proxy_root: resolveProjectPath(raw.model_proxy_root),
     model: Object.freeze({
       provider: model.provider,
       name: model.model,

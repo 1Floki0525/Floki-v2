@@ -35,11 +35,13 @@ const { nowIso } = require('../util/time.cjs');
 const { newId } = require('../util/ids.cjs');
 const { getInterfaceSettings } = require('../config/interface-settings.cjs');
 const { readManualNapState, beginManualNap, wakeManualNap, claimDueRemCycle, finishRemCycle } = require('../chat/manual-nap.cjs');
+const { recordWakeActivityIfSleeping, loadSleepCycleState } = require('../chat/sleep-cycle.cjs');
 const { runDreamEngineOnce } = require('../chat/dream-engine.cjs');
 const { createSelfImprovementApi } = require('../self-improvement/api.cjs');
 const { reconcileDreamArchive } = require('../chat/dream-archive.cjs');
 const { createChatLocalInterfaceApi } = require('./chat-local-interface-api.cjs');
 const { createKnowledgeRuntimeBootstrap } = require('../chat/knowledge-runtime-bootstrap.cjs');
+const { runPreRemMemoryPreparation } = require('../chat/pre-rem-memory-preparation.cjs');
 
 const DEFAULT_HOST = getLiveChatConfig('chat').runtime_host;
 const DEFAULT_PORT = getLiveChatConfig('chat').runtime_port;
@@ -322,7 +324,11 @@ function createChatLocalRuntime(options = {}) {
     knowledge_refreshing: false,
     knowledge_refresh_error: null,
     knowledge_worker_started: false,
-    knowledge_worker_running: false
+    knowledge_worker_running: false,
+    camera_availability: true,
+    vision_start_in_flight: false,
+    vision_camera_stop_timeout_ms: Number(visionConfig.vision_camera_stop_timeout_ms || 10000),
+    vision_camera_availability_probe_timeout_ms: Number(visionConfig.vision_camera_availability_probe_timeout_ms || 3000)
   };
 
   function appendLog(message) {
@@ -634,13 +640,32 @@ function createChatLocalRuntime(options = {}) {
   });
 
   const knowledgeBootstrap = options.knowledge_bootstrap || createKnowledgeRuntimeBootstrap({ runtime_dir: runtimeDir });
+  const preRemMemoryPreparation = options.pre_rem_memory_preparation_runner || runPreRemMemoryPreparation;
 
   async function applyLifecycle(next) {
     lifecycle = next;
     const awake = next && next.is_awake === true;
     const voice = getInterfaceSettings('chat').voice;
+    const vision = getVisionConfig('chat');
+    const sleepOverrides = vision.sleep_overrides_vision_start !== false;
+    const externalEyesEnabled = vision.external_eyes_enabled === true;
+    const cameraAvailable = state.camera_availability !== false;
+    const noActiveStart = !state.vision_start_in_flight;
+    const desiredGates = String(vision.desired_state_gates_required_for_start || '').split('|').map((s) => s.trim()).filter(Boolean);
+    const gates = {
+      client_ready: state.client_ready === true,
+      awake: awake,
+      inside_awake_window: awake || next.is_asleep !== true,
+      external_eyes_enabled: externalEyesEnabled,
+      policy_enabled: true,
+      camera_available: cameraAvailable,
+      no_active_start: noActiveStart
+    };
+    const allGatesPass = desiredGates.length === 0
+      ? gates.client_ready && gates.awake
+      : desiredGates.every((gate) => gates[gate] === true);
     const hearingEnabled = awake && state.client_ready === true && voice.microphoneEnabled === true && (voice.pushToTalk === true ? state.push_to_talk_active === true : voice.handsFreeListening === true);
-    const visionEnabled = awake && state.client_ready === true;
+    const visionEnabled = awake && state.client_ready === true && allGatesPass;
     state.senses_enabled = hearingEnabled || visionEnabled;
 
     try {
@@ -653,10 +678,13 @@ function createChatLocalRuntime(options = {}) {
 
     visionManagedSleeping = !visionEnabled && !awake;
     try {
+      state.vision_start_in_flight = true;
       await visionReconciler.reconcile(visionEnabled, { awake });
       state.vision_start_error = null;
     } catch (error) {
       state.vision_start_error = error.message;
+    } finally {
+      state.vision_start_in_flight = false;
     }
 
     const audioStatus = liveAudio.status();
@@ -675,19 +703,120 @@ function createChatLocalRuntime(options = {}) {
   }
 
   async function requestManualNap() {
-    const consolidation = brain.requireModule('hippocampus').consolidateShortTerm();
-    const nap = beginManualNap({ consolidation });
+    if (typeof knowledgeBootstrap.stopAndWait === 'function') {
+      await knowledgeBootstrap.stopAndWait();
+    } else {
+      knowledgeBootstrap.stop();
+    }
+    state.knowledge_worker_running = false;
+    state.knowledge_refreshing = true;
+    state.knowledge_refresh_error = null;
+    publish();
+
+    let preparation;
+    try {
+      preparation = await preRemMemoryPreparation({
+        hippocampus_consolidation_runner: () =>
+          brain.requireModule('hippocampus').consolidateShortTerm()
+      });
+      const refreshed = knowledgeBootstrap.inspect({ runtime_dir: runtimeDir });
+      state.knowledge_ready = refreshed.ready === true;
+      state.knowledge_autoload = Object.freeze({
+        ...(preparation.autoload || {}),
+        phase: 'complete',
+        marker: preparation.autoload && preparation.autoload.marker ||
+          'FLOKI_V2_PRE_REM_MEMORY_PREPARATION_PASS',
+        source_count: Number(refreshed.source_count || preparation.source_count || 0),
+        chunk_count: Number(refreshed.chunk_count || preparation.chunk_count || 0),
+        knowledge_root: refreshed.knowledge_root || null,
+        error: null
+      });
+      if (
+        getKnowledgeConfig('chat').autoload_blocking_on_chat_local_start === true &&
+        state.knowledge_ready !== true
+      ) {
+        throw new Error(
+          'pre-REM knowledge index is not ready after ingestion and consolidation'
+        );
+      }
+      state.knowledge_refresh_error = null;
+      appendLog(
+        'manual nap pre-REM memory preparation complete: scanned=' +
+        String(preparation.scanned_file_count || 0) +
+        ' new_sources=' +
+        String(preparation.source_count || 0) +
+        ' chunks=' +
+        String(preparation.chunk_count || 0) +
+        ' memories=' +
+        String(preparation.memories_written || 0)
+      );
+    } catch (error) {
+      state.knowledge_refresh_error = error && error.message
+        ? error.message
+        : String(error);
+      appendLog(
+        'manual nap pre-REM memory preparation failed: ' +
+        state.knowledge_refresh_error
+      );
+      throw error;
+    } finally {
+      state.knowledge_refreshing = false;
+      publish();
+    }
+
+    const nap = beginManualNap({
+      consolidation: preparation,
+      runtime_session_id: brain.session_id,
+      replace_active: true
+    });
     lastManualNapActive = true;
     await applyLifecycle(buildFlokiLifecycleStatus());
     await processManualNap();
     const snapshot = status();
-    const verified = snapshot.lifecycle.manual_nap_active === true && snapshot.lifecycle.manual_nap_duration_minutes === sleepConfig.manual_nap_duration_minutes && snapshot.hearing.microphone_open === false && snapshot.vision.camera_open === false;
-    appendInnerExperience('I am settling into a nap and allowing the first REM cycle to begin.', 'sleep', { source: 'manual_nap' });
-    return Object.freeze({ ok: verified, verified, marker: verified ? 'FLOKI_V22_MANUAL_NAP_REQUEST_PASS' : 'FLOKI_V22_MANUAL_NAP_REQUEST_FAIL', nap, consolidation, status: snapshot });
+    const verified = snapshot.lifecycle.manual_nap_active === true &&
+      snapshot.lifecycle.manual_nap_duration_minutes === sleepConfig.manual_nap_duration_minutes &&
+      snapshot.hearing.microphone_open === false &&
+      snapshot.vision.camera_open === false;
+    appendInnerExperience(
+      'I am settling into a nap and allowing the first REM cycle to begin.',
+      'sleep',
+      { source: 'manual_nap' }
+    );
+    return Object.freeze({
+      ok: verified,
+      verified,
+      marker: verified
+        ? 'FLOKI_V22_MANUAL_NAP_REQUEST_PASS'
+        : 'FLOKI_V22_MANUAL_NAP_REQUEST_FAIL',
+      nap,
+      consolidation: preparation,
+      status: snapshot
+    });
   }
+  function readSleepState() {
+    try { return loadSleepCycleState() || null; } catch (_error) { return null; }
+  }
+
   async function wakeFromManualNap() {
+    const sleepState = readSleepState();
+    const wasNightlySleeping = Boolean(sleepState && sleepState.active === true && sleepState.interrupted !== true);
+    if (wasNightlySleeping) {
+      try {
+        const sleepResult = recordWakeActivityIfSleeping({ reason: 'control_wake_button' });
+        appendLog('nightly sleep interrupted by Wake Floki control: ' + JSON.stringify(sleepResult));
+      } catch (error) {
+        appendLog('nightly sleep interrupt failed: ' + error.message);
+      }
+    }
     const nap = wakeManualNap('manual_wake'); lastManualNapActive = false; await applyLifecycle(buildFlokiLifecycleStatus());
-    return Object.freeze({ ok: nap.active !== true, verified: nap.active !== true, marker: 'FLOKI_V22_MANUAL_NAP_WAKE_PASS', nap, status: status() });
+    return Object.freeze({
+      ok: true,
+      verified: true,
+      marker: wasNightlySleeping ? 'FLOKI_V22_NIGHTLY_WAKE_PASS' : 'FLOKI_V22_MANUAL_NAP_WAKE_PASS',
+      interrupted_nightly_sleep: wasNightlySleeping,
+      nap,
+      status: status()
+    });
   }
   async function processManualNap() {
     const nap = readManualNapState();
@@ -1033,6 +1162,7 @@ function createChatLocalRuntime(options = {}) {
     if (lifecycleTimer) clearInterval(lifecycleTimer);
     knowledgeBootstrap.stop();
     state.knowledge_worker_running = false;
+    state.knowledge_refreshing = false;
     await liveAudio.stop();
     for (const socket of Array.from(websocketClients)) { try { socket.end(); } catch (error) { appendLog('websocket close failed: ' + error.message); } }
     websocketClients.clear();

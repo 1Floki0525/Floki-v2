@@ -284,6 +284,9 @@ function manualNapSession(nap, lifecycle, dreams, now) {
         ? Math.max(0, timestamp(pendingCycle.scheduled_at, now) - now)
         : null,
       remIntervalMinutes: Number(nap.rem_interval_minutes || 10),
+      completedRemCycles: rawCycles.filter((cycle) => cycle.status === 'complete').length,
+      totalRemCycles: rawCycles.length,
+      runtimeSessionId: nap.runtime_session_id || null,
       theme,
       title: latest && latest.title || null,
       lastError: nap.last_rem_error || failedCycle && failedCycle.last_error || null,
@@ -402,6 +405,9 @@ function nightlySession(lifecycle, sleepState, dreams, now) {
       remIntervalMinutes: Number(
         stateMatchesWindow && sleepState.rem_interval_minutes || 10
       ),
+      completedRemCycles: rawCycles.filter((cycle) => cycle.status === 'complete').length,
+      totalRemCycles: rawCycles.length,
+      runtimeSessionId: null,
       timezone: 'America/Toronto',
       theme,
       title: latest && latest.title || null,
@@ -416,14 +422,21 @@ function nightlySession(lifecycle, sleepState, dreams, now) {
 function buildDreamTimeline(options = {}) {
   const nowDate = currentDate(options);
   const now = nowDate.getTime();
-  const dreamStatus = options.dream_status || buildDreamStatus({ now: nowDate });
-  const lifecycle = options.lifecycle_status || buildFlokiLifecycleStatus({ now: nowDate });
+  const dreamStatus = options.dream_status || buildDreamStatus({
+    ...options,
+    now: nowDate,
+    write_report: false
+  });
+  const lifecycle = options.lifecycle_status || buildFlokiLifecycleStatus({
+    ...options,
+    now: nowDate
+  });
   const manualNap = Object.prototype.hasOwnProperty.call(options, 'manual_nap_state')
     ? options.manual_nap_state
-    : readManualNapState({ now: nowDate });
+    : readManualNapState({ ...options, now: nowDate });
   const sleepState = Object.prototype.hasOwnProperty.call(options, 'sleep_cycle_state')
     ? options.sleep_cycle_state
-    : loadSleepCycleState();
+    : loadSleepCycleState(options);
   const records = Array.isArray(options.records)
     ? options.records
     : safeReadJsonl(dreamStatus.dream_index_file, options.limit || 5000);
@@ -433,7 +446,7 @@ function buildDreamTimeline(options = {}) {
     .sort((left, right) => right.timestamp - left.timestamp);
 
   let session;
-  if (manualNap && (manualNap.active === true || manualNap.kind === 'manual_nap' && manualNap.completed === true)) {
+  if (manualNap && manualNap.active === true) {
     session = manualNapSession(manualNap, lifecycle, dreams, now);
   } else if (lifecycle.is_asleep === true) {
     session = nightlySession(lifecycle, sleepState, dreams, now);
