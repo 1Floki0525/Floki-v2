@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   getSelfImprovementConfig
 } = require('../src/config/floki-config.cjs');
@@ -97,7 +99,12 @@ const requiredNumberKeys = [
   'model_response_max_bytes',
   'sandbox_error_tail_chars',
   'agent_ollama_request_max_attempts',
-  'agent_ollama_request_retry_backoff_ms'
+  'agent_ollama_request_retry_backoff_ms',
+  'focused_verification_failure_limit',
+  'self_context_search_default_limit',
+  'self_context_search_max_limit',
+  'self_context_result_max_chars',
+  'self_context_index_chunk_chars'
 ];
 
 const requiredStringKeys = [
@@ -112,6 +119,7 @@ const requiredStringKeys = [
   'container_name_prefix',
   'workspace_mount_path',
   'outbox_mount_path',
+  'self_context_mount_path',
   'container_config_path',
   'container_tmp_path',
   'tmpfs_options',
@@ -123,6 +131,7 @@ const requiredStringKeys = [
   'security_opt',
   'workspace_mount_options',
   'outbox_mount_options',
+  'self_context_mount_options',
   'config_mount_options',
   'memory_limit',
   'container_smoke_command',
@@ -144,6 +153,9 @@ const requiredStringKeys = [
   'snapshot_metadata_file_name',
   'snapshot_evidence_subdir',
   'snapshot_runtime_evidence_file_name',
+  'self_context_directory_name',
+  'self_context_manifest_file_name',
+  'self_context_index_file_name',
   'snapshot_exclude_patterns',
   'snapshot_sanitized_npmrc_lines',
   'snapshot_git_user_name',
@@ -153,6 +165,9 @@ const requiredStringKeys = [
   'verification_command_1',
   'verification_command_2',
   'verification_command_3',
+  'sandbox_verification_command_1',
+  'sandbox_verification_command_2',
+  'sandbox_verification_command_3',
   'promotion_stage_prefix',
   'promotion_stage_exclude_patterns',
   'promotion_cleanup_command',
@@ -230,8 +245,29 @@ assert.equal(typeof config.model.keep_alive, 'string');
 assert.equal(config.workspace_root.startsWith(config.project_root), true);
 assert.equal(config.candidate_root.startsWith(config.project_root), true);
 assert.equal(config.runtime_root.startsWith(config.project_root), true);
+assert.equal(config.verification_command_1, 'npm test');
+assert.notEqual(
+  config.sandbox_verification_command_1,
+  config.verification_command_1,
+  'sandbox verification must not run the host-only full npm test command'
+);
+assert.equal(
+  config.sandbox_verification_command_2,
+  'bash bin/floki-rsi-sandbox-verification.sh'
+);
+const sandboxVerificationScript = fs.readFileSync(
+  path.join(__dirname, '..', 'bin', 'floki-rsi-sandbox-verification.sh'),
+  'utf8'
+);
+assert.match(sandboxVerificationScript, /tests\/self-improvement-\*\.cjs/);
+assert.match(
+  sandboxVerificationScript,
+  /self-improvement-run-now-immediate-contract-test\.cjs/
+);
+assert.match(sandboxVerificationScript, /Skipping host-only RSI contract/);
 
 console.log(JSON.stringify({
   ok: true,
-  marker: 'FLOKI_V2_SELF_IMPROVEMENT_CONFIG_CONTRACT_PASS'
+  marker: 'FLOKI_V2_SELF_IMPROVEMENT_CONFIG_CONTRACT_PASS',
+  sandbox_verification_separate_from_host_promotion: true
 }, null, 2));

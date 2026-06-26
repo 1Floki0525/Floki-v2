@@ -6,7 +6,14 @@ const https = require('node:https');
 const path = require('node:path');
 
 let proxyQueueTail = Promise.resolve();
-let proxyQueueStats = { totalProcessed: 0, totalRejected: 0, totalCancelled: 0, lastErrors: [] };
+let proxyQueueStats = {
+  totalProcessed: 0,
+  totalRejected: 0,
+  totalCancelled: 0,
+  queued: 0,
+  active: 0,
+  lastErrors: []
+};
 
 function loadDefaultConfig() {
   return require('./config.cjs').loadSelfImprovementConfig();
@@ -176,6 +183,7 @@ function createModelProxy(config = null) {
 
     // Simple FIFO serial queue: chain a tail promise so requests run in arrival order
     const previous = proxyQueueTail;
+    proxyQueueStats.queued += 1;
     let release;
     const next = new Promise((resolve) => { release = resolve; });
     proxyQueueTail = next;
@@ -188,7 +196,10 @@ function createModelProxy(config = null) {
     }
 
     let timedOut = false;
-    const queueTimeoutMs = Math.max(1000, Number(resolved.model_queue_timeout_ms) || 180000);
+    const queueTimeoutMs = Number(resolved.model_queue_timeout_ms);
+    if (!Number.isFinite(queueTimeoutMs) || queueTimeoutMs <= 0) {
+      throw new Error('model_queue_timeout_ms must be a positive YAML number');
+    }
     const timer = setTimeout(() => {
       timedOut = true;
       proxyQueueStats.totalRejected += 1;
@@ -198,6 +209,7 @@ function createModelProxy(config = null) {
         { ok: false, error: 'model proxy queue deadline exceeded' },
         resolved.model_proxy_connection_header
       );
+      proxyQueueStats.queued = Math.max(0, proxyQueueStats.queued - 1);
       releaseOnce();
     }, queueTimeoutMs);
 
@@ -205,6 +217,7 @@ function createModelProxy(config = null) {
       if (timedOut || released) return;
       proxyQueueStats.totalCancelled += 1;
       clearTimeout(timer);
+      proxyQueueStats.queued = Math.max(0, proxyQueueStats.queued - 1);
       sendJson(
         outgoing,
         499,
@@ -224,6 +237,8 @@ function createModelProxy(config = null) {
       clearTimeout(timer);
       return;
     }
+    proxyQueueStats.queued = Math.max(0, proxyQueueStats.queued - 1);
+    proxyQueueStats.active += 1;
     clearTimeout(timer);
 
     try {
@@ -298,6 +313,7 @@ function createModelProxy(config = null) {
         proxyQueueStats.lastErrors = proxyQueueStats.lastErrors.slice(-20);
       }
     } finally {
+      proxyQueueStats.active = Math.max(0, proxyQueueStats.active - 1);
       releaseOnce();
     }
   }
@@ -369,9 +385,11 @@ function createModelProxy(config = null) {
       running: Boolean(server),
       socket_path: p.socket,
       target_origin: target.origin,
-      queue: Object.freeze({
-        depth: proxyQueueStats.totalProcessed,
-        total_processed: proxyQueueStats.totalProcessed,
+	        queue: Object.freeze({
+	        depth: proxyQueueStats.queued + proxyQueueStats.active,
+	        queued: proxyQueueStats.queued,
+	        active: proxyQueueStats.active,
+	        total_processed: proxyQueueStats.totalProcessed,
         total_rejected: proxyQueueStats.totalRejected,
         total_cancelled: proxyQueueStats.totalCancelled,
         last_errors: proxyQueueStats.lastErrors.slice()

@@ -64,7 +64,8 @@ function isNoCandidateSandboxFailure(message) {
   return (
     text.includes('agent iteration limit reached without a verified candidate') ||
     text.includes('agent iteration wall-clock budget exceeded') ||
-    text.includes('convergence policy ended the cycle without a verified candidate')
+    text.includes('convergence policy ended the cycle without a verified candidate') ||
+    text.includes('floki_v2_self_improvement_sandbox_no_candidate')
   );
 }
 
@@ -429,6 +430,28 @@ async function runCycle(options = {}) {
       config
     );
     return { ok: false, error: message };
+  }
+
+  const completionSummary = execution.read_error_tail();
+  if (exit.code === 0 && isNoCandidateSandboxFailure(completionSummary)) {
+    const completedAt = nowIso();
+    updateStatus(
+      noCandidateStatusPatch(completionSummary, execution, completedAt),
+      config
+    );
+    appendAudit('cycle_no_candidate', {
+      run_id: snapshot.run_id,
+      exit_code: exit.code,
+      signal: exit.signal,
+      reason: 'controlled_no_verified_candidate',
+      sandbox_log_file: execution.log_file
+    }, config);
+    return {
+      ok: false,
+      no_candidate: true,
+      controlled: true,
+      error: completionSummary
+    };
   }
 
   const candidate = importOutbox(snapshot.run_id, config);

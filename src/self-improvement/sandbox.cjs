@@ -269,6 +269,12 @@ async function waitForContainerStart(
 }
 
 function verificationCommands(config) {
+  const sandboxCommands = [
+    config.sandbox_verification_command_1,
+    config.sandbox_verification_command_2,
+    config.sandbox_verification_command_3
+  ].filter(Boolean);
+  if (sandboxCommands.length > 0) return sandboxCommands;
   return [
     config.verification_command_1,
     config.verification_command_2,
@@ -281,6 +287,13 @@ function agentConfig(snapshot, options, config) {
     run_id: snapshot.run_id,
     workspace_path: config.workspace_mount_path,
     outbox_path: config.outbox_mount_path,
+    self_context_path: config.self_context_mount_path,
+    self_context_manifest_file_name: config.self_context_manifest_file_name,
+    self_context_index_file_name: config.self_context_index_file_name,
+    self_context_search_default_limit: config.self_context_search_default_limit,
+    self_context_search_max_limit: config.self_context_search_max_limit,
+    self_context_result_max_chars: config.self_context_result_max_chars,
+    self_context_index_chunk_chars: config.self_context_index_chunk_chars,
     model_socket_path: path.posix.join(
       config.model_proxy_mount_path,
       config.model_proxy_socket_name
@@ -308,6 +321,8 @@ function agentConfig(snapshot, options, config) {
     search_only_streak_limit: config.search_only_streak_limit,
     failed_lookup_limit: config.failed_lookup_limit,
     max_no_change_iterations: config.max_no_change_iterations,
+    focused_verification_failure_limit:
+      config.focused_verification_failure_limit,
     environment_check_command_timeout_ms:
       config.environment_check_command_timeout_ms,
     shell_command_progress_interval_ms:
@@ -342,6 +357,8 @@ function agentConfig(snapshot, options, config) {
     agent_tool_result_max_chars: config.agent_tool_result_max_chars,
     agent_test_output_tail_chars: config.agent_test_output_tail_chars,
     agent_min_command_timeout_ms: config.agent_min_command_timeout_ms,
+    agent_git_show_timeout_ms: config.agent_git_show_timeout_ms,
+    command_timeout_overrides_ms: config.command_timeout_overrides_ms,
     agent_fetch_default_timeout_ms: config.agent_fetch_default_timeout_ms,
     agent_fetch_max_timeout_ms: config.agent_fetch_max_timeout_ms,
     agent_fetch_default_max_chars: config.agent_fetch_default_max_chars,
@@ -455,12 +472,16 @@ function runSandbox(snapshot, options = {}) {
     snapshot.repo_dir + ':' +
       config.workspace_mount_path + ':' +
       config.workspace_mount_options,
-    '-v',
-    config.outbox_root + ':' +
-      config.outbox_mount_path + ':' +
-      config.outbox_mount_options,
-    '-v',
-    hostConfigFile + ':' +
+	    '-v',
+	    config.outbox_root + ':' +
+	      config.outbox_mount_path + ':' +
+	      config.outbox_mount_options,
+	    '-v',
+	    snapshot.self_context_dir + ':' +
+	      config.self_context_mount_path + ':' +
+	      config.self_context_mount_options,
+	    '-v',
+	    hostConfigFile + ':' +
       config.container_config_path + ':' +
       config.config_mount_options,
     '-v',

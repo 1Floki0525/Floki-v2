@@ -125,12 +125,17 @@ function readStatus(config = loadSelfImprovementConfig()) {
       String(current?.state || '')
     );
   const derivedPatch = activeWithoutWorker
-    ? {
-        state: 'failed',
-        phase: 'worker_not_running',
-        current_container: null,
-        last_error:
-          current.last_error ||
+	    ? {
+	        state: 'failed',
+	        phase: 'worker_not_running',
+	        current_run_id: null,
+	        current_container: null,
+	        current_command: null,
+	        current_command_started_at: null,
+	        current_command_elapsed_ms: 0,
+	        sandbox_alive_at: null,
+	        last_error:
+	          current.last_error ||
           'self-improvement worker is not running; active sandbox status is stale'
       }
     : {};

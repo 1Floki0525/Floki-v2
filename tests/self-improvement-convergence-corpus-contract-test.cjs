@@ -29,6 +29,7 @@ for (const key of [
   'search_only_streak_limit',
   'failed_lookup_limit',
   'max_no_change_iterations',
+  'focused_verification_failure_limit',
   'research_corpus_catalog_relative_path',
   'research_corpus_search_default_limit',
   'research_corpus_search_max_limit',
@@ -61,10 +62,20 @@ const policy = createConvergencePolicy({
   implementation_start_deadline_iteration: 5,
   search_only_streak_limit: 3,
   failed_lookup_limit: 2,
-  max_no_change_iterations: 2
+  max_no_change_iterations: 2,
+  focused_verification_failure_limit: 4
 }, (type, detail) => events.push({ type, detail }));
 
 policy.beginIteration(1);
+policy.selectExperiment({
+  objective: 'Bound repeated discovery calls after selection',
+  hypothesis: 'Repeated read-only source searches remain available before implementation starts',
+  baseline_evidence: 'The policy starts with a selected experiment at iteration 1',
+  target_files: ['src/self-improvement/convergence-policy.cjs'],
+  success_metric: 'Repeated investigation emits advisory without blocking before implementation',
+  focused_test: 'node tests/self-improvement-convergence-corpus-contract-test.cjs',
+  expected_follow_on_value: 'Future experiments can inspect selected target files without broad restart'
+});
 assert.equal(policy.authorize('shell', { command: 'rg -n x src' }).ok, true);
 policy.record('shell', { command: 'rg -n x src' }, { status: 0 });
 assert.equal(policy.authorize('shell', { command: 'rg -n x src' }).ok, true);
@@ -89,16 +100,7 @@ assert.equal(
   'selection pressure must not disable file reads'
 );
 
-const selected = policy.selectExperiment({
-  objective: 'Bound repeated discovery calls',
-  hypothesis: 'A stateful policy prevents search-only iteration exhaustion',
-  baseline_evidence: 'Three identical searches were attempted',
-  target_files: ['src/self-improvement/convergence-policy.cjs'],
-  success_metric: 'Third identical call is rejected',
-  focused_test: 'node tests/self-improvement-convergence-corpus-contract-test.cjs',
-  expected_follow_on_value: 'Future experiments reach implementation sooner'
-});
-assert.equal(selected.ok, true);
+assert.ok(policy.snapshot().selected_experiment);
 assert.equal(
   policy.authorize('write_file', { path: 'x', content: 'y' }).ok,
   true,
@@ -109,20 +111,21 @@ assert.equal(
   policy.authorize('write_file', { path: 'x', content: 'y' }).ok,
   true
 );
-policy.record('write_file', { path: 'x', content: 'y' }, { ok: true });
+policy.record('write_file', { path: 'x', content: 'y' }, {
+  ok: true,
+  workspace_changed: true
+});
 assert.equal(policy.snapshot().write_count, 1);
 
 policy.beginIteration(4);
-assert.equal(
-  policy.authorize('shell', { command: 'git diff --stat' }).ok,
-  true,
-  'implementation inspection must not consume the pre-selection discovery budget'
-);
-policy.record('shell', { command: 'git diff --stat' }, { status: 0 });
+const postWriteRead = policy.authorize('shell', { command: 'git diff --stat' });
+assert.equal(postWriteRead.ok, false);
+assert.equal(postWriteRead.reason, 'post_write_verification_required');
+assert.match(postWriteRead.required_next_action, /Run the focused test/);
 assert.equal(
   policy.snapshot().discovery_calls,
   4,
-  'advisory-only discovery policy measures calls without blocking them'
+  'post-write read blocking does not consume additional discovery budget'
 );
 assert.equal(
   policy.authorize('shell', {
@@ -162,19 +165,20 @@ const mutationFirstPolicy = createConvergencePolicy({
   implementation_start_deadline_iteration: 5,
   search_only_streak_limit: 3,
   failed_lookup_limit: 2,
-  max_no_change_iterations: 2
+  max_no_change_iterations: 2,
+  focused_verification_failure_limit: 4
 }, (type, detail) => mutationFirstEvents.push({ type, detail }));
 mutationFirstPolicy.beginIteration(2);
-assert.equal(
-  mutationFirstPolicy.authorize('write_file', { path: 'x', content: 'y' }).ok,
-  true,
-  'sandbox writes must remain available even before selection'
+const preSelectionWrite = mutationFirstPolicy.authorize(
+  'write_file',
+  { path: 'x', content: 'y' }
 );
-mutationFirstPolicy.record('write_file', { path: 'x', content: 'y' }, { ok: true });
+assert.equal(preSelectionWrite.ok, false);
+assert.equal(preSelectionWrite.reason, 'select_experiment_required_first');
 assert.match(
   mutationFirstPolicy.feedback(),
-  /selected_experiment is (?:still )?null|fully available|not a tool denial/,
-  'workspace mutation before selection must feed back selection guidance without blocking tools'
+  /selected_experiment is null|select_experiment/,
+  'pre-selection tool calls must feed back the first-call selection contract'
 );
 const postMutationSelected = mutationFirstPolicy.selectExperiment({
   objective: 'Bound repeated discovery calls after mutation',
@@ -186,10 +190,10 @@ const postMutationSelected = mutationFirstPolicy.selectExperiment({
   expected_follow_on_value: 'Future experiments stop lingering with selected_experiment null'
 });
 assert.equal(postMutationSelected.ok, true);
-assert.equal(
+assert.match(
   mutationFirstPolicy.feedback(),
-  null,
-  'selection clears the mutation-first guidance'
+  /Call start_implementation now|apply_patch or write_file/,
+  'selection changes mutation-first guidance into implementation guidance'
 );
 
 const corpus = loadResearchCorpus(
@@ -234,12 +238,12 @@ assert.match(
 );
 assert.match(
   agent,
-  /not a permission gate[\s\S]*all sandbox tools remain available/,
+  /not Maker approval[\s\S]*full isolated-sandbox read, write, shell/,
   'experiment selection must not reduce sandbox tool access'
 );
 assert.match(
   agent,
-  /shell, reads, writes, package installs, builds,[\s\S]*GitHub, arXiv/,
+  /full read, write, shell, package-install, build, test,[\s\S]*GitHub, arXiv/,
   'selection reminder must preserve full sandbox tool access'
 );
 assert.doesNotMatch(

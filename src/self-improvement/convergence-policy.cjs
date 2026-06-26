@@ -37,6 +37,14 @@ function signatureFor(name, args) {
     .digest('hex');
 }
 
+function cleanRelativePath(value) {
+  const raw = String(value || '').replaceAll('\\', '/').replace(/^\.\/+/, '');
+  if (!raw || raw.startsWith('/')) return '';
+  const parts = raw.split('/').filter(Boolean);
+  if (parts.includes('..')) return '';
+  return parts.join('/');
+}
+
 function splitShellSegments(command) {
   return String(command || '')
     .split(/(?:&&|\|\||;|\n)/)
@@ -44,15 +52,25 @@ function splitShellSegments(command) {
     .filter(Boolean);
 }
 
+function stripNonMutatingRedirections(command) {
+  return String(command || '')
+    .replace(/(^|\s)(?:[012])?>\s*\/dev\/null(?=\s|$)/g, '$1')
+    .replace(/(^|\s)[012]>&[012](?=\s|$)/g, '$1')
+    .replace(/(^|\s)<\s*\/dev\/null(?=\s|$)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function isReadOnlyShell(command) {
-  const segments = splitShellSegments(command);
+  const inspected = stripNonMutatingRedirections(command);
+  const segments = splitShellSegments(inspected);
   if (segments.length === 0) return false;
 
   const forbidden = /(^|\s)(?:rm|mv|cp|mkdir|rmdir|touch|truncate|tee|patch|npm|npx|pnpm|yarn|pip|pip3|python|python3|perl|ruby|make|cmake|meson|ninja|cargo|go|javac|git\s+(?:add|commit|apply|am|checkout|switch|reset|restore|clean|stash|merge|rebase|cherry-pick|tag|branch|init))(\s|$)/i;
   const writeSyntax = /(?:^|[^<])>{1,2}|\bsed\s+-i\b|\bperl\s+-[^\s]*i\b/i;
-  if (forbidden.test(command) || writeSyntax.test(command)) return false;
+  if (forbidden.test(inspected) || writeSyntax.test(inspected)) return false;
 
-  const allowed = /^(?:ls\b|find\b|rg\b|grep\b|cat\b|head\b|tail\b|wc\b|stat\b|file\b|jq\b|pwd\b|which\b|command\s+-v\b|sed\s+-n\b|git\s+(?:status|diff|show|log|ls-files|rev-parse)\b|node\s+--check\b)/i;
+  const allowed = /^(?:cd\b|ls\b|find\b|rg\b|grep\b|cat\b|head\b|tail\b|wc\b|stat\b|file\b|jq\b|pwd\b|which\b|command\s+-v\b|sed\s+-n\b|git\s+(?:status|diff|show|log|ls-files|rev-parse)\b|node\s+--check\b)/i;
   return segments.every((segment) => allowed.test(segment));
 }
 
@@ -91,6 +109,10 @@ function createConvergencePolicy(config, emit = () => {}) {
     maxNoChangeIterations: requiredPositiveInteger(
       config,
       'max_no_change_iterations'
+    ),
+    focusedVerificationFailureLimit: requiredPositiveInteger(
+      config,
+      'focused_verification_failure_limit'
     )
   });
 
@@ -114,11 +136,22 @@ function createConvergencePolicy(config, emit = () => {}) {
     'corpus_fetch'
   ]);
 
+  const readTools = new Set([
+    'get_task_state',
+    'get_self_context',
+    'search_self_memory',
+    'list_repository',
+    'search_source',
+    'inspect_symbol',
+    'read_file'
+  ]);
+
   const signatures = new Map();
   const state = {
     iteration: 0,
     phase: 'discovery',
     selectedExperiment: null,
+    selectedExperimentAtIteration: null,
     implementationStarted: false,
     implementationStartedAtIteration: null,
     lastWriteIteration: null,
@@ -128,6 +161,10 @@ function createConvergencePolicy(config, emit = () => {}) {
     searchOnlyStreak: 0,
     failedLookups: 0,
     verificationRuns: 0,
+    focusedVerificationFailures: 0,
+    lastFocusedFailureIteration: null,
+    noWriteGuidanceIssuedAtIteration: null,
+    postWriteGuidanceIssuedAtIteration: null,
     blockedCalls: 0
   };
 
@@ -140,14 +177,21 @@ function createConvergencePolicy(config, emit = () => {}) {
       name === 'shell' && !shellReadOnly && !shellVerification;
 
     return Object.freeze({
+      read:
+        readTools.has(name) ||
+        shellReadOnly,
       discovery:
         !state.implementationStarted &&
         (name === 'read_file' || shellReadOnly),
       research: researchTools.has(name),
       verification:
-        name === 'run_verification' || shellVerification,
+        name === 'run_verification' ||
+        name === 'run_focused_test' ||
+        shellVerification,
       mutation:
-        name === 'write_file' || shellMutation
+        name === 'write_file' ||
+        name === 'apply_patch' ||
+        shellMutation
     });
   }
 
@@ -156,6 +200,8 @@ function createConvergencePolicy(config, emit = () => {}) {
       iteration: state.iteration,
       phase: state.phase,
       selected_experiment: state.selectedExperiment,
+      selected_experiment_at_iteration:
+        state.selectedExperimentAtIteration,
       implementation_started: state.implementationStarted,
       implementation_started_at_iteration:
         state.implementationStartedAtIteration,
@@ -166,8 +212,46 @@ function createConvergencePolicy(config, emit = () => {}) {
       search_only_streak: state.searchOnlyStreak,
       failed_lookups: state.failedLookups,
       verification_runs: state.verificationRuns,
+      focused_verification_failures: state.focusedVerificationFailures,
+      last_focused_failure_iteration: state.lastFocusedFailureIteration,
+      no_write_guidance_issued_at_iteration:
+        state.noWriteGuidanceIssuedAtIteration,
+      post_write_guidance_issued_at_iteration:
+        state.postWriteGuidanceIssuedAtIteration,
       blocked_calls: state.blockedCalls
     });
+  }
+
+  function selectedTargetFiles() {
+    if (
+      !state.selectedExperiment ||
+      !Array.isArray(state.selectedExperiment.target_files)
+    ) {
+      return [];
+    }
+    return state.selectedExperiment.target_files
+      .map(cleanRelativePath)
+      .filter(Boolean);
+  }
+
+  function isSelectedTargetPath(value) {
+    const relative = cleanRelativePath(value);
+    if (!relative) return false;
+    return selectedTargetFiles().some((target) => {
+      return relative === target || relative.startsWith(target + '/');
+    });
+  }
+
+  function isNarrowSelectedTargetInspection(name, args = {}) {
+    if (!state.selectedExperiment) return false;
+    if (name === 'read_file') return isSelectedTargetPath(args.path);
+    if (
+      (name === 'search_source' || name === 'inspect_symbol') &&
+      args.path
+    ) {
+      return isSelectedTargetPath(args.path);
+    }
+    return false;
   }
 
   function transition(phase, reason) {
@@ -192,9 +276,14 @@ function createConvergencePolicy(config, emit = () => {}) {
     } else if (
       state.selectedExperiment &&
       !state.implementationStarted &&
-      state.iteration >= limits.implementationDeadline
+      state.selectedExperimentAtIteration !== null &&
+      state.iteration - state.selectedExperimentAtIteration >=
+        limits.maxNoChangeIterations
     ) {
-      transition('implementation_required', 'implementation_start_deadline');
+      transition(
+        'implementation_required',
+        'implementation_start_grace_exhausted'
+      );
     }
     return snapshot();
   }
@@ -232,6 +321,8 @@ function createConvergencePolicy(config, emit = () => {}) {
     }
 
     const kinds = classifyTool(name, args);
+    const narrowTargetInspection =
+      isNarrowSelectedTargetInspection(name, args);
     const signature = signatureFor(name, args);
     const seen = signatures.get(signature) || 0;
     if (!kinds.verification && seen >= limits.repeatedSignatureLimit) {
@@ -243,6 +334,12 @@ function createConvergencePolicy(config, emit = () => {}) {
 
     const isDiscovery = kinds.discovery;
     const isResearch = kinds.research;
+
+    if (!state.selectedExperiment) {
+      return block('select_experiment_required_first', name, {
+        allowed_next_tools: ['select_experiment']
+      });
+    }
 
     if (
       (state.phase === 'selection_required' ||
@@ -297,6 +394,58 @@ function createConvergencePolicy(config, emit = () => {}) {
       advise('verification_requires_implemented_change', name);
     }
 
+    const postWriteVerificationGrace = Math.max(
+      1,
+      Math.floor(limits.maxNoChangeIterations / 2)
+    );
+    if (
+      state.implementationStarted &&
+      state.writeCount === 0 &&
+      state.implementationStartedAtIteration !== null &&
+      (kinds.read || isResearch) &&
+      !narrowTargetInspection &&
+      state.iteration - state.implementationStartedAtIteration >=
+        postWriteVerificationGrace
+    ) {
+      return block('implementation_write_required', name, {
+        allowed_next_tools: [
+          'write_file',
+          'apply_patch',
+          'read_file(target_files)',
+          'search_source(target_files)',
+          'inspect_symbol(target_files)',
+          'show_diff',
+          'git_status'
+        ],
+        implementation_write_grace: postWriteVerificationGrace
+      });
+    }
+    if (
+      state.implementationStarted &&
+      state.writeCount > 0 &&
+      state.lastWriteIteration !== null &&
+      state.phase !== 'verified' &&
+      state.phase !== 'repairing' &&
+      kinds.read &&
+      !narrowTargetInspection &&
+      state.iteration - state.lastWriteIteration >= postWriteVerificationGrace
+    ) {
+      return block('post_write_verification_required', name, {
+        allowed_next_tools: [
+          'run_focused_test',
+          'write_file',
+          'apply_patch',
+          'read_file(target_files)',
+          'search_source(target_files)',
+          'inspect_symbol(target_files)',
+          'show_diff',
+          'git_status',
+          'run_verification'
+        ],
+        post_write_verification_grace: postWriteVerificationGrace
+      });
+    }
+
     signatures.set(signature, seen + 1);
     if (isDiscovery) state.discoveryCalls += 1;
     if (isResearch) state.researchCalls += 1;
@@ -334,6 +483,7 @@ function createConvergencePolicy(config, emit = () => {}) {
       expected_follow_on_value: expectedFollowOnValue,
       target_files: Object.freeze(targetFiles)
     });
+    state.selectedExperimentAtIteration = state.iteration;
     state.searchOnlyStreak = 0;
     transition('experiment_selected', 'select_experiment');
     emit('experiment_selected', {
@@ -403,9 +553,20 @@ function createConvergencePolicy(config, emit = () => {}) {
 
     const mutatingShell =
       name === 'shell' &&
-      kinds.mutation;
+      kinds.mutation &&
+      result?.workspace_changed === true;
 
-    if (!failed && (name === 'write_file' || mutatingShell)) {
+    const realToolMutation =
+      (name === 'write_file' || name === 'apply_patch') &&
+      result?.workspace_changed === true;
+
+    if (!failed && mutatingShell) {
+      advise('shell_mutation_not_structured_progress', name, {
+        required_edit_tools: ['apply_patch', 'write_file']
+      });
+    }
+
+    if (!failed && realToolMutation) {
       if (!state.implementationStarted) {
         state.implementationStarted = true;
         state.implementationStartedAtIteration = state.iteration;
@@ -417,6 +578,8 @@ function createConvergencePolicy(config, emit = () => {}) {
       }
       state.writeCount += 1;
       state.lastWriteIteration = state.iteration;
+      state.noWriteGuidanceIssuedAtIteration = null;
+      state.postWriteGuidanceIssuedAtIteration = null;
       state.searchOnlyStreak = 0;
       transition('implementing', 'workspace_mutation');
     }
@@ -431,8 +594,18 @@ function createConvergencePolicy(config, emit = () => {}) {
             ? 'verification_passed'
             : 'verification_failed'
         );
+      } else if (name === 'run_focused_test') {
+        if (failed) {
+          state.focusedVerificationFailures += 1;
+          state.lastFocusedFailureIteration = state.iteration;
+          transition('repairing', 'focused_verification_failed');
+        } else {
+          state.focusedVerificationFailures = 0;
+          state.lastFocusedFailureIteration = null;
+          transition('focused_verified', 'focused_verification_passed');
+        }
       } else if (failed) {
-        transition('repairing', 'focused_verification_failed');
+        transition('repairing', 'verification_shell_failed');
       }
     }
 
@@ -444,24 +617,60 @@ function createConvergencePolicy(config, emit = () => {}) {
     if (!state.selectedExperiment &&
         state.iteration >= limits.implementationDeadline) {
       advise('objective_not_selected_by_configured_deadline', 'end_iteration');
+      return 'objective_not_selected_by_configured_deadline';
     }
     if (state.selectedExperiment &&
         !state.implementationStarted &&
-        state.iteration >= limits.implementationDeadline) {
-      advise('implementation_not_started_by_configured_deadline', 'end_iteration');
+        state.selectedExperimentAtIteration !== null &&
+        state.iteration - state.selectedExperimentAtIteration >=
+          limits.maxNoChangeIterations) {
+      advise(
+        'implementation_not_started_after_selection_grace',
+        'end_iteration'
+      );
+      return 'implementation_not_started_after_selection_grace';
     }
     if (state.implementationStarted &&
         state.writeCount === 0 &&
         state.iteration - state.implementationStartedAtIteration >=
           limits.maxNoChangeIterations) {
+      if (
+        state.noWriteGuidanceIssuedAtIteration === null ||
+        state.noWriteGuidanceIssuedAtIteration === state.iteration
+      ) {
+        state.noWriteGuidanceIssuedAtIteration = state.iteration;
+        advise('implementation_write_required_before_stop', 'end_iteration');
+        return null;
+      }
       advise('implementation_has_no_workspace_change', 'end_iteration');
+      return 'implementation_has_no_workspace_change';
+    }
+    if (state.implementationStarted &&
+        state.focusedVerificationFailures >=
+          limits.focusedVerificationFailureLimit) {
+      advise('focused_verification_failed_repeatedly', 'end_iteration', {
+        focused_verification_failures: state.focusedVerificationFailures,
+        focused_verification_failure_limit:
+          limits.focusedVerificationFailureLimit
+      });
+      return 'focused_verification_failed_repeatedly';
     }
     if (state.implementationStarted &&
         state.lastWriteIteration !== null &&
         state.phase !== 'verified' &&
+        state.phase !== 'focused_verified' &&
         state.iteration - state.lastWriteIteration >=
           limits.maxNoChangeIterations) {
+      if (
+        state.postWriteGuidanceIssuedAtIteration === null ||
+        state.postWriteGuidanceIssuedAtIteration === state.iteration
+      ) {
+        state.postWriteGuidanceIssuedAtIteration = state.iteration;
+        advise('implementation_verification_required_before_stop', 'end_iteration');
+        return null;
+      }
       advise('implementation_progress_stalled_before_verification', 'end_iteration');
+      return 'implementation_progress_stalled_before_verification';
     }
     return null;
   }
@@ -482,14 +691,26 @@ function createConvergencePolicy(config, emit = () => {}) {
     }
     if (state.writeCount === 0) {
       return (
-        'Implement the selected change now. Keep any further discovery focused ' +
-        'on that experiment; sandbox tools remain available.'
+        'Make the next tool call apply_patch or write_file and create the ' +
+        'selected source/test change now. Narrow read_file, search_source, ' +
+        'and inspect_symbol calls against selected target files remain allowed; ' +
+        'shell remains available, but shell-created filesystem changes do not ' +
+        'count as structured implementation progress.'
       );
     }
     if (state.phase !== 'verified') {
+      if (state.focusedVerificationFailures > 0) {
+        return (
+          'Repair the latest focused-test stderr directly. Do not rewrite the ' +
+          'experiment, do not invent new metrics, and do not keep making tiny ' +
+          'source rewrites without addressing the assertion failure. After the ' +
+          'focused test passes, call run_verification.'
+        );
+      }
       return (
         'Run the focused test, repair failures, then call run_verification. ' +
-        'Do not restart broad discovery.'
+        'Use the run_focused_test tool for focused verification; shell test ' +
+        'runs do not unlock full verification. Do not restart broad discovery.'
       );
     }
     return 'Call finalize_candidate with the verified experiment evidence.';
@@ -520,8 +741,10 @@ function createConvergencePolicy(config, emit = () => {}) {
       return prefix + guidance();
     }
     if (state.selectedExperiment &&
-        !state.implementationStarted &&
-        state.iteration >= limits.implementationDeadline) {
+        !state.implementationStarted) {
+      return prefix + guidance();
+    }
+    if (state.implementationStarted && state.writeCount === 0) {
       return prefix + guidance();
     }
     if (state.implementationStarted &&
@@ -553,5 +776,6 @@ module.exports = {
   createConvergencePolicy,
   isReadOnlyShell,
   isVerificationShell,
-  signatureFor
+  signatureFor,
+  stripNonMutatingRedirections
 };

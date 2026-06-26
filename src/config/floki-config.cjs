@@ -985,6 +985,7 @@ function getSelfImprovementConfig(mode = 'chat') {
     search_only_streak_limit: numberValue('search_only_streak_limit'),
     failed_lookup_limit: numberValue('failed_lookup_limit'),
     max_no_change_iterations: numberValue('max_no_change_iterations'),
+    focused_verification_failure_limit: numberValue('focused_verification_failure_limit'),
     max_command_ms: numberValue('max_command_ms'),
     max_changed_files: numberValue('max_changed_files'),
     max_patch_bytes: numberValue('max_patch_bytes'),
@@ -1005,6 +1006,7 @@ function getSelfImprovementConfig(mode = 'chat') {
     container_name_prefix: stringValue('container_name_prefix'),
     workspace_mount_path: stringValue('workspace_mount_path'),
     outbox_mount_path: stringValue('outbox_mount_path'),
+    self_context_mount_path: stringValue('self_context_mount_path'),
     container_config_path: stringValue('container_config_path'),
     container_tmp_path: stringValue('container_tmp_path'),
     tmpfs_options: stringValue('tmpfs_options'),
@@ -1016,6 +1018,7 @@ function getSelfImprovementConfig(mode = 'chat') {
     security_opt: stringValue('security_opt'),
     workspace_mount_options: stringValue('workspace_mount_options'),
     outbox_mount_options: stringValue('outbox_mount_options'),
+    self_context_mount_options: stringValue('self_context_mount_options'),
     config_mount_options: stringValue('config_mount_options'),
     container_stop_timeout_seconds: numberValue('container_stop_timeout_seconds'),
     container_stop_command_timeout_ms: numberValue('container_stop_command_timeout_ms'),
@@ -1050,6 +1053,15 @@ function getSelfImprovementConfig(mode = 'chat') {
     snapshot_metadata_file_name: stringValue('snapshot_metadata_file_name'),
     snapshot_evidence_subdir: stringValue('snapshot_evidence_subdir'),
     snapshot_runtime_evidence_file_name: stringValue('snapshot_runtime_evidence_file_name'),
+    self_context_directory_name: stringValue('self_context_directory_name'),
+    self_context_manifest_file_name: stringValue('self_context_manifest_file_name'),
+    self_context_index_file_name: stringValue('self_context_index_file_name'),
+    self_context_search_default_limit:
+      numberValue('self_context_search_default_limit'),
+    self_context_search_max_limit: numberValue('self_context_search_max_limit'),
+    self_context_result_max_chars: numberValue('self_context_result_max_chars'),
+    self_context_index_chunk_chars:
+      numberValue('self_context_index_chunk_chars'),
     snapshot_exclude_patterns: stringValue('snapshot_exclude_patterns'),
     snapshot_sanitized_npmrc_lines: stringValue('snapshot_sanitized_npmrc_lines'),
     snapshot_command_timeout_ms: numberValue('snapshot_command_timeout_ms'),
@@ -1063,6 +1075,12 @@ function getSelfImprovementConfig(mode = 'chat') {
     verification_command_1: stringValue('verification_command_1'),
     verification_command_2: stringValue('verification_command_2'),
     verification_command_3: stringValue('verification_command_3'),
+    sandbox_verification_command_1:
+      stringValue('sandbox_verification_command_1'),
+    sandbox_verification_command_2:
+      stringValue('sandbox_verification_command_2'),
+    sandbox_verification_command_3:
+      stringValue('sandbox_verification_command_3'),
     promotion_test_timeout_ms: numberValue('promotion_test_timeout_ms'),
     promotion_command_timeout_ms: numberValue('promotion_command_timeout_ms'),
     promotion_output_buffer_bytes: numberValue('promotion_output_buffer_bytes'),

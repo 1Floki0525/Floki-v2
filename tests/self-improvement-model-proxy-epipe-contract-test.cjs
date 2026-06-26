@@ -99,9 +99,10 @@ function postOverSocket(socketPath, requestPath, body, timeoutMs) {
     model_proxy_socket_name: 'ollama.sock',
     model_proxy_health_path: '/api/tags',
     ollama_chat_path: '/api/chat',
-    model_proxy_start_timeout_ms: 5000,
-    model_proxy_request_timeout_ms: 10000,
-    model_proxy_connection_header: 'close',
+	    model_proxy_start_timeout_ms: 5000,
+	    model_proxy_request_timeout_ms: 10000,
+	    model_queue_timeout_ms: 10000,
+	    model_proxy_connection_header: 'close',
     model_request_max_bytes: 8 * 1024 * 1024
   };
 

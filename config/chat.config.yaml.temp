@@ -647,6 +647,7 @@ self_improvement:
   search_only_streak_limit: 6
   failed_lookup_limit: 5
   max_no_change_iterations: 6
+  focused_verification_failure_limit: 4
   max_command_ms: 900000
   max_changed_files: 200
   max_patch_bytes: 5242880
@@ -667,6 +668,7 @@ self_improvement:
   container_name_prefix: "floki-rsi"
   workspace_mount_path: "/workspace"
   outbox_mount_path: "/outbox"
+  self_context_mount_path: "/self-context"
   container_config_path: "/run/floki-rsi/agent-config.json"
   container_tmp_path: "/tmp"
   tmpfs_options: "rw,nosuid,nodev,size=2g"
@@ -678,6 +680,7 @@ self_improvement:
   security_opt: "no-new-privileges"
   workspace_mount_options: "rw,Z"
   outbox_mount_options: "rw,Z"
+  self_context_mount_options: "ro,Z"
   config_mount_options: "ro,Z"
   container_stop_timeout_seconds: 2
   container_stop_command_timeout_ms: 15000
@@ -712,6 +715,13 @@ self_improvement:
   snapshot_metadata_file_name: "snapshot.json"
   snapshot_evidence_subdir: ".floki-self-improvement"
   snapshot_runtime_evidence_file_name: "runtime-evidence.json"
+  self_context_directory_name: "self-context"
+  self_context_manifest_file_name: "manifest.json"
+  self_context_index_file_name: "search-index.jsonl"
+  self_context_search_default_limit: 8
+  self_context_search_max_limit: 25
+  self_context_result_max_chars: 1600
+  self_context_index_chunk_chars: 65536
   snapshot_exclude_patterns: ".git/|node_modules/|apps/floki-neural-interface/node_modules/|apps/floki-neural-interface/dist/|state/|secrets/|.floki-tools/models/|.floki-tools/repos/|.floki-tools/input/|.floki-tools/output/|.floki-tools/venv*/|.floki-tools/**/__pycache__/|reports/|*.tar|*.tar.gz|*.zip|*.mp4|*.mkv|*.wav|*.onnx|*.pt|*.bin|*.safetensors|models/|models/**|Qwen3.5-4B/|Qwen3.5-4B/**|data/dreams/|data/transcripts/|data/media/|data/memories/|data/knowledge/|.floki-self-improvement/|.env|.env.*|.npmrc|cookies.txt|**/cookies.txt|*.pem|*.key|*.p12|*.pfx"
   snapshot_sanitized_npmrc_lines: "engine-strict=true"
   snapshot_command_timeout_ms: 300000
@@ -725,6 +735,9 @@ self_improvement:
   verification_command_1: "npm test"
   verification_command_2: "npm run build"
   verification_command_3: "cd apps/floki-neural-interface && npm run test:integration && npm run build"
+  sandbox_verification_command_1: "node tests/active-source-preflight-test.cjs"
+  sandbox_verification_command_2: "bash bin/floki-rsi-sandbox-verification.sh"
+  sandbox_verification_command_3: "cd apps/floki-neural-interface && npm run test:integration && npm run build"
   promotion_test_timeout_ms: 3600000
   promotion_command_timeout_ms: 1800000
   promotion_output_buffer_bytes: 134217728
