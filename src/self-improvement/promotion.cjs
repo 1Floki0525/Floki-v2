@@ -183,6 +183,8 @@ async function runNow(
     phase: 'maker_requested_cycle',
     current_objective:
       requestedObjective || config.default_objective,
+    objective_source: requestedObjective ? 'maker_requested' : 'floki_selected',
+    requested_objective: requestedObjective || null,
     queued_at: requestedAt,
     manual_run_request_id: requestId,
     manual_run_requested_at: requestedAt,

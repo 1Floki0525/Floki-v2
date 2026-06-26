@@ -873,7 +873,7 @@ function createChatLocalRuntime(options = {}) {
     if (action === 'restartChat') {
       setTimeout(() => {
         void (async () => {
-          await stop();
+          await stop({ skipPidDeletion: true });
           stopping = false;
           state.shutdown_requested = false;
           await start();
@@ -1162,7 +1162,7 @@ function createChatLocalRuntime(options = {}) {
     return status();
   }
 
-  async function stop() {
+  async function stop(options = {}) {
     if (stopping) return;
     stopping = true;
     state.client_ready = false;
@@ -1183,7 +1183,7 @@ function createChatLocalRuntime(options = {}) {
     state.websocket_clients = 0;
     state.websocket_ready = false;
     if (server) await new Promise((resolve) => server.close(() => resolve()));
-    fs.rmSync(pidFile, { force: true });
+    if (!options.skipPidDeletion) fs.rmSync(pidFile, { force: true });
     state.api_ready = false;
     state.state = 'stopped';
     publish();

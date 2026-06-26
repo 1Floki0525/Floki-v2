@@ -174,12 +174,34 @@ const preSelectionWrite = mutationFirstPolicy.authorize(
   { path: 'x', content: 'y' }
 );
 assert.equal(preSelectionWrite.ok, false);
-assert.equal(preSelectionWrite.reason, 'select_experiment_required_first');
+assert.equal(preSelectionWrite.reason, 'pre_selection_mutation_blocked',
+  'write_file before selection must be blocked with pre_selection_mutation_blocked reason');
 assert.match(
   mutationFirstPolicy.feedback(),
   /selected_experiment is null|select_experiment/,
-  'pre-selection tool calls must feed back the first-call selection contract'
+  'pre-selection mutation block must feed back selection requirement'
 );
+
+const preSelectionRead = mutationFirstPolicy.authorize(
+  'read_file',
+  { path: 'src/self-improvement/convergence-policy.cjs' }
+);
+assert.equal(preSelectionRead.ok, true,
+  'read_file must be allowed before select_experiment — discovery before selection is required');
+const preSelectionSearch = mutationFirstPolicy.authorize(
+  'search_source',
+  { query: 'select_experiment' }
+);
+assert.equal(preSelectionSearch.ok, true,
+  'search_source must be allowed before select_experiment — discovery before selection is required');
+const preSelectionVerify = mutationFirstPolicy.authorize(
+  'run_verification',
+  {}
+);
+assert.equal(preSelectionVerify.ok, false,
+  'run_verification must be blocked before select_experiment');
+assert.equal(preSelectionVerify.reason, 'pre_selection_mutation_blocked',
+  'run_verification block must use pre_selection_mutation_blocked reason');
 const postMutationSelected = mutationFirstPolicy.selectExperiment({
   objective: 'Bound repeated discovery calls after mutation',
   hypothesis: 'A stateful policy can recover when a sandbox mutates first',
@@ -231,10 +253,25 @@ for (const token of [
 ]) {
   assert.ok(agent.includes(token), 'agent missing convergence token: ' + token);
 }
-assert.match(
+assert.doesNotMatch(
   agent,
   /first model tool call should be select_experiment/,
-  'sandbox agent must ask for an immediate selected_experiment planning anchor'
+  'sandbox agent must not force immediate blind selection before investigation'
+);
+assert.match(
+  agent,
+  /PRE_SELECTION_BLOCKED_NAMES/,
+  'sandbox agent must define bounded pre-selection tool surface that blocks mutation before selection'
+);
+assert.match(
+  agent,
+  /preSelectionTools/,
+  'sandbox agent must expose a discovery tool surface before selection'
+);
+assert.match(
+  agent,
+  /Investigate.*before calling select_experiment|Investigate.*codebase.*self-context.*select_experiment|before.*select_experiment.*investigation/,
+  'sandbox agent must encourage investigation before calling select_experiment'
 );
 assert.match(
   agent,

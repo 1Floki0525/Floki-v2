@@ -45,8 +45,18 @@ const readArgs = {
   command: 'find /workspace -type f 2>/dev/null | head -50'
 };
 const preSelectionRead = policy.authorize('shell', readArgs);
-assert.equal(preSelectionRead.ok, false);
-assert.equal(preSelectionRead.reason, 'select_experiment_required_first');
+assert.equal(preSelectionRead.ok, true,
+  'read-only shell command must be allowed before selection for evidence gathering');
+
+const preSelectionMutation = policy.authorize(
+  'shell',
+  { command: 'printf x > src/example.cjs' }
+);
+assert.equal(preSelectionMutation.ok, false,
+  'mutating shell command must be blocked before selection');
+assert.equal(preSelectionMutation.reason, 'pre_selection_mutation_blocked',
+  'mutating shell block must use pre_selection_mutation_blocked reason');
+
 policy.selectExperiment({
   objective: 'repair one bounded behavior',
   hypothesis: 'a real source change fixes it',

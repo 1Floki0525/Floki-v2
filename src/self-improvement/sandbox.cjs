@@ -338,6 +338,8 @@ function agentConfig(snapshot, options, config) {
     max_patch_bytes: config.max_patch_bytes,
     verification_commands: verificationCommands(config),
     objective: String(options.objective || config.default_objective),
+    objective_source: options.objective ? 'maker_requested' : 'floki_selected',
+    requested_objective: options.objective || null,
     general_web_enabled: config.general_web_enabled,
     context7_enabled: config.context7_enabled,
     research_corpus_catalog_relative_path: config.research_corpus_catalog_relative_path,

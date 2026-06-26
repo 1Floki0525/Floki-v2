@@ -335,9 +335,20 @@ function createConvergencePolicy(config, emit = () => {}) {
     const isDiscovery = kinds.discovery;
     const isResearch = kinds.research;
 
-    if (!state.selectedExperiment) {
-      return block('select_experiment_required_first', name, {
-        allowed_next_tools: ['select_experiment']
+    if (!state.selectedExperiment && (kinds.mutation || kinds.verification)) {
+      return block('pre_selection_mutation_blocked', name, {
+        allowed_next_tools: [
+          'select_experiment',
+          'get_task_state',
+          'get_self_context',
+          'search_self_memory',
+          'list_repository',
+          'search_source',
+          'inspect_symbol',
+          'read_file',
+          'corpus_search',
+          'corpus_fetch'
+        ]
       });
     }
 

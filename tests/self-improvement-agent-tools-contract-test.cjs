@@ -82,16 +82,25 @@ assert.match(agent, /fs\.mkdirSync\(path\.dirname\(auditFile\)/);
 assert.match(agent, /private self-context/);
 assert.match(agent, /Never leak private self-context/);
 assert.match(agent, /createReadStream\(indexFile/);
-assert.match(agent, /first model tool call should be select_experiment/);
+assert.doesNotMatch(agent, /first model tool call should be select_experiment/,
+  'agent must not force blind selection before investigation');
+assert.match(agent, /Investigate.*before calling select_experiment|Investigate.*codebase.*self-context.*select_experiment/,
+  'agent must encourage investigation before calling select_experiment');
 assert.match(agent, /const selectExperimentTool = \{/);
 assert.match(agent, /const tools = \[\s*selectExperimentTool,/);
-assert.match(agent, /const activeTools = convergencePolicy\.snapshot\(\)\.selected_experiment[\s\S]*\[selectExperimentTool\]/);
+assert.match(agent, /const activeTools = convergencePolicy\.snapshot\(\)\.selected_experiment[\s\S]*preSelectionTools/,
+  'activeTools must use preSelectionTools (discovery surface) before selection, not just [selectExperimentTool]');
+assert.match(agent, /PRE_SELECTION_BLOCKED_NAMES/,
+  'agent must define the set of tools blocked before selection');
+assert.match(agent, /preSelectionTools/,
+  'agent must define and use preSelectionTools discovery surface');
 assert.match(agent, /function preSelectionInvalidToolFeedback/);
 assert.match(agent, /pre_selection_invalid_tool_rejected/);
 assert.match(agent, /function selectExperimentCorrectionFeedback/);
 assert.match(agent, /select_experiment_rejected/);
 assert.match(agent, /placeholder measurements/);
-assert.match(agent, /The pre-selection turn exposes only select_experiment/);
+assert.doesNotMatch(agent, /The pre-selection turn exposes only select_experiment/,
+  'agent must not claim only select_experiment is callable before selection');
 assert.match(agent, /full isolated-sandbox read, write, shell/);
 assert.match(agent, /function isAllowedExperimentTarget/);
 assert.match(agent, /clean\.startsWith\('src\/'\)/);

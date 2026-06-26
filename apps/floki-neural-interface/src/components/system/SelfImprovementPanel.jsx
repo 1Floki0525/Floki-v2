@@ -40,6 +40,7 @@ export default function SelfImprovementPanel() {
   const [lastRefreshedAt, setLastRefreshedAt] = useState(null)
   const [reviewAction, setReviewAction] = useState(null)
   const [denyReason, setDenyReason] = useState('')
+  const [makerObjective, setMakerObjective] = useState('')
   const alertedCandidate = useRef(null)
   const pollMsRef = useRef(null)
 
@@ -209,7 +210,34 @@ export default function SelfImprovementPanel() {
             Writable isolated development environment with shell, current web research, MCP, verification, and Maker-only promotion.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-end gap-2">
+          <div className="w-full max-w-sm space-y-1">
+            <label
+              htmlFor="maker-objective"
+              className="text-[10px] font-mono text-muted-foreground tracking-wide"
+            >
+              Experiment objective — optional
+            </label>
+            <textarea
+              id="maker-objective"
+              value={makerObjective}
+              onChange={(e) => setMakerObjective(e.target.value)}
+              disabled={
+                Boolean(busy) ||
+                pending.length > 0 ||
+                status?.worker_running !== true ||
+                status?.model_proxy_ready !== true ||
+                status?.paused === true ||
+                Boolean(status?.current_run_id) ||
+                status?.phase === 'maker_requested_cycle' ||
+                ['queued', 'starting', 'researching', 'experimenting', 'verifying'].includes(status?.state)
+              }
+              rows={2}
+              placeholder="Leave empty for Floki to inspect himself and choose an experiment. Enter an objective to require Floki to conduct that experiment."
+              className="w-full rounded-md border border-border bg-background/80 px-3 py-2 text-[11px] text-foreground outline-none focus:border-neon-cyan/50 resize-none disabled:opacity-40 placeholder:text-muted-foreground/50"
+            />
+          </div>
+          <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => openLog('Self-Improvement Worker', 'self-improvement worker log')}
@@ -252,9 +280,10 @@ export default function SelfImprovementPanel() {
           </button>
           <button
             onClick={() => {
+              const trimmedObjective = makerObjective.trim()
               act(
                 'Run improvement cycle',
-                () => flokiAdapter.runSelfImprovementNow(''),
+                () => flokiAdapter.runSelfImprovementNow(trimmedObjective),
                 (nextStatus, result) => {
                   if (
                     result?.ok === true &&
@@ -270,6 +299,7 @@ export default function SelfImprovementPanel() {
                     nextStatus.current_container.length > 0 &&
                     ['experimenting', 'verifying'].includes(nextStatus?.state)
                   ) {
+                    setMakerObjective('')
                     return true
                   }
                   throw new Error(
@@ -307,6 +337,7 @@ export default function SelfImprovementPanel() {
           >
             <RefreshCw className="w-4 h-4" />
           </button>
+          </div>
         </div>
       </div>
 
@@ -332,6 +363,20 @@ export default function SelfImprovementPanel() {
           <div className="rounded-md border border-border/60 p-4 space-y-2 text-xs">
             <div className="flex justify-between gap-3"><span className="text-muted-foreground">State</span><span className="font-mono capitalize">{stateLabel(status?.state)}</span></div>
             <div className="flex justify-between gap-3"><span className="text-muted-foreground">Phase</span><span className="font-mono text-right capitalize">{stateLabel(status?.phase)}</span></div>
+            {status?.objective_source && (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Cycle type</span>
+                <span className={`font-mono text-right ${status.objective_source === 'maker_requested' ? 'text-neon-cyan' : 'text-emerald-400'}`}>
+                  {status.objective_source === 'maker_requested' ? 'Maker-requested' : 'Floki-selected'}
+                </span>
+              </div>
+            )}
+            {status?.requested_objective && (
+              <div className="flex justify-between gap-3 mt-1">
+                <span className="text-muted-foreground flex-none">Objective</span>
+                <span className="font-mono text-right text-[10px] truncate max-w-[16rem]" title={status.requested_objective}>{status.requested_objective}</span>
+              </div>
+            )}
             <div className="flex justify-between gap-3"><span className="text-muted-foreground">Worker</span><span className={status?.worker_running ? 'text-emerald-400' : 'text-red-400'}>{status?.worker_running ? 'Running' : 'Stopped'}</span></div>
             <div className="flex justify-between gap-3"><span className="text-muted-foreground">Sandbox</span><span className="font-mono truncate max-w-[16rem]">{status?.current_container || 'None'}</span></div>
             <div className="flex justify-between gap-3"><span className="text-muted-foreground">Last heartbeat</span><span className="font-mono">{status?.last_heartbeat_at ? new Date(status.last_heartbeat_at).toLocaleTimeString() : 'None'}</span></div>
