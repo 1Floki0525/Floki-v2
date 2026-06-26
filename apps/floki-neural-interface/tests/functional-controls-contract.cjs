@@ -11,4 +11,13 @@ assert.equal(read('src/runtime/chat-local-runtime.cjs').includes("url.pathname =
 assert.equal(read('src/runtime/chat-local-runtime.cjs').includes("url.pathname === '/audio/push-to-talk'"), true);
 assert.equal(read('apps/floki-neural-interface/src/components/system/SystemControls.jsx').includes('Request Configured Nap'), true);
 assert.equal(read('src/config/interface-settings.cjs').includes('updateInterfaceSettings'), true);
+const selfImprovementPanel = read('apps/floki-neural-interface/src/components/system/SelfImprovementPanel.jsx');
+assert.equal(selfImprovementPanel.includes('window.prompt'), false);
+assert.equal(selfImprovementPanel.includes('window.confirm'), false);
+assert.equal(selfImprovementPanel.includes("setReviewAction('deny')"), true);
+assert.equal(selfImprovementPanel.includes("setReviewAction('approve')"), true);
+assert.equal(selfImprovementPanel.includes('Confirm deny'), true);
+assert.equal(selfImprovementPanel.includes('Confirm approve'), true);
+assert.equal(selfImprovementPanel.includes('flokiAdapter.denySelfImprovement(detail.id, reason)'), true);
+assert.equal(selfImprovementPanel.includes('flokiAdapter.approveSelfImprovement(detail.id)'), true);
 console.log('FLOKI_V22_FUNCTIONAL_CONTROLS_CONTRACT_PASS');

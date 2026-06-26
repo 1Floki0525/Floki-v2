@@ -38,6 +38,8 @@ export default function SelfImprovementPanel() {
   const [busy, setBusy] = useState(null)
   const [actionFeedback, setActionFeedback] = useState(null)
   const [lastRefreshedAt, setLastRefreshedAt] = useState(null)
+  const [reviewAction, setReviewAction] = useState(null)
+  const [denyReason, setDenyReason] = useState('')
   const alertedCandidate = useRef(null)
   const pollMsRef = useRef(null)
 
@@ -98,6 +100,11 @@ export default function SelfImprovementPanel() {
     return () => { active = false }
   }, [selectedId])
 
+  useEffect(() => {
+    setReviewAction(null)
+    setDenyReason('')
+  }, [detail?.id, detail?.status])
+
   const pending = useMemo(
     () => candidates.filter((candidate) => candidate.status === 'pending_review'),
     [candidates]
@@ -157,21 +164,33 @@ export default function SelfImprovementPanel() {
     }
   }, [])
 
-  const approve = useCallback(() => {
+  const requestApprove = useCallback(() => {
     if (!detail || detail.status !== 'pending_review') return
-    const confirmed = window.confirm(
-      `Approve ${detail.id} and activate it after fresh host validation?\n\n` +
-      'Floki will stop chat.local, apply the exact verified patch, run the full release gate, roll back automatically on failure, and reopen the interface.'
-    )
-    if (!confirmed) return
+    setReviewAction('approve')
+  }, [detail])
+
+  const confirmApprove = useCallback(() => {
+    if (!detail || detail.status !== 'pending_review') return
+    setReviewAction(null)
     act('Approve candidate', () => flokiAdapter.approveSelfImprovement(detail.id))
   }, [act, detail])
 
-  const deny = useCallback(() => {
+  const requestDeny = useCallback(() => {
     if (!detail || detail.status !== 'pending_review') return
-    const reason = window.prompt('Optional reason Floki should remember for future improvement cycles:', '') || ''
+    setReviewAction('deny')
+  }, [detail])
+
+  const confirmDeny = useCallback(() => {
+    if (!detail || detail.status !== 'pending_review') return
+    const reason = denyReason
+    setReviewAction(null)
     act('Deny candidate', () => flokiAdapter.denySelfImprovement(detail.id, reason))
-  }, [act, detail])
+  }, [act, denyReason, detail])
+
+  const cancelReviewAction = useCallback(() => {
+    setReviewAction(null)
+    setDenyReason('')
+  }, [])
 
   return (
     <section className="rounded-lg border border-neon-cyan/20 bg-card/70 overflow-hidden" data-testid="self-improvement-panel">
@@ -409,23 +428,89 @@ export default function SelfImprovementPanel() {
               </div>
 
               {detail.status === 'pending_review' && (
-                <div className="flex flex-wrap justify-end gap-3 pt-2">
-                  <button
-                    onClick={deny}
-                    disabled={Boolean(busy)}
-                    className="px-4 py-2 rounded-md border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/15 disabled:opacity-50 flex items-center gap-2 text-sm"
-                  >
-                    <XCircle className="w-4 h-4" />
-                    Deny
-                  </button>
-                  <button
-                    onClick={approve}
-                    disabled={Boolean(busy)}
-                    className="px-4 py-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 disabled:opacity-50 flex items-center gap-2 text-sm"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    Approve and activate
-                  </button>
+                <div className="space-y-3 pt-2">
+                  {reviewAction === 'deny' && (
+                    <div className="rounded-md border border-red-500/30 bg-red-500/10 p-4 space-y-3">
+                      <label className="block text-xs font-semibold text-red-200" htmlFor="self-improvement-deny-reason">
+                        Denial reason
+                      </label>
+                      <textarea
+                        id="self-improvement-deny-reason"
+                        value={denyReason}
+                        onChange={(event) => setDenyReason(event.target.value)}
+                        rows={3}
+                        className="w-full rounded-md border border-red-500/30 bg-background/80 px-3 py-2 text-sm text-foreground outline-none focus:border-red-300"
+                        placeholder="Optional note for Floki's future RSI cycles"
+                      />
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelReviewAction}
+                          disabled={Boolean(busy)}
+                          className="px-3 py-2 rounded-md border border-border text-xs hover:border-red-300 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={confirmDeny}
+                          disabled={Boolean(busy)}
+                          className="px-3 py-2 rounded-md border border-red-500/30 bg-red-500/15 text-red-200 hover:bg-red-500/20 disabled:opacity-50 flex items-center gap-2 text-xs"
+                        >
+                          <XCircle className="w-4 h-4" />
+                          Confirm deny
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {reviewAction === 'approve' && (
+                    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-3 text-sm">
+                      <p className="text-emerald-100">
+                        Approving {detail.id} will stop chat.local, apply the exact verified patch, run the full release gate, roll back automatically on failure, and reopen the interface.
+                      </p>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelReviewAction}
+                          disabled={Boolean(busy)}
+                          className="px-3 py-2 rounded-md border border-border text-xs hover:border-emerald-300 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={confirmApprove}
+                          disabled={Boolean(busy)}
+                          className="px-3 py-2 rounded-md border border-emerald-500/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 flex items-center gap-2 text-xs"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          Confirm approve
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={requestDeny}
+                      disabled={Boolean(busy)}
+                      className="px-4 py-2 rounded-md border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/15 disabled:opacity-50 flex items-center gap-2 text-sm"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      Deny
+                    </button>
+                    <button
+                      type="button"
+                      onClick={requestApprove}
+                      disabled={Boolean(busy)}
+                      className="px-4 py-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 disabled:opacity-50 flex items-center gap-2 text-sm"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      Approve and activate
+                    </button>
+                  </div>
                 </div>
               )}
 
