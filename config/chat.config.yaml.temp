@@ -1046,3 +1046,21 @@ self_improvement:
   gguf_export_file_name_format: "floki-qwen-rsi-{version}.{quant}.gguf"
   ollama_candidate_tag_format: "floki-qwen-rsi:{version}"
   rollback_retention_count: 3
+  # === RSI autonomy v2 / Stage 5: GPU ownership + training resource mode ===
+  # Exactly one of these may own the host GPU at a time.
+  gpu_owners: "ollama_cognition|hf_training|hf_rem_inference|vision"
+  gpu_default_owner: "ollama_cognition"
+  gpu_ownership_lock_file: "state/floki/self-improvement/gpu-owner.lock"
+  gpu_ownership_acquire_timeout_ms: 60000
+  # Ollama unload: query every endpoint's loaded models and unload with keep_alive 0.
+  ollama_unload_endpoints: "http://127.0.0.1:11434"
+  ollama_ps_path: "/api/ps"
+  ollama_unload_path: "/api/generate"
+  ollama_unload_keep_alive_seconds: 0
+  ollama_unload_timeout_ms: 30000
+  ollama_reload_timeout_ms: 120000
+  # Workers suspended/kept-alive when training resource mode is active.
+  training_suspend_workers: "foreground_cognition|hearing|whisper_vad|speech|vision_yolo|vision_grounding_dino|knowledge_refresh"
+  training_keep_alive_workers: "electron_app|chat_api|status_transport|rsi_worker|sleep_scheduler|training_supervisor"
+  runtime_transition_timeout_ms: 60000
+  wake_restoration_timeout_ms: 120000

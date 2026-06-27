@@ -1356,7 +1356,22 @@ function getSelfImprovementConfig(mode = 'chat') {
     gguf_export_quantization: stringValue('gguf_export_quantization'),
     gguf_export_file_name_format: stringValue('gguf_export_file_name_format'),
     ollama_candidate_tag_format: stringValue('ollama_candidate_tag_format'),
-    rollback_retention_count: numberValue('rollback_retention_count')
+    rollback_retention_count: numberValue('rollback_retention_count'),
+    // === RSI autonomy v2 / Stage 5: GPU ownership + training resource mode ===
+    gpu_owners: stringValue('gpu_owners'),
+    gpu_default_owner: stringValue('gpu_default_owner'),
+    gpu_ownership_lock_file: stringValue('gpu_ownership_lock_file'),
+    gpu_ownership_acquire_timeout_ms: numberValue('gpu_ownership_acquire_timeout_ms'),
+    ollama_unload_endpoints: stringValue('ollama_unload_endpoints'),
+    ollama_ps_path: stringValue('ollama_ps_path'),
+    ollama_unload_path: stringValue('ollama_unload_path'),
+    ollama_unload_keep_alive_seconds: numberValue('ollama_unload_keep_alive_seconds'),
+    ollama_unload_timeout_ms: numberValue('ollama_unload_timeout_ms'),
+    ollama_reload_timeout_ms: numberValue('ollama_reload_timeout_ms'),
+    training_suspend_workers: stringValue('training_suspend_workers'),
+    training_keep_alive_workers: stringValue('training_keep_alive_workers'),
+    runtime_transition_timeout_ms: numberValue('runtime_transition_timeout_ms'),
+    wake_restoration_timeout_ms: numberValue('wake_restoration_timeout_ms')
   });
 }
 module.exports.getSelfImprovementConfig = getSelfImprovementConfig;

@@ -31,6 +31,7 @@ function loadSelfImprovementConfig() {
     adapter_root: resolveProjectPath(raw.adapter_root),
     dataset_root: resolveProjectPath(raw.dataset_root),
     training_runtime_root: resolveProjectPath(raw.training_runtime_root),
+    gpu_ownership_lock_file: resolveProjectPath(raw.gpu_ownership_lock_file),
     model: Object.freeze({
       provider: model.provider,
       name: model.model,
