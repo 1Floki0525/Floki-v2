@@ -195,49 +195,23 @@ export default function SelfImprovementPanel() {
 
   return (
     <section className="rounded-lg border border-neon-cyan/20 bg-card/70 overflow-hidden" data-testid="self-improvement-panel">
-      <div className="p-5 border-b border-border/50 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <FlaskConical className="w-5 h-5 text-neon-cyan" />
-            <h3 className="text-sm font-semibold tracking-wide">Recursive Self-Improvement</h3>
-            {pending.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-orange-500/15 border border-orange-500/30 text-orange-300">
-                {pending.length} REVIEW
-              </span>
-            )}
+      <div className="p-5 border-b border-border/50">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <FlaskConical className="w-5 h-5 text-neon-cyan" />
+              <h3 className="text-sm font-semibold tracking-wide">Recursive Self-Improvement</h3>
+              {pending.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-orange-500/15 border border-orange-500/30 text-orange-300">
+                  {pending.length} REVIEW
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Writable isolated development environment with shell, current web research, MCP, verification, and Maker-only promotion.
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            Writable isolated development environment with shell, current web research, MCP, verification, and Maker-only promotion.
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="w-full max-w-sm space-y-1">
-            <label
-              htmlFor="maker-objective"
-              className="text-[10px] font-mono text-muted-foreground tracking-wide"
-            >
-              Experiment objective — optional
-            </label>
-            <textarea
-              id="maker-objective"
-              value={makerObjective}
-              onChange={(e) => setMakerObjective(e.target.value)}
-              disabled={
-                Boolean(busy) ||
-                pending.length > 0 ||
-                status?.worker_running !== true ||
-                status?.model_proxy_ready !== true ||
-                status?.paused === true ||
-                Boolean(status?.current_run_id) ||
-                status?.phase === 'maker_requested_cycle' ||
-                ['queued', 'starting', 'researching', 'experimenting', 'verifying'].includes(status?.state)
-              }
-              rows={2}
-              placeholder="Leave empty for Floki to inspect himself and choose an experiment. Enter an objective to require Floki to conduct that experiment."
-              className="w-full rounded-md border border-border bg-background/80 px-3 py-2 text-[11px] text-foreground outline-none focus:border-neon-cyan/50 resize-none disabled:opacity-40 placeholder:text-muted-foreground/50"
-            />
-          </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => openLog('Self-Improvement Worker', 'self-improvement worker log')}
@@ -338,6 +312,32 @@ export default function SelfImprovementPanel() {
             <RefreshCw className="w-4 h-4" />
           </button>
           </div>
+        </div>
+        <div className="mt-4 space-y-1">
+          <label
+            htmlFor="maker-objective"
+            className="text-[10px] font-mono text-muted-foreground tracking-wide"
+          >
+            Experiment objective — optional
+          </label>
+          <textarea
+            id="maker-objective"
+            value={makerObjective}
+            onChange={(e) => setMakerObjective(e.target.value)}
+            disabled={
+              Boolean(busy) ||
+              pending.length > 0 ||
+              status?.worker_running !== true ||
+              status?.model_proxy_ready !== true ||
+              status?.paused === true ||
+              Boolean(status?.current_run_id) ||
+              status?.phase === 'maker_requested_cycle' ||
+              ['queued', 'starting', 'researching', 'experimenting', 'verifying'].includes(status?.state)
+            }
+            rows={2}
+            placeholder="Leave empty for Floki to inspect himself and choose an experiment. Enter an objective to require Floki to conduct that experiment."
+            className="w-full rounded-md border border-border bg-background/80 px-3 py-2 text-[11px] text-foreground outline-none focus:border-neon-cyan/50 resize-none disabled:opacity-40 placeholder:text-muted-foreground/50"
+          />
         </div>
       </div>
 

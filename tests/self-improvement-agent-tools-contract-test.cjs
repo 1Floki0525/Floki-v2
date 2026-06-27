@@ -88,8 +88,54 @@ assert.match(agent, /Investigate.*before calling select_experiment|Investigate.*
   'agent must encourage investigation before calling select_experiment');
 assert.match(agent, /const selectExperimentTool = \{/);
 assert.match(agent, /const tools = \[\s*selectExperimentTool,/);
-assert.match(agent, /const activeTools = convergencePolicy\.snapshot\(\)\.selected_experiment[\s\S]*preSelectionTools/,
-  'activeTools must use preSelectionTools (discovery surface) before selection, not just [selectExperimentTool]');
+const convergenceSnapshotIndex = agent.indexOf(
+  'const convergenceSnapshot = convergencePolicy.snapshot();'
+);
+const activeToolsIndex = agent.indexOf(
+  'const activeTools = convergenceSnapshot.selected_experiment',
+  convergenceSnapshotIndex
+);
+const activeToolsEndIndex = agent.indexOf('let message;', activeToolsIndex);
+
+assert.ok(
+  convergenceSnapshotIndex >= 0,
+  'agent must snapshot convergence state before choosing the active tool surface'
+);
+assert.ok(
+  activeToolsIndex > convergenceSnapshotIndex,
+  'agent must derive activeTools from the captured convergence snapshot'
+);
+assert.ok(
+  activeToolsEndIndex > activeToolsIndex,
+  'agent activeTools block must terminate before the model call setup'
+);
+
+const activeToolsBlock = agent.slice(activeToolsIndex, activeToolsEndIndex);
+assert.match(
+  activeToolsBlock,
+  /selected_experiment\s*\?\s*tools/,
+  'a selected experiment must expose the full implementation tool surface'
+);
+assert.match(
+  activeToolsBlock,
+  /phase\s*===\s*'selection_required'[\s\S]*\?\s*\[selectExperimentTool\]/,
+  'selection_required must expose only select_experiment and stop further discovery churn'
+);
+assert.match(
+  activeToolsBlock,
+  /:\s*preSelectionTools\s*;/,
+  'normal pre-selection discovery must expose preSelectionTools before the deadline'
+);
+assert.ok(
+  activeToolsBlock.indexOf('? tools') <
+    activeToolsBlock.indexOf("phase === 'selection_required'"),
+  'full tools must be selected first when an experiment already exists'
+);
+assert.ok(
+  activeToolsBlock.indexOf("phase === 'selection_required'") <
+    activeToolsBlock.lastIndexOf('preSelectionTools'),
+  'discovery tools must remain the fallback only before selection becomes mandatory'
+);
 assert.match(agent, /PRE_SELECTION_BLOCKED_NAMES/,
   'agent must define the set of tools blocked before selection');
 assert.match(agent, /preSelectionTools/,

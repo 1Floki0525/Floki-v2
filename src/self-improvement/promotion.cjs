@@ -20,6 +20,7 @@ const {
   validId
 } = require('./store.cjs');
 const { stopCurrentContainer } = require('./sandbox.cjs');
+const { writeDenialMemory, writeApprovalMemory } = require('./memory-writer.cjs');
 
 const ACTIVE_RUN_STATES = new Set([
   'queued',
@@ -82,6 +83,20 @@ function manualRunSandboxStarted(status, requestId) {
     status?.manual_run_request_id === requestId &&
     typeof status?.manual_run_acknowledged_at === 'string' &&
     status.manual_run_acknowledged_at.length > 0 &&
+    typeof status?.current_run_id === 'string' &&
+    status.current_run_id.length > 0 &&
+    typeof status?.current_container === 'string' &&
+    status.current_container.length > 0 &&
+    ['experimenting', 'verifying'].includes(String(status.state || ''))
+  );
+}
+
+// Lenient fallback for the timeout catch block: handles the race condition where
+// the worker began an automatic cycle before processing the force-run request,
+// so manual_run_acknowledged_at is never written even though the cycle is real.
+function manualRunCycleActive(status, requestId) {
+  return (
+    status?.manual_run_request_id === requestId &&
     typeof status?.current_run_id === 'string' &&
     status.current_run_id.length > 0 &&
     typeof status?.current_container === 'string' &&
@@ -241,7 +256,7 @@ async function runNow(
       fs.rmSync(p.runRequestFile, { force: true });
     }
     const latest = readStatus(config);
-    if (!manualRunSandboxStarted(latest, requestId)) {
+    if (!manualRunCycleActive(latest, requestId)) {
       updateStatus({
         state: 'failed',
         phase: 'manual_run_sandbox_start_failed',
@@ -301,6 +316,13 @@ function denyCandidate(id, token, reason = '', config = loadSelfImprovementConfi
     last_error: null
   }, config);
   appendAudit('candidate_denied_by_maker', { candidate_id: id, reason: next.denial_reason }, config);
+  try {
+    writeDenialMemory({
+      candidate_id: id,
+      objective: candidate.objective || '',
+      denial_reason: next.denial_reason
+    });
+  } catch (_) {}
   return { ok: true, verified: true, candidate: next };
 }
 
@@ -325,6 +347,12 @@ function approveCandidate(id, token, config = loadSelfImprovementConfig()) {
     }
   }, config);
   appendAudit('candidate_approved_by_maker', { candidate_id: candidateId }, config);
+  try {
+    writeApprovalMemory({
+      candidate_id: candidateId,
+      objective: candidate.objective || ''
+    });
+  } catch (_) {}
 
   const logFile = path.join(config.runtime_root, config.promotion_log_name);
   const log = fs.openSync(logFile, 'a', 0o600);

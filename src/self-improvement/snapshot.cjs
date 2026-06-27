@@ -46,6 +46,15 @@ function commandOptions(config, cwd = undefined, timeout = undefined) {
   };
 }
 
+function removeInheritedGitMetadata(repoDir) {
+  const gitPath = path.join(repoDir, '.git');
+  fs.rmSync(gitPath, { recursive: true, force: true });
+  if (fs.existsSync(gitPath)) {
+    throw new Error('failed to remove inherited Git metadata: ' + gitPath);
+  }
+  return gitPath;
+}
+
 function writeSanitizedNpmrc(repoDir, config) {
   const lines = splitPipe(config.snapshot_sanitized_npmrc_lines)
     .map((line) => line.trim())
@@ -273,6 +282,7 @@ function createSourceSnapshot(options = {}) {
   for (const pattern of excludes) args.push('--exclude=' + pattern);
   args.push(config.project_root + '/', repoDir + '/');
   run('rsync', args, commandOptions(config, undefined, config.snapshot_rsync_timeout_ms));
+  removeInheritedGitMetadata(repoDir);
   writeSanitizedNpmrc(repoDir, config);
 
   const runtimeStatusFile = path.join(config.chat_runtime_root, 'chat-local-runtime.status.json');
@@ -335,6 +345,15 @@ function createSourceSnapshot(options = {}) {
   );
 
   run('git', ['init', '-q'], commandOptions(config, repoDir));
+  const initializedGitPath = path.join(repoDir, '.git');
+  if (
+    !fs.existsSync(initializedGitPath) ||
+    !fs.statSync(initializedGitPath).isDirectory()
+  ) {
+    throw new Error(
+      'self-improvement snapshot did not create an isolated Git repository'
+    );
+  }
   run(
     'git',
     ['config', 'user.name', config.snapshot_git_user_name],
@@ -383,6 +402,7 @@ function createSourceSnapshot(options = {}) {
 module.exports = {
   createSourceSnapshot,
   createSelfContextSnapshot,
+  removeInheritedGitMetadata,
   newRunId,
   writeSanitizedNpmrc,
   run,

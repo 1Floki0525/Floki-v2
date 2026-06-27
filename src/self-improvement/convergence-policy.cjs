@@ -165,7 +165,8 @@ function createConvergencePolicy(config, emit = () => {}) {
     lastFocusedFailureIteration: null,
     noWriteGuidanceIssuedAtIteration: null,
     postWriteGuidanceIssuedAtIteration: null,
-    blockedCalls: 0
+    blockedCalls: 0,
+    noToolTurns: 0
   };
 
   function classifyTool(name, args = {}) {
@@ -218,7 +219,8 @@ function createConvergencePolicy(config, emit = () => {}) {
         state.noWriteGuidanceIssuedAtIteration,
       post_write_guidance_issued_at_iteration:
         state.postWriteGuidanceIssuedAtIteration,
-      blocked_calls: state.blockedCalls
+      blocked_calls: state.blockedCalls,
+      no_tool_turns: state.noToolTurns
     });
   }
 
@@ -316,8 +318,21 @@ function createConvergencePolicy(config, emit = () => {}) {
   }
 
   function authorize(name, args = {}) {
-    if (name === 'select_experiment' || name === 'start_implementation') {
+    if (
+      name === 'select_experiment' ||
+      name === 'start_implementation' ||
+      name === 'write_memory'
+    ) {
       return Object.freeze({ ok: true });
+    }
+
+    if (
+      !state.selectedExperiment &&
+      state.phase === 'selection_required'
+    ) {
+      return block('selection_required', name, {
+        allowed_next_tools: ['select_experiment']
+      });
     }
 
     const kinds = classifyTool(name, args);
@@ -491,6 +506,7 @@ function createConvergencePolicy(config, emit = () => {}) {
       success_metric: successMetric,
       baseline_evidence: baselineEvidence,
       focused_test: focusedTest,
+      focused_test_description: typeof args.focused_test_description === 'string' ? args.focused_test_description.trim() : null,
       expected_follow_on_value: expectedFollowOnValue,
       target_files: Object.freeze(targetFiles)
     });
@@ -547,6 +563,10 @@ function createConvergencePolicy(config, emit = () => {}) {
         result.ok === false ||
         (name === 'shell' && Number(result.status) !== 0)
       );
+
+    if (!blocked) {
+      state.noToolTurns = 0;
+    }
 
     if (!blocked && failed && (isDiscovery || isResearch)) {
       state.failedLookups += 1;
@@ -624,11 +644,37 @@ function createConvergencePolicy(config, emit = () => {}) {
     return snapshot();
   }
 
+  function recordNoToolTurn() {
+    state.noToolTurns += 1;
+    emit('convergence_no_tool_turn', {
+      iteration: state.iteration,
+      phase: state.phase,
+      consecutive_no_tool_turns: state.noToolTurns,
+      limit: limits.maxNoChangeIterations
+    });
+
+    if (state.noToolTurns < limits.maxNoChangeIterations) {
+      return null;
+    }
+
+    const reason = state.selectedExperiment
+      ? 'model_repeatedly_returned_no_tool_calls'
+      : 'model_repeatedly_returned_no_tool_calls_before_selection';
+    advise(reason, 'model_turn', {
+      consecutive_no_tool_turns: state.noToolTurns,
+      limit: limits.maxNoChangeIterations
+    });
+    return reason;
+  }
+
   function endIteration() {
     if (!state.selectedExperiment &&
         state.iteration >= limits.implementationDeadline) {
-      advise('objective_not_selected_by_configured_deadline', 'end_iteration');
-      return 'objective_not_selected_by_configured_deadline';
+      advise(
+        'model_failed_to_select_experiment_after_forced_selection',
+        'end_iteration'
+      );
+      return 'model_failed_to_select_experiment_after_forced_selection';
     }
     if (state.selectedExperiment &&
         !state.implementationStarted &&
@@ -710,18 +756,25 @@ function createConvergencePolicy(config, emit = () => {}) {
       );
     }
     if (state.phase !== 'verified') {
+      const ft = state.selectedExperiment?.focused_test
+        ? ' Your focused test is: ' +
+          state.selectedExperiment.focused_test +
+          '. Call run_focused_test with no arguments — it runs that command automatically.'
+        : ' Call run_focused_test with no arguments.';
       if (state.focusedVerificationFailures > 0) {
         return (
-          'Repair the latest focused-test stderr directly. Do not rewrite the ' +
-          'experiment, do not invent new metrics, and do not keep making tiny ' +
-          'source rewrites without addressing the assertion failure. After the ' +
-          'focused test passes, call run_verification.'
+          'Call run_focused_test now to re-run the focused test and verify your repair. ' +
+          'Do NOT call select_experiment — the experiment is already selected. ' +
+          'Fix the implementation based on the focused-test failure output; do not ' +
+          'rewrite the experiment or invent new metrics. ' +
+          'After run_focused_test passes, call run_verification.' + ft
         );
       }
       return (
-        'Run the focused test, repair failures, then call run_verification. ' +
-        'Use the run_focused_test tool for focused verification; shell test ' +
-        'runs do not unlock full verification. Do not restart broad discovery.'
+        'Run the focused test now using the run_focused_test tool — never via ' +
+        'shell, pipelines, or head/tail wrappers; shell test ' +
+        'runs cannot unlock full verification. ' +
+        'After run_focused_test passes, call run_verification.' + ft
       );
     }
     return 'Call finalize_candidate with the verified experiment evidence.';
@@ -777,6 +830,7 @@ function createConvergencePolicy(config, emit = () => {}) {
     guidance,
     isReadOnlyShell,
     record,
+    recordNoToolTurn,
     selectExperiment,
     snapshot,
     startImplementation

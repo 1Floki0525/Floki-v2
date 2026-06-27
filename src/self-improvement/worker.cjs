@@ -21,6 +21,10 @@ const {
 const { createSourceSnapshot } = require('./snapshot.cjs');
 const { runSandbox, stopCurrentContainer } = require('./sandbox.cjs');
 const { createModelProxy } = require('./model-proxy.cjs');
+const {
+  writeCycleMemory,
+  flushAgentMemoryOutbox
+} = require('./memory-writer.cjs');
 
 const ACTIVE_RUN_PREEMPT_REASONS = new Set([
   'foreground_turn_active',
@@ -284,6 +288,7 @@ async function runCycle(options = {}) {
     if (options.manual_request_id) {
       const acknowledgedAt = nowIso();
       updateStatus({
+        manual_run_pending: false,
         manual_run_request_id: options.manual_request_id,
         manual_run_acknowledged_at: acknowledgedAt
       }, config);
@@ -376,12 +381,24 @@ async function runCycle(options = {}) {
       },
       config
     );
+    try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
+    try {
+      writeCycleMemory({
+        run_id: snapshot.run_id,
+        objective: options.objective || null,
+        outcome: 'preempted',
+        reason: classification.reason,
+        importance: 0.40
+      });
+    } catch (_) {}
     return {
       ok: false,
       preempted: true,
       reason: classification.reason
     };
   }
+
+  const cycleObjective = options.objective || null;
 
   if (exit.code !== 0 && exit.code !== 137) {
     const summary = execution.read_error_tail();
@@ -405,6 +422,16 @@ async function runCycle(options = {}) {
         },
         config
       );
+      try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
+      try {
+        writeCycleMemory({
+          run_id: snapshot.run_id,
+          objective: cycleObjective,
+          outcome: 'no_candidate',
+          reason: message.slice(0, 400),
+          importance: 0.55
+        });
+      } catch (_) {}
       return { ok: false, no_candidate: true, error: message };
     }
     updateStatus({
@@ -429,6 +456,16 @@ async function runCycle(options = {}) {
       },
       config
     );
+    try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
+    try {
+      writeCycleMemory({
+        run_id: snapshot.run_id,
+        objective: cycleObjective,
+        outcome: 'cycle_failed',
+        reason: message.slice(0, 400),
+        importance: 0.50
+      });
+    } catch (_) {}
     return { ok: false, error: message };
   }
 
@@ -446,6 +483,16 @@ async function runCycle(options = {}) {
       reason: 'controlled_no_verified_candidate',
       sandbox_log_file: execution.log_file
     }, config);
+    try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
+    try {
+      writeCycleMemory({
+        run_id: snapshot.run_id,
+        objective: cycleObjective,
+        outcome: 'no_candidate',
+        reason: 'controlled_no_verified_candidate',
+        importance: 0.55
+      });
+    } catch (_) {}
     return {
       ok: false,
       no_candidate: true,
@@ -454,7 +501,17 @@ async function runCycle(options = {}) {
     };
   }
 
+  try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
   const candidate = importOutbox(snapshot.run_id, config);
+  try {
+    writeCycleMemory({
+      run_id: snapshot.run_id,
+      objective: candidate.objective || cycleObjective,
+      outcome: 'candidate_produced',
+      reason: 'Candidate pending Maker review.',
+      importance: 0.75
+    });
+  } catch (_) {}
   return { ok: true, candidate_id: candidate.id };
 }
 
@@ -585,6 +642,7 @@ async function serviceLoop(options = {}) {
       updateStatus({
         state: 'starting',
         phase: 'manual_run_starting',
+        manual_run_pending: true,
         manual_run_request_id: request.request_id || null,
         manual_run_acknowledged_at: null,
         current_objective:
