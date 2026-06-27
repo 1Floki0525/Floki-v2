@@ -979,3 +979,70 @@ self_improvement:
   rsi_run_kind_candidate_types: "code=code_patch|training=model_adapter"
   # The existing code-patch promoter must refuse model_adapter candidates.
   code_patch_promoter_accepted_candidate_types: "code_patch"
+  # === RSI autonomy v2 / Stage 4: training architecture (QLoRA) ===
+  training_enabled: true
+  manual_training_enabled: true
+  nightly_training_enabled: true
+  # Immutable Hugging Face safetensors master (trainable lineage root). Portable
+  # placeholder; the host private config points this at the real checkpoint dir.
+  hf_master_path: /absolute/path/to/Qwen3.5-4B
+  hf_master_required_files: "config.json|model.safetensors.index.json|tokenizer.json|tokenizer_config.json"
+  adapter_root: "state/floki/self-improvement/adapters"
+  dataset_root: "state/floki/self-improvement/datasets"
+  training_runtime_root: "state/floki/self-improvement/training-runtime"
+  training_container_image: "localhost/floki-self-improvement-training:cuda"
+  training_base_cuda_image: "nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04"
+  training_python_packages: "torch transformers peft bitsandbytes datasets accelerate safetensors sentencepiece trl"
+  training_gpu_device_args: "--gpus|all"
+  training_cpu_limit: 6
+  training_memory_limit: "24g"
+  training_pids_limit: 2048
+  training_timeout_ms: 21600000
+  training_container_name_prefix: "floki-rsi-training"
+  training_container_workdir: "/workspace"
+  training_adapter_mount_path: "/adapters"
+  training_dataset_mount_path: "/datasets"
+  training_hf_master_mount_path: "/hf-master"
+  training_config_mount_path: "/run/floki-training/training-config.json"
+  training_config_file_name: "training-config.json"
+  # QLoRA hyperparameters (RTX 3060 12GB; QLoRA only, never full fine-tune)
+  qlora_load_in_4bit: true
+  qlora_bnb_4bit_quant_type: "nf4"
+  qlora_bnb_4bit_compute_dtype: "bfloat16"
+  qlora_bnb_4bit_use_double_quant: true
+  qlora_rank: 16
+  qlora_alpha: 32
+  qlora_dropout: 0.05
+  qlora_target_modules: "q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj"
+  qlora_learning_rate: 0.0002
+  qlora_batch_size: 1
+  qlora_gradient_accumulation_steps: 16
+  qlora_max_seq_length: 2048
+  qlora_num_train_epochs: 1
+  qlora_max_steps: 0
+  qlora_warmup_ratio: 0.03
+  qlora_weight_decay: 0.0
+  qlora_lr_scheduler_type: "cosine"
+  qlora_optimizer: "paged_adamw_8bit"
+  qlora_seed: 42
+  qlora_logging_steps: 10
+  training_checkpoint_interval_steps: 50
+  # Dataset construction (bounded, attributable; manifest + SHA-256)
+  dataset_min_records: 8
+  dataset_max_records: 50000
+  dataset_min_record_chars: 40
+  dataset_max_record_chars: 8192
+  dataset_id_prefix: "ds"
+  dataset_sources: "soul=SOUL.md|engineering_candidates=state/floki/self-improvement/candidates"
+  dataset_hash_algorithm: "sha256"
+  dataset_manifest_file_name: "manifest.json"
+  dataset_records_file_name: "records.jsonl"
+  # Adapter lineage + versioning
+  adapter_version_prefix: "v"
+  adapter_id_prefix: "adapter"
+  adapter_manifest_file_name: "lineage.json"
+  # GGUF export + Ollama candidate (consumed by Stage 5 eval/promotion)
+  gguf_export_quantization: "Q4_K_M"
+  gguf_export_file_name_format: "floki-qwen-rsi-{version}.{quant}.gguf"
+  ollama_candidate_tag_format: "floki-qwen-rsi:{version}"
+  rollback_retention_count: 3

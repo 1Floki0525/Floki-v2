@@ -165,7 +165,11 @@ function prepareCiConfig(options = {}) {
     media_root: layout.mediaRoot,
     text_root: layout.textRoot,
     youtube_transcript_root: layout.youtubeRoot,
-    youtube_cookies_file: layout.cookieFile
+    youtube_cookies_file: layout.cookieFile,
+    // The HF training master is not present on CI runners; point it at a runner
+    // path so the public placeholder is replaced (training preflight tests use
+    // deterministic boundary doubles rather than the real checkpoint).
+    hf_master_path: path.join(layout.externalRoot, 'Qwen3.5-4B')
   });
 
   prepareConfig(layout.gameTemplate, layout.gameConfig, {

@@ -51,6 +51,12 @@ jobs:
           bash bin/floki-node24-run.sh node --version
           bash bin/floki-node24-run.sh npm --version
 
+      - name: Verify RSI training Python compiles
+        shell: bash
+        run: |
+          python3 -m py_compile containers/self-improvement-training/train_qlora.py
+          echo FLOKI_V2_TRAINING_PY_COMPILE_OK
+
       - name: Install root dependencies
         run: npm ci --no-audit --no-fund
 

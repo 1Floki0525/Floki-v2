@@ -28,6 +28,9 @@ function loadSelfImprovementConfig() {
     outbox_root: resolveProjectPath(raw.outbox_root),
     runtime_root: resolveProjectPath(raw.runtime_root),
     model_proxy_root: resolveProjectPath(raw.model_proxy_root),
+    adapter_root: resolveProjectPath(raw.adapter_root),
+    dataset_root: resolveProjectPath(raw.dataset_root),
+    training_runtime_root: resolveProjectPath(raw.training_runtime_root),
     model: Object.freeze({
       provider: model.provider,
       name: model.model,

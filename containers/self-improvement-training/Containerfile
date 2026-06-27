@@ -1,0 +1,32 @@
+# Floki-v2 RSI QLoRA training container.
+#
+# The base CUDA image, Python packages, and all hyperparameters are supplied by
+# the host from chat YAML (build args / mounted training-config.json). This image
+# performs QLoRA training of a LoRA adapter against the read-only Hugging Face
+# master checkpoint; it never trains the production Ollama GGUF and never performs
+# full-weight fine-tuning.
+
+ARG BASE_CUDA_IMAGE=nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+FROM ${BASE_CUDA_IMAGE}
+
+ARG PYTHON_PACKAGES="torch transformers peft bitsandbytes datasets accelerate safetensors sentencepiece trl"
+ARG TRAINING_WORKDIR=/workspace
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3 python3-pip git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --upgrade pip \
+    && python3 -m pip install ${PYTHON_PACKAGES}
+
+WORKDIR ${TRAINING_WORKDIR}
+
+COPY train_qlora.py /opt/floki-training/train_qlora.py
+
+ENTRYPOINT ["python3", "/opt/floki-training/train_qlora.py"]
