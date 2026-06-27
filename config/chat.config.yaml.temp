@@ -867,3 +867,82 @@ self_improvement:
   model_queue_request_timeout_ms: 120000
   model_queue_per_request_cancel_enabled: true
   promote_deny_during_active_sandbox: true
+  # === RSI autonomy v2 / Stage 1: repository intelligence, skills, roles ===
+  # Codex-style persistent repository-intelligence layer and its bounded tools.
+  repo_intelligence_enabled: true
+  repo_intelligence_index_root: "state/floki/self-improvement/repo-intelligence"
+  repo_intelligence_map_file_name: "repository-map.json"
+  repo_intelligence_scan_roots: "src|apps/floki-neural-interface/src|apps/floki-neural-interface/electron|brain|bin|config|containers|tests"
+  repo_intelligence_scan_extensions: ".cjs|.js|.jsx|.mjs|.sh|.py|.json|.md|.yaml|.temp"
+  repo_intelligence_exclude_patterns: "node_modules/|dist/|state/|.git/|reports/|models/|.floki-tools/|logs/|.safetensors|.onnx|.pt|.bin"
+  repo_intelligence_max_files: 6000
+  repo_intelligence_max_file_bytes: 1048576
+  repo_intelligence_read_range_default_lines: 200
+  repo_intelligence_read_range_max_lines: 400
+  repo_intelligence_read_range_max_chars: 24000
+  repo_intelligence_symbol_result_limit: 60
+  repo_intelligence_reference_result_limit: 80
+  repo_intelligence_map_summary_max_files: 400
+  repo_intelligence_log_window_default_lines: 120
+  repo_intelligence_log_window_max_lines: 400
+  repo_intelligence_log_window_max_chars: 24000
+  repo_intelligence_git_diff_max_chars: 60000
+  repo_intelligence_protected_path_prefixes: "state/|secrets/|.git/|.floki-tools/|config/game.config.yaml|config/game.config.yaml.temp|config/chat.config.yaml"
+  repo_intelligence_generated_path_prefixes: "state/|reports/|apps/floki-neural-interface/dist/|node_modules/|logs/"
+  repo_intelligence_runtime_entry_points: "src/runtime/chat-local-runtime.cjs|bin/floki-start.sh|src/brain/floki-brain.cjs"
+  repo_intelligence_config_transport_namespace: "self_improvement"
+  repo_intelligence_config_template_file: "config/chat.config.yaml.temp"
+  repo_intelligence_config_loader_file: "src/config/floki-config.cjs"
+  repo_intelligence_candidate_history_limit: 50
+  repo_intelligence_denial_history_limit: 25
+  # Progressive, repository-local skill system (loads only relevant skills).
+  skills_enabled: true
+  skills_root: "config/rsi-skills"
+  skills_manifest_file_name: "manifest.json"
+  skills_instruction_file_name: "SKILL.md"
+  skills_max_active: 5
+  skills_match_score_threshold: 1
+  skills_instruction_max_chars: 16000
+  # Role-separated agent contexts. Tools are pipe-delimited allowlists; only the
+  # implementer role may write to the isolated source workspace (one writer).
+  role_sequence: "self_reflector|goal_selector|researcher|repo_investigator|implementer|verifier|critic|memory_curator"
+  role_self_reflector_temperature: 0.7
+  role_self_reflector_top_p: 0.9
+  role_self_reflector_context_budget_chars: 48000
+  role_self_reflector_can_write: false
+  role_self_reflector_tools: "get_recent_experiences|get_dream_summary|get_memory_failures|get_candidate_history|read_file_range"
+  role_goal_selector_temperature: 0.6
+  role_goal_selector_top_p: 0.9
+  role_goal_selector_context_budget_chars: 48000
+  role_goal_selector_can_write: false
+  role_goal_selector_tools: "get_repository_map|get_candidate_history|get_denial_requirements|compare_to_denial|find_relevant_tests"
+  role_researcher_temperature: 0.5
+  role_researcher_top_p: 0.9
+  role_researcher_context_budget_chars: 64000
+  role_researcher_can_write: false
+  role_researcher_tools: "get_repository_map|read_file_range|inspect_symbol|find_references"
+  role_repo_investigator_temperature: 0.3
+  role_repo_investigator_top_p: 0.9
+  role_repo_investigator_context_budget_chars: 64000
+  role_repo_investigator_can_write: false
+  role_repo_investigator_tools: "get_repository_map|inspect_symbol|find_references|find_callers|find_config_transport_path|find_runtime_owner|find_relevant_tests|read_file_range|read_log_window|read_git_diff"
+  role_implementer_temperature: 0.2
+  role_implementer_top_p: 0.9
+  role_implementer_context_budget_chars: 96000
+  role_implementer_can_write: true
+  role_implementer_tools: "get_repository_map|inspect_symbol|find_callers|find_config_transport_path|read_file_range|read_git_diff|compare_candidate_patch|write_file|apply_patch|run_shell"
+  role_verifier_temperature: 0.1
+  role_verifier_top_p: 0.9
+  role_verifier_context_budget_chars: 64000
+  role_verifier_can_write: false
+  role_verifier_tools: "find_relevant_tests|read_file_range|read_log_window|read_git_diff|compare_candidate_patch|run_shell"
+  role_critic_temperature: 0.2
+  role_critic_top_p: 0.9
+  role_critic_context_budget_chars: 64000
+  role_critic_can_write: false
+  role_critic_tools: "get_repository_map|read_file_range|read_git_diff|compare_candidate_patch|compare_to_denial|find_references"
+  role_memory_curator_temperature: 0.4
+  role_memory_curator_top_p: 0.9
+  role_memory_curator_context_budget_chars: 48000
+  role_memory_curator_can_write: false
+  role_memory_curator_tools: "get_candidate_history|get_denial_requirements|read_file_range"
