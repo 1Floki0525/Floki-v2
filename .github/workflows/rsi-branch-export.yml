@@ -1,0 +1,35 @@
+name: RSI branch source export
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    name: Export checked-out branch source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Package source tree
+        shell: bash
+        run: |
+          tar \
+            --exclude=.git \
+            --exclude=node_modules \
+            --exclude=apps/floki-neural-interface/node_modules \
+            --exclude=state \
+            --exclude=.claude \
+            -czf "$RUNNER_TEMP/floki-rsi-branch-source.tar.gz" .
+      - name: Upload source tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: floki-rsi-branch-source
+          path: ${{ runner.temp }}/floki-rsi-branch-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
