@@ -2313,16 +2313,48 @@ async function executeTool(name, args) {
             );
           }
         }
-        // Block re-selection of previously denied objectives.
+        // Block re-selection of previously denied objectives (wording similarity OR same target files).
         const proposedObj = String(validated.objective || '');
+        const proposedFiles = new Set(
+          (Array.isArray(validated.target_files) ? validated.target_files : [])
+            .map(f => String(f).trim().toLowerCase())
+            .filter(Boolean)
+        );
         for (const denied of deniedCandidates) {
-          if (objectiveSimilarityScore(proposedObj, denied.objective) >= 0.65) {
+          const wordSim = objectiveSimilarityScore(proposedObj, denied.objective);
+          if (wordSim >= 0.65) {
             throw new Error(
               'This objective is too similar to a Maker-denied candidate ' +
               '(' + denied.id + '). ' +
-              'Denial reason: ' + denied.denial_reason + '\n\n' +
-              'You must select a materially different objective that fully addresses every point in the denial reason above.'
+              'Denial reason:\n' + denied.denial_reason + '\n\n' +
+              (denied.changes_diff
+                ? 'Previous diff (what was tried — fix only the issues, keep what was correct):\n```diff\n' +
+                  denied.changes_diff.slice(0, 3000) + '\n```\n\n'
+                : '') +
+              'REVISION: You may revise the implementation to fix the specific issues above. ' +
+              'Keep what was correct in the previous diff and change ONLY what the denial reason says was wrong. ' +
+              'Or select a materially different objective.'
             );
+          }
+          // Also block when proposing the same target files AND the denial reason was about implementation quality
+          // (not about the objective being wrong), unless the approach is genuinely different.
+          if (proposedFiles.size > 0 && Array.isArray(denied.target_files) && denied.target_files.length > 0) {
+            const deniedFiles = new Set(denied.target_files.map(f => String(f).trim().toLowerCase()));
+            const overlap = [...proposedFiles].filter(f => deniedFiles.has(f)).length;
+            const overlapRatio = overlap / Math.min(proposedFiles.size, deniedFiles.size);
+            if (overlapRatio >= 0.8 && wordSim >= 0.35) {
+              throw new Error(
+                'This experiment targets the same files as a Maker-denied candidate ' +
+                '(' + denied.id + '). ' +
+                'Denial reason:\n' + denied.denial_reason + '\n\n' +
+                (denied.changes_diff
+                  ? 'Previous diff (study this before re-implementing):\n```diff\n' +
+                    denied.changes_diff.slice(0, 3000) + '\n```\n\n'
+                  : '') +
+                'If you are revising this candidate: keep what was correct, fix ONLY what the denial reason says was wrong. ' +
+                'Make the minimum targeted change — do NOT remove existing working code while adding new code.'
+              );
+            }
           }
         }
         const selected = convergencePolicy.selectExperiment(validated);
@@ -2865,6 +2897,7 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
 	11. Call finalize_candidate only after the focused test and every authorized verification command pass.
 	12. Return no candidate when the bounded evidence does not justify a safe improvement.
 	13. Call write_memory at least once during the session to record meaningful lessons, discoveries, or experiences — these survive beyond the sandbox into your persistent long-term memory.
+	14. When revising after a focused-test failure: use read_file to re-read the CURRENT state of each target file before editing. Make ONLY the minimum targeted change the failure output indicates — do NOT rewrite the file or remove existing working code. One small correct edit beats a large rewrite.
 
 	You may improve the self-improvement system itself, but the same verification and Maker approval rules always apply.`;
 
@@ -2881,11 +2914,23 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       .filter(c => c.status === 'denied' && c.denial_reason);
     if (denied.length > 0) {
       denialHistoryBlock =
-        'MAKER-DENIED CANDIDATES — These were rejected. You MUST NOT repeat these mistakes or re-select these objectives without a materially different correct approach:\n\n' +
-        denied.map(c =>
-          `Candidate: ${c.id}\nObjective: ${c.objective}\nDenial reason: ${c.denial_reason}`
-        ).join('\n\n---\n\n') +
-        '\n\nAvoid these exact objectives. If the same technical area needs work, the approach must fully address every point in the denial reason above.\n\n';
+        'MAKER-DENIED CANDIDATES — Study these carefully before selecting an experiment:\n\n' +
+        denied.map(c => {
+          let entry =
+            `Candidate: ${c.id}\n` +
+            `Objective: ${c.objective}\n` +
+            `Denial reason:\n${c.denial_reason}`;
+          if (c.changes_diff) {
+            entry +=
+              '\n\nPrevious implementation diff (what was tried — learn from this):\n' +
+              '```diff\n' + c.changes_diff.slice(0, 5000) + '\n```';
+          }
+          return entry;
+        }).join('\n\n---\n\n') +
+        '\n\nREVISION GUIDANCE: If you select an experiment in the same technical area as a denied candidate above, you have two valid paths:\n' +
+        '1. REVISE the denied approach — look at the previous diff above, keep what was correct, fix ONLY what the denial reason says was wrong. Make the minimum targeted change.\n' +
+        '2. DIFFERENT APPROACH — select a materially different objective that fully addresses every point in the denial reason.\n' +
+        'Do NOT repeat the same structural mistakes shown in the previous diff. Do NOT remove existing working code while adding new code.\n\n';
     }
   } catch (_) {}
 

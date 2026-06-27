@@ -762,12 +762,16 @@ function createConvergencePolicy(config, emit = () => {}) {
           '. Call run_focused_test with no arguments — it runs that command automatically.'
         : ' Call run_focused_test with no arguments.';
       if (state.focusedVerificationFailures > 0) {
+        const failCount = state.focusedVerificationFailures;
+        const rereadHint = failCount >= 2
+          ? ' IMPORTANT: Use read_file to re-read the CURRENT state of each target file before making any further edits — your last change may have introduced a conflict. Make ONLY the minimum targeted edit that the test failure indicates; do NOT rewrite the whole file.'
+          : '';
         return (
           'Call run_focused_test now to re-run the focused test and verify your repair. ' +
           'Do NOT call select_experiment — the experiment is already selected. ' +
           'Fix the implementation based on the focused-test failure output; do not ' +
           'rewrite the experiment or invent new metrics. ' +
-          'After run_focused_test passes, call run_verification.' + ft
+          'After run_focused_test passes, call run_verification.' + ft + rereadHint
         );
       }
       return (

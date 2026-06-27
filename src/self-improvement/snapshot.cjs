@@ -296,16 +296,29 @@ function createSourceSnapshot(options = {}) {
         const manifestFile = path.join(config.candidate_root, entry.name, 'manifest.json');
         try {
           const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
-          previousCandidates.push({
+          const candidateEntry = {
             id: manifest.id,
             status: manifest.status,
             objective: manifest.objective || null,
+            hypothesis: manifest.hypothesis || null,
+            target_files: manifest.target_files || [],
+            focused_test: manifest.focused_test || null,
             expected_benefit: manifest.expected_benefit || null,
             denial_reason: manifest.denial_reason || null,
             failure: manifest.failure || null,
             created_at: manifest.created_at || null,
             updated_at: manifest.updated_at || null
-          });
+          };
+          // Include the changes.diff for denied candidates so the agent
+          // can see exactly what was tried and what to avoid repeating.
+          if (manifest.status === 'denied') {
+            try {
+              const diffFile = path.join(config.candidate_root, entry.name, 'changes.diff');
+              const diffText = fs.readFileSync(diffFile, 'utf8');
+              candidateEntry.changes_diff = diffText.slice(0, 6000);
+            } catch (_) {}
+          }
+          previousCandidates.push(candidateEntry);
         } catch (_candidateError) {}
       }
     } catch (_candidateRootError) {}
