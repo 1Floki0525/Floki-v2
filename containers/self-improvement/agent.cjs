@@ -2313,49 +2313,63 @@ async function executeTool(name, args) {
             );
           }
         }
-        // Block re-selection of previously denied objectives (wording similarity OR same target files).
+        // Detect similarity to denied candidates and inject revision constraints.
+        // Do NOT hard-block — the agent must be able to revise denied work.
+        // Hard-blocking causes no_candidate when the agent tries to address a denial.
         const proposedObj = String(validated.objective || '');
+        const proposedHyp = String(validated.hypothesis || '');
         const proposedFiles = new Set(
           (Array.isArray(validated.target_files) ? validated.target_files : [])
             .map(f => String(f).trim().toLowerCase())
             .filter(Boolean)
         );
+        let revisionConstraint = null;
         for (const denied of deniedCandidates) {
           const wordSim = objectiveSimilarityScore(proposedObj, denied.objective);
-          if (wordSim >= 0.65) {
+          const deniedFiles = new Set(
+            (Array.isArray(denied.target_files) ? denied.target_files : [])
+              .map(f => String(f).trim().toLowerCase())
+              .filter(Boolean)
+          );
+          const overlap = proposedFiles.size > 0 && deniedFiles.size > 0
+            ? [...proposedFiles].filter(f => deniedFiles.has(f)).length
+            : 0;
+          const overlapRatio = overlap > 0
+            ? overlap / Math.min(proposedFiles.size, deniedFiles.size)
+            : 0;
+          const isSimilar = wordSim >= 0.65 || (overlapRatio >= 0.8 && wordSim >= 0.35);
+          if (!isSimilar) continue;
+          // Check if the agent is re-proposing the same hypothesis that was denied.
+          const hypSim = denied.hypothesis
+            ? objectiveSimilarityScore(proposedHyp, String(denied.hypothesis))
+            : 0;
+          if (hypSim >= 0.70) {
+            // Same objective AND same hypothesis — this is a straight repeat.
             throw new Error(
-              'This objective is too similar to a Maker-denied candidate ' +
-              '(' + denied.id + '). ' +
+              'This experiment repeats the same objective AND approach as a Maker-denied candidate ' +
+              '(' + denied.id + ').\n\n' +
               'Denial reason:\n' + denied.denial_reason + '\n\n' +
               (denied.changes_diff
-                ? 'Previous diff (what was tried — fix only the issues, keep what was correct):\n```diff\n' +
+                ? 'Previous diff (what was tried — do NOT repeat this):\n```diff\n' +
                   denied.changes_diff.slice(0, 3000) + '\n```\n\n'
                 : '') +
-              'REVISION: You may revise the implementation to fix the specific issues above. ' +
-              'Keep what was correct in the previous diff and change ONLY what the denial reason says was wrong. ' +
-              'Or select a materially different objective.'
+              'You MUST change your hypothesis and implementation approach, not just rephrase the objective. ' +
+              'Address every specific issue the Maker raised before re-submitting.'
             );
           }
-          // Also block when proposing the same target files AND the denial reason was about implementation quality
-          // (not about the objective being wrong), unless the approach is genuinely different.
-          if (proposedFiles.size > 0 && Array.isArray(denied.target_files) && denied.target_files.length > 0) {
-            const deniedFiles = new Set(denied.target_files.map(f => String(f).trim().toLowerCase()));
-            const overlap = [...proposedFiles].filter(f => deniedFiles.has(f)).length;
-            const overlapRatio = overlap / Math.min(proposedFiles.size, deniedFiles.size);
-            if (overlapRatio >= 0.8 && wordSim >= 0.35) {
-              throw new Error(
-                'This experiment targets the same files as a Maker-denied candidate ' +
-                '(' + denied.id + '). ' +
-                'Denial reason:\n' + denied.denial_reason + '\n\n' +
-                (denied.changes_diff
-                  ? 'Previous diff (study this before re-implementing):\n```diff\n' +
-                    denied.changes_diff.slice(0, 3000) + '\n```\n\n'
-                  : '') +
-                'If you are revising this candidate: keep what was correct, fix ONLY what the denial reason says was wrong. ' +
-                'Make the minimum targeted change — do NOT remove existing working code while adding new code.'
-              );
-            }
-          }
+          // Similar objective but different approach — allow revision, inject denial context.
+          revisionConstraint = {
+            revising_denied: denied.id,
+            denial_reason: denied.denial_reason,
+            changes_diff: denied.changes_diff || null
+          };
+          audit('select_experiment_revision_mode', {
+            similar_to_denied: denied.id,
+            word_sim: wordSim,
+            overlap_ratio: overlapRatio,
+            hyp_sim: hypSim
+          });
+          break;
         }
         const selected = convergencePolicy.selectExperiment(validated);
         if (selected.ok === true) {
@@ -2369,7 +2383,8 @@ async function executeTool(name, args) {
             focused_test: selected.experiment.focused_test,
             focused_tests_required: [selected.experiment.focused_test],
             next_required_action: 'get_self_context_then_implement',
-            last_successful_action: 'select_experiment'
+            last_successful_action: 'select_experiment',
+            revision_constraint: revisionConstraint || null
           });
         }
         return selected;
