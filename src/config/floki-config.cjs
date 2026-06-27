@@ -1269,7 +1269,28 @@ function getSelfImprovementConfig(mode = 'chat') {
     role_memory_curator_top_p: numberValue('role_memory_curator_top_p'),
     role_memory_curator_context_budget_chars: numberValue('role_memory_curator_context_budget_chars'),
     role_memory_curator_can_write: booleanValue('role_memory_curator_can_write'),
-    role_memory_curator_tools: stringValue('role_memory_curator_tools')
+    role_memory_curator_tools: stringValue('role_memory_curator_tools'),
+    // === RSI autonomy v2 / Stage 2: state machine, goals, capsules, evals ===
+    state_machine_phase_sequence: stringValue('state_machine_phase_sequence'),
+    state_machine_phase_roles: stringValue('state_machine_phase_roles'),
+    state_machine_mandatory_phases: stringValue('state_machine_mandatory_phases'),
+    state_machine_repair_loop_phase: stringValue('state_machine_repair_loop_phase'),
+    state_machine_repair_source_phase: stringValue('state_machine_repair_source_phase'),
+    state_machine_max_repair_iterations: numberValue('state_machine_max_repair_iterations'),
+    state_machine_max_phase_transitions: numberValue('state_machine_max_phase_transitions'),
+    goal_min_proposals: numberValue('goal_min_proposals'),
+    goal_max_proposals: numberValue('goal_max_proposals'),
+    goal_id_prefix: stringValue('goal_id_prefix'),
+    goal_objective_max_chars: numberValue('goal_objective_max_chars'),
+    goal_reason_max_chars: numberValue('goal_reason_max_chars'),
+    memory_capsule_personal_sources: stringValue('memory_capsule_personal_sources'),
+    memory_capsule_engineering_sources: stringValue('memory_capsule_engineering_sources'),
+    memory_capsule_max_items_per_section: numberValue('memory_capsule_max_items_per_section'),
+    memory_capsule_item_max_chars: numberValue('memory_capsule_item_max_chars'),
+    memory_capsule_total_max_chars: numberValue('memory_capsule_total_max_chars'),
+    denial_eval_root: stringValue('denial_eval_root'),
+    denial_eval_id_prefix: stringValue('denial_eval_id_prefix'),
+    denial_eval_min_objective_overlap: numberValue('denial_eval_min_objective_overlap')
   });
 }
 module.exports.getSelfImprovementConfig = getSelfImprovementConfig;

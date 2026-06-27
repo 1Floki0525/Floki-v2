@@ -946,3 +946,28 @@ self_improvement:
   role_memory_curator_context_budget_chars: 48000
   role_memory_curator_can_write: false
   role_memory_curator_tools: "get_candidate_history|get_denial_requirements|read_file_range"
+  # === RSI autonomy v2 / Stage 2: goal formation, memory capsules, state machine ===
+  # Engineering state machine: ordered phases and the role that owns each phase.
+  state_machine_phase_sequence: "SELF_REFLECTION|GOAL_PROPOSALS|GOAL_SELECTION|INVESTIGATION|RESEARCH|EXPERIMENT_SPECIFICATION|IMPLEMENTATION|FOCUSED_VERIFICATION|TARGETED_REPAIR|FULL_VERIFICATION|INDEPENDENT_REVIEW|CANDIDATE_FINALIZATION|MEMORY_AND_EVAL"
+  state_machine_phase_roles: "SELF_REFLECTION=self_reflector|GOAL_PROPOSALS=goal_selector|GOAL_SELECTION=goal_selector|INVESTIGATION=repo_investigator|RESEARCH=researcher|EXPERIMENT_SPECIFICATION=implementer|IMPLEMENTATION=implementer|FOCUSED_VERIFICATION=verifier|TARGETED_REPAIR=implementer|FULL_VERIFICATION=verifier|INDEPENDENT_REVIEW=critic|CANDIDATE_FINALIZATION=implementer|MEMORY_AND_EVAL=memory_curator"
+  state_machine_mandatory_phases: "FOCUSED_VERIFICATION|FULL_VERIFICATION|INDEPENDENT_REVIEW"
+  state_machine_repair_loop_phase: "TARGETED_REPAIR"
+  state_machine_repair_source_phase: "FOCUSED_VERIFICATION"
+  state_machine_max_repair_iterations: 4
+  state_machine_max_phase_transitions: 80
+  # Autonomous goal formation
+  goal_min_proposals: 3
+  goal_max_proposals: 6
+  goal_id_prefix: "goal"
+  goal_objective_max_chars: 2000
+  goal_reason_max_chars: 1200
+  # Memory capsule retrieval (compact, task-relevant; never the whole memory bank)
+  memory_capsule_personal_sources: "SOUL.md|state/floki/identity.json|state/floki/personality.json|state/floki/affect.json|state/floki/memories|state/floki/chat/memory|state/floki/dreams|brain/personality|brain/hippocampus"
+  memory_capsule_engineering_sources: "state/floki/self-improvement/candidates"
+  memory_capsule_max_items_per_section: 12
+  memory_capsule_item_max_chars: 1200
+  memory_capsule_total_max_chars: 24000
+  # Denial-to-eval conversion (every actionable denial yields a regression eval)
+  denial_eval_root: "state/floki/self-improvement/denial-evals"
+  denial_eval_id_prefix: "deval"
+  denial_eval_min_objective_overlap: 3
