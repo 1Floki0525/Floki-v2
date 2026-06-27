@@ -40,12 +40,13 @@ try {
   assert.equal(coverage.authoritative_backend, 'src/runtime/chat-local-runtime.cjs');
   assert.equal(coverage.backend_owners, 1);
   assert.equal(coverage.mock_mode, false);
-  assert.deepEqual(Object.keys(coverage.tabs).sort(), ['chat', 'dreams', 'neural', 'settings', 'system']);
+  assert.deepEqual(Object.keys(coverage.tabs).sort(), ['chat', 'dreams', 'neural', 'rsi_lab', 'settings', 'system']);
   assert.deepEqual(Object.keys(coverage.tabs).sort(), Object.keys(INTERFACE_TAB_CONTRACT).sort());
   for (const [tab, contract] of Object.entries(coverage.tabs)) {
     assert.ok(contract.reads.length > 0, `${tab} must read authoritative backend state`);
     assert.ok(contract.live_events.length > 0, `${tab} must declare live backend events`);
   }
+  assert.ok(coverage.tabs.rsi_lab.writes.length > 0, 'rsi_lab must have write operations for RSI controls');
 
   const transcript = api.getTranscript(20);
   assert.equal(transcript.length, 1);

@@ -19,6 +19,11 @@ function normalizeChatWebcamVisionContext(input = {}) {
           count: Math.max(1, Number(entry.count || 1))
         }))
     : [];
+  const uncertainObjects = Array.isArray(input.uncertain_objects)
+    ? input.uncertain_objects
+        .filter((entry) => entry && typeof entry.label === 'string' && entry.label.trim())
+        .map((entry) => Object.freeze({ label: entry.label.trim().slice(0, 120) }))
+    : [];
 
   return Object.freeze({
     available,
@@ -43,6 +48,7 @@ function normalizeChatWebcamVisionContext(input = {}) {
       : (available ? summary.slice(0, 1600) : null),
     detected_people_count: available ? Math.max(0, Number(input.detected_people_count || 0)) : 0,
     detected_objects: available ? Object.freeze(detectedObjects) : Object.freeze([]),
+    uncertain_objects: available ? Object.freeze(uncertainObjects) : Object.freeze([]),
     grounding_summary: available && typeof input.grounding_summary === 'string' && input.grounding_summary.trim()
       ? input.grounding_summary.trim().slice(0, 1600)
       : null,

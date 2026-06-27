@@ -201,6 +201,18 @@ detection:
   person_verifier_track_center_distance: 0.12
   person_verifier_crop_padding_ratio: 0.35
   person_verifier_min_confidence: 0.65
+  # Class-specific minimum confidence overrides applied before all display decisions.
+  # Prevents weakly-detected ambiguous classes from reaching confirmed factual status.
+  class_min_confidence_overrides:
+    "computer monitor": 0.65
+    "monitor": 0.65
+  # Minimum confidence required for a person candidate to inherit spatial track verification.
+  # Prevents noise detections near a verified person from being promoted to confirmed persons.
+  person_track_min_candidate_confidence: 0.20
+  # Object temporal confirmation: require this many consecutive fresh detection windows.
+  object_temporal_confirmation_frames: 2
+  # Maximum time between consecutive detections (ms) that counts toward temporal confirmation.
+  object_temporal_confirmation_window_ms: 5000
 chat_world_vision:
   enabled: true
   source: webcam
@@ -505,6 +517,7 @@ live_chat:
   runtime_heartbeat_ms: 1000
   runtime_watchdog_poll_ms: 1000
   runtime_watchdog_request_timeout_ms: 3000
+  runtime_watchdog_consecutive_failure_limit: 3
   public_sentence_min_characters: 12
   latency_log_max_bytes: 8388608
   history_limit: 500
@@ -632,7 +645,9 @@ self_improvement:
   cooldown_seconds: 60
   worker_preemption_poll_ms: 1000
   ui_poll_ms: 3000
-  run_now_ack_timeout_ms: 120000
+  activity_stream_max_bytes: 262144
+  activity_stream_max_events: 250
+  run_now_ack_timeout_ms: 300000
   run_now_ack_poll_ms: 100
   context_window: 32768
   model_thinking_enabled: true
@@ -658,6 +673,7 @@ self_improvement:
   run_id_random_bytes: 4
   run_id_prefix: "rsi"
   prior_candidate_history_limit: 50
+  max_pending_review_candidates: 10
   sandbox_engine: "podman"
   image_name: "localhost/floki-self-improvement:node24"
   container_base_image: "node:24-bookworm"
@@ -722,7 +738,7 @@ self_improvement:
   self_context_search_max_limit: 25
   self_context_result_max_chars: 1600
   self_context_index_chunk_chars: 65536
-  snapshot_exclude_patterns: ".git/|node_modules/|apps/floki-neural-interface/node_modules/|apps/floki-neural-interface/dist/|state/|secrets/|.floki-tools/models/|.floki-tools/repos/|.floki-tools/input/|.floki-tools/output/|.floki-tools/venv*/|.floki-tools/**/__pycache__/|reports/|*.tar|*.tar.gz|*.zip|*.mp4|*.mkv|*.wav|*.onnx|*.pt|*.bin|*.safetensors|models/|models/**|Qwen3.5-4B/|Qwen3.5-4B/**|data/dreams/|data/transcripts/|data/media/|data/memories/|data/knowledge/|.floki-self-improvement/|.env|.env.*|.npmrc|cookies.txt|**/cookies.txt|*.pem|*.key|*.p12|*.pfx"
+  snapshot_exclude_patterns: ".git|.git/|node_modules/|apps/floki-neural-interface/node_modules/|apps/floki-neural-interface/dist/|state/|secrets/|.floki-tools/models/|.floki-tools/repos/|.floki-tools/input/|.floki-tools/output/|.floki-tools/venv*/|.floki-tools/**/__pycache__/|reports/|*.tar|*.tar.gz|*.zip|*.mp4|*.mkv|*.wav|*.onnx|*.pt|*.bin|*.safetensors|models/|models/**|Qwen3.5-4B/|Qwen3.5-4B/**|data/dreams/|data/transcripts/|data/media/|data/memories/|data/knowledge/|.floki-self-improvement/|.env|.env.*|.npmrc|cookies.txt|**/cookies.txt|*.pem|*.key|*.p12|*.pfx"
   snapshot_sanitized_npmrc_lines: "engine-strict=true"
   snapshot_command_timeout_ms: 300000
   snapshot_rsync_timeout_ms: 600000
@@ -798,7 +814,7 @@ self_improvement:
   context7_client_version: "1.0.0"
   ollama_chat_path: "/api/chat"
   ollama_stream: false
-  default_objective: "Inspect the current Floki-v2 source and select exactly one bounded, measurable improvement in architecture, cognition, memory, sensory processing, autonomous agency, recursive self-improvement, performance, reliability, AI/AGI research integration, self-modeling, metacognition, continual learning, or digital-being continuity that can be safely implemented and verified now."
+  default_objective: "Inspect the Floki-v2 source across the ENTIRE repository (src/, apps/floki-neural-interface/, brain/, bin/, config/, containers/, tests/) and select exactly one real, concrete improvement that changes actual behavior, adds a new capability, or fixes a real bug. The improvement must be in architecture, cognition, memory, sensory processing, autonomous agency, recursive self-improvement, performance, reliability, AI/AGI research integration, self-modeling, metacognition, continual learning, or digital-being continuity. Do NOT pick experiments that only add count/length assertions, enum completeness checks, or type-only verifications without changing real behavior. The change must be verifiable with a focused behavioral test and safe to deploy."
   service_start_attempts: 40
   service_start_poll_seconds: 0.25
   service_start_log_tail_lines: 80

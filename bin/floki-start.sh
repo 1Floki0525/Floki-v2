@@ -106,6 +106,71 @@ VISION_STARTED=false
 CHAT_LOCAL_CLEANUP_DONE=0
 CHAT_LOCAL_HANDED_OFF=0
 SIGNAL_RECEIVED=0
+CHAT_LOCAL_RUNTIME_DIR=""
+CHAT_LOCAL_SUPERVISOR_LOCK_FILE=""
+CHAT_LOCAL_SUPERVISOR_SESSION_FILE=""
+CHAT_LOCAL_SESSION_ID=""
+CHAT_LOCAL_RUNTIME_PID=""
+
+# FLOKI_CHAT_LOCAL_SUPERVISOR_LEASE_BEGIN
+acquire_chat_local_supervisor_lease() {
+  command -v flock >/dev/null 2>&1 ||
+    fail "flock is required for exclusive chat.local supervisor ownership"
+
+  CHAT_LOCAL_RUNTIME_DIR="$(node - <<'NODE'
+'use strict';
+const path = require('node:path');
+const {
+  PROJECT_ROOT,
+  getPathConfig
+} = require('./src/config/floki-config.cjs');
+process.stdout.write(
+  path.resolve(
+    PROJECT_ROOT,
+    getPathConfig('chat').chat_runtime_root
+  )
+);
+NODE
+)" || fail "could not resolve the chat.local supervisor runtime directory"
+
+  mkdir -p "$CHAT_LOCAL_RUNTIME_DIR" ||
+    fail "could not create the chat.local runtime directory"
+
+  CHAT_LOCAL_SUPERVISOR_LOCK_FILE="$CHAT_LOCAL_RUNTIME_DIR/chat-local-supervisor.lock"
+  CHAT_LOCAL_SUPERVISOR_SESSION_FILE="$CHAT_LOCAL_RUNTIME_DIR/chat-local-supervisor-session.json"
+
+  exec 9>"$CHAT_LOCAL_SUPERVISOR_LOCK_FILE"
+  if ! flock -n 9; then
+    fail "another chat.local supervisor is already active; close the existing neural interface before starting another session"
+  fi
+
+  CHAT_LOCAL_SESSION_ID="$(
+    node src/runtime/chat-local-supervisor-lease.cjs       claim       "$CHAT_LOCAL_SUPERVISOR_SESSION_FILE"       "$$"       "$PROJECT_DIR"
+  )" || fail "could not claim chat.local supervisor ownership"
+
+  export FLOKI_CHAT_LOCAL_SESSION_ID="$CHAT_LOCAL_SESSION_ID"
+  export FLOKI_CHAT_LOCAL_SESSION_FILE="$CHAT_LOCAL_SUPERVISOR_SESSION_FILE"
+}
+
+record_chat_local_runtime_lease() {
+  local pid_file
+  pid_file="$CHAT_LOCAL_RUNTIME_DIR/chat-local-runtime.pid"
+  [ -f "$pid_file" ] ||
+    fail "authoritative runtime PID file is missing after startup"
+
+  CHAT_LOCAL_RUNTIME_PID="$(cat "$pid_file" 2>/dev/null || true)"
+  case "$CHAT_LOCAL_RUNTIME_PID" in
+    ''|*[!0-9]*)
+      fail "authoritative runtime PID is invalid after startup"
+      ;;
+  esac
+
+  node src/runtime/chat-local-supervisor-lease.cjs     set-runtime     "$CHAT_LOCAL_SUPERVISOR_SESSION_FILE"     "$CHAT_LOCAL_SESSION_ID"     "$CHAT_LOCAL_RUNTIME_PID"     >/dev/null ||
+      fail "could not record authoritative runtime ownership"
+
+  export FLOKI_CHAT_LOCAL_RUNTIME_PID="$CHAT_LOCAL_RUNTIME_PID"
+}
+# FLOKI_CHAT_LOCAL_SUPERVISOR_LEASE_END
 
 cleanup_chat_local() {
   local last_exit="$?"
@@ -115,6 +180,11 @@ cleanup_chat_local() {
 
   CHAT_LOCAL_CLEANUP_DONE=1
   trap - EXIT INT TERM HUP
+
+  if [ -z "$CHAT_LOCAL_SESSION_ID" ] ||
+     [ -z "$CHAT_LOCAL_SUPERVISOR_SESSION_FILE" ]; then
+    return "$last_exit"
+  fi
 
   timeout 30s bash bin/floki-chat-local-cleanup.sh >/dev/null 2>&1
   local cleanup_exit="$?"
@@ -205,6 +275,7 @@ case "$COMMAND" in
     exit $RC
     ;;
   chat.local)
+    acquire_chat_local_supervisor_lease
     trap cleanup_chat_local EXIT
     trap interrupt_chat_local INT TERM HUP
 
@@ -237,6 +308,7 @@ NODE
 
     startup_stage "5/7" "Starting the authoritative backend with eyes and ears held off until the interface is visible"
     start_chat_hearing
+    record_chat_local_runtime_lease
 
     CHAT_LOCAL_HANDED_OFF=1
     bash bin/floki-chat-local-start.sh "$@"

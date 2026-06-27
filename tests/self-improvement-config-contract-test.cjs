@@ -29,6 +29,8 @@ const requiredNumberKeys = [
   'cooldown_seconds',
   'worker_preemption_poll_ms',
   'ui_poll_ms',
+  'activity_stream_max_bytes',
+  'activity_stream_max_events',
   'run_now_ack_timeout_ms',
   'run_now_ack_poll_ms',
   'service_stop_command_timeout_seconds',

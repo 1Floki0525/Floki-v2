@@ -3,7 +3,7 @@ import flokiAdapter from '@/integrations/floki/adapter'
 import { ServiceStatus } from '@/integrations/floki/types'
 import ServiceCard from '@/components/system/ServiceCard'
 import SystemControls from '@/components/system/SystemControls'
-import SelfImprovementPanel from '@/components/system/SelfImprovementPanel'
+import { FlaskConical, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 
 function selfImprovementService(status) {
@@ -37,7 +37,7 @@ function selfImprovementService(status) {
   }
 }
 
-export default function SystemDashboard() {
+export default function SystemDashboard({ onNavigate }) {
   const [services, setServices] = useState([])
   const [busyAction, setBusyAction] = useState(null)
   const pollMsRef = React.useRef(null)
@@ -135,7 +135,31 @@ export default function SystemDashboard() {
           ))}
         </div>
         <SystemControls onAction={(action) => execute(action, action)} busyAction={busyAction} />
-        <SelfImprovementPanel />
+
+        <div className="rounded-lg border border-border/60 bg-card/50 p-4" data-testid="rsi-module-card">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <FlaskConical className="w-4 h-4 text-neon-cyan flex-none" />
+              <div>
+                <div className="text-sm font-semibold">Recursive Self-Improvement</div>
+                {services.length > 0 && (() => {
+                  const rsi = services.find((s) => s.name === 'Recursive Self-Improvement');
+                  return rsi ? (
+                    <div className="text-xs text-muted-foreground mt-0.5">{rsi.detail || 'Self-improvement service'}</div>
+                  ) : null;
+                })()}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate?.('rsi_lab')}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-neon-cyan/30 bg-neon-cyan/5 hover:bg-neon-cyan/10 text-neon-cyan transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Open RSI Lab
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )

@@ -92,6 +92,7 @@ const INTERFACE_TAB_CONTRACT = Object.freeze({
   chat: Object.freeze({ reads: Object.freeze(['status', 'transcript']), writes: Object.freeze(['sendMessage', 'clearTranscript', 'interrupt']), live_events: Object.freeze(['transcript.entry', 'transcript.remove', 'status.update']) }),
   dreams: Object.freeze({ reads: Object.freeze(['dreamTimeline', 'sleep']), writes: Object.freeze(['requestSleep', 'wake']), live_events: Object.freeze(['status.update', 'inner-stream.entry']) }),
   neural: Object.freeze({ reads: Object.freeze(['neuralEvents']), writes: Object.freeze([]), live_events: Object.freeze(['inner-stream.entry']) }),
+  rsi_lab: Object.freeze({ reads: Object.freeze(['selfImprovementStatus', 'selfImprovementCandidates', 'selfImprovementActivity']), writes: Object.freeze(['runSelfImprovementNow', 'pauseSelfImprovement', 'resumeSelfImprovement', 'approveSelfImprovement', 'denySelfImprovement']), live_events: Object.freeze(['status.update']) }),
   system: Object.freeze({ reads: Object.freeze(['services', 'visionFrame', 'visionObservation', 'emotion', 'affectHistory', 'sleep', 'logPath']), writes: Object.freeze(['startChat', 'stopChat', 'restartChat', 'wake', 'requestSleep', 'pauseSleep', 'resumeSleep', 'restartVision', 'restartHearing', 'restartSpeech', 'interrupt', 'pushToTalk']), live_events: Object.freeze(['status.update']) }),
   settings: Object.freeze({ reads: Object.freeze(['settings']), writes: Object.freeze(['updateSettings', 'resetSettings', 'importSettings']), live_events: Object.freeze(['status.update']) })
 });

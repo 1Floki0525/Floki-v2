@@ -71,9 +71,15 @@ function createRuntimeRequest(options = {}) {
   async function execute(
     method,
     pathname,
-    body
+    body,
+    timeoutOverrideMs
   ) {
     const hasBody = body !== null;
+
+    const effectiveTimeoutMs =
+      Number.isFinite(timeoutOverrideMs) && timeoutOverrideMs > 0
+        ? timeoutOverrideMs
+        : timeoutMs;
 
     const response =
       await fetchImpl(
@@ -98,7 +104,7 @@ function createRuntimeRequest(options = {}) {
 
           signal:
             AbortSignal.timeout(
-              timeoutMs
+              effectiveTimeoutMs
             )
         }
       );
@@ -134,13 +140,15 @@ function createRuntimeRequest(options = {}) {
   return async function runtimeRequest(
     method,
     pathname,
-    body = null
+    body = null,
+    timeoutOverrideMs = null
   ) {
     try {
       return await execute(
         method,
         pathname,
-        body
+        body,
+        timeoutOverrideMs
       );
     } catch (error) {
       if (
@@ -153,7 +161,8 @@ function createRuntimeRequest(options = {}) {
       return execute(
         method,
         pathname,
-        body
+        body,
+        timeoutOverrideMs
       );
     }
   };

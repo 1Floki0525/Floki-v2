@@ -6,7 +6,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..', '..', '..');
 const { INTERFACE_TAB_CONTRACT, createChatLocalInterfaceApi } = require(path.join(root, 'src/runtime/chat-local-interface-api.cjs'));
 
-const expectedTabs = ['chat', 'dreams', 'neural', 'settings', 'system'];
+const expectedTabs = ['chat', 'dreams', 'neural', 'rsi_lab', 'settings', 'system'];
 assert.deepEqual(Object.keys(INTERFACE_TAB_CONTRACT).sort(), expectedTabs);
 
 const api = createChatLocalInterfaceApi({
@@ -26,6 +26,10 @@ for (const tab of expectedTabs) {
   assert.ok(contract.live_events.length > 0, `${tab} has no authoritative live event`);
 }
 
+assert.ok(coverage.tabs.rsi_lab.reads.length > 0, 'rsi_lab must read authoritative backend state');
+assert.ok(coverage.tabs.rsi_lab.writes.length > 0, 'rsi_lab must have write operations');
+assert.ok(coverage.tabs.rsi_lab.live_events.length > 0, 'rsi_lab must declare live backend events');
+
 console.log(JSON.stringify({
   ok: true,
   marker: 'FLOKI_V2_FULL_INTERFACE_PRESERVATION_PASS',
@@ -33,4 +37,6 @@ console.log(JSON.stringify({
   system_controls_visible: requiredControls.length,
   backend_owners: coverage.backend_owners,
   mock_mode: coverage.mock_mode,
+  rsi_lab_reads: coverage.tabs.rsi_lab.reads.length,
+  rsi_lab_writes: coverage.tabs.rsi_lab.writes.length,
 }, null, 2));

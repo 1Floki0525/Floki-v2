@@ -33,6 +33,18 @@ const DEPICTION_TYPES = new Set([
   'unknown'
 ]);
 
+function parseClassConfidenceOverrides(raw) {
+  if (!raw || typeof raw !== 'object') return Object.freeze({});
+  const result = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const threshold = Number(value);
+    if (Number.isFinite(threshold) && threshold >= 0 && threshold <= 1) {
+      result[String(key).toLowerCase().trim()] = threshold;
+    }
+  }
+  return Object.freeze(result);
+}
+
 function getPersonVerifierConfig() {
   const detection = getYamlDetectionConfig('chat');
 
@@ -143,6 +155,16 @@ function getPersonVerifierConfig() {
       Math.min(
         2,
         Number(detection.person_verifier_track_center_distance || 0.12)
+      )
+    ),
+    classMinConfidenceOverrides: parseClassConfidenceOverrides(
+      detection.class_min_confidence_overrides
+    ),
+    personTrackMinCandidateConfidence: Math.max(
+      0,
+      Math.min(
+        1,
+        Number(detection.person_track_min_candidate_confidence || 0.20)
       )
     )
   });
@@ -692,6 +714,22 @@ function classifyVerifiedDetectionForDisplay(detection) {
         });
       }
 
+      const dinoNormalizedLabel = String(
+        detection.label || detection.type || ''
+      ).replace(/^a\s+/i, '').trim().toLowerCase();
+      const dinoClassMin =
+        config.classMinConfidenceOverrides[dinoNormalizedLabel] ??
+        config.classMinConfidenceOverrides[
+          String(detection.label || '').toLowerCase().trim()
+        ];
+      if (dinoClassMin !== undefined && confidence < dinoClassMin) {
+        return Object.freeze({
+          bucket: 'suppressed',
+          detection,
+          unavailable_reason: 'class_confidence_below_class_minimum'
+        });
+      }
+
       return Object.freeze({
         bucket: 'objects',
         detection: Object.freeze({
@@ -724,6 +762,19 @@ function classifyVerifiedDetectionForDisplay(detection) {
         detection,
         unavailable_reason:
           'object_detection_confidence_below_display_threshold'
+      });
+    }
+
+    const yoloNormalizedLabel = String(
+      detection.label || ''
+    ).toLowerCase().trim();
+    const yoloClassMin =
+      config.classMinConfidenceOverrides[yoloNormalizedLabel];
+    if (yoloClassMin !== undefined && confidence < yoloClassMin) {
+      return Object.freeze({
+        bucket: 'suppressed',
+        detection,
+        unavailable_reason: 'class_confidence_below_class_minimum'
       });
     }
 
@@ -781,6 +832,16 @@ function classifyVerifiedDetectionForDisplay(detection) {
   }
 
   if (verification.classification === 'live_person') {
+    if (
+      verification.cache_source === 'spatial_track' &&
+      confidence < config.personTrackMinCandidateConfidence
+    ) {
+      return Object.freeze({
+        bucket: 'suppressed',
+        detection,
+        unavailable_reason: 'person_track_confidence_below_minimum'
+      });
+    }
     return Object.freeze({
       bucket: 'persons',
       detection: Object.freeze({

@@ -3,12 +3,13 @@ import NavRail from '@/components/shared/NavRail';
 import ChatInterface from '@/pages/ChatInterface';
 import DreamsDashboard from '@/pages/DreamsDashboard';
 import NeuralStream from '@/pages/NeuralStream';
+import RSILab from '@/pages/RSILab';
 import SystemDashboard from '@/pages/SystemDashboard';
 import SettingsPage from '@/pages/SettingsPage';
 import flokiAdapter from '@/integrations/floki/adapter';
 import { toast } from 'sonner';
 
-const TABS = { chat: ChatInterface, dreams: DreamsDashboard, neural: NeuralStream, system: SystemDashboard, settings: SettingsPage };
+const TABS = { chat: ChatInterface, dreams: DreamsDashboard, neural: NeuralStream, rsi_lab: RSILab, system: SystemDashboard, settings: SettingsPage };
 
 const initialState = { connected: false, state: 'Connecting', mode: 'chat.local', online: false, visionActive: false, hearingActive: false, memoryLoaded: false, speechActive: false, sleepState: 'Unknown', cognitionModel: null };
 
@@ -46,7 +47,7 @@ export default function Home() {
           pendingAlerted.current !== selfImprovementCandidateId
         ) {
           pendingAlerted.current = selfImprovementCandidateId;
-          toast.warning('Floki has a verified self-improvement upgrade ready for your review. Open System to approve or deny it.');
+          toast.warning('Floki has a verified self-improvement upgrade ready for your review. Open RSI Lab to approve or deny it.');
         }
         setError(null);
       } catch (err) {

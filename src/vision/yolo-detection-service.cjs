@@ -32,6 +32,64 @@ let yoloWorkerBuffer = '';
 let yoloWorkerStopped = false;
 let yoloWorkerSpawnCount = 0;
 
+/* Object temporal confirmation state */
+const objectTemporalTracks = new Map();
+
+function getTemporalConfirmationConfig() {
+  const detection = getYamlDetectionConfig('chat');
+  return Object.freeze({
+    requiredFrames: Math.max(
+      1,
+      Number(detection.object_temporal_confirmation_frames || 2)
+    ),
+    windowMs: Math.max(
+      1000,
+      Number(detection.object_temporal_confirmation_window_ms || 5000)
+    )
+  });
+}
+
+function annotateDetectionCertainty(detections, capturedAt) {
+  if (!Array.isArray(detections) || detections.length === 0) return detections;
+  const config = getTemporalConfirmationConfig();
+  const now = typeof capturedAt === 'string'
+    ? (Date.parse(capturedAt) || Date.now())
+    : (Number(capturedAt) || Date.now());
+  const windowStart = now - config.windowMs;
+
+  for (const [key, track] of objectTemporalTracks.entries()) {
+    if (track.lastSeenAt < windowStart) {
+      objectTemporalTracks.delete(key);
+    }
+  }
+
+  return detections.map((detection) => {
+    const label = String(detection.label || '').toLowerCase().trim();
+    // Person candidates use VLM verification, not temporal object confirmation.
+    const isPersonLabel = Number(detection.class_id) === 0 || label === 'person';
+    if (isPersonLabel) {
+      return { ...detection, certainty: 'confirmed' };
+    }
+
+    const existing = objectTemporalTracks.get(label);
+
+    if (!existing || existing.lastSeenAt < windowStart) {
+      const confirmed = config.requiredFrames <= 1;
+      objectTemporalTracks.set(label, { label, count: 1, lastSeenAt: now, confirmed });
+      return { ...detection, certainty: confirmed ? 'confirmed' : 'uncertain' };
+    }
+
+    existing.count += 1;
+    existing.lastSeenAt = now;
+    existing.confirmed = existing.count >= config.requiredFrames;
+    return { ...detection, certainty: existing.confirmed ? 'confirmed' : 'uncertain' };
+  });
+}
+
+function resetObjectTemporalTracks() {
+  objectTemporalTracks.clear();
+}
+
 const YOLO_WORKER_TIMEOUT_MS = 30000;
 const YOLO_MAX_RESTARTS = 3;
 
@@ -535,8 +593,10 @@ function parseYoloDetectionFrame(yoloResult, capturedAt) {
   const frameId = `frame_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
   const modelPath = getYoloModelPath();
   
-  const detections = normalizeYoloDetection(yoloResult, yoloResult.frame_width, yoloResult.frame_height);
-  
+  const rawDetections = normalizeYoloDetection(yoloResult, yoloResult.frame_width, yoloResult.frame_height);
+  const capturedTs = capturedAt || yoloResult.captured_at || new Date().toISOString();
+  const detections = annotateDetectionCertainty(rawDetections, capturedTs);
+
   const now = new Date();
   
   return {
@@ -683,6 +743,8 @@ module.exports = {
   stopYoloDetectionWorker,
   runYoloDetectionOnFrame,
   normalizeYoloDetection,
+  annotateDetectionCertainty,
+  resetObjectTemporalTracks,
   parseYoloDetectionFrame,
   storeDetectionResult,
   readLatestDetection,

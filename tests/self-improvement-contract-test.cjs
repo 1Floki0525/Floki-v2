@@ -118,7 +118,12 @@ assert.match(main, /floki:approve-self-improvement/);
 const system = text(
   'apps/floki-neural-interface/src/pages/SystemDashboard.jsx'
 );
-assert.match(system, /SelfImprovementPanel/);
+assert.doesNotMatch(system, /import.*SelfImprovementPanel/, 'SystemDashboard must not import full panel — moved to RSI Lab');
+assert.match(system, /rsi-module-card/, 'SystemDashboard must show compact RSI module card');
+assert.match(system, /Open RSI Lab/, 'SystemDashboard must link to RSI Lab');
+
+const rsiLab = text('apps/floki-neural-interface/src/pages/RSILab.jsx');
+assert.match(rsiLab, /SelfImprovementPanel/, 'RSILab page must render the full SelfImprovementPanel');
 
 const panel = text(
   'apps/floki-neural-interface/src/components/system/SelfImprovementPanel.jsx'

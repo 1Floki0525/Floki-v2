@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ChevronDown, FlaskConical, Terminal, AlertTriangle } from 'lucide-react'
 import SelfImprovementPanel from '@/components/system/SelfImprovementPanel'
 import flokiAdapter from '@/integrations/floki/adapter'
@@ -273,7 +273,9 @@ function RSITerminal() {
     else if (!nowAtBottom && atBottomRef.current) { setAtBottom(false); }
   }, [flushPending]);
 
-  useEffect(() => {
+  // Pin to the bottom BEFORE the browser paints so backfilled/streamed lines
+  // never flash at the top and then jump — the view stays a smooth live tail.
+  useLayoutEffect(() => {
     if (atBottom && containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
@@ -286,9 +288,12 @@ function RSITerminal() {
     const poll = async () => {
       if (!activeRef.current) return;
       try {
+        // On first load, backfill the current run from the TOP (cursor 0) so the
+        // terminal reads top-down with full scrollback, exactly like a real
+        // terminal session. Afterwards, tail incrementally from the saved cursor.
         const isInit = auditCursorRef.current === null;
         const params = isInit
-          ? { init: true }
+          ? { audit_cursor: 0, sandbox_cursor: 0, limit: 500 }
           : { audit_cursor: auditCursorRef.current, sandbox_cursor: sandboxCursorRef.current, limit: 200 };
 
         const result = await flokiAdapter.getSelfImprovementActivity(params);
@@ -298,35 +303,41 @@ function RSITerminal() {
           const newRunId = result.run_id || null;
           const newSandboxFile = result.sandbox_log_file || null;
 
-          if (isInit) {
-            auditCursorRef.current = result.next_audit_cursor ?? 0;
-            sandboxCursorRef.current = result.next_sandbox_cursor ?? 0;
+          // A new sandbox run started: clear the view and backfill the new log
+          // from the top on the next poll (cursor reset to 0). Skip appending
+          // this round so we don't mix events read at the old offset.
+          if (!isInit && newSandboxFile !== sandboxLogFileRef.current) {
             sandboxLogFileRef.current = newSandboxFile;
-            runIdRef.current = newRunId;
-            setRunId(newRunId);
-          } else {
-            if (newSandboxFile !== sandboxLogFileRef.current) {
-              sandboxLogFileRef.current = newSandboxFile;
-              sandboxCursorRef.current = 0;
-              pendingEventsRef.current = [];
-              setPendingCount(0);
-              setEvents([]);
-              setAtBottom(true);
-            }
+            sandboxCursorRef.current = 0;
+            pendingEventsRef.current = [];
+            setPendingCount(0);
+            setEvents([]);
+            setAtBottom(true);
             if (newRunId !== runIdRef.current) { runIdRef.current = newRunId; setRunId(newRunId); }
+            if (result.phase) setPhase(result.phase);
+            setError(null);
+          } else {
+            if (isInit) {
+              sandboxLogFileRef.current = newSandboxFile;
+              runIdRef.current = newRunId;
+              setRunId(newRunId);
+            } else if (newRunId !== runIdRef.current) {
+              runIdRef.current = newRunId;
+              setRunId(newRunId);
+            }
 
-            auditCursorRef.current = result.next_audit_cursor ?? auditCursorRef.current;
-            sandboxCursorRef.current = result.next_sandbox_cursor ?? sandboxCursorRef.current;
+            auditCursorRef.current = result.next_audit_cursor ?? (auditCursorRef.current ?? 0);
+            sandboxCursorRef.current = result.next_sandbox_cursor ?? (sandboxCursorRef.current ?? 0);
 
-            // Expand each API event into one or more display lines
+            // Expand each API event into one or more display lines (top-down order)
             const displayItems = (result.events || []).flatMap(item => {
               try { return expandToDisplayItems(item); } catch (_) { return []; }
             });
             appendEvents(displayItems);
-          }
 
-          if (result.phase) setPhase(result.phase);
-          setError(null);
+            if (result.phase) setPhase(result.phase);
+            setError(null);
+          }
         }
       } catch (err) {
         if (activeRef.current) setError(err.message);

@@ -149,6 +149,7 @@ class FlokiAdapter {
   async pauseSelfImprovement() { return bridge().pauseSelfImprovement(); }
   async resumeSelfImprovement() { return bridge().resumeSelfImprovement(); }
   async runSelfImprovementNow(objective = '') { return bridge().runSelfImprovementNow(objective); }
+  async getSelfImprovementActivity(params = {}) { return bridge().getSelfImprovementActivity(params); }
 }
 
 export const flokiAdapter = new FlokiAdapter();

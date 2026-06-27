@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { MessageSquare, Activity, Server, Settings, ChevronLeft, ChevronRight, Zap, Brain } from 'lucide-react';
+import { MessageSquare, Activity, Server, Settings, ChevronLeft, ChevronRight, Zap, Brain, FlaskConical } from 'lucide-react';
 import StatusIndicator from './StatusIndicator';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 
@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { id: 'chat', label: 'Chat Interface', icon: MessageSquare },
   { id: 'dreams', label: 'Dreams', icon: Brain },
   { id: 'neural', label: 'Neural Stream', icon: Activity },
+  { id: 'rsi_lab', label: 'RSI Lab', icon: FlaskConical },
   { id: 'system', label: 'System', icon: Server },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -84,7 +85,7 @@ export default function NavRail({ activeTab, onTabChange, flokiStatus }) {
                 {!collapsed && (
                   <span className="text-sm font-medium truncate">{item.label}</span>
                 )}
-                {item.id === 'system' && Number(flokiStatus?.selfImprovementPending || 0) > 0 && (
+                {item.id === 'rsi_lab' && Number(flokiStatus?.selfImprovementPending || 0) > 0 && (
                   <span className="ml-auto min-w-5 h-5 px-1 rounded-full bg-orange-500/20 border border-orange-500/40 text-orange-300 text-[10px] font-mono flex items-center justify-center">
                     {Number(flokiStatus.selfImprovementPending)}
                   </span>

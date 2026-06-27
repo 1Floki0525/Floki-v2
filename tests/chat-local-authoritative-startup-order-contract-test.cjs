@@ -60,6 +60,7 @@ assertOrdered(localLaunch, [
 ]);
 assert.match(localStart, /runtime_watchdog_poll_ms/, 'Electron handoff must use YAML runtime watchdog poll timing');
 assert.match(localStart, /runtime_watchdog_request_timeout_ms/, 'Electron handoff must use YAML runtime watchdog request timeout');
+assert.match(localStart, /runtime_watchdog_consecutive_failure_limit/, 'Electron handoff must use YAML consecutive watchdog failure limit');
 assert.match(localStart, /\.\/node_modules\/\.bin\/electron \. &/, 'Electron must run as a supervised child process');
 assert.doesNotMatch(localStart, /exec \.\/node_modules\/\.bin\/electron \./, 'Electron must not replace the launcher shell');
 

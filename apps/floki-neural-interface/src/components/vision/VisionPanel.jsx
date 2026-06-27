@@ -62,6 +62,8 @@ function DetectionLayer({ detections, stroke, fallbackLabel, showLabels, showCon
               width: `${width}%`,
               height: `${height}%`,
               borderColor: stroke,
+              borderStyle: detection.certainty === 'uncertain' ? 'dashed' : 'solid',
+              opacity: detection.certainty === 'uncertain' ? 0.55 : 1,
             }}
           >
             {showLabels && (

@@ -6,6 +6,7 @@ RUNTIME_PID_FILE=""
 RUNTIME_STATUS_URL=""
 WATCHDOG_POLL_SECONDS=""
 WATCHDOG_REQUEST_TIMEOUT_MS=""
+WATCHDOG_FAILURE_LIMIT=""
 
 fail() {
   echo "FLOKI_V2_CHAT_LOCAL_START_FAIL: $1" >&2
@@ -86,17 +87,26 @@ process.stdout.write([
   pidFile,
   'http://' + live.runtime_host + ':' + String(live.runtime_port) + '/status',
   String(live.runtime_watchdog_poll_ms / 1000),
-  String(live.runtime_watchdog_request_timeout_ms)
+  String(live.runtime_watchdog_request_timeout_ms),
+  String(live.runtime_watchdog_consecutive_failure_limit)
 ].join('\n'));
 NODE
   ) || fail "could not read runtime watchdog settings from YAML"
 
-  [ "${#MONITOR_VALUES[@]}" -eq 4 ] ||
+  [ "${#MONITOR_VALUES[@]}" -eq 5 ] ||
     fail "runtime watchdog settings were incomplete"
   RUNTIME_PID_FILE="${MONITOR_VALUES[0]}"
   RUNTIME_STATUS_URL="${MONITOR_VALUES[1]}"
   WATCHDOG_POLL_SECONDS="${MONITOR_VALUES[2]}"
   WATCHDOG_REQUEST_TIMEOUT_MS="${MONITOR_VALUES[3]}"
+  WATCHDOG_FAILURE_LIMIT="${MONITOR_VALUES[4]}"
+  case "$WATCHDOG_FAILURE_LIMIT" in
+    ''|*[!0-9]*)
+      fail "runtime watchdog consecutive failure limit is invalid"
+      ;;
+  esac
+  [ "$WATCHDOG_FAILURE_LIMIT" -ge 2 ] ||
+    fail "runtime watchdog consecutive failure limit must be at least 2"
 }
 
 runtime_backend_alive() {
@@ -138,11 +148,23 @@ NODE
 run_supervised_electron() {
   ./node_modules/.bin/electron . &
   local electron_pid="$!"
+  local consecutive_failures=0
+
   while kill -0 "$electron_pid" >/dev/null 2>&1; do
-    if ! runtime_backend_alive || ! runtime_api_ready; then
-      echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_FAIL: authoritative runtime disappeared while Electron was open" >&2
+    if ! runtime_backend_alive; then
+      echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_FAIL: authoritative runtime process disappeared while Electron was open" >&2
       kill "$electron_pid" >/dev/null 2>&1 || true
       return 1
+    elif ! runtime_api_ready; then
+      consecutive_failures=$((consecutive_failures + 1))
+      echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_RETRY failure_count=$consecutive_failures failure_limit=$WATCHDOG_FAILURE_LIMIT" >&2
+      if [ "$consecutive_failures" -ge "$WATCHDOG_FAILURE_LIMIT" ]; then
+        echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_FAIL: authoritative runtime API failed $consecutive_failures consecutive health probes" >&2
+        kill "$electron_pid" >/dev/null 2>&1 || true
+        return 1
+      fi
+    else
+      consecutive_failures=0
     fi
     sleep "$WATCHDOG_POLL_SECONDS"
   done

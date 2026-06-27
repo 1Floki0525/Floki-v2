@@ -66,6 +66,30 @@ VISION_SSH_TUNNEL_SOCKET="${CLEANUP_CONFIG[13]}"
 VISION_SSH_TUNNEL_TARGET="${CLEANUP_CONFIG[14]}"
 VISION_SSH_TUNNEL_TIMEOUT_SECONDS="${CLEANUP_CONFIG[15]}"
 
+# FLOKI_CHAT_LOCAL_CLEANUP_OWNERSHIP_GATE_BEGIN
+CHAT_LOCAL_SUPERVISOR_SESSION_FILE="${FLOKI_CHAT_LOCAL_SESSION_FILE:-$CHAT_RUNTIME_DIR/chat-local-supervisor-session.json}"
+CHAT_LOCAL_REQUESTED_SESSION_ID="${FLOKI_CHAT_LOCAL_SESSION_ID:-}"
+
+CLEANUP_AUTH_OUTPUT="$(
+  node src/runtime/chat-local-supervisor-lease.cjs     authorize-cleanup     "$CHAT_LOCAL_SUPERVISOR_SESSION_FILE"     "$CHAT_LOCAL_REQUESTED_SESSION_ID"     2>&1
+)"
+CLEANUP_AUTH_STATUS="$?"
+
+if [ "$CLEANUP_AUTH_STATUS" -eq 3 ]; then
+  printf '%s
+' "$CLEANUP_AUTH_OUTPUT"
+  echo "FLOKI_V2_CHAT_LOCAL_CLEANUP_SKIPPED ownership_guard=true"
+  exit 0
+fi
+
+if [ "$CLEANUP_AUTH_STATUS" -ne 0 ]; then
+  printf '%s
+' "$CLEANUP_AUTH_OUTPUT" >&2
+  echo "FLOKI_V2_CHAT_LOCAL_CLEANUP_FAIL: cleanup ownership authorization failed" >&2
+  exit "$CLEANUP_AUTH_STATUS"
+fi
+# FLOKI_CHAT_LOCAL_CLEANUP_OWNERSHIP_GATE_END
+
 timeout "${RSI_STOP_COMMAND_TIMEOUT_SECONDS}s" bash bin/floki-self-improvement-stop.sh >/dev/null 2>&1 || true
 timeout "${RSI_STOP_COMMAND_TIMEOUT_SECONDS}s" bash bin/floki-chat-stop.sh >/dev/null 2>&1 || true
 timeout "${RSI_STOP_COMMAND_TIMEOUT_SECONDS}s" bash bin/floki-chat-vision-stop.sh >/dev/null 2>&1 || true
@@ -123,6 +147,17 @@ NODE
 if [ "$STATUS" -ne 0 ]; then
   echo "FLOKI_V2_CHAT_LOCAL_CLEANUP_FAIL: surviving Floki processes remain" >&2
   exit "$STATUS"
+fi
+
+RELEASE_OUTPUT="$(
+  node src/runtime/chat-local-supervisor-lease.cjs     release     "$CHAT_LOCAL_SUPERVISOR_SESSION_FILE"     "$CHAT_LOCAL_REQUESTED_SESSION_ID"     2>&1
+)"
+RELEASE_STATUS="$?"
+if [ "$RELEASE_STATUS" -ne 0 ]; then
+  printf '%s
+' "$RELEASE_OUTPUT" >&2
+  echo "FLOKI_V2_CHAT_LOCAL_CLEANUP_FAIL: supervisor session release failed" >&2
+  exit "$RELEASE_STATUS"
 fi
 
 echo "FLOKI_V2_CHAT_LOCAL_CLEANUP_PASS ollama_preserved=true"

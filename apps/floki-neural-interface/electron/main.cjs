@@ -8,13 +8,20 @@ if (process.platform === 'linux' && process.env.FLOKI_ELECTRON_ENABLE_GPU_SANDBO
 const APP_ROOT = path.resolve(__dirname, '..');
 const PROJECT_ROOT = path.resolve(APP_ROOT, '..', '..');
 const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
-const { getLiveChatConfig, getVisionConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
+const { getLiveChatConfig, getVisionConfig, getSelfImprovementConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
 const { runtimePaths } = require(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'));
 const { createMjpegFileStreamServer } = require('./mjpeg-file-stream.cjs');
 const { createRuntimeRequest } = require('./runtime-request.cjs');
 
 const runtimeConfig = getLiveChatConfig('chat');
 const visionConfig = getVisionConfig('chat');
+const selfImprovementConfig = getSelfImprovementConfig('chat');
+// Run Now blocks server-side until the sandbox actually starts (snapshot of the
+// repo + self-context, then container creation), which can exceed the default
+// stream timeout. Give this one call a client budget larger than the server's
+// sandbox-start wait so the UI does not abort before the sandbox is up.
+const RUN_NOW_REQUEST_TIMEOUT_MS =
+  Number(selfImprovementConfig.run_now_ack_timeout_ms) + 30000;
 const RUNTIME_URL = 'http://' + runtimeConfig.runtime_host + ':' + String(runtimeConfig.runtime_port);
 const { ensureApprovalToken } = require(path.join(PROJECT_ROOT, 'src/self-improvement/store.cjs'));
 const SELF_IMPROVEMENT_APPROVAL_TOKEN = ensureApprovalToken();
@@ -92,8 +99,16 @@ function registerIpc() {
     runtimeRequest('POST', '/self-improvement/run-now', {
       objective: String(payload.objective || ''),
       token: SELF_IMPROVEMENT_APPROVAL_TOKEN
-    })
+    }, RUN_NOW_REQUEST_TIMEOUT_MS)
   );
+  ipcMain.handle('floki:get-self-improvement-activity', async (_event, payload = {}) => {
+    const params = new URLSearchParams();
+    if (payload.init) params.set('init', 'true');
+    if (payload.audit_cursor != null) params.set('audit_cursor', String(payload.audit_cursor));
+    if (payload.sandbox_cursor != null) params.set('sandbox_cursor', String(payload.sandbox_cursor));
+    if (payload.limit != null) params.set('limit', String(payload.limit));
+    return runtimeRequest('GET', '/self-improvement/activity?' + params.toString());
+  });
   ipcMain.handle('floki:get-initial-status', () => runtimeRequest('GET', '/interface/status'));
   ipcMain.handle('floki:get-system-status', () => runtimeRequest('GET', '/interface/services'));
   ipcMain.handle('floki:get-transcript', (_event, payload = {}) => runtimeRequest('GET', '/interface/transcript?limit=' + encodeURIComponent(String(payload.limit || 200))));

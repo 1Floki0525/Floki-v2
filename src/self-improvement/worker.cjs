@@ -212,11 +212,33 @@ function idleEligibility(runtime, status, config, force = false) {
   };
 }
 
-function pendingCandidateExists(config) {
+// A candidate is actively being promoted into production — the codebase is
+// changing underneath us, so a new cycle's snapshot would be inconsistent.
+// This must always block a new cycle.
+function promotionInProgress(config) {
   return listCandidates(config).some((candidate) =>
-    ['pending_review', 'approved', 'validating', 'deploying'].includes(
-      candidate.status
-    )
+    ['approved', 'validating', 'deploying'].includes(candidate.status)
+  );
+}
+
+// How many candidates are waiting for the Maker to review them. These do NOT
+// block new cycles until the queue reaches max_pending_review_candidates, so
+// the Maker returns to a batch of candidates instead of a single one.
+function pendingReviewCount(config) {
+  return listCandidates(config).filter(
+    (candidate) => candidate.status === 'pending_review'
+  ).length;
+}
+
+function pendingReviewQueueFull(config) {
+  return pendingReviewCount(config) >= config.max_pending_review_candidates;
+}
+
+// Retained for backward compatibility: true when any candidate is pending
+// review or being promoted.
+function pendingCandidateExists(config) {
+  return (
+    promotionInProgress(config) || pendingReviewCount(config) > 0
   );
 }
 
@@ -253,15 +275,15 @@ function resolveManualRunRequest(fileRequest, status, config) {
 
 async function runCycle(options = {}) {
   const config = options.config || loadSelfImprovementConfig();
-  if (pendingCandidateExists(config)) {
+  if (promotionInProgress(config)) {
     updateStatus({
-      state: 'pending_review',
-      phase: 'awaiting_maker_decision'
+      state: 'promoting',
+      phase: 'awaiting_promotion_completion'
     }, config);
     return {
       ok: false,
       skipped: true,
-      reason: 'candidate_pending_review'
+      reason: 'promotion_in_progress'
     };
   }
 
@@ -606,10 +628,10 @@ async function serviceLoop(options = {}) {
       await wakeController.wait(config.poll_ms);
       continue;
     }
-    if (pendingCandidateExists(config)) {
+    if (promotionInProgress(config)) {
       updateStatus({
-        state: 'pending_review',
-        phase: 'awaiting_maker_decision'
+        state: 'promoting',
+        phase: 'awaiting_promotion_completion'
       }, config);
       await wakeController.wait(config.poll_ms);
       continue;
@@ -621,6 +643,20 @@ async function serviceLoop(options = {}) {
       status,
       config
     );
+
+    // Let the pending-review queue grow up to max_pending_review_candidates so
+    // the Maker returns to a batch of candidates. A manual Run Now (force)
+    // bypasses the queue cap; only active promotion blocks a forced run.
+    if (request?.force !== true && pendingReviewQueueFull(config)) {
+      updateStatus({
+        state: 'pending_review',
+        phase: 'awaiting_maker_decision',
+        pending_review_count: pendingReviewCount(config)
+      }, config);
+      await wakeController.wait(config.poll_ms);
+      continue;
+    }
+
     const runtime = readRuntimeStatus(config);
     const eligibility = idleEligibility(
       runtime,
@@ -729,6 +765,9 @@ module.exports = {
   latestActivityMs,
   memoryAvailableMb,
   pendingCandidateExists,
+  promotionInProgress,
+  pendingReviewCount,
+  pendingReviewQueueFull,
   readRuntimeStatus,
   resolveManualRunRequest,
   classifySandboxExit,

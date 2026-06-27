@@ -678,20 +678,35 @@ function buildFreshDetectionObservation(options = {}) {
     .filter((entry) => entry && (entry.bucket === 'persons' || entry.bucket === 'objects'));
 
   const personCount = visible.filter((entry) => entry.bucket === 'persons').length;
-  const objectCounts = new Map();
+  const confirmedObjectCounts = new Map();
+  const uncertainObjectLabels = new Set();
+
   for (const entry of visible) {
     if (entry.bucket !== 'objects') continue;
     const label = normalizedDetectionLabel(entry.detection);
     if (!label) continue;
-    objectCounts.set(label, Number(objectCounts.get(label) || 0) + 1);
+    if (entry.detection.certainty === 'uncertain') {
+      uncertainObjectLabels.add(label);
+    } else {
+      confirmedObjectCounts.set(label, Number(confirmedObjectCounts.get(label) || 0) + 1);
+    }
+  }
+
+  // Labels that are already confirmed are not also flagged as uncertain.
+  for (const label of uncertainObjectLabels) {
+    if (confirmedObjectCounts.has(label)) uncertainObjectLabels.delete(label);
   }
 
   const maxObjects = Math.max(1, Number(vision.cognition_scene_max_detected_objects));
-  const detectedObjects = Array.from(objectCounts.entries())
+  const detectedObjects = Array.from(confirmedObjectCounts.entries())
     .map(([label, count]) => Object.freeze({ label, count }))
     .slice(0, maxObjects);
 
-  if (personCount === 0 && detectedObjects.length === 0) return null;
+  const uncertainObjects = Array.from(uncertainObjectLabels)
+    .map((label) => Object.freeze({ label }))
+    .slice(0, maxObjects);
+
+  if (personCount === 0 && detectedObjects.length === 0 && uncertainObjects.length === 0) return null;
 
   const facts = [];
   if (personCount > 0) facts.push(String(personCount) + (personCount === 1 ? ' person is visible' : ' people are visible'));
@@ -699,6 +714,12 @@ function buildFreshDetectionObservation(options = {}) {
     facts.push('visible objects include ' + detectedObjects.map((entry) => entry.count > 1 ? String(entry.count) + ' ' + entry.label : entry.label).join(', '));
   }
 
+  const uncertainFacts = [];
+  if (uncertainObjects.length > 0) {
+    uncertainFacts.push('possible but unverified: ' + uncertainObjects.map((e) => e.label).join(', '));
+  }
+
+  const allFacts = [...facts, ...uncertainFacts];
   const timestamp = latest.detection.stored_at || latest.detection.detected_at || nowIso();
   return Object.freeze({
     available: true,
@@ -708,11 +729,12 @@ function buildFreshDetectionObservation(options = {}) {
     latest_private_observation_timestamp: timestamp,
     source: 'webcam_live_detection',
     sight_scope: 'maker_world_external',
-    observation_summary: facts.join('. ') + '.',
+    observation_summary: allFacts.join('. ') + (allFacts.length > 0 ? '.' : ''),
     scene_summary: null,
     detected_people_count: personCount,
     detected_objects: Object.freeze(detectedObjects),
-    grounding_summary: facts.join('. ') + '.',
+    uncertain_objects: Object.freeze(uncertainObjects),
+    grounding_summary: allFacts.join('. ') + (allFacts.length > 0 ? '.' : ''),
     detection_grounding_used: true,
     detection_fallback_used: true,
     unavailable_reason: null,
@@ -775,6 +797,9 @@ function readLatestPrivateObservation(options = {}) {
   const detectedObjects = detection && Array.isArray(detection.detected_objects)
     ? detection.detected_objects
     : [];
+  const uncertainObjects = detection && Array.isArray(detection.uncertain_objects)
+    ? detection.uncertain_objects
+    : [];
   const people = detection ? Number(detection.detected_people_count || 0) : 0;
   const groundingSummary = detection && detection.grounding_summary
     ? detection.grounding_summary
@@ -792,6 +817,7 @@ function readLatestPrivateObservation(options = {}) {
     scene_summary: sceneSummary,
     detected_people_count: people,
     detected_objects: Object.freeze(detectedObjects),
+    uncertain_objects: Object.freeze(uncertainObjects),
     grounding_summary: groundingSummary,
     detection_grounding_used: Boolean(detection),
     unavailable_reason: null,

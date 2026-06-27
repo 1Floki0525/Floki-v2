@@ -38,6 +38,7 @@ const { readManualNapState, beginManualNap, wakeManualNap, claimDueRemCycle, fin
 const { recordWakeActivityIfSleeping, loadSleepCycleState } = require('../chat/sleep-cycle.cjs');
 const { runDreamEngineOnce } = require('../chat/dream-engine.cjs');
 const { createSelfImprovementApi } = require('../self-improvement/api.cjs');
+const { loadSelfImprovementConfig } = require('../self-improvement/config.cjs');
 const { reconcileDreamArchive } = require('../chat/dream-archive.cjs');
 const { createChatLocalInterfaceApi } = require('./chat-local-interface-api.cjs');
 const { createKnowledgeRuntimeBootstrap } = require('../chat/knowledge-runtime-bootstrap.cjs');
@@ -113,6 +114,128 @@ function sendJson(res, statusCode, payload) {
     'access-control-allow-headers': 'content-type'
   });
   res.end(body);
+}
+
+
+async function jsonlFileSize(filePath) {
+  try {
+    const stat = await fs.promises.stat(filePath);
+    return stat.isFile() ? stat.size : 0;
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return 0;
+    throw error;
+  }
+}
+
+async function readJsonlActivityChunk(
+  filePath,
+  requestedCursor,
+  options = {}
+) {
+  const source = String(options.source || 'activity');
+  const maxBytes = Number(options.max_bytes);
+  const maxEvents = Number(options.max_events);
+
+  if (!Number.isInteger(maxBytes) || maxBytes < 4096) {
+    throw new Error('activity stream max_bytes must be an integer >= 4096');
+  }
+  if (!Number.isInteger(maxEvents) || maxEvents < 1) {
+    throw new Error('activity stream max_events must be a positive integer');
+  }
+
+  const size = await jsonlFileSize(filePath);
+  const parsedCursor = Number(requestedCursor);
+  let cursor = Number.isSafeInteger(parsedCursor) && parsedCursor >= 0
+    ? parsedCursor
+    : 0;
+  const cursorReset = cursor > size;
+  if (cursorReset) cursor = 0;
+
+  if (cursor >= size) {
+    return Object.freeze({
+      events: Object.freeze([]),
+      next_cursor: cursor,
+      file_size: size,
+      cursor_reset: cursorReset
+    });
+  }
+
+  const readLength = Math.min(maxBytes, size - cursor);
+  const handle = await fs.promises.open(filePath, 'r');
+  let bytesRead = 0;
+  let buffer;
+  try {
+    buffer = Buffer.allocUnsafe(readLength);
+    ({ bytesRead } = await handle.read(
+      buffer,
+      0,
+      readLength,
+      cursor
+    ));
+  } finally {
+    await handle.close();
+  }
+
+  const available = buffer.subarray(0, bytesRead);
+  const reachedEof = cursor + bytesRead >= size;
+  let completeBytes = bytesRead;
+
+  if (available.length > 0 && available[available.length - 1] !== 0x0a) {
+    const lastNewline = available.lastIndexOf(0x0a);
+    completeBytes = lastNewline < 0 ? 0 : lastNewline + 1;
+  }
+
+  if (!reachedEof && completeBytes === 0 && bytesRead === maxBytes) {
+    throw new Error(
+      'activity JSONL record exceeds activity_stream_max_bytes'
+    );
+  }
+
+  const complete = available.subarray(0, completeBytes);
+  const events = [];
+  let lineStart = 0;
+  let nextCursor = cursor;
+
+  while (lineStart < complete.length && events.length < maxEvents) {
+    const newline = complete.indexOf(0x0a, lineStart);
+    if (newline < 0) break;
+
+    let lineEnd = newline;
+    if (lineEnd > lineStart && complete[lineEnd - 1] === 0x0d) {
+      lineEnd -= 1;
+    }
+
+    const lineOffset = cursor + lineStart;
+    const raw = complete.subarray(lineStart, lineEnd).toString('utf8');
+    nextCursor = cursor + newline + 1;
+    lineStart = newline + 1;
+
+    if (!raw.trim()) continue;
+
+    try {
+      events.push({
+        source,
+        index: lineOffset,
+        record: JSON.parse(raw)
+      });
+    } catch (_error) {
+      events.push({
+        source,
+        index: lineOffset,
+        record: {
+          type: 'parse_error',
+          raw: raw.slice(0, 200)
+        }
+      });
+    }
+  }
+
+  return Object.freeze({
+    events: Object.freeze(events),
+    next_cursor: nextCursor,
+    file_size: size,
+    cursor_reset: cursorReset
+  });
 }
 
 function memoryPathsWritable() {
@@ -1025,6 +1148,117 @@ function createChatLocalRuntime(options = {}) {
       );
       return;
     }
+    if (req.method === 'GET' && url.pathname === '/self-improvement/activity') {
+      try {
+        const rsiConfig = loadSelfImprovementConfig();
+        const auditFile = path.join(
+          rsiConfig.runtime_root,
+          rsiConfig.audit_file_name
+        );
+        const rsiStatus = selfImprovementApi.status();
+        const sandboxLogFile =
+          rsiStatus?.last_sandbox_log_file || null;
+        const maxEvents = Math.min(
+          rsiConfig.activity_stream_max_events,
+          Math.max(
+            1,
+            Number.parseInt(
+              url.searchParams.get('limit') || '200',
+              10
+            ) || 200
+          )
+        );
+        const maxBytes = rsiConfig.activity_stream_max_bytes;
+
+        if (url.searchParams.get('init') === 'true') {
+          const [auditSize, sandboxSize] = await Promise.all([
+            jsonlFileSize(auditFile),
+            sandboxLogFile
+              ? jsonlFileSize(sandboxLogFile)
+              : Promise.resolve(0)
+          ]);
+          sendJson(res, 200, {
+            ok: true,
+            events: [],
+            cursor_mode: 'byte_offset',
+            next_audit_cursor: auditSize,
+            next_sandbox_cursor: sandboxSize,
+            sandbox_log_file: sandboxLogFile,
+            run_id: rsiStatus?.current_run_id || null,
+            phase: rsiStatus?.phase || null
+          });
+          return;
+        }
+
+        const auditCursor = Math.max(
+          0,
+          Number.parseInt(
+            url.searchParams.get('audit_cursor') || '0',
+            10
+          ) || 0
+        );
+        const sandboxCursor = Math.max(
+          0,
+          Number.parseInt(
+            url.searchParams.get('sandbox_cursor') || '0',
+            10
+          ) || 0
+        );
+
+        const [auditChunk, sandboxChunk] = await Promise.all([
+          readJsonlActivityChunk(auditFile, auditCursor, {
+            source: 'controller',
+            max_bytes: maxBytes,
+            max_events: maxEvents
+          }),
+          sandboxLogFile
+            ? readJsonlActivityChunk(
+                sandboxLogFile,
+                sandboxCursor,
+                {
+                  source: 'sandbox',
+                  max_bytes: maxBytes,
+                  max_events: maxEvents
+                }
+              )
+            : Promise.resolve({
+                events: [],
+                next_cursor: 0,
+                file_size: 0,
+                cursor_reset: false
+              })
+        ]);
+
+        const merged = [
+          ...auditChunk.events,
+          ...sandboxChunk.events
+        ].sort((a, b) => {
+          const ta = String(a.record?.created_at || '');
+          const tb = String(b.record?.created_at || '');
+          if (ta !== tb) return ta < tb ? -1 : 1;
+          return Number(a.index || 0) - Number(b.index || 0);
+        });
+
+        sendJson(res, 200, {
+          ok: true,
+          events: merged,
+          cursor_mode: 'byte_offset',
+          next_audit_cursor: auditChunk.next_cursor,
+          next_sandbox_cursor: sandboxChunk.next_cursor,
+          audit_cursor_reset: auditChunk.cursor_reset,
+          sandbox_cursor_reset: sandboxChunk.cursor_reset,
+          sandbox_log_file: sandboxLogFile,
+          run_id: rsiStatus?.current_run_id || null,
+          phase: rsiStatus?.phase || null
+        });
+      } catch (error) {
+        sendJson(res, 500, {
+          ok: false,
+          error: error.message
+        });
+      }
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/speak') {
       const body = await bodyJson(req);
       const text = String(body.text || '').trim();
@@ -1225,6 +1459,8 @@ if (require.main === module) {
 module.exports = {
   DEFAULT_HOST,
   DEFAULT_PORT,
+  jsonlFileSize,
+  readJsonlActivityChunk,
   memoryPathsWritable,
   normalizeIntentText,
   configuredVisionQuestionPhrases,
