@@ -2926,8 +2926,10 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       SNAPSHOT_RUNTIME_EVIDENCE_FILE_NAME
     );
     const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+    // Only show the 2 most recent denials to keep context window small.
     const denied = (evidence.previous_candidate_outcomes || [])
-      .filter(c => c.status === 'denied' && c.denial_reason);
+      .filter(c => c.status === 'denied' && c.denial_reason)
+      .slice(0, 2);
     if (denied.length > 0) {
       denialHistoryBlock =
         'MAKER-DENIED CANDIDATES — Study these carefully before selecting an experiment:\n\n' +
@@ -2938,8 +2940,8 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
             `Denial reason:\n${c.denial_reason}`;
           if (c.changes_diff) {
             entry +=
-              '\n\nPrevious implementation diff (what was tried — learn from this):\n' +
-              '```diff\n' + c.changes_diff.slice(0, 5000) + '\n```';
+              '\n\nPrevious diff (what was tried — learn from this):\n' +
+              '```diff\n' + c.changes_diff.slice(0, 1500) + '\n```';
           }
           return entry;
         }).join('\n\n---\n\n') +
