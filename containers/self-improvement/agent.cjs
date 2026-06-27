@@ -2913,6 +2913,7 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
 	12. Return no candidate when the bounded evidence does not justify a safe improvement.
 	13. Call write_memory at least once during the session to record meaningful lessons, discoveries, or experiences — these survive beyond the sandbox into your persistent long-term memory.
 	14. When revising after a focused-test failure: use read_file to re-read the CURRENT state of each target file before editing. Make ONLY the minimum targeted change the failure output indicates — do NOT rewrite the file or remove existing working code. One small correct edit beats a large rewrite.
+	15. When a Maker denial says your test only tested a helper or classification function and asks for BEHAVIORAL proof: first use search_source to find all callers of that function. Read those callers with read_file. Your test must exercise the caller's full decision path — not just the helper in isolation.
 
 	You may improve the self-improvement system itself, but the same verification and Maker approval rules always apply.`;
 
@@ -2945,7 +2946,13 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
         '\n\nREVISION GUIDANCE: If you select an experiment in the same technical area as a denied candidate above, you have two valid paths:\n' +
         '1. REVISE the denied approach — look at the previous diff above, keep what was correct, fix ONLY what the denial reason says was wrong. Make the minimum targeted change.\n' +
         '2. DIFFERENT APPROACH — select a materially different objective that fully addresses every point in the denial reason.\n' +
-        'Do NOT repeat the same structural mistakes shown in the previous diff. Do NOT remove existing working code while adding new code.\n\n';
+        'Do NOT repeat the same structural mistakes shown in the previous diff. Do NOT remove existing working code while adding new code.\n\n' +
+        'CRITICAL — if the denial says your test only tested a HELPER or CLASSIFICATION function and asks for BEHAVIORAL proof:\n' +
+        '  • A classification test proves a function returns true/false. That is NOT behavioral proof.\n' +
+        '  • Behavioral proof means: find the code that CALLS the helper, understand the full decision path,\n' +
+        '    and write a test that exercises THAT decision path end-to-end.\n' +
+        '  • Use search_source and read_file to find all callers of the function under test.\n' +
+        '    Read those callers before writing any assertion. Your test must mirror the caller\'s logic.\n\n';
     }
   } catch (_) {}
 
