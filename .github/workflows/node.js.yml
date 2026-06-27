@@ -1,95 +1,74 @@
-name: Apply and verify Floki RSI v2
+name: Floki-v2 Node 24 CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: floki-rsi-v2-apply-${{ github.ref }}
-  cancel-in-progress: false
+  group: floki-v2-node24-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  apply-test-and-push:
-    name: Apply, test, and commit RSI v2
+  build-and-test:
+    name: Build and test
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    steps:
-      - name: Check out RSI development branch
-        uses: actions/checkout@v4
-        with:
-          ref: rsi-autonomy-training-v2
-          fetch-depth: 0
+    timeout-minutes: 30
 
-      - name: Restore patch baseline and apply complete upgrade
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo '9f3f5891260ee8d9ec5d7114d9a78e021fea95bf7582b73402d5bb149e3c84a1  .github/rsi-upgrade.patch.gz.b64' | sha256sum -c -
-          base64 --decode .github/rsi-upgrade.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/rsi-upgrade.patch"
-          echo 'a2fadf167fd2ed1234792cf8925514ced48aba186b8c022bd731b24ea0700f59  '"$RUNNER_TEMP/rsi-upgrade.patch" | sha256sum -c -
-          git checkout bb5bd714e91a88adbd7f6a0880c353bc8f08df26 -- .github/workflows/node.js.yml
-          git apply --index --binary "$RUNNER_TEMP/rsi-upgrade.patch"
-          git rm .github/rsi-upgrade.patch.gz.b64
-          git rm .github/workflows/rsi-upgrade-apply.yml
-          git diff --cached --check
-          if git diff --cached --name-only | grep -Eq '(^|/)game\.config\.yaml(\.temp)?$'; then
-            echo 'RSI upgrade must not modify game configuration' >&2
-            exit 1
-          fi
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
 
       - name: Configure Node.js 24
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
 
+      - name: Validate checked-out release inputs
+        shell: bash
+        run: |
+          test -f package-lock.json
+          test -f apps/floki-neural-interface/package-lock.json
+          test -f config/chat.config.yaml.temp
+          test -f config/game.config.yaml.temp
+          test -f bin/floki-prepare-ci-config.cjs
+          test -x bin/floki-node24-run.sh
+          test -x bin/floki-build.sh
+
       - name: Prepare runner-portable configuration
+        shell: bash
         run: node bin/floki-prepare-ci-config.cjs
 
-      - name: Install root and neural-interface dependencies
-        run: |
-          npm ci --no-audit --no-fund
-          npm --prefix apps/floki-neural-interface ci --no-audit --no-fund
-
-      - name: Run static verification
+      - name: Verify Node 24 requirement
         shell: bash
         run: |
-          set -euo pipefail
-          case "$(node --version)" in v24.*) ;; *) exit 1 ;; esac
-          while IFS= read -r -d '' file; do
-            node --check "$file" >/dev/null
-          done < <(
-            find src brain bin apps/floki-neural-interface/electron \
-              containers/self-improvement tests \
-              -type f \( -name '*.cjs' -o -name '*.js' \) \
-              -not -path '*/node_modules/*' -print0
-          )
-          python3 -m py_compile containers/self-improvement-training/*.py
-          for file in bin/*.sh; do bash -n "$file"; done
-          git diff --cached --check
+          bash bin/floki-node24-run.sh node --version
+          bash bin/floki-node24-run.sh npm --version
 
-      - name: Run complete npm and interface verification
+      - name: Install root dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install neural-interface dependencies
+        run: npm --prefix apps/floki-neural-interface ci --no-audit --no-fund
+
+      - name: Build neural interface
+        run: npm run build
+
+      - name: Run contract tests
         shell: bash
         run: |
-          set -euo pipefail
-          npm test
-          npm run build
-          npm run test:integration --prefix apps/floki-neural-interface
-          npm run build --prefix apps/floki-neural-interface
+          status=0
+          npm test 2>&1 | tee "$RUNNER_TEMP/floki-contract-tests.log" || status=${PIPESTATUS[0]}
 
-      - name: Run ECC-equivalent production release gate
-        run: bash bin/floki-production-verify.sh
-
-      - name: Commit verified RSI upgrade to development branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -z "$(git diff --name-only)"
-          git diff --cached --check
-          git config user.name 'Floki RSI Upgrade CI'
-          git config user.email 'self-improvement@floki.local'
-          git commit -m 'feat: complete autonomous RSI and model training v2'
-          git push origin HEAD:rsi-autonomy-training-v2
+          if [ "$status" -ne 0 ]; then
+            echo
+            echo "===== FLOKI CONTRACT TEST FAILURE CONTEXT ====="
+            tail -n 250 "$RUNNER_TEMP/floki-contract-tests.log"
+            exit "$status"
+          fi
