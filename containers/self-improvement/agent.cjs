@@ -82,6 +82,7 @@ const GIT_OUTPUT_BUFFER_BYTES = requireNumber('agent_git_output_buffer_bytes');
 const GIT_SHOW_BUFFER_BYTES = requireNumber('agent_git_show_buffer_bytes');
 const COMMAND_AUDIT_MAX_CHARS = requireNumber('agent_command_audit_max_chars');
 const TOOL_RESULT_MAX_CHARS = requireNumber('agent_tool_result_max_chars');
+const TERMINAL_PREVIEW_MAX_CHARS = requireNumber('agent_terminal_preview_max_chars');
 const TEST_OUTPUT_TAIL_CHARS = requireNumber('agent_test_output_tail_chars');
 const MIN_COMMAND_TIMEOUT_MS = requireNumber('agent_min_command_timeout_ms');
 const ENVIRONMENT_CHECK_TIMEOUT_MS =
@@ -2143,9 +2144,14 @@ async function executeTool(name, args) {
       audit('write_file', {
         path: args.path,
         bytes: Buffer.byteLength(content),
+        line_count: content.split('\n').length,
         before_hash,
         after_hash,
-        workspace_changed: changed
+        workspace_changed: changed,
+        // Bounded content preview so the read-only terminal can show what Floki
+        // wrote without flooding the polled activity stream with whole files.
+        content_preview: truncate(content, TERMINAL_PREVIEW_MAX_CHARS),
+        content_truncated: content.length > TERMINAL_PREVIEW_MAX_CHARS
       });
       if (changed) rememberTaskList('files_changed', [String(args.path || '')]);
       return {
@@ -2178,6 +2184,17 @@ async function executeTool(name, args) {
       const changed = before !== null && after !== null && before !== after;
       const changedFiles = changedFilesFromStatus();
       if (changed) rememberTaskList('files_changed', changedFiles);
+      // Audit the patch so the read-only terminal shows the actual diff Floki
+      // applied (previously apply_patch produced no terminal-visible event).
+      audit('apply_patch', {
+        paths,
+        changed_files: changedFiles,
+        workspace_changed: changed,
+        patch_line_count: patch.split('\n').length,
+        // Bounded diff preview (not the whole patch) for the same reason.
+        patch_preview: truncate(patch, TERMINAL_PREVIEW_MAX_CHARS),
+        patch_truncated: patch.length > TERMINAL_PREVIEW_MAX_CHARS
+      });
       return {
         ok: true,
         paths,

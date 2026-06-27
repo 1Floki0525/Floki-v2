@@ -23,6 +23,16 @@ function outputLines(text, maxLines = 25, maxLen = 160) {
   return result;
 }
 
+// Faithful code/diff rendering: keep every line (including blanks) so the
+// terminal shows exactly what Floki wrote, like a real editor view.
+function codeLines(text, maxLines = 400, maxLen = 240) {
+  if (!text) return [];
+  const lines = String(text).split(/\r?\n/);
+  const kept = lines.slice(0, maxLines).map(l => l.slice(0, maxLen));
+  if (lines.length > maxLines) kept.push(`  … (${lines.length - maxLines} more lines)`);
+  return kept;
+}
+
 // Expand one API event item into one or more display items
 function expandToDisplayItems(item) {
   const { source, index, record } = item;
@@ -51,24 +61,26 @@ function expandToDisplayItems(item) {
 
   if (type === 'shell_end') {
     const identity = safeStr(de.identity);
-    const cmd = (identity || safeStr(de.command)).slice(0, 100);
+    // Show the REAL command Floki ran, not just its internal label.
+    const cmd = safeStr(de.command, 400) || identity;
     const exitCode = de.status;
     const ms = de.duration_ms != null ? ` (${de.duration_ms}ms)` : '';
     const isFocused = identity === 'focused_test';
     const prefix = isFocused ? '[test]' : '[shell]';
+    const tag = identity && identity !== cmd ? ` ${identity}:` : '';
     const ok = exitCode === 0;
     const headerColor = ok ? 'text-foreground/80' : 'text-orange-300';
-    const header = `${prefix} ${cmd} → exit ${exitCode}${ms}`;
+    const header = `${prefix}${tag} $ ${cmd} → exit ${exitCode}${ms}`;
 
     if (ok) {
-      const stdout = safeStr(de.stdout, 8000);
-      const lines = outputLines(stdout, 20, 160);
+      const stdout = safeStr(de.stdout, 12000);
+      const lines = outputLines(stdout, 40, 200);
       if (lines.length === 0) return main(header, headerColor);
       return withOutput(header, headerColor, lines, 'text-foreground/50');
     } else {
       // On failure: stderr takes priority, fallback to stdout
-      const errText = safeStr(de.stderr, 8000) || safeStr(de.stdout, 8000);
-      const lines = outputLines(errText, 30, 160);
+      const errText = safeStr(de.stderr, 12000) || safeStr(de.stdout, 12000);
+      const lines = outputLines(errText, 50, 200);
       if (lines.length === 0) return main(header, headerColor);
       return withOutput(header, headerColor, lines, 'text-orange-200/70');
     }
@@ -76,24 +88,45 @@ function expandToDisplayItems(item) {
 
   if (type === 'shell_progress') {
     const identity = safeStr(de.identity);
-    const cmd = (identity || safeStr(de.command)).slice(0, 100);
+    const cmd = safeStr(de.command, 400) || identity;
+    const tag = identity && identity !== cmd ? ` ${identity}:` : '';
     const elapsed = de.elapsed_ms != null ? ` (${Math.round(de.elapsed_ms / 1000)}s)` : '';
-    return main(`[shell] $ ${cmd}${elapsed} …`, 'text-foreground/50');
+    return main(`[shell]${tag} $ ${cmd}${elapsed} …`, 'text-foreground/50');
   }
 
   if (type === 'write_file') {
     const filePath = safeStr(de.path);
     const bytes = de.bytes != null ? ` (${de.bytes} bytes)` : '';
+    const lc = de.line_count != null ? `, ${de.line_count} lines` : '';
     const changed = de.workspace_changed ? '' : ' [noop]';
-    return main(`[write] ${filePath}${bytes}${changed}`, 'text-sky-400/80');
+    const header = `[write] ${filePath}${bytes ? bytes.replace(')', lc + ')') : ''}${changed}`;
+    // Bounded preview field (content_preview); fall back to legacy `content`.
+    const preview = de.content_preview != null ? de.content_preview : de.content;
+    const lines = codeLines(preview);
+    if (de.content_truncated) lines.push('  … (content truncated — preview only)');
+    if (lines.length === 0) return main(header, 'text-sky-400/80');
+    return withOutput(header, 'text-sky-400/80', lines, 'text-sky-200/50');
   }
 
   if (type === 'apply_patch') {
-    const filePath = safeStr(de.path || de.file || '');
-    const adds = de.additions != null ? ` +${de.additions}` : '';
-    const dels = de.deletions != null ? ` -${de.deletions}` : '';
-    const bytes = de.bytes != null ? ` (${de.bytes} bytes)` : '';
-    return main(`[patch] ${filePath}${adds}${dels}${bytes}`, 'text-sky-400/80');
+    const filePath = safeStr(
+      de.path || de.file || (Array.isArray(de.paths) ? de.paths.join(', ') : '')
+    );
+    const header = `[patch] ${filePath}`;
+    // Bounded diff preview (patch_preview); fall back to legacy `patch`.
+    const patchText = safeStr(de.patch_preview != null ? de.patch_preview : de.patch, 60000);
+    const raw = codeLines(patchText);
+    if (de.patch_truncated) raw.push('  … (diff truncated — preview only)');
+    if (raw.length === 0) return main(header, 'text-sky-400/80');
+    const items = [{ id: baseId, source, ts, text: redactSensitive(header), color: 'text-sky-400/80', isOutput: false }];
+    raw.forEach((l, i) => {
+      let color = 'text-foreground/45';
+      if (l.startsWith('+') && !l.startsWith('+++')) color = 'text-emerald-300/70';
+      else if (l.startsWith('-') && !l.startsWith('---')) color = 'text-red-300/70';
+      else if (l.startsWith('@@')) color = 'text-neon-cyan/60';
+      items.push({ id: `${baseId}-p-${i}`, source: null, ts: null, text: redactSensitive(l), color, isOutput: true });
+    });
+    return items;
   }
 
   if (type === 'write_memory') {
@@ -422,15 +455,31 @@ function RSITerminal() {
 
 export default function RSILab({ flokiStatus }) {
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    // Page root: own the full viewport height and become the layout frame, NOT
+    // the scroll container. min-h-0 + overflow-hidden keep the document/page
+    // from ever growing a vertical scrollbar; children scroll internally.
+    <div className="h-full min-h-0 flex flex-col overflow-hidden">
+      {/* Title bar — fixed, never scrolls */}
       <div className="flex-none px-6 pt-5 pb-3 flex items-center gap-3">
         <FlaskConical className="w-5 h-5 text-neon-cyan" />
         <h2 className="text-xs font-semibold tracking-[0.2em] uppercase text-neon-cyan/90 font-mono">RSI Lab</h2>
       </div>
-      <div className="min-h-0 overflow-y-auto px-6" style={{ flex: '3 1 0%' }}>
+
+      {/* Controls + objective card + candidate review workspace. Bounded flex
+          region (flex-[3]); min-h-0 lets it shrink so it can never push the
+          terminal off-screen, and overflow-y-auto scrolls its contents
+          INTERNALLY (the panel's own left list / right detail / objective +
+          actions stay usable without any page-level scroll). */}
+      <div className="flex-[3] min-h-0 overflow-y-auto px-6">
         <SelfImprovementPanel />
       </div>
-      <div className="min-h-0 px-6 pb-5 pt-3" style={{ flex: '2 1 0%' }}>
+
+      {/* RSI terminal — anchored at the bottom with a stable flex ratio
+          (flex-[2]) and a readable floor (min-h-[16rem]) so it survives short
+          viewports like 1366x768. overflow-hidden bounds the region; the
+          RSITerminal's own flex-1 body handles internal scrolling while its
+          header/footer stay visible. */}
+      <div className="flex-[2] min-h-[16rem] overflow-hidden px-6 pb-5 pt-3">
         <RSITerminal />
       </div>
     </div>

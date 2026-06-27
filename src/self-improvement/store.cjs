@@ -154,15 +154,31 @@ function readStatus(config = loadSelfImprovementConfig()) {
       ? sandboxHeartbeat.observed_at
       : null,
     ui_poll_ms: config.ui_poll_ms,
-    pending_review_count: listCandidates(config)
-      .filter((candidate) => [
-        'pending_review',
-        'approved',
-        'validating',
-        'deploying'
-      ].includes(candidate.status))
-      .length
+    // Read the persisted count instead of scanning + parsing every candidate
+    // manifest on every call. readStatus() is on the 1s watchdog /status hot
+    // path; an O(candidates) sync scan here starves the runtime under sandbox
+    // CPU load and trips the watchdog. refreshPendingReviewCount() keeps this
+    // value current whenever a candidate's status actually changes.
+    pending_review_count: Number(current?.pending_review_count) || 0
   });
+}
+
+const PENDING_REVIEW_STATUSES = [
+  'pending_review',
+  'approved',
+  'validating',
+  'deploying'
+];
+
+// Recompute the pending-review count from candidate manifests and persist it
+// into the status file. Call this only on candidate status changes (rare), not
+// on the status read path (frequent).
+function refreshPendingReviewCount(config = loadSelfImprovementConfig()) {
+  const count = listCandidates(config).filter((candidate) =>
+    PENDING_REVIEW_STATUSES.includes(candidate.status)
+  ).length;
+  updateStatus({ pending_review_count: count }, config);
+  return count;
 }
 
 function updateStatus(patch, config = loadSelfImprovementConfig()) {
@@ -304,6 +320,11 @@ function patchCandidate(id, patch, config = loadSelfImprovementConfig()) {
     previous_status: current.status,
     next_status: next.status
   }, config);
+  // Keep the persisted pending-review count fresh on every status change so
+  // readStatus() never has to scan all manifests on the hot path.
+  try { refreshPendingReviewCount(config); } catch (error) {
+    appendAudit('pending_review_count_refresh_failed', { error: error.message }, config);
+  }
   return Object.freeze(next);
 }
 
@@ -338,15 +359,22 @@ function importOutbox(runId, config = loadSelfImprovementConfig()) {
   if (fs.existsSync(target)) throw new Error('candidate already exists: ' + id);
   fs.renameSync(source, target);
   appendAudit('candidate_imported', { candidate_id: id, patch_sha256: actualPatchSha }, config);
+  // A candidate awaiting review is NOT a worker-blocking state. Clear the active
+  // run/container and return the worker to normal idle scheduling so the next
+  // eligible RSI cycle can run while this (and other) candidates wait for the
+  // Maker. The pending status lives on the candidate manifest, not worker state.
   updateStatus({
-    state: 'pending_review',
-    phase: 'awaiting_maker_decision',
+    state: 'waiting_for_idle',
+    phase: 'candidate_ready_for_review',
     current_run_id: null,
     current_container: null,
     latest_candidate_id: id,
     last_cycle_completed_at: nowIso(),
     last_error: null
   }, config);
+  try { refreshPendingReviewCount(config); } catch (_error) {
+    appendAudit('pending_review_count_refresh_failed', { candidate_id: id }, config);
+  }
   return readCandidate(id, config);
 }
 
@@ -390,6 +418,7 @@ module.exports = {
   patchCandidate,
   paths,
   processAlive,
+  refreshPendingReviewCount,
   readCandidate,
   readSandboxHeartbeat,
   readStatus,

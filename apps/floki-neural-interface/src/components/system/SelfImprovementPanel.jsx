@@ -29,6 +29,27 @@ function riskClass(level) {
   return 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
 }
 
+// Candidates that still need Maker attention belong in the default "Pending"
+// view: those awaiting/within promotion, plus failure states that the Maker has
+// to acknowledge. Everything else (denied / promoted-live / superseded /
+// auto-rolled-back / other terminal states) is display-only History.
+const ACTIVE_STATUSES = new Set([
+  'pending_review',
+  'approved',
+  'validating',
+  'deploying',
+  'promotion_failed',
+  'validation_failed',
+  'deployment_failed'
+])
+
+function isActiveStatus(value) {
+  return ACTIVE_STATUSES.has(String(value || ''))
+}
+
+// Never render an unbounded list; cap each group and surface a "…N more" note.
+const MAX_RENDERED_CANDIDATES = 200
+
 export default function SelfImprovementPanel() {
   const [status, setStatus] = useState(null)
   const [candidates, setCandidates] = useState([])
@@ -41,6 +62,7 @@ export default function SelfImprovementPanel() {
   const [reviewAction, setReviewAction] = useState(null)
   const [denyReason, setDenyReason] = useState('')
   const [makerObjective, setMakerObjective] = useState('')
+  const [candidateView, setCandidateView] = useState('pending')
   const alertedCandidate = useRef(null)
   const pollMsRef = useRef(null)
 
@@ -110,6 +132,26 @@ export default function SelfImprovementPanel() {
     () => candidates.filter((candidate) => candidate.status === 'pending_review'),
     [candidates]
   )
+
+  // Active candidates need Maker action — show oldest first for fair review order.
+  const activeCandidates = useMemo(
+    () => candidates
+      .filter((candidate) => isActiveStatus(candidate.status))
+      .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))),
+    [candidates]
+  )
+
+  // History is display-only (denied / promoted / superseded / terminal) — newest first.
+  const historyCandidates = useMemo(
+    () => candidates
+      .filter((candidate) => !isActiveStatus(candidate.status))
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
+    [candidates]
+  )
+
+  const shownCandidates = candidateView === 'history' ? historyCandidates : activeCandidates
+  const visibleCandidates = shownCandidates.slice(0, MAX_RENDERED_CANDIDATES)
+  const hiddenCandidateCount = shownCandidates.length - visibleCandidates.length
 
   const act = useCallback(async (name, action, verify) => {
     if (busy) return
@@ -284,7 +326,6 @@ export default function SelfImprovementPanel() {
             }}
             disabled={
               Boolean(busy) ||
-              pending.length > 0 ||
               status?.worker_running !== true ||
               status?.model_proxy_ready !== true ||
               status?.paused === true ||
@@ -295,7 +336,8 @@ export default function SelfImprovementPanel() {
                 'starting',
                 'researching',
                 'experimenting',
-                'verifying'
+                'verifying',
+                'promoting'
               ].includes(status?.state)
             }
             className="px-3 py-2 text-xs rounded-md border border-neon-cyan/30 bg-neon-cyan/10 hover:bg-neon-cyan/15 disabled:opacity-50 flex items-center gap-2"
@@ -326,13 +368,12 @@ export default function SelfImprovementPanel() {
             onChange={(e) => setMakerObjective(e.target.value)}
             disabled={
               Boolean(busy) ||
-              pending.length > 0 ||
               status?.worker_running !== true ||
               status?.model_proxy_ready !== true ||
               status?.paused === true ||
               Boolean(status?.current_run_id) ||
               status?.phase === 'maker_requested_cycle' ||
-              ['queued', 'starting', 'researching', 'experimenting', 'verifying'].includes(status?.state)
+              ['queued', 'starting', 'researching', 'experimenting', 'verifying', 'promoting'].includes(status?.state)
             }
             rows={2}
             placeholder="Leave empty for Floki to inspect himself and choose an experiment. Enter an objective to require Floki to conduct that experiment."
@@ -388,13 +429,37 @@ export default function SelfImprovementPanel() {
           </div>
 
           <div className="space-y-2">
-            <h4 className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono">Candidates</h4>
-            {candidates.length === 0 && (
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono">Candidates</h4>
+              <div className="flex items-center gap-1 rounded-md border border-border/60 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setCandidateView('pending')}
+                  className={`px-2 py-1 text-[10px] font-mono rounded transition-colors ${
+                    candidateView === 'pending' ? 'bg-neon-cyan/15 text-neon-cyan' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Pending {activeCandidates.length}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCandidateView('history')}
+                  className={`px-2 py-1 text-[10px] font-mono rounded transition-colors ${
+                    candidateView === 'history' ? 'bg-neon-cyan/15 text-neon-cyan' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  History {historyCandidates.length}
+                </button>
+              </div>
+            </div>
+            {shownCandidates.length === 0 && (
               <div className="text-xs text-muted-foreground border border-dashed border-border rounded-md p-4">
-                No candidate has been produced yet.
+                {candidateView === 'history'
+                  ? 'No past candidates yet.'
+                  : 'No candidate is awaiting your review.'}
               </div>
             )}
-            {candidates.map((candidate) => (
+            {visibleCandidates.map((candidate) => (
               <button
                 key={candidate.id}
                 onClick={() => setSelectedId(candidate.id)}
@@ -409,6 +474,11 @@ export default function SelfImprovementPanel() {
                 <p className="text-xs mt-2 line-clamp-2">{candidate.objective}</p>
               </button>
             ))}
+            {hiddenCandidateCount > 0 && (
+              <div className="text-[10px] font-mono text-muted-foreground text-center pt-1">
+                …{hiddenCandidateCount} more
+              </div>
+            )}
           </div>
         </div>
 

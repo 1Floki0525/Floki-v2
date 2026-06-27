@@ -356,6 +356,7 @@ function agentConfig(snapshot, options, config) {
     agent_git_output_buffer_bytes: config.agent_git_output_buffer_bytes,
     agent_git_show_buffer_bytes: config.agent_git_show_buffer_bytes,
     agent_command_audit_max_chars: config.agent_command_audit_max_chars,
+    agent_terminal_preview_max_chars: config.agent_terminal_preview_max_chars,
     agent_tool_result_max_chars: config.agent_tool_result_max_chars,
     agent_test_output_tail_chars: config.agent_test_output_tail_chars,
     agent_min_command_timeout_ms: config.agent_min_command_timeout_ms,

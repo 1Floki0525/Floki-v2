@@ -1106,6 +1106,7 @@ function getSelfImprovementConfig(mode = 'chat') {
     agent_git_show_buffer_bytes: numberValue('agent_git_show_buffer_bytes'),
     agent_command_audit_max_chars: numberValue('agent_command_audit_max_chars'),
     agent_tool_result_max_chars: numberValue('agent_tool_result_max_chars'),
+    agent_terminal_preview_max_chars: numberValue('agent_terminal_preview_max_chars'),
     agent_test_output_tail_chars: numberValue('agent_test_output_tail_chars'),
     agent_min_command_timeout_ms: numberValue('agent_min_command_timeout_ms'),
     agent_fetch_default_timeout_ms: numberValue('agent_fetch_default_timeout_ms'),

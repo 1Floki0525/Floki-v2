@@ -516,8 +516,10 @@ live_chat:
   runtime_port: 7700
   runtime_heartbeat_ms: 1000
   runtime_watchdog_poll_ms: 1000
-  runtime_watchdog_request_timeout_ms: 3000
-  runtime_watchdog_consecutive_failure_limit: 3
+  # Match the active config: 3000ms was too tight and tripped the watchdog during
+  # sandbox CPU spikes. Genuine runtime death is caught by the pid//proc check.
+  runtime_watchdog_request_timeout_ms: 8000
+  runtime_watchdog_consecutive_failure_limit: 12
   public_sentence_min_characters: 12
   latency_log_max_bytes: 8388608
   history_limit: 500
@@ -775,6 +777,10 @@ self_improvement:
   agent_git_show_buffer_bytes: 67108864
   agent_command_audit_max_chars: 30000
   agent_tool_result_max_chars: 12000
+  # Max chars of write_file content / apply_patch diff embedded as a bounded
+  # preview in the RSI activity stream so the terminal can show real code without
+  # flooding the polled audit log. Larger content is truncated with a marker.
+  agent_terminal_preview_max_chars: 8000
   agent_test_output_tail_chars: 12000
   agent_min_command_timeout_ms: 1000
   agent_fetch_default_timeout_ms: 30000
