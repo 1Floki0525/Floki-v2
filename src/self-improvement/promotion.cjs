@@ -21,6 +21,7 @@ const {
 } = require('./store.cjs');
 const { stopCurrentContainer } = require('./sandbox.cjs');
 const { writeDenialMemory, writeApprovalMemory } = require('./memory-writer.cjs');
+const { normalizeRunKind, candidateTypeForKind } = require('./run-kinds.cjs');
 
 const ACTIVE_RUN_STATES = new Set([
   'queued',
@@ -158,9 +159,12 @@ function resume(token, config = loadSelfImprovementConfig()) {
 async function runNow(
   token,
   objective = '',
+  kind = undefined,
   config = loadSelfImprovementConfig()
 ) {
   assertApprovalToken(token, config);
+  const runKind = normalizeRunKind(kind, config);
+  const candidateType = candidateTypeForKind(runKind, config);
   const p = ensureLayout(config);
   const current = readStatus(config);
 
@@ -190,7 +194,9 @@ async function runNow(
     request_id: requestId,
     requested_at: requestedAt,
     force: true,
-    objective: requestedObjective
+    objective: requestedObjective,
+    kind: runKind,
+    candidate_type: candidateType
   }, config);
 
   updateStatus({
@@ -198,6 +204,8 @@ async function runNow(
     phase: 'maker_requested_cycle',
     current_objective:
       requestedObjective || config.default_objective,
+    current_run_kind: runKind,
+    current_candidate_type: candidateType,
     objective_source: requestedObjective ? 'maker_requested' : 'floki_selected',
     requested_objective: requestedObjective || null,
     queued_at: requestedAt,
@@ -288,6 +296,8 @@ async function runNow(
     message: 'Self-improvement sandbox started immediately.',
     marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_NOW_IMMEDIATE',
     request_id: requestId,
+    kind: runKind,
+    candidate_type: candidateType,
     wake_signal_sent: true,
     bypass_idle_timer: true,
     sandbox_started: true,

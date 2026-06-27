@@ -971,3 +971,11 @@ self_improvement:
   denial_eval_root: "state/floki/self-improvement/denial-evals"
   denial_eval_id_prefix: "deval"
   denial_eval_min_objective_overlap: 3
+  # === RSI autonomy v2 / Stage 3: run kinds, candidate types, sandbox dispatch ===
+  # Allowed run kinds for the RSI lab. "code" = normal autonomous coding sandbox
+  # (Run now); "training" = manual/automatic QLoRA training run (Run training).
+  allowed_rsi_run_kinds: "code|training"
+  default_rsi_run_kind: "code"
+  rsi_run_kind_candidate_types: "code=code_patch|training=model_adapter"
+  # The existing code-patch promoter must refuse model_adapter candidates.
+  code_patch_promoter_accepted_candidate_types: "code_patch"

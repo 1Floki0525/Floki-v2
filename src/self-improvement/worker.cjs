@@ -21,6 +21,7 @@ const {
 const { createSourceSnapshot } = require('./snapshot.cjs');
 const { runSandbox, stopCurrentContainer } = require('./sandbox.cjs');
 const { createModelProxy } = require('./model-proxy.cjs');
+const { normalizeRunKind, candidateTypeForKind } = require('./run-kinds.cjs');
 const {
   writeCycleMemory,
   flushAgentMemoryOutbox
@@ -267,7 +268,9 @@ function resolveManualRunRequest(fileRequest, status, config) {
       requested_at:
         status.manual_run_requested_at || status.queued_at || null,
       force: true,
-      objective: status.current_objective || config.default_objective
+      objective: status.current_objective || config.default_objective,
+      kind: status.current_run_kind || config.default_rsi_run_kind,
+      candidate_type: status.current_candidate_type || null
     });
   }
   return fileRequest;
@@ -287,12 +290,16 @@ async function runCycle(options = {}) {
     };
   }
 
+  const runKind = normalizeRunKind(options.kind, config);
+  const candidateType = candidateTypeForKind(runKind, config);
   const snapshot = createSourceSnapshot({ config });
   updateStatus({
     state: 'researching',
     phase: 'snapshot_ready',
     current_run_id: snapshot.run_id,
     current_objective: options.objective || null,
+    current_run_kind: runKind,
+    current_candidate_type: candidateType,
     last_cycle_started_at: nowIso(),
     last_error: null,
     failure_latched_at: null
@@ -301,7 +308,8 @@ async function runCycle(options = {}) {
 
   const execution = runSandbox(snapshot, {
     config,
-    objective: options.objective
+    objective: options.objective,
+    kind: runKind
   });
   let preemptReason = null;
   const cycleStartMs = Date.now();
@@ -694,6 +702,7 @@ async function serviceLoop(options = {}) {
         config,
         force: request?.force === true,
         objective: request?.objective || '',
+        kind: request?.kind || config.default_rsi_run_kind,
         manual_request_id:
           request?.force === true ? request.request_id || null : null,
         manual_requested_at:

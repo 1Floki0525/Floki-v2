@@ -1143,7 +1143,8 @@ function createChatLocalRuntime(options = {}) {
         202,
         await selfImprovementApi.runNow(
           body.token,
-          body.objective
+          body.objective,
+          body.kind
         )
       );
       return;

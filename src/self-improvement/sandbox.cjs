@@ -6,6 +6,7 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { loadSelfImprovementConfig } = require('./config.cjs');
 const { appendAudit, atomicJson, paths, updateStatus } = require('./store.cjs');
+const { normalizeRunKind, candidateTypeForKind } = require('./run-kinds.cjs');
 
 function splitList(value, delimiter) {
   return String(value).split(delimiter).map((item) => item.trim()).filter(Boolean);
@@ -340,6 +341,8 @@ function agentConfig(snapshot, options, config) {
     objective: String(options.objective || config.default_objective),
     objective_source: options.objective ? 'maker_requested' : 'floki_selected',
     requested_objective: options.objective || null,
+    run_kind: normalizeRunKind(options.kind, config),
+    candidate_type: candidateTypeForKind(options.kind, config),
     general_web_enabled: config.general_web_enabled,
     context7_enabled: config.context7_enabled,
     research_corpus_catalog_relative_path: config.research_corpus_catalog_relative_path,
@@ -434,6 +437,50 @@ function smokeImage(config = loadSelfImprovementConfig()) {
   };
 }
 
+// Pure construction of the container engine run arguments. Kept separate so the
+// isolation contract (cap-drop, no-new-privileges, resource limits, the exact
+// mount set, and the ABSENCE of host sockets/secrets/privileged flags) can be
+// verified without launching a container. Floki has root authority INSIDE this
+// isolated container, but the host is protected by cap-drop + no-new-privileges
+// and a fixed, minimal mount set (no docker/podman socket, no host secrets).
+function buildSandboxRunArgs({ containerName, snapshot, hostConfigFile, config }) {
+  return [
+    'run',
+    '--rm',
+    '--name', containerName,
+    '--hostname', config.container_hostname,
+    '--cap-drop=' + config.cap_drop,
+    '--security-opt=' + config.security_opt,
+    '--pids-limit', String(config.pids_limit),
+    '--memory', String(config.memory_limit),
+    '--cpus', String(config.cpu_limit),
+    '--network', String(config.network_mode),
+    '--tmpfs', config.container_tmp_path + ':' + config.tmpfs_options,
+    '-v',
+    snapshot.repo_dir + ':' +
+      config.workspace_mount_path + ':' +
+      config.workspace_mount_options,
+    '-v',
+    config.outbox_root + ':' +
+      config.outbox_mount_path + ':' +
+      config.outbox_mount_options,
+    '-v',
+    snapshot.self_context_dir + ':' +
+      config.self_context_mount_path + ':' +
+      config.self_context_mount_options,
+    '-v',
+    hostConfigFile + ':' +
+      config.container_config_path + ':' +
+      config.config_mount_options,
+    '-v',
+    config.model_proxy_root + ':' +
+      config.model_proxy_mount_path + ':' +
+      config.model_proxy_mount_options,
+    '-e', 'FLOKI_RSI_CONFIG_FILE=' + config.container_config_path,
+    config.image_name
+  ];
+}
+
 function runSandbox(snapshot, options = {}) {
   const config = options.config || loadSelfImprovementConfig();
   ensureImage(config);
@@ -459,41 +506,7 @@ function runSandbox(snapshot, options = {}) {
     { mode: 0o600 }
   );
 
-  const args = [
-    'run',
-    '--rm',
-    '--name', containerName,
-    '--hostname', config.container_hostname,
-    '--cap-drop=' + config.cap_drop,
-    '--security-opt=' + config.security_opt,
-    '--pids-limit', String(config.pids_limit),
-    '--memory', String(config.memory_limit),
-    '--cpus', String(config.cpu_limit),
-    '--network', String(config.network_mode),
-    '--tmpfs', config.container_tmp_path + ':' + config.tmpfs_options,
-    '-v',
-    snapshot.repo_dir + ':' +
-      config.workspace_mount_path + ':' +
-      config.workspace_mount_options,
-	    '-v',
-	    config.outbox_root + ':' +
-	      config.outbox_mount_path + ':' +
-	      config.outbox_mount_options,
-	    '-v',
-	    snapshot.self_context_dir + ':' +
-	      config.self_context_mount_path + ':' +
-	      config.self_context_mount_options,
-	    '-v',
-	    hostConfigFile + ':' +
-      config.container_config_path + ':' +
-      config.config_mount_options,
-    '-v',
-    config.model_proxy_root + ':' +
-      config.model_proxy_mount_path + ':' +
-      config.model_proxy_mount_options,
-    '-e', 'FLOKI_RSI_CONFIG_FILE=' + config.container_config_path,
-    config.image_name
-  ];
+  const args = buildSandboxRunArgs({ containerName, snapshot, hostConfigFile, config });
 
   const p = paths(config);
   fs.rmSync(currentContainerStopLock(config), { force: true });
@@ -574,6 +587,7 @@ function runSandbox(snapshot, options = {}) {
 
 module.exports = {
   agentConfig,
+  buildSandboxRunArgs,
   claimCurrentStopRequest,
   currentContainerStopLock,
   ensureImage,

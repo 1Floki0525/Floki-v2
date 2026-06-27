@@ -42,8 +42,8 @@ function createSelfImprovementApi() {
     resume(token) {
       return resume(token, config);
     },
-    runNow(token, objective) {
-      return runNow(token, objective, config);
+    runNow(token, objective, kind) {
+      return runNow(token, objective, kind, config);
     },
     preempt(reason) {
       return stopCurrentContainer(reason, config);

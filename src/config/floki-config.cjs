@@ -1290,7 +1290,12 @@ function getSelfImprovementConfig(mode = 'chat') {
     memory_capsule_total_max_chars: numberValue('memory_capsule_total_max_chars'),
     denial_eval_root: stringValue('denial_eval_root'),
     denial_eval_id_prefix: stringValue('denial_eval_id_prefix'),
-    denial_eval_min_objective_overlap: numberValue('denial_eval_min_objective_overlap')
+    denial_eval_min_objective_overlap: numberValue('denial_eval_min_objective_overlap'),
+    // === RSI autonomy v2 / Stage 3: run kinds & candidate types ===
+    allowed_rsi_run_kinds: stringValue('allowed_rsi_run_kinds'),
+    default_rsi_run_kind: stringValue('default_rsi_run_kind'),
+    rsi_run_kind_candidate_types: stringValue('rsi_run_kind_candidate_types'),
+    code_patch_promoter_accepted_candidate_types: stringValue('code_patch_promoter_accepted_candidate_types')
   });
 }
 module.exports.getSelfImprovementConfig = getSelfImprovementConfig;

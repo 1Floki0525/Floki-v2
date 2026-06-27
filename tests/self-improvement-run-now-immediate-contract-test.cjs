@@ -277,6 +277,7 @@ async function main() {
     result = await runNow(
       token,
       'Prove immediate manual execution through the real worker.',
+      undefined,
       config
     );
 

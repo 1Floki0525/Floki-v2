@@ -75,6 +75,8 @@ function defaultStatus(config = loadSelfImprovementConfig()) {
     sandbox_alive_at: null,
     current_run_id: null,
     current_objective: null,
+    current_run_kind: config.default_rsi_run_kind || 'code',
+    current_candidate_type: null,
     current_container: null,
     started_at: null,
     last_heartbeat_at: null,

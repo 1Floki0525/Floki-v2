@@ -14,6 +14,7 @@ const {
   updateStatus,
   validId
 } = require('./store.cjs');
+const { assertCodePatchPromoterAccepts } = require('./run-kinds.cjs');
 
 function splitPipe(value) {
   return String(value).split('|').map((item) => item.trim()).filter(Boolean);
@@ -78,6 +79,11 @@ function pathSafe(relative) {
 }
 
 function validateCandidatePolicy(candidate, config) {
+  // The code-patch promoter only handles code_patch candidates. Training
+  // (model_adapter) candidates must go through the adapter evaluation/promotion
+  // path and are refused here.
+  const candidateType = candidate.candidate_type || candidate.kind || 'code_patch';
+  assertCodePatchPromoterAccepts(candidateType, config);
   if (!Array.isArray(candidate.changed_files) || candidate.changed_files.length === 0) {
     throw new Error('candidate has no changed files');
   }
