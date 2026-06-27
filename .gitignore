@@ -57,3 +57,5 @@ config/game.config.yaml
 
 # Private local configuration and credentials
 /hearing-speech-fix-report.txt
+
+/.claude/
