@@ -30,6 +30,10 @@ function createHttpModelError(statusCode, message) {
   return error;
 }
 
+// Caller (containers/self-improvement/agent.cjs, retryOrReject):
+//   const transportRetry = error.code==='EPIPE'||error.code==='ECONNRESET'||error.code==='ETIMEDOUT';
+//   if (retriesLeft > 0 && (transportRetry || isRetryableModelError(error))) { retry; }
+//   else { reject(error); }  // exhausted — exits through controlled failure path
 function isRetryableModelError(error) {
   if (!error || typeof error !== 'object') return false;
   const code = String(error.code || '');
