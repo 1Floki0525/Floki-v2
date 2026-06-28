@@ -88,7 +88,11 @@ function manualRunSandboxStarted(status, requestId) {
     status.current_run_id.length > 0 &&
     typeof status?.current_container === 'string' &&
     status.current_container.length > 0 &&
-    ['experimenting', 'verifying'].includes(String(status.state || ''))
+    (
+      status.current_run_kind === 'training'
+        ? status.state === 'training'
+        : ['experimenting', 'verifying'].includes(String(status.state || ''))
+    )
   );
 }
 
@@ -102,7 +106,11 @@ function manualRunCycleActive(status, requestId) {
     status.current_run_id.length > 0 &&
     typeof status?.current_container === 'string' &&
     status.current_container.length > 0 &&
-    ['experimenting', 'verifying'].includes(String(status.state || ''))
+    (
+      status.current_run_kind === 'training'
+        ? status.state === 'training'
+        : ['experimenting', 'verifying'].includes(String(status.state || ''))
+    )
   );
 }
 
@@ -290,17 +298,24 @@ async function runNow(
     acknowledged_at: startedStatus.manual_run_acknowledged_at
   }, config);
 
+  const trainingRun = runKind === 'training';
   return {
     ok: true,
     verified: true,
-    message: 'Self-improvement sandbox started immediately.',
-    marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_NOW_IMMEDIATE',
+    message: trainingRun
+      ? 'QLoRA training container started and acquired training resource mode.'
+      : 'Self-improvement sandbox started immediately.',
+    marker: trainingRun
+      ? 'FLOKI_V2_SELF_IMPROVEMENT_TRAINING_STARTED'
+      : 'FLOKI_V2_SELF_IMPROVEMENT_RUN_NOW_IMMEDIATE',
     request_id: requestId,
     kind: runKind,
     candidate_type: candidateType,
     wake_signal_sent: true,
     bypass_idle_timer: true,
     sandbox_started: true,
+    training_container_started: trainingRun,
+    training_resource_mode_entered: trainingRun,
     worker_pid: workerPid,
     run_id: startedStatus.current_run_id,
     container: startedStatus.current_container,
@@ -342,6 +357,9 @@ function approveCandidate(id, token, config = loadSelfImprovementConfig()) {
   const candidate = readCandidate(candidateId, config);
   if (candidate.status !== 'pending_review') {
     throw new Error('only pending-review candidates can be approved');
+  }
+  if (candidate.candidate_type === 'model_adapter') {
+    throw new Error('model_adapter candidates require independent adapter evaluation and the dedicated adapter promotion path');
   }
   patchCandidate(candidateId, {
     status: 'approved',

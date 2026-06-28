@@ -15,6 +15,8 @@ const {
   runNow
 } = require('./promotion.cjs');
 const { stopCurrentContainer } = require('./sandbox.cjs');
+const { buildSelfImprovementUiStatus } = require('./ui-status.cjs');
+const { assertApprovalToken, appendAudit } = require('./store.cjs');
 
 function createSelfImprovementApi() {
   const config = loadSelfImprovementConfig();
@@ -22,7 +24,7 @@ function createSelfImprovementApi() {
 
   return Object.freeze({
     status() {
-      return readStatus(config);
+      return buildSelfImprovementUiStatus({ config });
     },
     listCandidates() {
       return listCandidates(config);
@@ -44,6 +46,24 @@ function createSelfImprovementApi() {
     },
     runNow(token, objective, kind) {
       return runNow(token, objective, kind, config);
+    },
+    abort(token, reason, kind) {
+      assertApprovalToken(token, config);
+      const runKind = String(kind || 'code');
+      const abortReason = String(reason || ('maker_abort_' + runKind));
+      const requested = stopCurrentContainer(abortReason, config);
+      appendAudit('maker_abort_requested', {
+        run_kind: runKind,
+        reason: abortReason,
+        requested
+      }, config);
+      return Object.freeze({
+        ok: true,
+        verified: true,
+        abort_requested: requested === true,
+        run_kind: runKind,
+        reason: abortReason
+      });
     },
     preempt(reason) {
       return stopCurrentContainer(reason, config);

@@ -16,7 +16,9 @@ load_node() {
   if [ -s "$HOME/.nvm/nvm.sh" ]; then
     export NVM_DIR="$HOME/.nvm"
     . "$HOME/.nvm/nvm.sh"
-    nvm use 24.17.0 >/dev/null 2>&1 || nvm use 24 >/dev/null 2>&1
+    if ! command -v node >/dev/null 2>&1 || ! node -v 2>/dev/null | grep -Eq '^v24\.'; then
+      nvm use 24 >/dev/null 2>&1
+    fi
   fi
 }
 
@@ -117,7 +119,7 @@ NODE
 
 cd "$PROJECT_DIR" || fail "could not enter project directory"
 load_node
-case "$(node -v 2>/dev/null)" in v24.17.0) ;; *) fail "Node v24.17.0 is required" ;; esac
+case "$(node -v 2>/dev/null)" in v24.*) ;; *) fail "Node 24.x is required" ;; esac
 resolve_runtime_paths
 mkdir -p "$RUNTIME_DIR"
 

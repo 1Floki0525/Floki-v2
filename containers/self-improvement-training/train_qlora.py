@@ -1,22 +1,11 @@
 #!/usr/bin/env python3
-"""Floki-v2 RSI QLoRA training entrypoint.
-
-Reads a deterministic training configuration (produced on the host from chat
-YAML and mounted read-only), loads the read-only Hugging Face master checkpoint
-in 4-bit, attaches a LoRA adapter, trains on the attributable dataset, writes
-periodic checkpoints, and saves the candidate adapter plus a metrics file.
-
-This script NEVER trains the production Ollama GGUF and NEVER performs full-weight
-fine-tuning: it always uses 4-bit quantization + LoRA (QLoRA). It is designed to
-run inside the training container with the RTX 3060 12 GB GPU. CI does not have a
-GPU or the checkpoint, so CI verifies this file with `py_compile`; the real GPU
-proof happens on the host.
-"""
 
 import json
 import os
+import random
 import sys
 import time
+from pathlib import Path
 
 
 def load_config():
@@ -50,47 +39,89 @@ def read_dataset(path):
     return records
 
 
-def write_metrics(adapter_dir, metrics):
+def atomic_json(path, value):
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp = target.with_name(target.name + ".tmp-" + str(os.getpid()))
+    with open(temp, "w", encoding="utf-8") as handle:
+        json.dump(value, handle, indent=2)
+        handle.write("\n")
+    os.replace(temp, target)
+
+
+def latest_checkpoint(output_dir, checkpoint_prefix, trainer_state_file_name):
+    root = Path(output_dir)
+    candidates = []
+    if not root.exists():
+        return None
+    for entry in root.iterdir():
+        if not entry.is_dir() or not entry.name.startswith(checkpoint_prefix):
+            continue
+        try:
+            step = int(entry.name[len(checkpoint_prefix):])
+        except (IndexError, ValueError):
+            continue
+        if (entry / trainer_state_file_name).is_file():
+            candidates.append((step, entry))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return str(candidates[-1][1])
+
+
+def write_metrics(adapter_dir, metrics, metrics_file_name):
     os.makedirs(adapter_dir, exist_ok=True)
-    with open(os.path.join(adapter_dir, "metrics.json"), "w", encoding="utf-8") as handle:
-        json.dump(metrics, handle, indent=2)
+    atomic_json(os.path.join(adapter_dir, metrics_file_name), metrics)
 
 
 def main():
     config = load_config()
 
-    # Heavy ML imports happen only at run time (inside the GPU container), so the
-    # file remains importable / py_compile-able on machines without these deps.
-    import torch  # noqa: WPS433
-    from datasets import Dataset  # noqa: WPS433
-    from transformers import (  # noqa: WPS433
+    import numpy as np
+    import torch
+    from datasets import Dataset
+    from transformers import (
         AutoModelForCausalLM,
         AutoTokenizer,
         BitsAndBytesConfig,
+        TrainerCallback,
         TrainingArguments,
     )
-    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training  # noqa: WPS433
-    from trl import SFTTrainer  # noqa: WPS433
+    from transformers.trainer import TRAINING_ARGS_NAME
+    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+    from trl import SFTTrainer
 
     quant = config["quantization"]
-    compute_dtype = getattr(torch, quant.get("bnb_4bit_compute_dtype", "bfloat16"), torch.bfloat16)
+    compute_dtype = getattr(
+        torch,
+        quant["bnb_4bit_compute_dtype"],
+        None,
+    )
+
+    if compute_dtype is None:
+        raise RuntimeError("unsupported configured compute dtype: " + str(quant["bnb_4bit_compute_dtype"]))
 
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
-        bnb_4bit_quant_type=quant.get("bnb_4bit_quant_type", "nf4"),
+        bnb_4bit_quant_type=quant["bnb_4bit_quant_type"],
         bnb_4bit_compute_dtype=compute_dtype,
-        bnb_4bit_use_double_quant=bool(quant.get("bnb_4bit_use_double_quant", True)),
+        bnb_4bit_use_double_quant=bool(
+            quant["bnb_4bit_use_double_quant"]
+        ),
     )
 
     base_path = config["base_model_path"]
-    tokenizer = AutoTokenizer.from_pretrained(base_path, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        base_path,
+        use_fast=bool(config["tokenizer_use_fast"]),
+    )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     model = AutoModelForCausalLM.from_pretrained(
         base_path,
         quantization_config=bnb_config,
-        device_map="auto",
+        device_map=config["device_map"],
         torch_dtype=compute_dtype,
     )
     model = prepare_model_for_kbit_training(model)
@@ -101,8 +132,8 @@ def main():
         lora_alpha=int(lora["alpha"]),
         lora_dropout=float(lora["dropout"]),
         target_modules=list(lora["target_modules"]),
-        bias="none",
-        task_type="CAUSAL_LM",
+        bias=config["lora"]["bias"],
+        task_type=config["lora"]["task_type"],
     )
     model = get_peft_model(model, peft_config)
 
@@ -111,7 +142,101 @@ def main():
 
     tparams = config["training"]
     adapter_dir = config["adapter_output_path"]
+    scheduler = config["scheduler"]
     os.makedirs(adapter_dir, exist_ok=True)
+
+    control_file = scheduler["control_file"]
+    response_file = scheduler["control_response_file"]
+    segment_number = int(scheduler["segment_number"])
+
+    class CheckpointControlCallback(TrainerCallback):
+        def __init__(self):
+            self.handled_request_id = None
+            self.acknowledged = False
+
+        def _save_checkpoint(self, args, state, kwargs, request_id):
+            step = int(getattr(state, "global_step", 0) or 0)
+            checkpoint_dir = os.path.join(
+                adapter_dir,
+                config["checkpoint_dir_prefix"] + str(step),
+            )
+            os.makedirs(checkpoint_dir, exist_ok=True)
+
+            callback_model = kwargs.get("model")
+            callback_tokenizer = kwargs.get("tokenizer") or tokenizer
+            optimizer = kwargs.get("optimizer")
+            lr_scheduler = kwargs.get("lr_scheduler")
+
+            callback_model.save_pretrained(checkpoint_dir)
+            callback_tokenizer.save_pretrained(checkpoint_dir)
+            state.save_to_json(
+                os.path.join(checkpoint_dir, config["trainer_state_file_name"])
+            )
+            torch.save(args, os.path.join(checkpoint_dir, TRAINING_ARGS_NAME))
+            if optimizer is not None:
+                torch.save(
+                    optimizer.state_dict(),
+                    os.path.join(checkpoint_dir, config["optimizer_state_file_name"]),
+                )
+            if lr_scheduler is not None:
+                torch.save(
+                    lr_scheduler.state_dict(),
+                    os.path.join(checkpoint_dir, config["lr_scheduler_state_file_name"]),
+                )
+
+            rng_state = {
+                "python": random.getstate(),
+                "numpy": np.random.get_state(),
+                "cpu": torch.get_rng_state(),
+            }
+            if torch.cuda.is_available():
+                rng_state["cuda"] = torch.cuda.get_rng_state_all()
+            torch.save(rng_state, os.path.join(checkpoint_dir, config["rng_state_file_name"]))
+
+            atomic_json(
+                response_file,
+                {
+                    "marker": "FLOKI_V2_RSI_TRAINING_CHECKPOINT_ACK",
+                    "request_id": request_id,
+                    "checkpoint_dir": checkpoint_dir,
+                    "global_step": step,
+                    "segment_number": segment_number,
+                    "acknowledged_at": time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                    ),
+                },
+            )
+            self.handled_request_id = request_id
+            self.acknowledged = True
+
+        def on_step_end(self, args, state, control, **kwargs):
+            if not control_file or not response_file:
+                return control
+            try:
+                with open(control_file, "r", encoding="utf-8") as handle:
+                    request = json.load(handle)
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
+                return control
+
+            request_id = str(request.get("request_id") or "").strip()
+            action = str(request.get("action") or "").strip()
+            if (
+                action != "checkpoint_and_stop"
+                or not request_id
+                or request_id == self.handled_request_id
+            ):
+                return control
+
+            self._save_checkpoint(args, state, kwargs, request_id)
+            try:
+                os.unlink(control_file)
+            except FileNotFoundError:
+                pass
+            control.should_training_stop = True
+            control.should_save = False
+            return control
+
+    max_steps = int(tparams["max_steps"])
 
     training_args = TrainingArguments(
         output_dir=adapter_dir,
@@ -119,7 +244,7 @@ def main():
         gradient_accumulation_steps=int(tparams["gradient_accumulation_steps"]),
         learning_rate=float(tparams["learning_rate"]),
         num_train_epochs=float(tparams["num_train_epochs"]),
-        max_steps=int(tparams["max_steps"]) if int(tparams["max_steps"]) > 0 else -1,
+        max_steps=max_steps,
         warmup_ratio=float(tparams["warmup_ratio"]),
         weight_decay=float(tparams["weight_decay"]),
         lr_scheduler_type=tparams["lr_scheduler_type"],
@@ -127,35 +252,59 @@ def main():
         seed=int(tparams["seed"]),
         logging_steps=int(tparams["logging_steps"]),
         save_steps=int(tparams["save_steps"]),
-        save_strategy="steps",
+        save_strategy=tparams["save_strategy"],
+        save_total_limit=int(tparams["save_total_limit"]),
         bf16=compute_dtype == torch.bfloat16,
-        report_to=[],
+        report_to=list(tparams["report_to"]),
     )
 
+    control_callback = CheckpointControlCallback()
     trainer = SFTTrainer(
         model=model,
         args=training_args,
         train_dataset=dataset,
-        dataset_text_field="text",
+        dataset_text_field=config["dataset_text_field"],
         max_seq_length=int(tparams["max_seq_length"]),
         tokenizer=tokenizer,
+        callbacks=[control_callback],
     )
 
+    resume_value = scheduler["resume_from_checkpoint"]
+    if resume_value == "latest":
+        resume_value = latest_checkpoint(
+            adapter_dir,
+            config["checkpoint_dir_prefix"],
+            config["trainer_state_file_name"],
+        )
+    elif resume_value == "none":
+        resume_value = None
+    elif not resume_value:
+        raise RuntimeError("configured resume policy is empty")
+
     started = time.time()
-    train_result = trainer.train()
+    train_result = trainer.train(resume_from_checkpoint=resume_value)
     elapsed = time.time() - started
 
     trainer.model.save_pretrained(adapter_dir)
     tokenizer.save_pretrained(adapter_dir)
+    trainer.state.save_to_json(
+        os.path.join(adapter_dir, config["trainer_state_file_name"])
+    )
 
     metrics = dict(getattr(train_result, "metrics", {}) or {})
-    metrics.update({
-        "elapsed_seconds": elapsed,
-        "record_count": len(records),
-        "seed": int(tparams["seed"]),
-        "method": "qlora",
-    })
-    write_metrics(adapter_dir, metrics)
+    metrics.update(
+        {
+            "elapsed_seconds": elapsed,
+            "record_count": len(records),
+            "seed": int(tparams["seed"]),
+            "method": "qlora",
+            "global_step": int(getattr(trainer.state, "global_step", 0) or 0),
+            "segment_number": segment_number,
+            "resume_from_checkpoint": resume_value,
+            "checkpoint_request_acknowledged": control_callback.acknowledged,
+        }
+    )
+    write_metrics(adapter_dir, metrics, config["metrics_file_name"])
     print("FLOKI_V2_RSI_TRAINING_COMPLETE " + json.dumps(metrics))
 
 
@@ -164,6 +313,6 @@ if __name__ == "__main__":
         main()
     except SystemExit:
         raise
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         print("FLOKI_V2_RSI_TRAINING_FAILED " + str(error), file=sys.stderr)
         sys.exit(1)

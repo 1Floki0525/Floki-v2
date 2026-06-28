@@ -101,7 +101,7 @@ function stop(child) {
 }
 
 async function main() {
-  assert.equal(process.version, 'v24.17.0');
+  assert.match(process.version, /^v24\./);
 
   const rsi = getSelfImprovementConfig('chat');
   const vision = getVisionConfig('chat');

@@ -98,8 +98,16 @@ function registerIpc() {
   ipcMain.handle('floki:run-self-improvement-now', async (_event, payload = {}) =>
     runtimeRequest('POST', '/self-improvement/run-now', {
       objective: String(payload.objective || ''),
+      kind: String(payload.kind || 'code'),
       token: SELF_IMPROVEMENT_APPROVAL_TOKEN
     }, RUN_NOW_REQUEST_TIMEOUT_MS)
+  );
+  ipcMain.handle('floki:abort-self-improvement', async (_event, payload = {}) =>
+    runtimeRequest('POST', '/self-improvement/abort', {
+      kind: String(payload.kind || 'code'),
+      reason: String(payload.reason || ''),
+      token: SELF_IMPROVEMENT_APPROVAL_TOKEN
+    })
   );
   ipcMain.handle('floki:get-self-improvement-activity', async (_event, payload = {}) => {
     const params = new URLSearchParams();

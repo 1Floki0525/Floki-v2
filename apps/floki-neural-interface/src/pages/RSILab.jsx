@@ -9,12 +9,12 @@ function redactSensitive(text) {
   return String(text || '').replace(SENSITIVE_PATTERN, '[REDACTED]');
 }
 
-function safeStr(v, max = 200) {
+function safeStr(v, max) {
   return String(v || '').slice(0, max);
 }
 
 // Split text into display lines, capped at maxLines, each line capped at maxLen chars
-function outputLines(text, maxLines = 25, maxLen = 160) {
+function outputLines(text, maxLines, maxLen) {
   if (!text) return [];
   const lines = String(text).split(/\r?\n/);
   const kept = lines.filter(l => l.trim() !== '' || lines.indexOf(l) < 3).slice(0, maxLines);
@@ -25,7 +25,7 @@ function outputLines(text, maxLines = 25, maxLen = 160) {
 
 // Faithful code/diff rendering: keep every line (including blanks) so the
 // terminal shows exactly what Floki wrote, like a real editor view.
-function codeLines(text, maxLines = 400, maxLen = 240) {
+function codeLines(text, maxLines, maxLen) {
   if (!text) return [];
   const lines = String(text).split(/\r?\n/);
   const kept = lines.slice(0, maxLines).map(l => l.slice(0, maxLen));
@@ -34,7 +34,8 @@ function codeLines(text, maxLines = 400, maxLen = 240) {
 }
 
 // Expand one API event item into one or more display items
-function expandToDisplayItems(item) {
+function expandToDisplayItems(item, limits) {
+  const safe = (value, max = limits.terminal_safe_string_max_chars) => safeStr(value, max);
   const { source, index, record } = item;
   const type = String(record?.type || '');
   const de = record?.detail || {};
@@ -60,9 +61,9 @@ function expandToDisplayItems(item) {
   }
 
   if (type === 'shell_end') {
-    const identity = safeStr(de.identity);
+    const identity = safe(de.identity);
     // Show the REAL command Floki ran, not just its internal label.
-    const cmd = safeStr(de.command, 400) || identity;
+    const cmd = safe(de.command, limits.terminal_command_max_chars) || identity;
     const exitCode = de.status;
     const ms = de.duration_ms != null ? ` (${de.duration_ms}ms)` : '';
     const isFocused = identity === 'focused_test';
@@ -73,49 +74,49 @@ function expandToDisplayItems(item) {
     const header = `${prefix}${tag} $ ${cmd} → exit ${exitCode}${ms}`;
 
     if (ok) {
-      const stdout = safeStr(de.stdout, 12000);
-      const lines = outputLines(stdout, 40, 200);
+      const stdout = safe(de.stdout, limits.terminal_output_max_chars);
+      const lines = outputLines(stdout, limits.terminal_success_output_max_lines, limits.terminal_output_max_line_chars);
       if (lines.length === 0) return main(header, headerColor);
       return withOutput(header, headerColor, lines, 'text-foreground/50');
     } else {
       // On failure: stderr takes priority, fallback to stdout
-      const errText = safeStr(de.stderr, 12000) || safeStr(de.stdout, 12000);
-      const lines = outputLines(errText, 50, 200);
+      const errText = safe(de.stderr, limits.terminal_output_max_chars) || safe(de.stdout, limits.terminal_output_max_chars);
+      const lines = outputLines(errText, limits.terminal_failure_output_max_lines, limits.terminal_output_max_line_chars);
       if (lines.length === 0) return main(header, headerColor);
       return withOutput(header, headerColor, lines, 'text-orange-200/70');
     }
   }
 
   if (type === 'shell_progress') {
-    const identity = safeStr(de.identity);
-    const cmd = safeStr(de.command, 400) || identity;
+    const identity = safe(de.identity);
+    const cmd = safe(de.command, limits.terminal_command_max_chars) || identity;
     const tag = identity && identity !== cmd ? ` ${identity}:` : '';
     const elapsed = de.elapsed_ms != null ? ` (${Math.round(de.elapsed_ms / 1000)}s)` : '';
     return main(`[shell]${tag} $ ${cmd}${elapsed} …`, 'text-foreground/50');
   }
 
   if (type === 'write_file') {
-    const filePath = safeStr(de.path);
+    const filePath = safe(de.path);
     const bytes = de.bytes != null ? ` (${de.bytes} bytes)` : '';
     const lc = de.line_count != null ? `, ${de.line_count} lines` : '';
     const changed = de.workspace_changed ? '' : ' [noop]';
     const header = `[write] ${filePath}${bytes ? bytes.replace(')', lc + ')') : ''}${changed}`;
     // Bounded preview field (content_preview); fall back to legacy `content`.
     const preview = de.content_preview != null ? de.content_preview : de.content;
-    const lines = codeLines(preview);
+    const lines = codeLines(preview, limits.terminal_code_max_lines, limits.terminal_code_max_line_chars);
     if (de.content_truncated) lines.push('  … (content truncated — preview only)');
     if (lines.length === 0) return main(header, 'text-sky-400/80');
     return withOutput(header, 'text-sky-400/80', lines, 'text-sky-200/50');
   }
 
   if (type === 'apply_patch') {
-    const filePath = safeStr(
+    const filePath = safe(
       de.path || de.file || (Array.isArray(de.paths) ? de.paths.join(', ') : '')
     );
     const header = `[patch] ${filePath}`;
     // Bounded diff preview (patch_preview); fall back to legacy `patch`.
-    const patchText = safeStr(de.patch_preview != null ? de.patch_preview : de.patch, 60000);
-    const raw = codeLines(patchText);
+    const patchText = safe(de.patch_preview != null ? de.patch_preview : de.patch, limits.terminal_diff_max_chars);
+    const raw = codeLines(patchText, limits.terminal_code_max_lines, limits.terminal_code_max_line_chars);
     if (de.patch_truncated) raw.push('  … (diff truncated — preview only)');
     if (raw.length === 0) return main(header, 'text-sky-400/80');
     const items = [{ id: baseId, source, ts, text: redactSensitive(header), color: 'text-sky-400/80', isOutput: false }];
@@ -130,15 +131,15 @@ function expandToDisplayItems(item) {
   }
 
   if (type === 'write_memory') {
-    const stream = safeStr(de.stream || 'episodic');
-    const summary = safeStr(de.summary, 120);
+    const stream = safe(de.stream || 'episodic');
+    const summary = safe(de.summary, 120);
     return main(`[memory:${stream}] ${summary}`, 'text-indigo-300/80');
   }
 
   if (type === 'convergence_state') {
     const s = de;
     const obj = s?.selected_experiment?.objective
-      ? ` — "${String(s.selected_experiment.objective).slice(0, 80)}"`
+      ? ` — "${String(s.selected_experiment.objective).slice(0, limits.terminal_summary_max_chars)}"`
       : '';
     return main(
       `[state] ${s?.phase || '?'} iter=${s?.iteration || '?'} writes=${s?.write_count || 0} verif=${s?.verification_runs || 0}${obj}`,
@@ -161,23 +162,23 @@ function expandToDisplayItems(item) {
   }
 
   if (type === 'select_experiment_rejected') {
-    const errText = safeStr(de.error, 2000);
-    const lines = errText.split('\n').filter(Boolean).slice(0, 10).map(l => l.slice(0, 150));
-    const header = `[select REJECTED] ${(lines[0] || '').slice(0, 140)}`;
+    const errText = safe(de.error, limits.terminal_selection_error_max_chars);
+    const lines = errText.split('\n').filter(Boolean).slice(0, limits.terminal_selection_error_max_lines).map(l => l.slice(0, limits.terminal_selection_error_line_max_chars));
+    const header = `[select REJECTED] ${(lines[0] || '').slice(0, limits.terminal_summary_max_chars)}`;
     const rest = lines.slice(1);
     if (rest.length === 0) return main(header, 'text-orange-400');
     return withOutput(header, 'text-orange-400', rest, 'text-orange-300/60');
   }
 
   if (type === 'experiment_selected') {
-    const obj = safeStr(de.experiment?.objective, 200);
-    const focusedTest = safeStr(de.experiment?.focused_test, 120);
+    const obj = safe(de.experiment?.objective, limits.terminal_summary_max_chars);
+    const focusedTest = safe(de.experiment?.focused_test, limits.terminal_summary_max_chars);
     const lines = focusedTest ? [`focused_test: ${focusedTest}`] : [];
     return withOutput(`[SELECTED] ${obj}`, 'text-emerald-400', lines, 'text-emerald-300/60');
   }
 
   if (type === 'implementation_started') {
-    return main(`[impl] ${safeStr(de.experiment?.objective, 120)}`, 'text-emerald-300/80');
+    return main(`[impl] ${safe(de.experiment?.objective, limits.terminal_summary_max_chars)}`, 'text-emerald-300/80');
   }
 
   if (type === 'no_candidate') {
@@ -185,7 +186,7 @@ function expandToDisplayItems(item) {
   }
 
   if (type === 'candidate_finalized' || type === 'candidate_auto_finalized_after_verification') {
-    return main(`[CANDIDATE READY] ${safeStr(de.objective, 120)}`, 'text-emerald-300 font-bold');
+    return main(`[CANDIDATE READY] ${safe(de.objective, limits.terminal_summary_max_chars)}`, 'text-emerald-300 font-bold');
   }
 
   if (type === 'sandbox_started') {
@@ -197,9 +198,9 @@ function expandToDisplayItems(item) {
   }
 
   if (type === 'cycle_failed') {
-    const errText = safeStr(de.error, 2000);
-    const lines = outputLines(errText, 10, 150);
-    const header = `[cycle FAILED] ${(lines[0] || de.reason || '').slice(0, 120)}`;
+    const errText = safe(de.error, limits.terminal_selection_error_max_chars);
+    const lines = outputLines(errText, limits.terminal_selection_error_max_lines, limits.terminal_selection_error_line_max_chars);
+    const header = `[cycle FAILED] ${(lines[0] || de.reason || '').slice(0, limits.terminal_summary_max_chars)}`;
     return withOutput(header, 'text-red-400', lines.slice(1), 'text-red-300/60');
   }
 
@@ -208,11 +209,11 @@ function expandToDisplayItems(item) {
   }
 
   if (type === 'fatal') {
-    return main(`[FATAL] ${safeStr(de.error, 150)}`, 'text-red-400 font-bold');
+    return main(`[FATAL] ${safe(de.error, limits.terminal_summary_max_chars)}`, 'text-red-400 font-bold');
   }
 
   if (type === 'parse_error') {
-    return main(`[parse error] ${safeStr(record.raw, 100)}`, 'text-red-400/60');
+    return main(`[parse error] ${safe(record.raw, limits.terminal_summary_max_chars)}`, 'text-red-400/60');
   }
 
   if (type === 'selection_anchor_reminder') {
@@ -227,10 +228,10 @@ function expandToDisplayItems(item) {
   }
 
   if (type === 'git') {
-    const args = Array.isArray(de.args) ? de.args.join(' ') : safeStr(de.args);
+    const args = Array.isArray(de.args) ? de.args.join(' ') : safe(de.args);
     const status = de.status != null ? ` → ${de.status}` : '';
     if (!args) return main(`[git]`, 'text-muted-foreground/30');
-    return main(`[git] git ${args.slice(0, 80)}${status}`, 'text-muted-foreground/40');
+    return main(`[git] git ${args.slice(0, limits.terminal_summary_max_chars)}${status}`, 'text-muted-foreground/40');
   }
 
   if (type === 'candidate_imported') {
@@ -238,7 +239,7 @@ function expandToDisplayItems(item) {
   }
 
   if (type === 'candidate_denied_by_maker') {
-    return main(`[DENIED] ${safeStr(de.reason, 150)}`, 'text-red-400');
+    return main(`[DENIED] ${safe(de.reason, limits.terminal_summary_max_chars)}`, 'text-red-400');
   }
 
   if (type === 'candidate_approved_by_maker') {
@@ -270,12 +271,13 @@ function RSITerminal() {
   const pendingEventsRef = useRef([])
   const containerRef = useRef(null)
   const activeRef = useRef(false)
+  const uiLimitsRef = useRef(null)
 
   atBottomRef.current = atBottom;
 
   const flushPending = useCallback(() => {
     if (pendingEventsRef.current.length > 0) {
-      setEvents(prev => [...prev, ...pendingEventsRef.current].slice(-3000));
+      setEvents(prev => [...prev, ...pendingEventsRef.current].slice(-uiLimitsRef.current.terminal_event_limit));
       pendingEventsRef.current = [];
       setPendingCount(0);
     }
@@ -284,7 +286,7 @@ function RSITerminal() {
   const appendEvents = useCallback((newItems) => {
     if (newItems.length === 0) return;
     if (atBottomRef.current) {
-      setEvents(prev => [...prev, ...newItems].slice(-3000));
+      setEvents(prev => [...prev, ...newItems].slice(-uiLimitsRef.current.terminal_event_limit));
     } else {
       pendingEventsRef.current = [...pendingEventsRef.current, ...newItems];
       setPendingCount(pendingEventsRef.current.length);
@@ -301,7 +303,7 @@ function RSITerminal() {
     const el = containerRef.current;
     if (!el) return;
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const nowAtBottom = distFromBottom < 60;
+    const nowAtBottom = uiLimitsRef.current ? distFromBottom < uiLimitsRef.current.terminal_at_bottom_threshold_px : true;
     if (nowAtBottom && !atBottomRef.current) { setAtBottom(true); flushPending(); }
     else if (!nowAtBottom && atBottomRef.current) { setAtBottom(false); }
   }, [flushPending]);
@@ -324,15 +326,24 @@ function RSITerminal() {
         // On first load, backfill the current run from the TOP (cursor 0) so the
         // terminal reads top-down with full scrollback, exactly like a real
         // terminal session. Afterwards, tail incrementally from the saved cursor.
+        if (!uiLimitsRef.current) {
+          const uiStatus = await flokiAdapter.getSelfImprovementStatus();
+          const configuredLimits = uiStatus?.ui_limits;
+          if (!configuredLimits || !Number.isFinite(Number(configuredLimits.terminal_poll_ms))) {
+            throw new Error('RSI UI limits are missing from chat YAML transport');
+          }
+          uiLimitsRef.current = configuredLimits;
+        }
         const isInit = auditCursorRef.current === null;
         const params = isInit
-          ? { audit_cursor: 0, sandbox_cursor: 0, limit: 500 }
-          : { audit_cursor: auditCursorRef.current, sandbox_cursor: sandboxCursorRef.current, limit: 200 };
+          ? { audit_cursor: 0, sandbox_cursor: 0, limit: uiLimitsRef.current.terminal_initial_activity_limit }
+          : { audit_cursor: auditCursorRef.current, sandbox_cursor: sandboxCursorRef.current, limit: uiLimitsRef.current.terminal_incremental_activity_limit };
 
         const result = await flokiAdapter.getSelfImprovementActivity(params);
         if (!activeRef.current) return;
 
         if (result?.ok) {
+          if (result.ui_limits) uiLimitsRef.current = result.ui_limits;
           const newRunId = result.run_id || null;
           const newSandboxFile = result.sandbox_log_file || null;
 
@@ -364,7 +375,7 @@ function RSITerminal() {
 
             // Expand each API event into one or more display lines (top-down order)
             const displayItems = (result.events || []).flatMap(item => {
-              try { return expandToDisplayItems(item); } catch (_) { return []; }
+              try { return expandToDisplayItems(item, uiLimitsRef.current); } catch (error) { setError(error.message); return []; }
             });
             appendEvents(displayItems);
 
@@ -375,7 +386,7 @@ function RSITerminal() {
       } catch (err) {
         if (activeRef.current) setError(err.message);
       }
-      if (activeRef.current) timer = setTimeout(poll, 2000);
+      if (activeRef.current && uiLimitsRef.current) timer = setTimeout(poll, uiLimitsRef.current.terminal_poll_ms);
     };
 
     poll();
@@ -470,7 +481,7 @@ export default function RSILab({ flokiStatus }) {
           terminal off-screen, and overflow-y-auto scrolls its contents
           INTERNALLY (the panel's own left list / right detail / objective +
           actions stay usable without any page-level scroll). */}
-      <div className="flex-[3] min-h-0 overflow-y-auto px-6">
+      <div className="flex-[3] min-h-0 overflow-hidden px-6">
         <SelfImprovementPanel />
       </div>
 

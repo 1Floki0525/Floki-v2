@@ -72,6 +72,7 @@ function buildRemCycles(startedAt, wakeAt, firstOffsetMinutes, intervalMinutes, 
   const wakeMs = new Date(wakeAt).getTime();
   const firstOffsetMs = Number(firstOffsetMinutes) * 60000;
   const intervalMs = Number(intervalMinutes) * 60000;
+  const maxCycles = Number(options.max_rem_cycles ?? Number.POSITIVE_INFINITY);
 
   if (!Number.isFinite(startMs) || !Number.isFinite(wakeMs) || wakeMs <= startMs) {
     throw new Error('manual nap state has invalid start or wake timestamps');
@@ -79,6 +80,9 @@ function buildRemCycles(startedAt, wakeAt, firstOffsetMinutes, intervalMinutes, 
   if (!Number.isFinite(firstOffsetMs) || firstOffsetMs < 0) throw new Error('manual nap first REM offset must be zero or greater');
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
     throw new Error('manual nap REM interval must be positive');
+  }
+  if (!(maxCycles > 0) && maxCycles !== Number.POSITIVE_INFINITY) {
+    throw new Error('manual nap maximum REM cycles must be positive');
   }
 
   const existingByTime = new Map(
@@ -88,7 +92,7 @@ function buildRemCycles(startedAt, wakeAt, firstOffsetMinutes, intervalMinutes, 
   );
 
   const desiredTimes = [];
-  for (let scheduledMs = startMs + firstOffsetMs; scheduledMs < wakeMs; scheduledMs += intervalMs) {
+  for (let scheduledMs = startMs + firstOffsetMs; scheduledMs < wakeMs && desiredTimes.length < maxCycles; scheduledMs += intervalMs) {
     desiredTimes.push(new Date(scheduledMs).toISOString());
   }
 
@@ -130,7 +134,8 @@ function reconcileManualNapState(state, options = {}) {
     state.wake_at,
     cfg.first_rem_offset_minutes,
     cfg.rem_interval_minutes,
-    state.rem_cycles
+    state.rem_cycles,
+    { max_rem_cycles: cfg.max_rem_cycles }
   );
 
   const normalizationChanged = desired.some((cycle, index) => {
@@ -214,7 +219,8 @@ function beginManualNap(options = {}) {
       wakeAt,
       cfg.first_rem_offset_minutes,
       cfg.rem_interval_minutes,
-      []
+      [],
+      { max_rem_cycles: cfg.max_rem_cycles }
     ),
     nightly_schedule_modified: false,
     chat_mode_only: true,

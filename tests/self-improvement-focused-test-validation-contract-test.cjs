@@ -10,7 +10,7 @@ const agentSource = fs.readFileSync(
   'utf8'
 );
 
-assert.equal(process.version, 'v24.17.0');
+assert.match(process.version, /^v24\./);
 
 // --- Structural checks ---
 assert.match(agentSource, /FOCUSED_TEST_EXECUTABLE_PREFIX/, 'agent must define FOCUSED_TEST_EXECUTABLE_PREFIX');

@@ -336,8 +336,8 @@ sleep:
     cycle_46: 460
     cycle_47: 470
   manual_nap_duration_minutes: 30
-  manual_nap_rem_offset_minutes: 0
-  manual_nap_max_rem_cycles: 3
+  manual_nap_rem_offset_minutes: 10
+  manual_nap_max_rem_cycles: 2
   manual_nap_dream_max_retry_count: 3
 dream:
   temperature: 0.45
@@ -1064,3 +1064,121 @@ self_improvement:
   training_keep_alive_workers: "electron_app|chat_api|status_transport|rsi_worker|sleep_scheduler|training_supervisor"
   runtime_transition_timeout_ms: 60000
   wake_restoration_timeout_ms: 120000
+  # === RSI autonomy v2 / Stage 6: REM / training coordination ===
+  # Nightly REM uses Hugging Face. Manual daytime nap REM remains Ollama.
+  training_scheduler_tick_ms: 1000
+  hf_rem_response_file_name: "response.json"
+  activity_stream_min_events: 1
+  activity_stream_initial_events: 250
+  activity_stream_default_events: 200
+  rsi_terminal_summary_max_chars: 200
+  rsi_terminal_selection_error_line_max_chars: 150
+  rsi_terminal_selection_error_max_lines: 10
+  rsi_terminal_selection_error_max_chars: 2000
+  rsi_terminal_diff_max_chars: 60000
+  rsi_terminal_failure_output_max_lines: 50
+  rsi_terminal_success_output_max_lines: 40
+  rsi_terminal_output_max_chars: 12000
+  rsi_terminal_command_max_chars: 400
+  rsi_terminal_code_max_line_chars: 240
+  rsi_terminal_code_max_lines: 400
+  rsi_terminal_output_max_line_chars: 160
+  rsi_terminal_output_max_lines: 25
+  rsi_terminal_safe_string_max_chars: 200
+  rsi_terminal_incremental_activity_limit: 200
+  rsi_terminal_initial_activity_limit: 250
+  rsi_terminal_poll_ms: 2000
+  rsi_terminal_at_bottom_threshold_px: 60
+  rsi_terminal_event_limit: 3000
+  rsi_ui_candidate_render_limit: 200
+  vision_provider: "vision"
+  nightly_training_provider: "huggingface"
+  manual_training_provider: "huggingface"
+  code_improvement_provider: "ollama"
+  live_cognition_provider: "ollama"
+  hf_rem_do_sample: true
+  hf_rem_tokenizer_use_fast: true
+  hf_rem_device_map: "auto"
+  hf_rem_master_identity: "hf-master"
+  hf_rem_model_identity_prefix: "approved-lineage-"
+  hf_rem_system_prompt: "You are Floki-v2 private REM dream generation using the approved Hugging Face lineage. Return only schema-constrained JSON and never reveal private reasoning."
+  hf_rem_repetition_penalty: 1.05
+  hf_rem_max_new_tokens: 1800
+  hf_rem_top_p: 0.9
+  hf_rem_temperature: 0.8
+  hf_rem_required_adapter_files: "adapter_config.json|adapter_model.safetensors"
+  hf_rem_network_mode: "none"
+  hf_rem_inference_script_path: "/opt/floki-training/rem_inference.py"
+  hf_rem_entrypoint: "python3"
+  hf_rem_adapter_mount_path: "/approved-adapter"
+  hf_rem_id_random_bytes: 3
+  hf_rem_id_prefix: "rem"
+  hf_rem_log_file_name: "inference.log"
+  hf_rem_runtime_subdir: "hf-rem"
+  nightly_training_min_completed_steps: 1
+  nightly_training_candidate_objective: "Nightly QLoRA adapter training between REM cycles."
+  nightly_training_default_objective: "Nightly QLoRA training between REM cycles"
+  nightly_training_container_stop_timeout_floor_ms: 60000
+  nightly_training_container_stop_timeout_seconds: 30
+  nightly_training_checkpoint_request_random_bytes: 8
+  nightly_training_checkpoint_request_id_prefix: "checkpoint"
+  nightly_training_resume_policy: "latest"
+  nightly_training_mode: "nightly_segmented"
+  nightly_training_control_response_file_name: ".floki-control-response.json"
+  nightly_training_control_file_name: ".floki-control.json"
+  nightly_training_run_id_random_bytes: 3
+  nightly_training_run_id_prefix: "nightly-training"
+  qlora_dataset_text_field: "text"
+  qlora_save_strategy: "steps"
+  qlora_task_type: "CAUSAL_LM"
+  qlora_bias: "none"
+  manual_training_resume_policy: "none"
+  manual_training_segment_number: 0
+  manual_training_mode: "manual"
+  training_report_to: "none"
+  training_device_map: "auto"
+  training_tokenizer_use_fast: true
+  training_rng_state_file_name: "rng_state.pth"
+  training_lr_scheduler_state_file_name: "scheduler.pt"
+  training_optimizer_state_file_name: "optimizer.pt"
+  training_trainer_state_file_name: "trainer_state.json"
+  training_checkpoint_dir_prefix: "checkpoint-"
+  training_metrics_file_name: "metrics.json"
+  training_log_file_name: "training.log"
+  training_adapter_output_dir_name: "adapter-output"
+  training_candidate_risk_level: "high"
+  training_candidate_summary: "Real QLoRA training completed and produced a versioned adapter pending independent evaluation and Maker review."
+  training_status_objective: "QLoRA adapter training"
+  training_default_objective: "Train a versioned QLoRA adapter from approved local sources."
+  training_required_artifact_files: "adapter_config.json|adapter_model.safetensors|metrics.json"
+  training_log_tail_max_chars: 16000
+  training_run_id_random_bytes: 3
+  training_run_id_prefix: "training"
+  training_transformers_offline: "1"
+  training_hf_hub_offline: "1"
+  training_pip_no_cache_dir: "1"
+  training_debian_frontend: "noninteractive"
+  training_script_path: "/opt/floki-training/train_qlora.py"
+  training_entrypoint: "python3"
+  training_container_apt_packages: "python3 python3-pip git ca-certificates"
+  training_container_context_dir: "containers/self-improvement-training"
+  training_image_fingerprint_label: "org.floki.training-source-sha256"
+  training_source_fingerprint_files: "containers/self-improvement-training/Containerfile|containers/self-improvement-training/train_qlora.py|containers/self-improvement-training/rem_inference.py"
+  hf_rem_request_file_name: "request.json"
+  hf_rem_runtime_mount_path: "/run/floki-rem"
+  hf_rem_container_name_prefix: "floki-rsi-rem"
+  nightly_training_checkpoint_poll_ms: 500
+  nightly_training_checkpoint_timeout_ms: 120000
+  nightly_training_save_total_limit: 4
+  nightly_training_max_steps: 1000000
+  nightly_training_session_file_name: "nightly-session.json"
+  # === RSI autonomy v2 / Stage 6: REM / training scheduler ===
+  # Nightly REM uses the Hugging Face checkpoint/approved lineage (never Ollama);
+  # manual daytime nap REM uses the configured Ollama model.
+  nightly_rem_provider: "huggingface"
+  manual_nap_rem_provider: "ollama"
+  hf_rem_inference_endpoint: "container://one-shot"
+  hf_rem_inference_timeout_ms: 300000
+  training_rem_claim_file: "state/floki/self-improvement/rem-claims.json"
+  training_segment_min_seconds: 60
+  training_checkpoint_before_rem: true

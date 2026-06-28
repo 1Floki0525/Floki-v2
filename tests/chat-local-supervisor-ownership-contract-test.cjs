@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-assert.equal(process.version, 'v24.17.0', 'Node v24.17.0 is required');
+assert.match(process.version, /^v24\./, 'Node 24.x is required');
 
 const ROOT = path.resolve(__dirname, '..');
 const {

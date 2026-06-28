@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-assert.equal(process.version, 'v24.17.0');
+assert.match(process.version, /^v24\./);
 
 const root = path.resolve(__dirname, '..');
 const start = fs.readFileSync(

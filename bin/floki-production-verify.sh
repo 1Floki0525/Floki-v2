@@ -1,46 +1,44 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT" || exit 1
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)"
+NODE_RUN="$ROOT/bin/floki-node24-run.sh"
+PY_CACHE="${TMPDIR:-/tmp}/floki-production-verify-pycache-$$"
+cd "$ROOT"
 
-if [ -s "$HOME/.nvm/nvm.sh" ]; then
-  export NVM_DIR="$HOME/.nvm"
-  . "$HOME/.nvm/nvm.sh"
-  nvm use 24.17.0 >/dev/null 2>&1 || nvm use 24 >/dev/null 2>&1
-fi
+fail() { echo "FLOKI_CHAT_LOCAL_PRODUCTION_VERIFY_FAIL: $1" >&2; exit 1; }
+run_step() { local label="$1"; shift; echo; echo "=== $label ==="; "$@" || fail "$label"; }
 
-fail() {
-  echo "FLOKI_CHAT_LOCAL_PRODUCTION_VERIFY_FAIL: $1" >&2
-  exit 1
-}
+[ -x "$NODE_RUN" ] || fail "Node 24 wrapper is missing or not executable"
+NODE_VERSION="$("$NODE_RUN" node --version 2>/dev/null || true)"
+case "$NODE_VERSION" in v24.*) ;; *) fail "Node 24.x is required; actual=${NODE_VERSION:-unavailable}" ;; esac
 
-run_step() {
-  LABEL="$1"
-  shift
-  echo
-  echo "=== $LABEL ==="
-  "$@"
-  STATUS="$?"
-  [ "$STATUS" -eq 0 ] || fail "$LABEL status=$STATUS"
-}
+cleanup() { rm -rf "$PY_CACHE"; }
+trap cleanup EXIT
 
-[ "$(node -v 2>/dev/null)" = "v24.17.0" ] || fail "Node v24.17.0 required; actual=$(node -v 2>/dev/null || printf unavailable)"
-
-ROOT_SESSION_FILE="$(find "$ROOT" -maxdepth 1 -type f -name 'session-*.md' -print -quit)"
-[ -z "$ROOT_SESSION_FILE" ] || fail "session evidence is inside the active source root: $ROOT_SESSION_FILE"
-
-run_step "Syntax: config" node --check src/config/floki-config.cjs
-run_step "Syntax: wake continuation" node --check src/chat/wake-command-continuation.cjs
-run_step "Syntax: live audio" node --check src/senses/live-audio-service.cjs
-run_step "Syntax: dream engine" node --check src/chat/dream-engine.cjs
-run_step "Syntax: scheduler" node --check src/chat/sleep-cycle-scheduler.cjs
-run_step "Chat.local config authority" node tests/chat-local-config-authority-contract-test.cjs
-run_step "Chat.local YAML model authority" node tests/chat-local-yaml-model-authority-contract-test.cjs
-run_step "Complete chat.local test suite" npm run test:chat-local
-run_step "Production interface build" npm run build
+run_step "Whitespace and patch integrity" git diff --check
+run_step "Private chat YAML migration check" "$NODE_RUN" node bin/floki-migrate-chat-config.cjs --check
+run_step "RSI YAML runtime authority" "$NODE_RUN" node tests/rsi-stage8-yaml-runtime-authority-contract-test.cjs
+run_step "RSI Python syntax" env PYTHONPYCACHEPREFIX="$PY_CACHE" python3 -m py_compile \
+  containers/self-improvement-training/train_qlora.py \
+  containers/self-improvement-training/rem_inference.py
+run_step "Training Python helper behavior" "$NODE_RUN" node tests/rsi-training-python-helper-contract-test.cjs
+run_step "Training resource transaction behavior" "$NODE_RUN" node tests/rsi-training-runtime-resource-transaction-contract-test.cjs
+run_step "Training resource compatibility behavior" "$NODE_RUN" node tests/rsi-training-runtime-resource-compatibility-contract-test.cjs
+run_step "Manual training container cleanup" "$NODE_RUN" node tests/rsi-training-container-cleanup-contract-test.cjs
+run_step "Nightly training launch cleanup" "$NODE_RUN" node tests/rsi-nightly-training-launch-cleanup-contract-test.cjs
+run_step "HF REM container cleanup" "$NODE_RUN" node tests/rsi-hf-rem-container-cleanup-contract-test.cjs
+run_step "Training failure REM continuity" "$NODE_RUN" node tests/rsi-nightly-training-failure-rem-continuity-contract-test.cjs
+run_step "Adapter lineage error surfacing" "$NODE_RUN" node tests/rsi-adapter-lineage-error-surfacing-contract-test.cjs
+run_step "Nightly finalization restart recovery" "$NODE_RUN" node tests/rsi-nightly-finalization-resume-contract-test.cjs
+run_step "Stage 8 integration release gate" "$NODE_RUN" node tests/rsi-stage8-integration-release-gate-contract-test.cjs
+run_step "Complete Node 24 contract suite" "$NODE_RUN" npm test
+run_step "Root production build" "$NODE_RUN" npm run build
+run_step "Neural-interface integration contracts" "$NODE_RUN" npm run test:integration --prefix apps/floki-neural-interface
+run_step "Neural-interface production build" "$NODE_RUN" npm run build --prefix apps/floki-neural-interface
 
 echo
 echo "FLOKI_CHAT_LOCAL_PRODUCTION_STATIC_VERIFY_PASS"
-echo "Next: bash bin/floki-start.sh chat.local"
-echo "Then say exactly: Hey Floki, what can you see?"
-echo "After the spoken test, run the live production proof script."
+echo "FLOKI_RSI_STAGE8_PRODUCTION_VERIFY_PASS"
+echo "Next live command: bin/floki-start.sh chat.local"
+echo "Do not merge until manual training, abort, restoration, cognition recovery, manual nap, and nighttime REM pass."

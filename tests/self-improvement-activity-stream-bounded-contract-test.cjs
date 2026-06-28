@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-assert.equal(process.version, 'v24.17.0');
+assert.match(process.version, /^v24\./);
 
 const {
   jsonlFileSize,

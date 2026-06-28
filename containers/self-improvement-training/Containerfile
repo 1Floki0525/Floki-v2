@@ -1,32 +1,45 @@
 # Floki-v2 RSI QLoRA training container.
 #
-# The base CUDA image, Python packages, and all hyperparameters are supplied by
-# the host from chat YAML (build args / mounted training-config.json). This image
-# performs QLoRA training of a LoRA adapter against the read-only Hugging Face
-# master checkpoint; it never trains the production Ollama GGUF and never performs
-# full-weight fine-tuning.
+# Every build-time value is mandatory and supplied by the host from the
+# authoritative chat YAML. This file intentionally has no operational defaults.
 
-ARG BASE_CUDA_IMAGE=nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+ARG BASE_CUDA_IMAGE
 FROM ${BASE_CUDA_IMAGE}
 
-ARG PYTHON_PACKAGES="torch transformers peft bitsandbytes datasets accelerate safetensors sentencepiece trl"
-ARG TRAINING_WORKDIR=/workspace
+ARG PYTHON_PACKAGES
+ARG APT_PACKAGES
+ARG TRAINING_WORKDIR
+ARG TRAINING_ENTRYPOINT
+ARG TRAINING_SCRIPT_PATH
+ARG REM_INFERENCE_SCRIPT_PATH
+ARG DEBIAN_FRONTEND_VALUE
+ARG PIP_NO_CACHE_DIR_VALUE
+ARG HF_HUB_OFFLINE_VALUE
+ARG TRANSFORMERS_OFFLINE_VALUE
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    PIP_NO_CACHE_DIR=1 \
-    HF_HUB_OFFLINE=1 \
-    TRANSFORMERS_OFFLINE=1
+ENV DEBIAN_FRONTEND=${DEBIAN_FRONTEND_VALUE} \
+    PIP_NO_CACHE_DIR=${PIP_NO_CACHE_DIR_VALUE} \
+    HF_HUB_OFFLINE=${HF_HUB_OFFLINE_VALUE} \
+    TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE_VALUE}
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        python3 python3-pip git ca-certificates \
+RUN test -n "${PYTHON_PACKAGES}" \
+    && test -n "${APT_PACKAGES}" \
+    && test -n "${TRAINING_WORKDIR}" \
+    && test -n "${TRAINING_ENTRYPOINT}" \
+    && test -n "${TRAINING_SCRIPT_PATH}" \
+    && test -n "${REM_INFERENCE_SCRIPT_PATH}" \
+    && test -n "${DEBIAN_FRONTEND_VALUE}" \
+    && test -n "${PIP_NO_CACHE_DIR_VALUE}" \
+    && test -n "${HF_HUB_OFFLINE_VALUE}" \
+    && test -n "${TRANSFORMERS_OFFLINE_VALUE}" \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ${APT_PACKAGES} \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --upgrade pip \
-    && python3 -m pip install ${PYTHON_PACKAGES}
+RUN ${TRAINING_ENTRYPOINT} -m pip install --upgrade pip \
+    && ${TRAINING_ENTRYPOINT} -m pip install ${PYTHON_PACKAGES}
 
 WORKDIR ${TRAINING_WORKDIR}
 
-COPY train_qlora.py /opt/floki-training/train_qlora.py
-
-ENTRYPOINT ["python3", "/opt/floki-training/train_qlora.py"]
+COPY train_qlora.py ${TRAINING_SCRIPT_PATH}
+COPY rem_inference.py ${REM_INFERENCE_SCRIPT_PATH}

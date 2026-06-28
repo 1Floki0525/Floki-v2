@@ -7,7 +7,9 @@ cd "$ROOT" || exit 1
 if [ -s "$HOME/.nvm/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"
   . "$HOME/.nvm/nvm.sh"
-  nvm use 24.17.0 >/dev/null 2>&1 || nvm use 24 >/dev/null 2>&1
+  if ! command -v node >/dev/null 2>&1 || ! node -v 2>/dev/null | grep -Eq '^v24\.'; then
+    nvm use 24 >/dev/null 2>&1
+  fi
 fi
 
 mapfile -t CLEANUP_CONFIG < <(node - <<'NODE'

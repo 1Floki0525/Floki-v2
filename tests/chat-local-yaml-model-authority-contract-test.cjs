@@ -28,7 +28,7 @@ function walk(directory, callback) {
 }
 
 function run() {
-  assert.equal(process.version, "v24.17.0", "Node v24.17.0 is required");
+  assert.match(process.version, /^v24\./, "Node 24.x is required");
 
   const chatYaml = path.join(CONFIG_DIR, "chat.config.yaml");
   const yamlText = fs.readFileSync(chatYaml, "utf8");

@@ -43,6 +43,8 @@ const { reconcileDreamArchive } = require('../chat/dream-archive.cjs');
 const { createChatLocalInterfaceApi } = require('./chat-local-interface-api.cjs');
 const { createKnowledgeRuntimeBootstrap } = require('../chat/knowledge-runtime-bootstrap.cjs');
 const { runPreRemMemoryPreparation } = require('../chat/pre-rem-memory-preparation.cjs');
+const { assertApprovalToken } = require('../self-improvement/store.cjs');
+const { enterTrainingRuntimeResourceMode, exitTrainingRuntimeResourceMode } = require('../self-improvement/training/runtime-resource-controller.cjs');
 
 const DEFAULT_HOST = getLiveChatConfig('chat').runtime_host;
 const DEFAULT_PORT = getLiveChatConfig('chat').runtime_port;
@@ -961,6 +963,122 @@ function createChatLocalRuntime(options = {}) {
     }).finally(async () => { manualNapDreamTask = null; await applyLifecycle(buildFlokiLifecycleStatus()); });
   }
 
+
+  function restartKnowledgeAfterTraining() {
+    const configured = getKnowledgeConfig('chat');
+    if (configured.autoload_enabled !== true) {
+      state.knowledge_worker_started = false;
+      state.knowledge_worker_running = false;
+      state.knowledge_refreshing = false;
+      return Object.freeze({ started: false, reason: 'disabled_by_chat_yaml' });
+    }
+    if (knowledgeBootstrap.running()) {
+      return Object.freeze({ started: false, reason: 'already_running' });
+    }
+    const launch = knowledgeBootstrap.start({
+      runtime_dir: runtimeDir,
+      on_update(update) {
+        state.knowledge_refreshing = update.phase === 'refreshing';
+        state.knowledge_worker_running = update.phase === 'refreshing';
+        state.knowledge_refresh_error = update.error || null;
+        state.knowledge_ready = update.ready === true;
+        const existing = update.existing || {};
+        state.knowledge_autoload = Object.freeze({
+          ...(update.result || {}),
+          phase: update.phase,
+          marker: update.marker,
+          source_count: Number(
+            existing.source_count ||
+            (update.result && update.result.source_count) ||
+            0
+          ),
+          chunk_count: Number(
+            existing.chunk_count ||
+            (update.result && update.result.chunk_count) ||
+            0
+          ),
+          knowledge_root:
+            existing.knowledge_root ||
+            (update.result && update.result.knowledge_root) ||
+            null,
+          error: update.error || null
+        });
+        appendLog(
+          'knowledge autoload ' + String(update.phase) + ': ' +
+          String(update.marker) + ' sources=' +
+          String(state.knowledge_autoload.source_count || 0) +
+          ' chunks=' +
+          String(state.knowledge_autoload.chunk_count || 0) +
+          (update.error ? ' error=' + String(update.error) : '')
+        );
+        publish();
+      }
+    });
+    state.knowledge_worker_started = launch.started === true;
+    state.knowledge_worker_running = launch.started === true;
+    return Object.freeze({
+      started: launch.started === true,
+      reason: launch.reason || null
+    });
+  }
+
+  async function enterTrainingResource(body = {}) {
+    const config = loadSelfImprovementConfig();
+    assertApprovalToken(body.token, config);
+    if (state.active_turn === true) throw new Error('cannot enter training resource mode during an active foreground turn');
+    if (liveAudio.status().speaking === true) throw new Error('cannot enter training resource mode while speech output is active');
+    state.training_resource_mode = 'entering';
+    state.training_resource_error = null;
+    publish();
+    try {
+      const result = await enterTrainingRuntimeResourceMode({
+        config,
+        run_id: String(body.run_id || ''),
+        reason: 'manual_or_nightly_training',
+        liveAudio,
+        visionReconciler,
+        knowledgeBootstrap,
+        restartKnowledge: restartKnowledgeAfterTraining,
+        applyLifecycle,
+        buildLifecycle: buildFlokiLifecycleStatus
+      });
+      state.training_resource_mode = 'active';
+      state.training_resource_entered_at = result.entered_at;
+      state.training_resource_error = null;
+      state.gpu_owner = result.gpu_owner;
+      state.knowledge_worker_running = false;
+      publish();
+      return { ok: true, verified: true, result, status: status() };
+    } catch (error) {
+      state.training_resource_mode = 'failed';
+      state.training_resource_error = error.message;
+      publish();
+      throw error;
+    }
+  }
+
+  async function exitTrainingResource(body = {}) {
+    const config = loadSelfImprovementConfig();
+    assertApprovalToken(body.token, config);
+    state.training_resource_mode = 'restoring';
+    state.training_resource_error = null;
+    publish();
+    const result = await exitTrainingRuntimeResourceMode({
+      config,
+      reason: String(body.reason || 'training_finished'),
+      restartKnowledge: restartKnowledgeAfterTraining,
+      applyLifecycle,
+      buildLifecycle: buildFlokiLifecycleStatus
+    });
+    state.training_resource_mode = result.ok ? 'idle' : 'failed';
+    state.training_resource_error = result.ok ? null : JSON.stringify(result.failures);
+    state.training_resource_restored_at = result.completed_at;
+    state.gpu_owner = null;
+    publish();
+    if (!result.ok) throw new Error('training runtime restoration failed: ' + JSON.stringify(result.failures));
+    return { ok: true, verified: true, result, status: status() };
+  }
+
   const interfaceApi = createChatLocalInterfaceApi({ runtime_dir: runtimeDir, status, started_at: startedAt, session_id: brain.session_id });
 
   function runControlScript(script) {
@@ -1103,6 +1221,16 @@ function createChatLocalRuntime(options = {}) {
     if (req.method === 'GET' && url.pathname === '/nap/status') { sendJson(res, 200, { ok: true, nap: readManualNapState(), lifecycle: buildFlokiLifecycleStatus() }); return; }
     if (req.method === 'POST' && url.pathname === '/settings/reload') { await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, { ok: true, verified: true, settings: getInterfaceSettings('chat'), status: status() }); return; }
     if (req.method === 'POST' && url.pathname === '/audio/push-to-talk') { const body = await bodyJson(req); state.push_to_talk_active = body.active === true; await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, { ok: true, verified: true, active: state.push_to_talk_active, status: status() }); return; }
+    if (req.method === 'POST' && url.pathname === '/self-improvement/training-resource/enter') {
+      const body = await bodyJson(req);
+      sendJson(res, 200, await enterTrainingResource(body));
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/self-improvement/training-resource/exit') {
+      const body = await bodyJson(req);
+      sendJson(res, 200, await exitTrainingResource(body));
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/self-improvement/status') {
       sendJson(res, 200, { ok: true, status: selfImprovementApi.status() });
       return;
@@ -1149,6 +1277,19 @@ function createChatLocalRuntime(options = {}) {
       );
       return;
     }
+    if (req.method === 'POST' && url.pathname === '/self-improvement/abort') {
+      const body = await bodyJson(req);
+      sendJson(
+        res,
+        200,
+        selfImprovementApi.abort(
+          body.token,
+          body.reason,
+          body.kind
+        )
+      );
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/self-improvement/activity') {
       try {
         const rsiConfig = loadSelfImprovementConfig();
@@ -1159,16 +1300,33 @@ function createChatLocalRuntime(options = {}) {
         const rsiStatus = selfImprovementApi.status();
         const sandboxLogFile =
           rsiStatus?.last_sandbox_log_file || null;
+        const parseActivityQueryInteger = (name, fallback) => {
+          const raw = url.searchParams.get(name);
+          if (raw == null || raw === '') return fallback;
+          if (!/^\d+$/.test(raw)) {
+            throw new Error('invalid self-improvement activity query integer: ' + name);
+          }
+          const value = Number(raw);
+          if (!Number.isSafeInteger(value)) {
+            throw new Error('self-improvement activity query integer is out of range: ' + name);
+          }
+          return value;
+        };
+        const auditCursor = parseActivityQueryInteger('audit_cursor', 0);
+        const sandboxCursor = parseActivityQueryInteger('sandbox_cursor', 0);
+        const initialActivityRequest = auditCursor === 0 && sandboxCursor === 0;
+        const configuredDefault = initialActivityRequest
+          ? rsiConfig.activity_stream_initial_events
+          : rsiConfig.activity_stream_default_events;
+        const parsedLimit = parseActivityQueryInteger('limit', configuredDefault);
         const maxEvents = Math.min(
           rsiConfig.activity_stream_max_events,
-          Math.max(
-            1,
-            Number.parseInt(
-              url.searchParams.get('limit') || '200',
-              10
-            ) || 200
-          )
+          Math.max(rsiConfig.activity_stream_min_events, parsedLimit)
         );
+        const uiLimits = rsiStatus && rsiStatus.ui_limits;
+        if (!uiLimits) {
+          throw new Error('self-improvement UI limits are missing from chat YAML transport');
+        }
         const maxBytes = rsiConfig.activity_stream_max_bytes;
 
         if (url.searchParams.get('init') === 'true') {
@@ -1186,25 +1344,12 @@ function createChatLocalRuntime(options = {}) {
             next_sandbox_cursor: sandboxSize,
             sandbox_log_file: sandboxLogFile,
             run_id: rsiStatus?.current_run_id || null,
-            phase: rsiStatus?.phase || null
+            phase: rsiStatus?.phase || null,
+            ui_limits: uiLimits
           });
           return;
         }
 
-        const auditCursor = Math.max(
-          0,
-          Number.parseInt(
-            url.searchParams.get('audit_cursor') || '0',
-            10
-          ) || 0
-        );
-        const sandboxCursor = Math.max(
-          0,
-          Number.parseInt(
-            url.searchParams.get('sandbox_cursor') || '0',
-            10
-          ) || 0
-        );
 
         const [auditChunk, sandboxChunk] = await Promise.all([
           readJsonlActivityChunk(auditFile, auditCursor, {
@@ -1250,7 +1395,8 @@ function createChatLocalRuntime(options = {}) {
           sandbox_cursor_reset: sandboxChunk.cursor_reset,
           sandbox_log_file: sandboxLogFile,
           run_id: rsiStatus?.current_run_id || null,
-          phase: rsiStatus?.phase || null
+          phase: rsiStatus?.phase || null,
+          ui_limits: uiLimits
         });
       } catch (error) {
         sendJson(res, 500, {

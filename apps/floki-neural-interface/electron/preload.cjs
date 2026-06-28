@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('floki', Object.freeze({
   denySelfImprovement: (id, reason = '') => invoke('floki:deny-self-improvement', { id, reason }),
   pauseSelfImprovement: () => invoke('floki:pause-self-improvement'),
   resumeSelfImprovement: () => invoke('floki:resume-self-improvement'),
-  runSelfImprovementNow: (objective = '') => invoke('floki:run-self-improvement-now', { objective }),
+  runSelfImprovementNow: (objective = '', kind = 'code') => invoke('floki:run-self-improvement-now', { objective, kind }),
+  abortSelfImprovement: (kind = 'code', reason = '') => invoke('floki:abort-self-improvement', { kind, reason }),
   getSelfImprovementActivity: (params = {}) => invoke('floki:get-self-improvement-activity', params),
 }));

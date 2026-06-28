@@ -66,7 +66,8 @@ async function main() {
     };
     setYamlScalar('manual_nap_duration_minutes', 0.06);
     setYamlScalar('rem_interval_minutes', 0.02);
-    setYamlScalar('manual_nap_rem_offset_minutes', 0);
+    setYamlScalar('manual_nap_rem_offset_minutes', 0.02);
+    setYamlScalar('manual_nap_max_rem_cycles', 2);
     setYamlScalar('microphone_readiness_poll_ms', 5);
     setYamlScalar('microphone_readiness_timeout_ms', 250);
     setYamlScalar('recorder_stop_timeout_ms', 100);
@@ -231,20 +232,22 @@ async function main() {
     // 10-14. Accelerated nap schedule is derived from temporary YAML and starts REM at offset zero.
     const start = '2026-06-23T20:00:00.000Z';
     const wake = new Date(new Date(start).getTime() + Number(fixture.sleep.manual_nap_duration_minutes) * 60000).toISOString();
-    const expected = buildRemCycles(start, wake, fixture.sleep.manual_nap_rem_offset_minutes, fixture.sleep.rem_interval_minutes, []);
-    assert.equal(expected.length, 3);
-    assert.equal(expected[0].scheduled_at, start);
+    const expected = buildRemCycles(start, wake, fixture.sleep.manual_nap_rem_offset_minutes, fixture.sleep.rem_interval_minutes, [], { max_rem_cycles: fixture.sleep.manual_nap_max_rem_cycles });
+    assert.equal(expected.length, 2);
+    assert.equal(expected[0].scheduled_at, new Date(new Date(start).getTime() + Number(fixture.sleep.manual_nap_rem_offset_minutes) * 60000).toISOString());
     assert.equal(expected.some((cycle) => cycle.scheduled_at === wake), false);
 
     let nap = beginManualNap({ state_file: stateFile, now: start, sleep_config: fixture.sleep });
-    assert.equal(nap.rem_cycles.length, 3);
-    let claim = claimDueRemCycle({ state_file: stateFile, now: start, sleep_config: fixture.sleep });
+    assert.equal(nap.rem_cycles.length, 2);
+    assert.equal(claimDueRemCycle({ state_file: stateFile, now: start, sleep_config: fixture.sleep }), null, 'no REM is due at nap start');
+    const firstRemAt = expected[0].scheduled_at;
+    let claim = claimDueRemCycle({ state_file: stateFile, now: firstRemAt, sleep_config: fixture.sleep });
     assert.equal(claim.cycle.cycle_number, 1);
-    assert.equal(claimDueRemCycle({ state_file: stateFile, now: start, sleep_config: fixture.sleep }), null, 'a claimed cycle cannot be duplicated');
+    assert.equal(claimDueRemCycle({ state_file: stateFile, now: firstRemAt, sleep_config: fixture.sleep }), null, 'a claimed cycle cannot be duplicated');
 
     nap = finishRemCycle({ regeneration_needed: true, last_error: 'quality retry' }, null, {
       state_file: stateFile,
-      now: new Date(new Date(start).getTime() + 10).toISOString(),
+      now: new Date(new Date(firstRemAt).getTime() + 10).toISOString(),
       sleep_config: fixture.sleep,
       dream_config: fixture.dream
     });
@@ -262,10 +265,10 @@ async function main() {
       dream_config: fixture.dream
     });
     assert.equal(nap.rem_cycles.filter((cycle) => cycle.status === 'complete').length, 1);
-    assert.equal(readManualNapState({ state_file: stateFile, now: new Date(new Date(wake).getTime() - 1).toISOString(), sleep_config: fixture.sleep }).rem_cycles.length, 3);
+    assert.equal(readManualNapState({ state_file: stateFile, now: new Date(new Date(wake).getTime() - 1).toISOString(), sleep_config: fixture.sleep }).rem_cycles.length, 2);
     const woken = readManualNapState({ state_file: stateFile, now: wake, sleep_config: fixture.sleep });
     assert.equal(woken.active, false);
-    assert.equal(woken.rem_cycles.length, 3);
+    assert.equal(woken.rem_cycles.length, 2);
     assert.equal(woken.nightly_schedule_modified, false);
 
     console.log(JSON.stringify({
@@ -276,7 +279,7 @@ async function main() {
       split_wake_single_turn: true,
       microphone_tts_lock_and_fresh_reopen: true,
       neural_stream_natural: true,
-      rem_cycles: 3,
+      rem_cycles: 2,
       all_tabs_authoritative_backend: true
     }, null, 2));
   } finally {

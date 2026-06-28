@@ -10,6 +10,7 @@ const {
 } = require('../util/fs-safe.cjs');
 const { PROJECT_ROOT: ROOT, getPathConfig, getSleepConfig } = require('../config/floki-config.cjs');
 const { runSleepCycleTick, loadSleepCycleState } = require('./sleep-cycle.cjs');
+const { getProductionNightlyTrainingCoordinator } = require('../self-improvement/training/training-scheduler.cjs');
 
 const SCHEDULER_CONFIG = getSleepConfig('chat');
 const SCHEDULER_TICK_MS = Number(SCHEDULER_CONFIG.scheduler_tick_ms);
@@ -128,6 +129,14 @@ function isRecoverableDreamQualityError(error) {
   );
 }
 
+
+function isRecoverableNightlyRemError(error) {
+  const message = String(error && error.message ? error.message : error);
+  return message.startsWith('FLOKI_NIGHTLY_REM_') ||
+    message.startsWith('FLOKI_HF_REM_') ||
+    message.startsWith('FLOKI_V2_HF_REM_');
+}
+
 async function runSchedulerIteration(options = {}) {
   const paths = schedulerPaths(options);
   ensureDirSync(paths.runtime_dir);
@@ -138,18 +147,39 @@ async function runSchedulerIteration(options = {}) {
     FLOKI_ALLOW_SLEEP_CYCLE: '1',
     FLOKI_ALLOW_DREAM_ENGINE: '1'
   };
+  const trainingCoordinator = options.training_coordinator || (
+    env.FLOKI_ALLOW_NIGHTLY_TRAINING === '1'
+      ? getProductionNightlyTrainingCoordinator()
+      : null
+  );
+  let nightlyTrainingError = null;
+  if (trainingCoordinator) {
+    try {
+      await trainingCoordinator.beforeTick({ env, now: options.now || new Date() });
+    } catch (error) {
+      nightlyTrainingError = error.stack || error.message;
+    }
+  }
 
-  writeHeartbeat(paths, { phase: 'tick_start' });
+  writeHeartbeat(paths, {
+    phase: 'tick_start',
+    nightly_training_error: nightlyTrainingError
+  });
   const refresh = setInterval(() => {
     writeHeartbeat(paths, { phase: 'tick_running' });
   }, SCHEDULER_HEARTBEAT_REFRESH_MS);
 
   let tick;
   try {
-    tick = await tickRunner({
+    const tickOptions = {
       env,
       write_report: options.write_report !== false
-    });
+    };
+    if (trainingCoordinator) {
+      tickOptions.dream_runner = (dreamOptions) =>
+        trainingCoordinator.runNightlyRem(dreamOptions);
+    }
+    tick = await tickRunner(tickOptions);
   } catch (error) {
     if (isRecoverableDreamQualityError(error)) {
       const record = Object.freeze({
@@ -173,6 +203,31 @@ async function runSchedulerIteration(options = {}) {
         last_tick_completed_at: record.tick_completed_at
       });
 
+      return record;
+    }
+
+
+    if (isRecoverableNightlyRemError(error)) {
+      const record = Object.freeze({
+        ok: true,
+        marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_NIGHTLY_REM_RETRY_QUEUED',
+        pid: process.pid,
+        degraded: true,
+        dream_generated: false,
+        nightly_rem_error: error.stack || error.message,
+        nightly_training_error: nightlyTrainingError,
+        tick_completed_at: new Date().toISOString(),
+        chat_mode_only: true,
+        game_mode_started: false
+      });
+      writeRuntimeRecord(paths.status_file, record);
+      writeHeartbeat(paths, {
+        phase: 'idle_after_nightly_rem_retry_queued',
+        degraded: true,
+        nightly_rem_error: record.nightly_rem_error,
+        nightly_training_error: nightlyTrainingError,
+        last_tick_completed_at: record.tick_completed_at
+      });
       return record;
     }
 
@@ -202,6 +257,18 @@ async function runSchedulerIteration(options = {}) {
     throw new Error('sleep cycle tick did not return an ok result');
   }
 
+  if (trainingCoordinator) {
+    try {
+      await trainingCoordinator.afterTick({
+        env,
+        tick,
+        now: options.now || new Date()
+      });
+    } catch (error) {
+      nightlyTrainingError = error.stack || error.message;
+    }
+  }
+
   const state = loadSleepCycleState();
   const record = Object.freeze({
     ok: true,
@@ -213,6 +280,8 @@ async function runSchedulerIteration(options = {}) {
     sleep_cycle_active: tick.sleep_cycle_active === true,
     dreams_generated_this_tick: Number(tick.dreams_generated_this_tick || 0),
     current_sleep_date: state ? state.current_sleep_date : null,
+    nightly_training_enabled: Boolean(trainingCoordinator),
+    nightly_training_error: nightlyTrainingError,
     chat_mode_only: true,
     game_mode_started: false
   });
@@ -221,7 +290,8 @@ async function runSchedulerIteration(options = {}) {
   writeHeartbeat(paths, {
     phase: 'idle',
     last_tick_completed_at: record.tick_completed_at,
-    last_tick_marker: record.tick_marker
+    last_tick_marker: record.tick_marker,
+    nightly_training_error: nightlyTrainingError
   });
   return record;
 }
@@ -301,6 +371,11 @@ function cleanupSchedulerProcess(pid, paths, timeoutMs) {
 async function runSchedulerService(options = {}) {
   const paths = schedulerPaths(options);
   ensureDirSync(paths.runtime_dir);
+  const serviceTrainingCoordinator = options.training_coordinator || (
+    process.env.FLOKI_ALLOW_NIGHTLY_TRAINING === '1'
+      ? getProductionNightlyTrainingCoordinator()
+      : null
+  );
 
   const existingPid = readPid(paths.pid_file);
   if (existingPid && existingPid !== process.pid && processIsAlive(existingPid)) {
@@ -329,7 +404,7 @@ async function runSchedulerService(options = {}) {
 
   try {
     while (!stopping) {
-      await runSchedulerIteration({ ...options, ...paths });
+      await runSchedulerIteration({ ...options, ...paths, training_coordinator: serviceTrainingCoordinator });
       await waitForNextTick(SCHEDULER_TICK_MS, () => stopping);
     }
   } catch (error) {
@@ -344,6 +419,23 @@ async function runSchedulerService(options = {}) {
     });
     throw error;
   } finally {
+    if (serviceTrainingCoordinator) {
+      try {
+        await serviceTrainingCoordinator.shutdown({
+          reason: 'sleep_scheduler_service_stop'
+        });
+      } catch (error) {
+        writeRuntimeRecord(paths.status_file, {
+          ok: false,
+          marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_TRAINING_SHUTDOWN_ERROR',
+          pid: process.pid,
+          error: error.stack || error.message,
+          stopped_at: new Date().toISOString(),
+          chat_mode_only: true,
+          game_mode_started: false
+        });
+      }
+    }
     const currentPid = readPid(paths.pid_file);
     if (currentPid === process.pid) fs.rmSync(paths.pid_file, { force: true });
   }

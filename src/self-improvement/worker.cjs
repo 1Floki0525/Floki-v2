@@ -22,6 +22,7 @@ const { createSourceSnapshot } = require('./snapshot.cjs');
 const { runSandbox, stopCurrentContainer } = require('./sandbox.cjs');
 const { createModelProxy } = require('./model-proxy.cjs');
 const { normalizeRunKind, candidateTypeForKind } = require('./run-kinds.cjs');
+const { runTrainingCycle } = require('./training/training-runner.cjs');
 const {
   writeCycleMemory,
   flushAgentMemoryOutbox
@@ -292,6 +293,14 @@ async function runCycle(options = {}) {
 
   const runKind = normalizeRunKind(options.kind, config);
   const candidateType = candidateTypeForKind(runKind, config);
+  if (runKind === 'training') {
+    return (options.training_cycle_runner || runTrainingCycle)({
+      ...options,
+      config,
+      kind: runKind,
+      candidate_type: candidateType
+    });
+  }
   const snapshot = createSourceSnapshot({ config });
   updateStatus({
     state: 'researching',
