@@ -7,6 +7,9 @@ const {
   getSelfImprovementConfig,
   getSleepConfig
 } = require('../src/config/floki-config.cjs');
+const {
+  assertQualifiedContainerImageReference
+} = require('../src/self-improvement/training/training-runner.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const config = getSelfImprovementConfig('chat');
@@ -14,7 +17,7 @@ const sleep = getSleepConfig('chat');
 const read = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
 
 const stringKeys = [
-  'training_source_fingerprint_files','training_image_fingerprint_label',
+  'training_base_cuda_image','training_source_fingerprint_files','training_image_fingerprint_label',
   'training_container_context_dir','training_container_apt_packages','training_entrypoint',
   'training_script_path','training_debian_frontend','training_pip_no_cache_dir',
   'training_hf_hub_offline','training_transformers_offline','training_run_id_prefix',
@@ -69,6 +72,22 @@ assert.equal(config.nightly_rem_provider, config.nightly_training_provider);
 assert.equal(sleep.manual_nap_duration_minutes, 30);
 assert.equal(sleep.manual_nap_rem_offset_minutes, 10);
 assert.equal(sleep.manual_nap_max_rem_cycles, 2);
+assert.equal(
+  config.training_base_cuda_image,
+  'docker.io/nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04'
+);
+assert.equal(
+  assertQualifiedContainerImageReference(
+    config.training_base_cuda_image
+  ),
+  config.training_base_cuda_image
+);
+assert.throws(
+  () => assertQualifiedContainerImageReference(
+    'nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04'
+  ),
+  /FLOKI_TRAINING_BASE_IMAGE_UNQUALIFIED/
+);
 
 const requiredSourceReferences = {
   'src/self-improvement/training/training-runner.cjs': [

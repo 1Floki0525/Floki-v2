@@ -14,6 +14,27 @@ const { buildTrainingConfig, buildTrainingRunArgs } = require('./qlora-config.cj
 const { createLineageRecord, nextAdapterVersion, persistLineage } = require('./lineage.cjs');
 const { enterTrainingResource, exitTrainingResource } = require('./runtime-client.cjs');
 
+function assertQualifiedContainerImageReference(value) {
+  const image = String(value || '').trim();
+  const slash = image.indexOf('/');
+  const registry = slash > 0 ? image.slice(0, slash) : '';
+  const qualified =
+    registry === 'localhost' ||
+    registry.includes('.') ||
+    registry.includes(':');
+
+  if (!qualified) {
+    throw new Error(
+      'FLOKI_TRAINING_BASE_IMAGE_UNQUALIFIED: ' +
+      'self_improvement.training_base_cuda_image must use a fully ' +
+      'qualified registry reference (for example docker.io/nvidia/cuda:tag); ' +
+      'received ' + JSON.stringify(image)
+    );
+  }
+
+  return image;
+}
+
 function sourceFingerprint(config) {
   const hash = crypto.createHash('sha256');
   for (const relative of String(config.training_source_fingerprint_files).split('|').map((item) => item.trim()).filter(Boolean)) {
@@ -49,13 +70,16 @@ function inspectImageLabel(config, label) {
 }
 
 function ensureTrainingImage(config = loadSelfImprovementConfig()) {
+  const baseCudaImage = assertQualifiedContainerImageReference(
+    config.training_base_cuda_image
+  );
   const label = config.training_image_fingerprint_label;
   const expected = sourceFingerprint(config);
   if (inspectImageLabel(config, label) === expected) return Object.freeze({ image: config.training_container_image, rebuilt: false, fingerprint: expected });
   const contextDir = path.resolve(config.project_root, config.training_container_context_dir);
   const result = spawnSync(config.sandbox_engine, [
     'build', '--pull=missing', '--label', label + '=' + expected,
-    '--build-arg', 'BASE_CUDA_IMAGE=' + config.training_base_cuda_image,
+    '--build-arg', 'BASE_CUDA_IMAGE=' + baseCudaImage,
     '--build-arg', 'PYTHON_PACKAGES=' + config.training_python_packages,
     '--build-arg', 'APT_PACKAGES=' + config.training_container_apt_packages,
     '--build-arg', 'TRAINING_WORKDIR=' + config.training_container_workdir,
@@ -381,6 +405,7 @@ async function runTrainingCycle(options = {}) {
 }
 
 module.exports = {
+  assertQualifiedContainerImageReference,
   containerAbsent,
   ensureTrainingImage,
   newRunId,

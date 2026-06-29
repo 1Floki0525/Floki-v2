@@ -991,7 +991,7 @@ self_improvement:
   dataset_root: "state/floki/self-improvement/datasets"
   training_runtime_root: "state/floki/self-improvement/training-runtime"
   training_container_image: "localhost/floki-self-improvement-training:cuda"
-  training_base_cuda_image: "nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04"
+  training_base_cuda_image: "docker.io/nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04"
   training_python_packages: "torch transformers peft bitsandbytes datasets accelerate safetensors sentencepiece trl"
   training_gpu_device_args: "--gpus|all"
   training_cpu_limit: 6
