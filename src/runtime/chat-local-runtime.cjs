@@ -717,9 +717,7 @@ function createChatLocalRuntime(options = {}) {
           )
         : model;
       if (!nightlyHfChat) {
-        selfImprovementApi.preempt(
-          'foreground_user_turn'
-        );
+        selfImprovementApi.preempt('foreground_user_turn');
       }
       state.nightly_chat_active = nightlyHfChat;
       state.active_cognition_provider =
