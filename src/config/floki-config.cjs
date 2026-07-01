@@ -1555,6 +1555,20 @@ function getSelfImprovementConfig(mode = 'chat') {
     activity_stream_default_events: numberValue('activity_stream_default_events'),
     activity_stream_initial_events: numberValue('activity_stream_initial_events'),
     activity_stream_min_events: numberValue('activity_stream_min_events'),
+    nightly_chat_enabled: booleanValue('nightly_chat_enabled'),
+    nightly_chat_provider: stringValue('nightly_chat_provider'),
+    nightly_chat_resume_training:
+      booleanValue('nightly_chat_resume_training'),
+    nightly_code_sandbox_enabled:
+      booleanValue('nightly_code_sandbox_enabled'),
+    nightly_hf_operation_lock_file:
+      stringValue('nightly_hf_operation_lock_file'),
+    nightly_policy_runtime_root:
+      stringValue('nightly_policy_runtime_root'),
+    nightly_hf_operation_lock_timeout_ms:
+      numberValue('nightly_hf_operation_lock_timeout_ms'),
+    nightly_hf_operation_lock_poll_ms:
+      numberValue('nightly_hf_operation_lock_poll_ms'),
     // === RSI autonomy v2 / Stage 6: REM / training scheduler ===
     nightly_rem_provider: stringValue('nightly_rem_provider'),
     manual_nap_rem_provider: stringValue('manual_nap_rem_provider'),

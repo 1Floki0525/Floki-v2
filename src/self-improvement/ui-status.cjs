@@ -10,6 +10,9 @@ const { readRemClaims } = require('./training/training-scheduler.cjs');
 const { listAdapters } = require('./training/lineage.cjs');
 const { loadSleepCycleState } = require('../chat/sleep-cycle.cjs');
 const { readManualNapState } = require('../chat/manual-nap.cjs');
+const {
+  evaluateNightlyPolicy
+} = require('./nightly-policy.cjs');
 
 function safeRead(label, fn, fallback, errors) {
   try {
@@ -94,6 +97,25 @@ function buildSelfImprovementUiStatus(options = {}) {
   const dependencies = options.dependencies || {};
   const base = (dependencies.readStatus || readStatus)(config);
   const dependencyErrors = [];
+  const nightlyPolicy = safeRead(
+    'nightly HF lifecycle policy',
+    () => (
+      dependencies.evaluateNightlyPolicy ||
+      evaluateNightlyPolicy
+    )(
+      config,
+      options.now || new Date()
+    ),
+    {
+      active: false,
+      chat_available: true,
+      code_sandbox_allowed: true,
+      manual_training_allowed: true,
+      run_now_allowed: true,
+      run_now_block_reason: null
+    },
+    dependencyErrors
+  );
   const session = safeRead('nightly session status',
     () => (dependencies.readNightlySession || readNightlySession)(config),
     null,
@@ -184,6 +206,7 @@ function buildSelfImprovementUiStatus(options = {}) {
 
   return Object.freeze({
     ...base,
+    nightly_hf_cycle: nightlyPolicy,
     active_run_kind: base.current_run_kind || config.default_rsi_run_kind,
     active_role: base.current_role || base.role || null,
     active_tool: base.current_tool || base.current_command || null,
@@ -200,6 +223,7 @@ function buildSelfImprovementUiStatus(options = {}) {
       code_improvement: config.code_improvement_provider,
       manual_training: config.manual_training_provider,
       nightly_training: config.nightly_training_provider,
+      nightly_chat: config.nightly_chat_provider,
       nightly_rem: config.nightly_rem_provider,
       manual_nap_rem: config.manual_nap_rem_provider
     }),
@@ -263,11 +287,13 @@ function buildSelfImprovementUiStatus(options = {}) {
     }),
     controls: Object.freeze({
       can_run_code:
+        nightlyPolicy.run_now_allowed === true &&
         base.worker_running === true &&
         base.model_proxy_ready === true &&
         base.paused !== true &&
         !activeRun,
       can_run_training:
+        nightlyPolicy.manual_training_allowed === true &&
         config.manual_training_enabled === true &&
         base.worker_running === true &&
         base.paused !== true &&
@@ -276,7 +302,11 @@ function buildSelfImprovementUiStatus(options = {}) {
       can_abort_training: trainingRunActive,
       can_abort: activeRun,
       training_preempts_code_sandbox: true,
-      can_pause: base.worker_running === true
+      can_pause: base.worker_running === true,
+      chat_available:
+        nightlyPolicy.chat_available === true,
+      run_now_block_reason:
+        nightlyPolicy.run_now_block_reason
     })
   });
 }

@@ -22,6 +22,9 @@ const { createSourceSnapshot } = require('./snapshot.cjs');
 const { runSandbox, stopCurrentContainer } = require('./sandbox.cjs');
 const { createModelProxy } = require('./model-proxy.cjs');
 const { normalizeRunKind, candidateTypeForKind } = require('./run-kinds.cjs');
+const {
+  evaluateNightlyPolicy
+} = require('./nightly-policy.cjs');
 const { runTrainingCycle } = require('./training/training-runner.cjs');
 const {
   writeCycleMemory,
@@ -30,7 +33,8 @@ const {
 
 const ACTIVE_RUN_PREEMPT_REASONS = new Set([
   'foreground_turn_active',
-  'memory_pressure'
+  'memory_pressure',
+  'nightly_hf_cycle'
 ]);
 
 function shouldPreemptActiveRun(reason) {
@@ -568,12 +572,20 @@ async function runCycle(options = {}) {
     const stalled =
       stallMs > config.shell_command_stalled_threshold_ms;
     const runtime = readRuntimeStatus(config);
-    const eligibility = idleEligibility(
-      runtime,
-      status,
-      config,
-      options.force === true
-    );
+    const activeNightlyPolicy =
+      evaluateNightlyPolicy(config);
+    const eligibility =
+      activeNightlyPolicy.code_sandbox_allowed
+        ? idleEligibility(
+            runtime,
+            status,
+            config,
+            options.force === true
+          )
+        : {
+            eligible: false,
+            reason: 'nightly_hf_cycle'
+          };
     if (
       !eligibility.eligible &&
       shouldPreemptActiveRun(eligibility.reason)
@@ -937,6 +949,49 @@ async function serviceLoop(options = {}) {
       await wakeController.wait(config.poll_ms);
       continue;
     }
+
+    const nightlyPolicy = evaluateNightlyPolicy(config);
+    if (!nightlyPolicy.code_sandbox_allowed) {
+      const blockedRequest = readRunRequest(config);
+
+      if (blockedRequest) {
+        clearRunRequest(config);
+        appendAudit(
+          'run_now_blocked_nightly_hf_cycle',
+          {
+            request_id: blockedRequest.request_id || null,
+            kind: blockedRequest.kind || null,
+            sleep_date: nightlyPolicy.sleep_date
+          },
+          config
+        );
+      }
+
+      const nightlyPatch = {
+        code_sandbox_available: false,
+        run_now_block_reason: 'nightly_hf_cycle',
+        manual_run_pending: false
+      };
+
+      if (!status.current_run_id && !status.current_container) {
+        Object.assign(nightlyPatch, {
+          state: 'waiting_for_idle',
+          phase: 'nightly_hf_cycle',
+          current_objective: null,
+          current_run_kind: null,
+          current_candidate_type: null
+        });
+      }
+
+      updateStatus(nightlyPatch, config);
+      await wakeController.wait(config.poll_ms);
+      continue;
+    }
+
+    updateStatus({
+      code_sandbox_available: true,
+      run_now_block_reason: null
+    }, config);
 
     const fileRequest = readRunRequest(config);
     const request = resolveManualRunRequest(

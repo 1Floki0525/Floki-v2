@@ -212,8 +212,7 @@ function createNightlySession(options = {}) {
   const existing = readNightlySession(config);
   if (
     existing &&
-    existing.sleep_date === sleepWindow.sleep_date &&
-    existing.finalized !== true
+    existing.sleep_date === sleepWindow.sleep_date
   ) {
     return existing;
   }
@@ -240,6 +239,7 @@ function createNightlySession(options = {}) {
     resource_entered: false,
     training_failed: false,
     training_error: null,
+    training_config_sha256: null,
     current_container: null,
     segment_number: 0,
     completed_epochs: 0,
@@ -306,9 +306,37 @@ function setSessionResourceEntered(session, entered, config = loadSelfImprovemen
   }, config);
 }
 
+function trainingConfigFingerprint(value) {
+  const normalized = JSON.parse(
+    JSON.stringify(value || {})
+  );
+
+  if (
+    normalized.training &&
+    typeof normalized.training === 'object'
+  ) {
+    delete normalized.training.num_train_epochs;
+  }
+
+  if (
+    normalized.scheduler &&
+    typeof normalized.scheduler === 'object'
+  ) {
+    delete normalized.scheduler.segment_number;
+  }
+
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(normalized))
+    .digest('hex');
+}
+
 function writeTrainingConfig(session, config = loadSelfImprovementConfig()) {
+  const currentBaseTrainingConfig = buildTrainingConfig({
+    config
+  });
   const nextConfig = buildNightlyTrainingConfig(
-    session.base_training_config,
+    currentBaseTrainingConfig,
     session,
     config
   );
@@ -321,15 +349,16 @@ function writeTrainingConfig(session, config = loadSelfImprovementConfig()) {
     JSON.stringify(nextConfig, null, 2) + '\n',
     { mode: 0o600 }
   );
-  return nextConfig;
+  return Object.freeze({
+    config: nextConfig,
+    fingerprint:
+      trainingConfigFingerprint(nextConfig)
+  });
 }
 
 async function startNightlyTrainingSegment(session, options = {}) {
   const config = options.config || loadSelfImprovementConfig();
   if (!session || session.active !== true || session.finalized === true) {
-    return session;
-  }
-  if (session.training_failed === true && options.retry_failed !== true) {
     return session;
   }
   if (session.current_container && containerRunning(session.current_container, config)) {
@@ -338,6 +367,28 @@ async function startNightlyTrainingSegment(session, options = {}) {
   if (session.resource_entered !== true) {
     throw new Error('nightly training resource mode is not active');
   }
+
+  const preparedTraining = writeTrainingConfig(
+    session,
+    config
+  );
+  const failedConfigUnchanged = Boolean(
+    session.training_failed === true &&
+    session.training_config_sha256 &&
+    session.training_config_sha256 ===
+      preparedTraining.fingerprint
+  );
+  if (
+    session.training_failed === true &&
+    options.retry_failed !== true &&
+    failedConfigUnchanged
+  ) {
+    return session;
+  }
+  const retryingAfterConfigChange = Boolean(
+    session.training_failed === true &&
+    !failedConfigUnchanged
+  );
 
   const completedEpochs = Number(session.completed_epochs || 0);
   const completedRemCycles = Number(session.rem_cycles_completed || 0);
@@ -367,8 +418,10 @@ async function startNightlyTrainingSegment(session, options = {}) {
 
   fs.rmSync(session.runtime.control_file, { force: true });
   fs.rmSync(session.runtime.control_response_file, { force: true });
-  const trainingConfig = writeTrainingConfig(session, config);
-  const segmentNumber = Number(trainingConfig.scheduler.segment_number);
+  const trainingConfig = preparedTraining.config;
+  const segmentNumber = Number(
+    trainingConfig.scheduler.segment_number
+  );
   const containerName = config.training_container_name_prefix + '-' + session.run_id.replace(/[^a-zA-Z0-9_.-]/g, '-') + '-s' + String(segmentNumber);
   const args = buildTrainingRunArgs({
     config,
@@ -443,6 +496,8 @@ async function startNightlyTrainingSegment(session, options = {}) {
       current_container: null,
       training_failed: true,
       training_error: message,
+      training_config_sha256:
+        preparedTraining.fingerprint,
       updated_at: nowIso()
     }, config);
     appendAudit('nightly_training_segment_launch_failed', {
@@ -473,6 +528,10 @@ async function startNightlyTrainingSegment(session, options = {}) {
     segment_started_at: nowIso(),
     training_failed: false,
     training_error: null,
+    training_config_sha256:
+      preparedTraining.fingerprint,
+    retried_after_config_change:
+      retryingAfterConfigChange,
     updated_at: nowIso()
   }, config);
   appendAudit('nightly_training_segment_started', {
@@ -848,7 +907,7 @@ function finalizeNightlyTraining(session, options = {}) {
     ? plannedAdapterDir
     : sourceAdapterDir;
 
-  if (!metricsHaveTraining(artifactDir, current, config)) {
+  if (!metricsHaveTraining(artifactDir, config, current)) {
     const next = writeSession({
       ...current,
       active: false,
@@ -1004,6 +1063,7 @@ function markNightlyTrainingError(session, error, options = {}) {
 }
 
 module.exports = {
+  trainingConfigFingerprint,
   nightlyCandidateCompletionGate,
   completedRemClaimCount,
   buildNightlyTrainingConfig,

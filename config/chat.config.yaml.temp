@@ -1187,6 +1187,14 @@ self_improvement:
   ollama_unload_timeout_ms: 30000
   ollama_reload_timeout_ms: 120000
   nightly_ollama_reload_policy: "wake_only"
+  nightly_hf_operation_lock_poll_ms: 100
+  nightly_hf_operation_lock_timeout_ms: 300000
+  nightly_policy_runtime_root: "state/floki/self-improvement/runtime"
+  nightly_hf_operation_lock_file: "state/floki/self-improvement/runtime/nightly-hf-operation.lock"
+  nightly_code_sandbox_enabled: false
+  nightly_chat_resume_training: true
+  nightly_chat_provider: "huggingface"
+  nightly_chat_enabled: true
   nightly_ollama_guard_poll_ms: 5000
   # Workers suspended/kept-alive when training resource mode is active.
   training_suspend_workers: "foreground_cognition|ollama_cognition|hearing|whisper_server|whisper_vad|speech|vision_yolo|vision_grounding_dino|vision_vlm|embodiment|knowledge_refresh|regular_rsi_sandbox"

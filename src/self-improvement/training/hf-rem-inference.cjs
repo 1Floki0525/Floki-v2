@@ -142,6 +142,14 @@ function runHfRemGeneration(options = {}) {
   const containerName = config.hf_rem_container_name_prefix + '-' + remId;
   fs.mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
 
+  const numericOption = (value, fallback) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : Number(fallback);
+  };
+  const provider = String(
+    options.provider || config.nightly_rem_provider
+  );
+
   const request = {
     marker: 'FLOKI_V2_HF_REM_REQUEST',
     created_at: nowIso(),
@@ -151,9 +159,9 @@ function runHfRemGeneration(options = {}) {
     base_model_path: config.training_hf_master_mount_path,
     adapter_path: source.adapter_path ? config.hf_rem_adapter_mount_path : null,
     model_identity: source.model_identity,
-    temperature: Number(config.hf_rem_temperature),
-    top_p: Number(config.hf_rem_top_p),
-    max_new_tokens: Number(config.hf_rem_max_new_tokens),
+    temperature: numericOption(options.temperature, config.hf_rem_temperature),
+    top_p: numericOption(options.top_p, config.hf_rem_top_p),
+    max_new_tokens: numericOption(options.max_new_tokens, config.hf_rem_max_new_tokens),
     repetition_penalty: Number(config.hf_rem_repetition_penalty),
     quantization_type: config.qlora_bnb_4bit_quant_type,
     compute_dtype: config.qlora_bnb_4bit_compute_dtype,
@@ -161,7 +169,7 @@ function runHfRemGeneration(options = {}) {
     tokenizer_use_fast: config.hf_rem_tokenizer_use_fast === true,
     device_map: config.hf_rem_device_map,
     do_sample: config.hf_rem_do_sample === true,
-    provider: config.nightly_rem_provider,
+    provider,
     approved_lineage: {
       source_kind: source.source_kind,
       adapter_id: source.adapter_id,
@@ -182,7 +190,7 @@ function runHfRemGeneration(options = {}) {
     result = spawnSync(config.sandbox_engine, args, {
       cwd: config.project_root,
       encoding: 'utf8',
-      timeout: Number(config.hf_rem_inference_timeout_ms),
+      timeout: numericOption(options.timeout_ms, config.hf_rem_inference_timeout_ms),
       maxBuffer: config.podman_output_buffer_bytes
     });
     fs.writeFileSync(
@@ -214,7 +222,7 @@ function runHfRemGeneration(options = {}) {
       response_json: response.response_json,
       raw_stats: Object.freeze({
         ...(response.raw_stats || {}),
-        provider: config.nightly_rem_provider,
+        provider,
         approved_lineage_only: true,
         source_kind: source.source_kind,
         adapter_id: source.adapter_id,

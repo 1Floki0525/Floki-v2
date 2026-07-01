@@ -39,6 +39,13 @@ const { recordWakeActivityIfSleeping, loadSleepCycleState } = require('../chat/s
 const { runDreamEngineOnce } = require('../chat/dream-engine.cjs');
 const { createSelfImprovementApi } = require('../self-improvement/api.cjs');
 const { loadSelfImprovementConfig } = require('../self-improvement/config.cjs');
+const {
+  evaluateNightlyPolicy
+} = require('../self-improvement/nightly-policy.cjs');
+const {
+  createNightlyHfChatPostJson,
+  nightlyHfModelConfig
+} = require('../self-improvement/training/nightly-hf-chat.cjs');
 const { reconcileDreamArchive } = require('../chat/dream-archive.cjs');
 const { createChatLocalInterfaceApi } = require('./chat-local-interface-api.cjs');
 const { createKnowledgeRuntimeBootstrap } = require('../chat/knowledge-runtime-bootstrap.cjs');
@@ -410,6 +417,10 @@ function createChatLocalRuntime(options = {}) {
   const audioConfig = getAudioConfig('chat');
   const visionConfig = getVisionConfig('chat');
   const selfImprovementApi = createSelfImprovementApi();
+  const selfImprovementConfig =
+    loadSelfImprovementConfig();
+  const nightlyHfPostJson =
+    createNightlyHfChatPostJson();
 
   let server = null;
   let websocketClients = new Set();
@@ -433,6 +444,9 @@ function createChatLocalRuntime(options = {}) {
     brain_loaded: true,
     memory_loaded: memoryPathsWritable(),
     active_turn: false,
+    nightly_chat_active: false,
+    active_cognition_provider: model.provider,
+    active_cognition_model: model.model,
     last_turn_started_at: null,
     last_turn_completed_at: null,
     last_turn_modality: null,
@@ -520,6 +534,17 @@ function createChatLocalRuntime(options = {}) {
     const audio = liveAudio.status();
     const vision = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
     lifecycle = buildFlokiLifecycleStatus();
+    const statusNightPolicy = evaluateNightlyPolicy(
+      selfImprovementConfig,
+      new Date()
+    );
+    const statusCognitionModel =
+      statusNightPolicy.active === true
+        ? nightlyHfModelConfig(
+            selfImprovementConfig,
+            model
+          )
+        : model;
     const sleeping = lifecycle && lifecycle.is_awake === false;
     const awaitingClient = state.client_ready !== true;
     const sensesAllowed = !sleeping && !awaitingClient;
@@ -577,7 +602,12 @@ function createChatLocalRuntime(options = {}) {
       port,
       uptime_ms: Date.now() - startedAt,
       session_id: brain.session_id,
-      cognition_model: model.model,
+      cognition_model:
+        statusCognitionModel.model,
+      cognition_provider:
+        statusCognitionModel.provider,
+      nightly_hf_chat_available:
+        statusNightPolicy.chat_available === true,
       mode: 'chat.local',
       ...state,
       lifecycle,
@@ -672,7 +702,30 @@ function createChatLocalRuntime(options = {}) {
   function enqueueTurn(request) {
     const task = async () => {
       if (stopping) throw new Error('chat.local runtime is stopping');
-      selfImprovementApi.preempt('foreground_user_turn');
+      const nightlyPolicy = evaluateNightlyPolicy(
+        selfImprovementConfig,
+        new Date()
+      );
+      const nightlyHfChat = Boolean(
+        nightlyPolicy.active === true &&
+        nightlyPolicy.chat_available === true
+      );
+      const activeModelConfig = nightlyHfChat
+        ? nightlyHfModelConfig(
+            selfImprovementConfig,
+            model
+          )
+        : model;
+      if (!nightlyHfChat) {
+        selfImprovementApi.preempt(
+          'foreground_user_turn'
+        );
+      }
+      state.nightly_chat_active = nightlyHfChat;
+      state.active_cognition_provider =
+        activeModelConfig.provider;
+      state.active_cognition_model =
+        activeModelConfig.model;
       state.active_turn = true;
       state.state = 'thinking';
       state.last_turn_started_at = nowIso();
@@ -694,6 +747,16 @@ function createChatLocalRuntime(options = {}) {
           }
         }
         const result = await handleTypedText(brain, request.cognition_text, {
+          model_config:
+            nightlyHfChat
+              ? activeModelConfig
+              : undefined,
+          streaming_enabled:
+            nightlyHfChat ? false : undefined,
+          post_json:
+            nightlyHfChat
+              ? nightlyHfPostJson
+              : undefined,
           signal: activeAbortController.signal,
           input_modality: request.input_modality || 'text',
           output_modality: request.output_modality || 'text',
@@ -722,6 +785,11 @@ function createChatLocalRuntime(options = {}) {
         return result;
       } finally {
         activeAbortController = null;
+        state.nightly_chat_active = false;
+        state.active_cognition_provider =
+          model.provider;
+        state.active_cognition_model =
+          model.model;
         state.active_turn = false;
         state.state = lifecycle.is_awake === false
           ? 'sleeping'

@@ -5,7 +5,8 @@ const {
   PROJECT_ROOT,
   getModelConfig,
   getPathConfig,
-  getSelfImprovementConfig
+  getSelfImprovementConfig,
+  clearConfigCache
 } = require('../config/floki-config.cjs');
 
 function resolveProjectPath(value) {
@@ -33,6 +34,8 @@ function loadSelfImprovementConfig() {
     training_runtime_root: resolveProjectPath(raw.training_runtime_root),
     gpu_ownership_lock_file: resolveProjectPath(raw.gpu_ownership_lock_file),
     training_rem_claim_file: resolveProjectPath(raw.training_rem_claim_file),
+    nightly_hf_operation_lock_file: resolveProjectPath(raw.nightly_hf_operation_lock_file),
+    nightly_policy_runtime_root: resolveProjectPath(raw.nightly_policy_runtime_root),
     model: Object.freeze({
       provider: model.provider,
       name: model.model,
@@ -45,7 +48,13 @@ function loadSelfImprovementConfig() {
   });
 }
 
+function loadFreshSelfImprovementConfig() {
+  clearConfigCache();
+  return loadSelfImprovementConfig();
+}
+
 module.exports = {
+  loadFreshSelfImprovementConfig,
   loadSelfImprovementConfig,
   resolveProjectPath
 };

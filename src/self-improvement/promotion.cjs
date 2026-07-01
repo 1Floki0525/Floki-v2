@@ -22,6 +22,9 @@ const {
 const { stopCurrentContainer } = require('./sandbox.cjs');
 const { writeDenialMemory, writeApprovalMemory } = require('./memory-writer.cjs');
 const { normalizeRunKind, candidateTypeForKind } = require('./run-kinds.cjs');
+const {
+  assertRunNowAllowed
+} = require('./nightly-policy.cjs');
 
 const ACTIVE_RUN_STATES = new Set([
   'queued',
@@ -618,6 +621,20 @@ async function runNow(
   config = loadSelfImprovementConfig()
 ) {
   assertApprovalToken(token, config);
+  try {
+    assertRunNowAllowed(config);
+  } catch (error) {
+    appendAudit(
+      'maker_run_now_blocked_nightly_hf_cycle',
+      {
+        objective: String(objective || '').trim(),
+        kind: kind || null,
+        error: error.message
+      },
+      config
+    );
+    throw error;
+  }
   const runKind = normalizeRunKind(kind, config);
   const candidateType = candidateTypeForKind(runKind, config);
   const p = ensureLayout(config);

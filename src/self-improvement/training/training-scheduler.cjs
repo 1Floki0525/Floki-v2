@@ -3,7 +3,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { loadSelfImprovementConfig } = require('../config.cjs');
+const {
+  loadFreshSelfImprovementConfig,
+  loadSelfImprovementConfig
+} = require('../config.cjs');
 const { appendAudit, nowIso, updateStatus } = require('../store.cjs');
 const gpuOwnership = require('./gpu-ownership.cjs');
 const { enterTrainingResource, exitTrainingResource } = require('./runtime-client.cjs');
@@ -20,6 +23,9 @@ const {
   writeSession
 } = require('./nightly-training-session.cjs');
 const { runHfRemGeneration } = require('./hf-rem-inference.cjs');
+const {
+  withNightlyHfOperationLock
+} = require('./nightly-hf-operation-lock.cjs');
 const {
   getSleepWindowForDate,
   isWithinSleepWindow,
@@ -329,6 +335,7 @@ function createNightlyTrainingCoordinator(options = {}) {
     readSleepState: options.read_sleep_state || loadSleepCycleState,
     runDreamEngine: options.run_dream_engine || runDreamEngineOnce,
     runHfGeneration: options.run_hf_generation || runHfRemGeneration,
+    loadConfig: options.load_config || loadFreshSelfImprovementConfig,
     audit: options.audit || ((type, detail) => appendAudit(type, detail, config)),
     status: options.status || ((patch) => updateStatus(patch, config))
   };
@@ -446,15 +453,64 @@ function createNightlyTrainingCoordinator(options = {}) {
       return Object.freeze({ ok: true, action: decision.action, session });
     }
 
-    if (!session || session.sleep_date !== sleepWindow.sleep_date || session.finalized === true) {
+    if (
+      session &&
+      session.sleep_date === sleepWindow.sleep_date &&
+      session.finalized === true
+    ) {
+      return Object.freeze({
+        ok: true,
+        action: 'nightly_training_already_finalized',
+        within_sleep_window: within,
+        sleep_date: sleepWindow.sleep_date,
+        session
+      });
+    }
+
+    if (!session || session.sleep_date !== sleepWindow.sleep_date) {
       session = deps.createSession({ config, sleep_window: sleepWindow });
     }
     session = await ensureResource(session, 'nightly_training');
     session = deps.refreshSession(session, { config });
 
     const sleepState = deps.readSleepState();
-    if (!dueNightlyRemNow(observedAt, sleepState) && !session.current_container) {
-      session = await deps.startSegment(session, { config });
+
+    if (
+      sleepState &&
+      sleepState.interrupted === true
+    ) {
+      return Object.freeze({
+        ok: true,
+        action: 'nightly_chat_interruption',
+        within_sleep_window: within,
+        sleep_date: sleepWindow.sleep_date,
+        session
+      });
+    }
+
+    if (
+      !dueNightlyRemNow(observedAt, sleepState) &&
+      !session.current_container
+    ) {
+      transferGpuBackToTraining(
+        deps.gpu,
+        config,
+        {
+          reason: 'resume_after_night_chat_idle',
+          run_id: session.run_id
+        }
+      );
+      session = deps.setResourceEntered(
+        session,
+        true,
+        config
+      );
+      session = await deps.startSegment(
+        session,
+        {
+          config: deps.loadConfig()
+        }
+      );
     }
 
     return Object.freeze({
@@ -466,7 +522,7 @@ function createNightlyTrainingCoordinator(options = {}) {
     });
   }
 
-  async function runNightlyRem(dreamOptions = {}) {
+  async function runNightlyRemUnlocked(dreamOptions = {}) {
     if (!automaticTrainingEnabled(config)) {
       throw new Error('FLOKI_NIGHTLY_REM_PROVIDER_DISABLED');
     }
@@ -684,7 +740,7 @@ function createNightlyTrainingCoordinator(options = {}) {
             rem_cycle_number: cycleNumber
           });
           session = deps.setResourceEntered(session, true, config);
-          session = await deps.startSegment(session, { config });
+          session = await deps.startSegment(session, { config: deps.loadConfig() });
           deps.status({
             phase: 'nightly_training_resumed_after_rem',
             current_run_id: session.run_id,
@@ -710,6 +766,14 @@ function createNightlyTrainingCoordinator(options = {}) {
         }
       }
     }
+  }
+
+  async function runNightlyRem(dreamOptions = {}) {
+    return withNightlyHfOperationLock(
+      'nightly_rem',
+      () => runNightlyRemUnlocked(dreamOptions),
+      deps.loadConfig()
+    );
   }
 
   async function shutdown(context = {}) {
