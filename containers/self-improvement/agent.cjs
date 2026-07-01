@@ -47,6 +47,7 @@ function requireArray(name) {
 }
 
 const WORKSPACE = requireString('workspace_path');
+const WORKSPACE_REAL = fs.realpathSync.native(WORKSPACE);
 const OUTBOX = requireString('outbox_path');
 const SELF_CONTEXT = requireString('self_context_path');
 const RUN_ID = requireString('run_id');
@@ -97,6 +98,18 @@ const HTTP_ACCEPT = requireString('agent_http_accept');
 const AGENT_HOME_PATH = requireString('agent_home_path');
 const NPM_CACHE_PATH = requireString('agent_npm_cache_path');
 const PIP_CACHE_PATH = requireString('agent_pip_cache_path');
+const PERSISTENT_DEPENDENCY_CACHE_ROOT =
+  requireString('persistent_dependency_cache_root');
+const PERSISTENT_DEPENDENCY_CACHE_MARKER_FILE =
+  requireString('persistent_dependency_cache_marker_file');
+const DEPENDENCY_FINGERPRINT_ALGORITHM =
+  requireString('dependency_fingerprint_algorithm');
+const SELECTION_RESCUE_MAX_ATTEMPTS =
+  requireNumber('selection_rescue_max_attempts');
+const SELECTION_RESCUE_TEMPERATURE =
+  requireNumber('selection_rescue_temperature');
+const SELECTION_RESCUE_THINKING_ENABLED =
+  requireBoolean('selection_rescue_thinking_enabled');
 const BROWSER_COMMAND = requireString('browser_command');
 const BROWSER_PROFILE_ROOT = requireString('browser_profile_root');
 const BROWSER_PROFILE_PREFIX = requireString('browser_profile_prefix');
@@ -140,6 +153,7 @@ const DEPENDENCY_INSTALL_UNLOCKED_COMMAND = requireString('dependency_install_un
 const INTERFACE_PROJECT_PATH = requireString('interface_project_path');
 const SNAPSHOT_EVIDENCE_SUBDIR = requireString('snapshot_evidence_subdir');
 const SNAPSHOT_RUNTIME_EVIDENCE_FILE_NAME = requireString('snapshot_runtime_evidence_file_name');
+const OCCUPIED_CANDIDATE_STATUSES = requireString('occupied_candidate_statuses');
 const SELF_CONTEXT_MANIFEST_FILE_NAME =
   requireString('self_context_manifest_file_name');
 const SELF_CONTEXT_INDEX_FILE_NAME =
@@ -237,30 +251,25 @@ const taskState = {
   updated_at: null
 };
 
-// Load prior denial reasons once at startup so they're available in select_experiment
-const deniedCandidates = (() => {
+// Load the full prior-candidate history once at startup so the selection
+// boundary can reject duplicates of occupied (in-flight) work and offer revision
+// constraints for denied work. previous_candidate_outcomes carries every status.
+const priorCandidateOutcomes = (() => {
   try {
     const evidence = JSON.parse(fs.readFileSync(
       path.join(WORKSPACE, SNAPSHOT_EVIDENCE_SUBDIR, SNAPSHOT_RUNTIME_EVIDENCE_FILE_NAME),
       'utf8'
     ));
-    return (evidence.previous_candidate_outcomes || [])
-      .filter(c => c.status === 'denied' && c.denial_reason);
+    return Array.isArray(evidence.previous_candidate_outcomes)
+      ? evidence.previous_candidate_outcomes
+      : [];
   } catch (_) { return []; }
 })();
 
-function objectiveSimilarityScore(a, b) {
-  const words = s => new Set(
-    String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ')
-      .split(/\s+/).filter(w => w.length > 4)
-  );
-  const wa = words(a);
-  const wb = words(b);
-  if (wa.size === 0 || wb.size === 0) return 0;
-  let shared = 0;
-  for (const w of wa) if (wb.has(w)) shared++;
-  return shared / Math.min(wa.size, wb.size);
-}
+// Duplicate experiment proposals already rejected during THIS run, tracked so the
+// model cannot repeatedly resubmit the same rejected proposal before any
+// candidate exists. Treated as occupied work alongside the persisted history.
+const inRunRejectedProposals = [];
 
 const { createConvergencePolicy } = require(
   path.join(WORKSPACE, 'src/self-improvement/convergence-policy.cjs')
@@ -277,6 +286,32 @@ const {
   searchResearchCorpus
 } = require(
   path.join(WORKSPACE, 'src/self-improvement/research-corpus.cjs')
+);
+const {
+  isOccupiedStatus,
+  classifyExperimentAgainstPriors,
+  validateDeniedRevisionPlan
+} = require(
+  path.join(WORKSPACE, 'src/self-improvement/candidate-dedup.cjs')
+);
+const {
+  isRepairPhase,
+  selectActiveTools,
+  selectRepairTools,
+  buildFocusedRepairContext,
+  buildDeniedRevisionContext
+} = require(
+  path.join(WORKSPACE, 'src/self-improvement/focused-repair.cjs')
+);
+const {
+  dependencyManifestRequiresNodeModules
+} = require(
+  path.join(WORKSPACE, 'src/self-improvement/dependency-manifest.cjs')
+);
+const {
+  assertRealPathInsideRoot
+} = require(
+  path.join(WORKSPACE, 'src/self-improvement/workspace-guard.cjs')
 );
 const convergencePolicy = createConvergencePolicy(CONFIG, audit);
 const researchCorpus = loadResearchCorpus(
@@ -315,7 +350,10 @@ function audit(type, detail) {
     marker: 'FLOKI_V2_SELF_IMPROVEMENT_AGENT_AUDIT',
     created_at: nowIso(),
     type,
-    detail
+    detail: {
+      run_id: RUN_ID,
+      ...(detail && typeof detail === 'object' ? detail : { value: detail })
+    }
   });
   const auditFile = fs.existsSync(path.dirname(commandAuditFile))
     ? commandAuditFile
@@ -1165,6 +1203,16 @@ const selectExperimentTool = {
         success_metric: { type: 'string' },
         focused_test: { type: 'string', description: 'Shell command to run for focused verification. MUST start with an executable: node, bash, npm, python3, pytest, npx, make, etc. Example: "node tests/foo-contract-test.cjs" or "bash bin/floki-node24-run.sh node tests/foo.cjs". Do NOT put a test name, prose description, or quoted string — only a runnable command. Use focused_test_description for any explanation.' },
         focused_test_description: { type: 'string', description: 'Optional human-readable explanation of what this focused test verifies. Put prose, test names, and descriptions here — not in focused_test.' },
+        denial_revision_plan: {
+          type: 'object',
+          description: 'Required only when revisiting Maker-denied work. State the denial requirement, the implementation change, and how the focused test changes so the denial is actually addressed.',
+          properties: {
+            denial_requirement: { type: 'string' },
+            implementation_change: { type: 'string' },
+            focused_test_change: { type: 'string' }
+          },
+          required: ['denial_requirement', 'implementation_change', 'focused_test_change']
+        },
         expected_follow_on_value: { type: 'string' }
       },
       required: [
@@ -1618,6 +1666,12 @@ const preSelectionTools = tools.filter(
   (t) => !PRE_SELECTION_BLOCKED_NAMES.has(t.function?.name)
 );
 
+// Bounded tool surface during focused-test repair: inspect and edit the real
+// source/test files and rerun the focused test only. Generic shell, full
+// verification, and finalize_candidate are withheld until the focused test
+// passes, so the decision path cannot be simulated outside the failing test.
+const repairTools = selectRepairTools(tools, (t) => t.function?.name);
+
 function resolveWorkspacePath(relative) {
   const value = path.resolve(WORKSPACE, String(relative || ''));
   if (value !== WORKSPACE && !value.startsWith(WORKSPACE + path.sep)) {
@@ -1786,11 +1840,7 @@ function isAllowedExperimentTarget(clean) {
 }
 
 function assertRealPathInsideWorkspace(absolute, label) {
-  const real = fs.realpathSync(absolute);
-  if (real !== WORKSPACE && !real.startsWith(WORKSPACE + path.sep)) {
-    throw new Error(label + ' escapes workspace through symlink');
-  }
-  return real;
+  return assertRealPathInsideRoot(WORKSPACE_REAL, absolute, label);
 }
 
 function validateExperimentTargetFiles(args = {}) {
@@ -1846,10 +1896,10 @@ function validateExperimentEvidence(args = {}) {
     hypothesis,
     baselineEvidence
   ].join('\n');
-  if (/\bEAI_AGAIN\b/i.test(combinedClaim) &&
-      /\bHTTP\s+(?:status\s+)?(?:code\s+)?123\b/i.test(combinedClaim)) {
+  if (/\bE[A-Z0-9_]{2,}\b/.test(combinedClaim) &&
+      /\bHTTP\s+(?:status\s+)?(?:code\s+)?\d{3}\b/i.test(combinedClaim)) {
     throw new Error(
-      'select_experiment must not describe EAI_AGAIN as HTTP status code 123; EAI_AGAIN is a Node/libuv error code, so use measured code/status evidence from the target file or focused test'
+      'select_experiment must not describe runtime error codes as HTTP status codes; use measured code/status evidence from the target file or focused test'
     );
   }
   const percentageClaim =
@@ -1889,7 +1939,7 @@ function validateExperimentEvidence(args = {}) {
 }
 
 const KNOWN_RUNTIME_ERROR_CODE_PATTERN =
-  /\b(?:EAI_AGAIN|EPIPE|ECONNRESET|ETIMEDOUT)\b/g;
+  /\bE[A-Z0-9_]{2,}\b/g;
 const PLACEHOLDER_MEASUREMENT_PATTERN =
   /\b(?:PLACEHOLDER|TBD|TODO)\b/i;
 const PLACEHOLDER_ASSIGNMENT_PATTERN =
@@ -2330,65 +2380,59 @@ async function executeTool(name, args) {
             );
           }
         }
-        // Detect similarity to denied candidates and inject revision constraints.
-        // Do NOT hard-block — the agent must be able to revise denied work.
-        // Hard-blocking causes no_candidate when the agent tries to address a denial.
-        const proposedObj = String(validated.objective || '');
-        const proposedHyp = String(validated.hypothesis || '');
-        const proposedFiles = new Set(
-          (Array.isArray(validated.target_files) ? validated.target_files : [])
-            .map(f => String(f).trim().toLowerCase())
-            .filter(Boolean)
+        // Reject duplicates of occupied (in-flight) work and apply revision
+        // constraints for denied work, using the shared production classifier
+        // over the full prior-candidate history plus this run's already-rejected
+        // proposals. A rejection feeds the in-run correction loop (the model
+        // retries select_experiment with a materially different proposal); the
+        // cycle is NOT terminated. Denied work stays revisable.
+        const priorsForDedup = priorCandidateOutcomes.concat(inRunRejectedProposals);
+        const dedup = classifyExperimentAgainstPriors(
+          validated,
+          priorsForDedup,
+          {
+            ...CONFIG,
+            occupied_candidate_statuses: OCCUPIED_CANDIDATE_STATUSES
+          }
         );
         let revisionConstraint = null;
-        for (const denied of deniedCandidates) {
-          const wordSim = objectiveSimilarityScore(proposedObj, denied.objective);
-          const deniedFiles = new Set(
-            (Array.isArray(denied.target_files) ? denied.target_files : [])
-              .map(f => String(f).trim().toLowerCase())
-              .filter(Boolean)
-          );
-          const overlap = proposedFiles.size > 0 && deniedFiles.size > 0
-            ? [...proposedFiles].filter(f => deniedFiles.has(f)).length
-            : 0;
-          const overlapRatio = overlap > 0
-            ? overlap / Math.min(proposedFiles.size, deniedFiles.size)
-            : 0;
-          const isSimilar = wordSim >= 0.65 || (overlapRatio >= 0.8 && wordSim >= 0.35);
-          if (!isSimilar) continue;
-          // Check if the agent is re-proposing the same hypothesis that was denied.
-          const hypSim = denied.hypothesis
-            ? objectiveSimilarityScore(proposedHyp, String(denied.hypothesis))
-            : 0;
-          if (hypSim >= 0.70) {
-            // Same objective AND same hypothesis — this is a straight repeat.
-            throw new Error(
-              'This experiment repeats the same objective AND approach as a Maker-denied candidate ' +
-              '(' + denied.id + ').\n\n' +
-              'Denial reason:\n' + denied.denial_reason + '\n\n' +
-              (denied.changes_diff
-                ? 'Previous diff (what was tried — do NOT repeat this):\n```diff\n' +
-                  denied.changes_diff.slice(0, 3000) + '\n```\n\n'
-                : '') +
-              'You MUST change your hypothesis and implementation approach, not just rephrase the objective. ' +
-              'Address every specific issue the Maker raised before re-submitting.'
-            );
+        if (dedup.decision === 'reject') {
+          inRunRejectedProposals.push({
+            id: 'in-run-rejected',
+            status: 'pending_review',
+            objective: validated.objective,
+            hypothesis: validated.hypothesis,
+            target_files: validated.target_files,
+            focused_test: validated.focused_test
+          });
+          audit('select_experiment_duplicate_rejected', {
+            matched_id: dedup.matchedId || null,
+            matched_status: dedup.matchedStatus || null,
+            kind: dedup.kind
+          });
+          throw new Error(dedup.reason);
+        }
+        if (dedup.decision === 'revise') {
+          const revisionValidation = validateDeniedRevisionPlan(dedup, validated);
+          if (revisionValidation.ok !== true) {
+            throw new Error(revisionValidation.reason);
           }
-          // Similar objective but different approach — allow revision, inject denial context.
           revisionConstraint = {
-            revising_denied: denied.id,
-            denial_reason: denied.denial_reason,
-            changes_diff: denied.changes_diff || null
+            revising_denied: dedup.matchedId,
+            denial_reason: dedup.denialReason,
+            changes_diff: dedup.changesDiff || null,
+            plan: revisionValidation.plan
           };
           audit('select_experiment_revision_mode', {
-            similar_to_denied: denied.id,
-            word_sim: wordSim,
-            overlap_ratio: overlapRatio,
-            hyp_sim: hypSim
+            similar_to_denied: dedup.matchedId,
+            kind: dedup.kind,
+            denial_revision_plan: revisionValidation.plan
           });
-          break;
         }
-        const selected = convergencePolicy.selectExperiment(validated);
+        const selected = convergencePolicy.selectExperiment({
+          ...validated,
+          revision_constraint: revisionConstraint
+        });
         if (selected.ok === true) {
           writeTaskState({
             selected_experiment: selected.experiment,
@@ -2829,6 +2873,202 @@ function shellQuote(value) {
   return "'" + String(value).replace(/'/g, "'\"'\"'") + "'";
 }
 
+function dependencyInputFingerprint(projectDir) {
+  const hash = crypto.createHash(DEPENDENCY_FINGERPRINT_ALGORITHM);
+  let files = 0;
+  for (const name of ['package.json', 'package-lock.json']) {
+    const file = path.join(projectDir, name);
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) continue;
+    hash.update(name);
+    hash.update('\0');
+    hash.update(fs.readFileSync(file));
+    hash.update('\0');
+    files += 1;
+  }
+  if (files === 0) {
+    throw new Error('dependency fingerprint has no package manifest: ' + projectDir);
+  }
+  return hash.digest('hex');
+}
+
+// dependencyManifestRequiresNodeModules is imported from
+// src/self-improvement/dependency-manifest.cjs (extracted, behavior-identical).
+
+function readDependencyCacheMarker(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (_error) {
+    return null;
+  }
+}
+
+function replaceDependencyLink(workspaceNodeModules, cacheNodeModules) {
+  fs.rmSync(workspaceNodeModules, { recursive: true, force: true });
+  fs.symlinkSync(cacheNodeModules, workspaceNodeModules, 'dir');
+  const linkedReal = fs.realpathSync.native(workspaceNodeModules);
+  const cacheReal = fs.realpathSync.native(cacheNodeModules);
+  if (linkedReal !== cacheReal) {
+    throw new Error(
+      'persistent dependency link verification failed: ' +
+      workspaceNodeModules
+    );
+  }
+}
+
+async function ensurePersistentDependencyTree(
+  projectRelativePath,
+  cacheLabel,
+  commandIdentity
+) {
+  const projectDir = projectRelativePath === '.'
+    ? WORKSPACE
+    : path.join(WORKSPACE, projectRelativePath);
+  const packageFile = path.join(projectDir, 'package.json');
+  if (!fs.existsSync(packageFile)) {
+    return Object.freeze({
+      ok: true,
+      skipped: true,
+      reason: 'package_manifest_absent',
+      project: projectRelativePath
+    });
+  }
+
+  const lockFile = path.join(projectDir, 'package-lock.json');
+  const installCommand = fs.existsSync(lockFile)
+    ? DEPENDENCY_INSTALL_LOCKED_COMMAND
+    : DEPENDENCY_INSTALL_UNLOCKED_COMMAND;
+  const fingerprint = dependencyInputFingerprint(projectDir);
+  const cacheDir = path.join(
+    PERSISTENT_DEPENDENCY_CACHE_ROOT,
+    cacheLabel,
+    fingerprint
+  );
+  const cacheNodeModules = path.join(cacheDir, 'node_modules');
+  const markerFile = path.join(
+    cacheDir,
+    PERSISTENT_DEPENDENCY_CACHE_MARKER_FILE
+  );
+  const workspaceNodeModules = path.join(projectDir, 'node_modules');
+  const marker = readDependencyCacheMarker(markerFile);
+
+  if (
+    marker &&
+    marker.fingerprint === fingerprint &&
+    (
+      marker.empty_tree === true ||
+      (
+        fs.existsSync(cacheNodeModules) &&
+        fs.statSync(cacheNodeModules).isDirectory()
+      )
+    )
+  ) {
+    if (marker.empty_tree === true) {
+      fs.rmSync(workspaceNodeModules, { recursive: true, force: true });
+    } else {
+      replaceDependencyLink(workspaceNodeModules, cacheNodeModules);
+    }
+    const result = Object.freeze({
+      ok: true,
+      cache_hit: true,
+      empty_tree: marker.empty_tree === true,
+      project: projectRelativePath,
+      fingerprint,
+      cache_dir: cacheDir
+    });
+    audit('dependency_cache_hit', result);
+    console.log(
+      '[deps] ' + cacheLabel +
+      ' cache hit — package installation skipped'
+    );
+    return result;
+  }
+
+  fs.mkdirSync(PERSISTENT_DEPENDENCY_CACHE_ROOT, {
+    recursive: true,
+    mode: 0o700
+  });
+  fs.rmSync(workspaceNodeModules, { recursive: true, force: true });
+  const install = await shell(
+    'cd ' + shellQuote(projectRelativePath) + ' && ' + installCommand,
+    MAX_COMMAND_MS,
+    {
+      identity: commandIdentity,
+      progress_interval_ms: SHELL_PROGRESS_INTERVAL_MS
+    }
+  );
+  if (install.status !== 0) {
+    throw new Error(
+      cacheLabel + ' dependency installation failed with status ' +
+      String(install.status)
+    );
+  }
+  const dependencyTreePresent =
+    fs.existsSync(workspaceNodeModules) &&
+    fs.statSync(workspaceNodeModules).isDirectory();
+  const emptyTree = !dependencyTreePresent;
+  if (
+    emptyTree &&
+    dependencyManifestRequiresNodeModules(projectDir)
+  ) {
+    throw new Error(
+      cacheLabel +
+      ' declares installable packages but npm produced no node_modules'
+    );
+  }
+
+  const staging = cacheDir + '.tmp-' + String(process.pid);
+  fs.rmSync(staging, { recursive: true, force: true });
+  fs.mkdirSync(staging, { recursive: true, mode: 0o700 });
+  if (dependencyTreePresent) {
+    fs.cpSync(
+      workspaceNodeModules,
+      path.join(staging, 'node_modules'),
+      {
+        recursive: true,
+        force: true,
+        preserveTimestamps: true
+      }
+    );
+  }
+  fs.writeFileSync(
+    path.join(staging, PERSISTENT_DEPENDENCY_CACHE_MARKER_FILE),
+    JSON.stringify({
+      marker: 'FLOKI_V2_RSI_PERSISTENT_DEPENDENCY_CACHE',
+      project: projectRelativePath,
+      fingerprint,
+      empty_tree: emptyTree,
+      created_at: nowIso()
+    }, null, 2) + '\n',
+    { mode: 0o600 }
+  );
+  fs.rmSync(cacheDir, { recursive: true, force: true });
+  fs.renameSync(staging, cacheDir);
+  if (dependencyTreePresent) {
+    replaceDependencyLink(workspaceNodeModules, cacheNodeModules);
+  } else {
+    fs.rmSync(workspaceNodeModules, { recursive: true, force: true });
+  }
+
+  const result = Object.freeze({
+    ok: true,
+    cache_hit: false,
+    seeded: true,
+    empty_tree: emptyTree,
+    project: projectRelativePath,
+    fingerprint,
+    cache_dir: cacheDir
+  });
+  audit('dependency_cache_seeded', result);
+  console.log(
+    emptyTree
+      ? '[deps] ' + cacheLabel +
+        ' has no declared packages — valid empty dependency tree cached'
+      : '[deps] ' + cacheLabel +
+        ' cache seeded — future unchanged runs skip package installation'
+  );
+  return result;
+}
+
 async function main() {
   await ollamaRequest('GET', MODEL_PROXY_HEALTH_PATH);
   const environmentCheck = [
@@ -2858,35 +3098,16 @@ async function main() {
     );
   }
 
-  const rootInstall = fs.existsSync(
-    path.join(WORKSPACE, 'package-lock.json')
-  )
-    ? DEPENDENCY_INSTALL_LOCKED_COMMAND
-    : DEPENDENCY_INSTALL_UNLOCKED_COMMAND;
-
-  const interfaceDir = path.join(WORKSPACE, INTERFACE_PROJECT_PATH);
-  const interfaceInstall = fs.existsSync(
-    path.join(interfaceDir, 'package-lock.json')
-  )
-    ? DEPENDENCY_INSTALL_LOCKED_COMMAND
-    : DEPENDENCY_INSTALL_UNLOCKED_COMMAND;
-
-  const rootDeps = await shell(rootInstall, MAX_COMMAND_MS, { identity: 'root_install', progress_interval_ms: SHELL_PROGRESS_INTERVAL_MS });
-  if (rootDeps.status !== 0) {
-    throw new Error('root dependency installation failed');
-  }
-
-  if (fs.existsSync(path.join(interfaceDir, 'package.json'))) {
-    const uiDeps = await shell(
-      'cd ' + shellQuote(INTERFACE_PROJECT_PATH) +
-      ' && ' + interfaceInstall,
-      MAX_COMMAND_MS,
-      { identity: 'interface_install', progress_interval_ms: SHELL_PROGRESS_INTERVAL_MS }
-    );
-    if (uiDeps.status !== 0) {
-      throw new Error('interface dependency installation failed');
-    }
-  }
+  const rootInstall = await ensurePersistentDependencyTree(
+    '.',
+    'root',
+    'root_install'
+  );
+  const interfaceInstall = await ensurePersistentDependencyTree(
+    INTERFACE_PROJECT_PATH,
+    'interface',
+    'interface_install'
+  );
 
   const objective = REQUESTED_OBJECTIVE || DEFAULT_OBJECTIVE;
 
@@ -2936,6 +3157,8 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
 
   // Load prior denial reasons from snapshot evidence so the agent sees them immediately.
   let denialHistoryBlock = '';
+  // Occupied / in-flight candidates the agent must not duplicate.
+  let occupiedHistoryBlock = '';
   try {
     const evidencePath = path.join(
       WORKSPACE,
@@ -2943,6 +3166,24 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       SNAPSHOT_RUNTIME_EVIDENCE_FILE_NAME
     );
     const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+    const occupied = (evidence.previous_candidate_outcomes || [])
+      .filter(c => isOccupiedStatus(c.status));
+    if (occupied.length > 0) {
+      occupiedHistoryBlock =
+        'IN-FLIGHT / OCCUPIED CANDIDATES — these are already claimed work awaiting the Maker review boundary. ' +
+        'Do NOT select an experiment that materially duplicates any of them (same objective and hypothesis, ' +
+        'or the same target files and focused test). Choose materially different work:\n\n' +
+        occupied.map(c =>
+          `Candidate: ${c.id}\n` +
+          `Status: ${c.status}\n` +
+          `Objective: ${c.objective}` +
+          (c.hypothesis ? `\nHypothesis: ${c.hypothesis}` : '') +
+          (Array.isArray(c.target_files) && c.target_files.length > 0
+            ? `\nTarget files: ${c.target_files.join(', ')}`
+            : '')
+        ).join('\n\n---\n\n') +
+        '\n\n';
+    }
     const denied = (evidence.previous_candidate_outcomes || [])
       .filter(c => c.status === 'denied' && c.denial_reason);
     if (denied.length > 0) {
@@ -2977,7 +3218,7 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
     { role: 'system', content: system },
     {
       role: 'user',
-      content: denialHistoryBlock + (OBJECTIVE_SOURCE === 'maker_requested'
+      content: occupiedHistoryBlock + denialHistoryBlock + (OBJECTIVE_SOURCE === 'maker_requested'
         ? `Maker objective:\n${MAKER_OBJECTIVE}\n\nGather evidence to identify the target files, baseline state, and test approach for this specific objective. Use get_task_state, get_self_context, search_self_memory, list_repository, search_source, inspect_symbol, read_file, and research tools. When you have sufficient evidence, call select_experiment with this exact objective. select_experiment.objective must match the Maker objective exactly after trimming. Selection is not Maker approval — after selection, the full isolated-sandbox read, write, shell, package-install, build, test, web search, web fetch, GitHub, arXiv, corpus, and documentation access is available.`
         : `Working objective guidance:\n${objective}\n\nInvestigate the codebase, runtime evidence, and self-context before calling select_experiment. Use get_task_state, get_self_context, search_self_memory, list_repository, search_source, inspect_symbol, read_file, corpus_search, and research tools freely. When evidence is sufficient, call select_experiment with a concrete bounded objective, falsifiable hypothesis, baseline evidence, existing target file, measurable success metric, and focused test. Selection is not Maker approval — after selection, the full isolated-sandbox read, write, shell, package-install, build, test, web search, web fetch, GitHub, arXiv, corpus, and documentation access is available.`)
     }
@@ -3001,11 +3242,42 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       });
     }
     const convergenceSnapshot = convergencePolicy.snapshot();
-    const activeTools = convergenceSnapshot.selected_experiment
-      ? tools
-      : convergenceSnapshot.phase === 'selection_required'
-        ? [selectExperimentTool]
-        : preSelectionTools;
+    // Single source of truth for the per-phase tool surface (shared with the
+    // contract test). During focused-test repair this returns the bounded repair
+    // surface so the agent fixes the real source or test instead of simulating
+    // the decision path or jumping to verification/finalize.
+    const activeTools = selectActiveTools(convergenceSnapshot, {
+      allTools: tools,
+      preSelectionTools,
+      selectExperimentTool,
+      repairTools
+    });
+    const activeRevisionConstraint =
+      convergenceSnapshot.selected_experiment &&
+      convergenceSnapshot.selected_experiment.revision_constraint;
+    if (activeRevisionConstraint) {
+      messages.push({
+        role: 'system',
+        content: buildDeniedRevisionContext(activeRevisionConstraint)
+      });
+    }
+    // Reinject the exact failing focused-test command + output every repair turn
+    // so the model always has the failure context regardless of compaction.
+    if (
+      isRepairPhase(convergenceSnapshot.phase) &&
+      focusedTestResults.length > 0 &&
+      focusedTestResults[focusedTestResults.length - 1].ok !== true
+    ) {
+      messages.push({
+        role: 'user',
+        content: buildFocusedRepairContext(
+          focusedTestResults[focusedTestResults.length - 1],
+          (convergenceSnapshot.selected_experiment &&
+            convergenceSnapshot.selected_experiment.target_files) || [],
+          activeRevisionConstraint || null
+        )
+      });
+    }
     let message;
     try {
       message = await ollamaChat(messages, activeTools);

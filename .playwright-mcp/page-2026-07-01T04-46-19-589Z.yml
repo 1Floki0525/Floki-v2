@@ -1,0 +1,474 @@
+- generic [active] [ref=f16e1]:
+  - link "Skip to content" [ref=f16e2] [cursor=pointer]:
+    - /url: "#skip-to-content"
+  - main [ref=f16e3]:
+    - banner [ref=f16e4]:
+      - navigation "Primary" [ref=f16e7]:
+        - list [ref=f16e8]:
+          - menu [ref=f16e9]:
+            - link "Home" [ref=f16e10] [cursor=pointer]:
+              - /url: https://navigation.ionos.ca/2.0/navi/CA/track/click?url=https%3A%2F%2Fmy.ionos.ca%2Fproduct-overview&linkid=appswitch.logo&c=CONTROL_PANEL_HOSTING&p=domain-dns-settings&ft=98d34ff0-322c-4784-b899-604733f9e33f
+              - generic [ref=f16e11]: 
+              - button "Open Menu" [ref=f16e12]: Menu
+      - menu [ref=f16e14]:
+        - menu [ref=f16e15]:
+          - generic [ref=f16e17]:
+            - generic: Search for features, domains, and help
+            - generic [ref=f16e18] [cursor=pointer]: 
+            - searchbox "Search for features, domains, and help" [ref=f16e19]
+            - button "Turn on microphone" [ref=f16e20] [cursor=pointer]: 
+      - navigation "Secondary" [ref=f16e22]:
+        - menu [ref=f16e23]:
+          - text:  
+          - menu [ref=f16e24]:
+            - link "World Cup Deals" [ref=f16e25] [cursor=pointer]:
+              - /url: https://navigation.ionos.ca/2.0/navi/CA/track/click?url=https%3A%2F%2Fmy.ionos.ca%2Fspecial-offers%3Fias.campaign%3Dworldcup-26%26campaign%3Dfiller_campaign&linkid=nav.special-offer-a&c=CONTROL_PANEL_HOSTING&p=domain-dns-settings&ft=98d34ff0-322c-4784-b899-604733f9e33f
+              - img [ref=f16e27]
+              - superscript [ref=f16e32]: "%"
+          - menu [ref=f16e33]:
+            - button "Help & contact" [ref=f16e34] [cursor=pointer]:
+              - img [ref=f16e35]
+          - menu [ref=f16e41]:
+            - link "Empty cart" [ref=f16e42] [cursor=pointer]:
+              - /url: https://my.ionos.ca/add-product?utm_source=global_navigation&utm_medium=notification&utm_campaign=cart&utm_content=cp-add-product
+              - img [ref=f16e43]
+          - menu [ref=f16e48]:
+            - button "Open preview of 5 messages" [ref=f16e49] [cursor=pointer]:
+              - img [ref=f16e50]
+              - superscript [ref=f16e55]: 5+
+          - menu [ref=f16e56]:
+            - button "Open my account & logout" [ref=f16e57] [cursor=pointer]:
+              - img [ref=f16e58]
+    - generic [ref=f16e61]:
+      - link "Skip to main content" [ref=f16e62] [cursor=pointer]:
+        - /url: "#top"
+      - button
+      - generic [ref=f16e64]:
+        - navigation "Navigation" [ref=f16e65]:
+          - link "Home" [ref=f16e66] [cursor=pointer]:
+            - /url: /product-overview
+            - text:  Home
+          - link " Domains & SSL" [ref=f16e67] [cursor=pointer]:
+            - /url: /domains
+        - generic [ref=f16e68]:
+          - heading "galactic-family-hub.com" [level=1] [ref=f16e71]
+          - generic [ref=f16e73]:
+            - link "Adjust destination" [ref=f16e74] [cursor=pointer]:
+              - /url: /connect-domain/galactic-family-hub.com?linkId=ct.btn.domainlist.usedomain.mainaction
+            - link "Reset domain" [ref=f16e75] [cursor=pointer]:
+              - /url: /reset-domain/galactic-family-hub.com?linkId=ct.btn.header.reset-domain
+      - list [ref=f16e78]:
+        - listitem [ref=f16e79]:
+          - link "Details" [ref=f16e80] [cursor=pointer]:
+            - /url: /domain-details/galactic-family-hub.com?linkId=ct.tab.domainlist.details
+        - listitem [ref=f16e81]:
+          - link "Subdomains" [ref=f16e82] [cursor=pointer]:
+            - /url: /subdomains/galactic-family-hub.com?linkId=ct.tab.domainlist.subdomains
+        - listitem [ref=f16e83]:
+          - link "Contact Details" [ref=f16e84] [cursor=pointer]:
+            - /url: /domain-privacy/galactic-family-hub.com?linkId=ct.tab.domainlist.privacy
+        - listitem [ref=f16e85]:
+          - link "Renewal & Transfer" [ref=f16e86] [cursor=pointer]:
+            - /url: /domain-transfer/galactic-family-hub.com?linkId=ct.tab.domainlist.transfer
+        - listitem [ref=f16e87]:
+          - link "Name Server" [ref=f16e88] [cursor=pointer]:
+            - /url: /domain-nameserver/galactic-family-hub.com?linkId=ct.tab.domainlist.nameserver&from=domain-dns-settings%2Fgalactic-family-hub.com
+        - listitem [ref=f16e89]:
+          - link "DNS" [ref=f16e90]:
+            - /url: /domain-dns-settings/galactic-family-hub.com?linkId=ct.tab.domainlist.dns&from=domain-dns-settings%2Fgalactic-family-hub.com
+      - generic [ref=f16e92]:
+        - list [ref=f16e94]:
+          - listitem [ref=f16e95]:
+            - generic "Look up" [ref=f16e97]:
+              - button "DNSSEC" [ref=f16e98]
+            - generic [ref=f16e99]: Not active
+            - button " Enable" [ref=f16e102] [cursor=pointer]
+        - generic [ref=f16e108]:
+          - generic [ref=f16e109]: Host name, value, type…
+          - textbox "Host name, value, type…" [ref=f16e110]
+          - text: 
+          - button "Search" [ref=f16e111] [cursor=pointer]: 
+        - generic [ref=f16e113]:
+          - link "Add record" [ref=f16e119] [cursor=pointer]:
+            - /url: /choose-dns-record-type/galactic-family-hub.com?linkId=ct.button.dns.addrecord
+          - generic [ref=f16e120]:
+            - table [ref=f16e121]:
+              - rowgroup [ref=f16e129]:
+                - row "Select all Type Host Name Value Service Actions" [ref=f16e130]:
+                  - columnheader "Select all" [ref=f16e131]:
+                    - checkbox "Select all" [ref=f16e132]
+                    - generic [ref=f16e133] [cursor=pointer]: Select all
+                  - columnheader "Type" [ref=f16e134]:
+                    - button "Type"
+                  - columnheader "Host Name" [ref=f16e135]:
+                    - button "Host Name"
+                  - columnheader "Value" [ref=f16e136]:
+                    - button "Value"
+                  - columnheader "Service" [ref=f16e137]:
+                    - button "Service" [ref=f16e138] [cursor=pointer]
+                  - columnheader "Actions" [ref=f16e139]
+              - rowgroup [ref=f16e140]:
+                - text: 
+                - 'row "Select A galactic-family-hub.com Points to: 74.208.236.46 • TTL: 3600 Click and Build Edit record Disable service" [ref=f16e141]':
+                  - cell "Select" [ref=f16e142]:
+                    - checkbox "Select" [ref=f16e143]
+                    - generic [ref=f16e144] [cursor=pointer]: Select
+                  - cell "A" [ref=f16e145]:
+                    - link "A" [ref=f16e146] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022402730?linkId=ct.link.dns.editrecord
+                  - cell "galactic-family-hub.com" [ref=f16e147]: "@"
+                  - 'cell "Points to: 74.208.236.46 • TTL: 3600" [ref=f16e148]': 74.208.236.46
+                  - cell "Click and Build" [ref=f16e149]
+                  - cell "Edit record Disable service" [ref=f16e150]:
+                    - link "Edit record" [ref=f16e151] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022402730?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Disable service" [ref=f16e152] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=cnb&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select AAAA galactic-family-hub.com Points to: 2607:f1c0:100f:f000:0:0:0:200 • TTL: 3600 Click and Build Edit record Disable service" [ref=f16e153]':
+                  - cell "Select" [ref=f16e154]:
+                    - checkbox "Select" [ref=f16e155]
+                    - generic [ref=f16e156] [cursor=pointer]: Select
+                  - cell "AAAA" [ref=f16e157]:
+                    - link "AAAA" [ref=f16e158] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378980?linkId=ct.link.dns.editrecord
+                  - cell "galactic-family-hub.com" [ref=f16e159]: "@"
+                  - 'cell "Points to: 2607:f1c0:100f:f000:0:0:0:200 • TTL: 3600" [ref=f16e160]': 2607:f1c0:100f:f000:0:0:0:200
+                  - cell "Click and Build" [ref=f16e161]
+                  - cell "Edit record Disable service" [ref=f16e162]:
+                    - link "Edit record" [ref=f16e163] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378980?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Disable service" [ref=f16e164] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=cnb&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select TXT _dep_ws_mutex.galactic-family-hub.com Points to: \"48876fb56a32111ab3b7d0121a3feb537c9a2cfb1e905504ae1b27c52a7fab10_1751052064598\" • TTL: 3600 Click and Build Edit record Disable service" [ref=f16e165]':
+                  - cell "Select" [ref=f16e166]:
+                    - checkbox "Select" [ref=f16e167]
+                    - generic [ref=f16e168] [cursor=pointer]: Select
+                  - cell "TXT" [ref=f16e169]:
+                    - link "TXT" [ref=f16e170] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022402732?linkId=ct.link.dns.editrecord
+                  - cell "_dep_ws_mutex.galactic-family-hub.com" [ref=f16e171]: _dep_ws_mutex
+                  - 'cell "Points to: \"48876fb56a32111ab3b7d0121a3feb537c9a2cfb1e905504ae1b27c52a7fab10_1751052064598\" • TTL: 3600" [ref=f16e172]': "\"48876fb56a32111ab3b7d0121a3feb537c9a2cfb1e905504ae1b27c52a7fab10_175105...\""
+                  - cell "Click and Build" [ref=f16e173]
+                  - cell "Edit record Disable service" [ref=f16e174]:
+                    - link "Edit record" [ref=f16e175] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022402732?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Disable service" [ref=f16e176] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=cnb&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select A www.galactic-family-hub.com Points to: 74.208.236.46 • TTL: 3600 Click and Build Edit record Disable service" [ref=f16e177]':
+                  - cell "Select" [ref=f16e178]:
+                    - checkbox "Select" [ref=f16e179]
+                    - generic [ref=f16e180] [cursor=pointer]: Select
+                  - cell "A" [ref=f16e181]:
+                    - link "A" [ref=f16e182] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022402731?linkId=ct.link.dns.editrecord
+                  - cell "www.galactic-family-hub.com" [ref=f16e183]: www
+                  - 'cell "Points to: 74.208.236.46 • TTL: 3600" [ref=f16e184]': 74.208.236.46
+                  - cell "Click and Build" [ref=f16e185]
+                  - cell "Edit record Disable service" [ref=f16e186]:
+                    - link "Edit record" [ref=f16e187] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022402731?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Disable service" [ref=f16e188] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=cnb&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select AAAA www.galactic-family-hub.com Points to: 2607:f1c0:100f:f000:0:0:0:200 • TTL: 3600 Click and Build Edit record Disable service" [ref=f16e189]':
+                  - cell "Select" [ref=f16e190]:
+                    - checkbox "Select" [ref=f16e191]
+                    - generic [ref=f16e192] [cursor=pointer]: Select
+                  - cell "AAAA" [ref=f16e193]:
+                    - link "AAAA" [ref=f16e194] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022402733?linkId=ct.link.dns.editrecord
+                  - cell "www.galactic-family-hub.com" [ref=f16e195]: www
+                  - 'cell "Points to: 2607:f1c0:100f:f000:0:0:0:200 • TTL: 3600" [ref=f16e196]': 2607:f1c0:100f:f000:0:0:0:200
+                  - cell "Click and Build" [ref=f16e197]
+                  - cell "Edit record Disable service" [ref=f16e198]:
+                    - link "Edit record" [ref=f16e199] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022402733?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Disable service" [ref=f16e200] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=cnb&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select CNAME _dmarc.galactic-family-hub.com Points to: dmarc.ionos.com • TTL: 3600 DMARC Edit record Delete record Disable service" [ref=f16e201]':
+                  - cell "Select" [ref=f16e202]:
+                    - checkbox "Select" [ref=f16e203]
+                    - generic [ref=f16e204] [cursor=pointer]: Select
+                  - cell "CNAME" [ref=f16e205]:
+                    - link "CNAME" [ref=f16e206] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1294306482?linkId=ct.link.dns.editrecord
+                  - cell "_dmarc.galactic-family-hub.com" [ref=f16e207]: _dmarc
+                  - 'cell "Points to: dmarc.ionos.com • TTL: 3600" [ref=f16e208]': dmarc.ionos.com
+                  - cell "DMARC" [ref=f16e209]
+                  - cell "Edit record Delete record Disable service" [ref=f16e210]:
+                    - link "Edit record" [ref=f16e211] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1294306482?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Delete record" [ref=f16e212] [cursor=pointer]:
+                      - /url: /delete-dns-record/galactic-family-hub.com/1294306482?linkId=ct.link.dns.deleterecord.button
+                      - img
+                    - link "Disable service" [ref=f16e213] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=dmarc&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select CNAME _domainconnect.galactic-family-hub.com Points to: _domainconnect.ionos.com • TTL: 3600 Domain Connect Edit record Disable service" [ref=f16e214]':
+                  - cell "Select" [ref=f16e215]:
+                    - checkbox "Select" [ref=f16e216]
+                    - generic [ref=f16e217] [cursor=pointer]: Select
+                  - cell "CNAME" [ref=f16e218]:
+                    - link "CNAME" [ref=f16e219] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378962?linkId=ct.link.dns.editrecord
+                  - cell "_domainconnect.galactic-family-hub.com" [ref=f16e220]: _domainconnect
+                  - 'cell "Points to: _domainconnect.ionos.com • TTL: 3600" [ref=f16e221]': _domainconnect.ionos.com
+                  - cell "Domain Connect" [ref=f16e222]
+                  - cell "Edit record Disable service" [ref=f16e223]:
+                    - link "Edit record" [ref=f16e224] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378962?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Disable service" [ref=f16e225] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=domainconnect&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select MX galactic-family-hub.com Points to: mx00.ionos.com • Priority: 10 • TTL: 3600 Mail Edit record Disable service" [ref=f16e226]':
+                  - cell "Select" [ref=f16e227]:
+                    - checkbox "Select" [ref=f16e228]
+                    - generic [ref=f16e229] [cursor=pointer]: Select
+                  - cell "MX" [ref=f16e230]:
+                    - link "MX" [ref=f16e231] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378974?linkId=ct.link.dns.editrecord
+                  - cell "galactic-family-hub.com" [ref=f16e232]: "@"
+                  - 'cell "Points to: mx00.ionos.com • Priority: 10 • TTL: 3600" [ref=f16e233]': mx00.ionos.com
+                  - cell "Mail" [ref=f16e234]
+                  - cell "Edit record Disable service" [ref=f16e235]:
+                    - link "Edit record" [ref=f16e236] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378974?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Disable service" [ref=f16e237] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=mail&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select MX galactic-family-hub.com Points to: mx01.ionos.com • Priority: 10 • TTL: 3600 Mail Edit record Disable service" [ref=f16e238]':
+                  - cell "Select" [ref=f16e239]:
+                    - checkbox "Select" [ref=f16e240]
+                    - generic [ref=f16e241] [cursor=pointer]: Select
+                  - cell "MX" [ref=f16e242]:
+                    - link "MX" [ref=f16e243] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378970?linkId=ct.link.dns.editrecord
+                  - cell "galactic-family-hub.com" [ref=f16e244]: "@"
+                  - 'cell "Points to: mx01.ionos.com • Priority: 10 • TTL: 3600" [ref=f16e245]': mx01.ionos.com
+                  - cell "Mail" [ref=f16e246]
+                  - cell "Edit record Disable service" [ref=f16e247]:
+                    - link "Edit record" [ref=f16e248] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378970?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Disable service" [ref=f16e249] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=mail&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select TXT galactic-family-hub.com Points to: \"v=spf1 include:_spf-us.ionos.com ~all\" • TTL: 3600 Mail Edit record Delete record Disable service" [ref=f16e250]':
+                  - cell "Select" [ref=f16e251]:
+                    - checkbox "Select" [ref=f16e252]
+                    - generic [ref=f16e253] [cursor=pointer]: Select
+                  - cell "TXT" [ref=f16e254]:
+                    - link "TXT" [ref=f16e255] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378976?linkId=ct.link.dns.editrecord
+                  - cell "galactic-family-hub.com" [ref=f16e256]: "@"
+                  - 'cell "Points to: \"v=spf1 include:_spf-us.ionos.com ~all\" • TTL: 3600" [ref=f16e257]':
+                    - 'generic "Points to: \"v=spf1 include:_spf-us.ionos.com ~all\" • TTL: 3600" [ref=f16e258]': "\"v=spf1 include:_spf-us.ionos.com ~all\""
+                  - cell "Mail" [ref=f16e259]
+                  - cell "Edit record Delete record Disable service" [ref=f16e260]:
+                    - link "Edit record" [ref=f16e261] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378976?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Delete record" [ref=f16e262] [cursor=pointer]:
+                      - /url: /delete-dns-record/galactic-family-hub.com/1022378976?linkId=ct.link.dns.deleterecord.button
+                      - img
+                    - link "Disable service" [ref=f16e263] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=mail&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select CNAME s1-ionos._domainkey.galactic-family-hub.com Points to: s1.dkim.ionos.com • TTL: 3600 Mail Edit record Delete record Disable service" [ref=f16e264]':
+                  - cell "Select" [ref=f16e265]:
+                    - checkbox "Select" [ref=f16e266]
+                    - generic [ref=f16e267] [cursor=pointer]: Select
+                  - cell "CNAME" [ref=f16e268]:
+                    - link "CNAME" [ref=f16e269] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378975?linkId=ct.link.dns.editrecord
+                  - cell "s1-ionos._domainkey.galactic-family-hub.com" [ref=f16e270]: s1-ionos._domainkey
+                  - 'cell "Points to: s1.dkim.ionos.com • TTL: 3600" [ref=f16e271]': s1.dkim.ionos.com
+                  - cell "Mail" [ref=f16e272]
+                  - cell "Edit record Delete record Disable service" [ref=f16e273]:
+                    - link "Edit record" [ref=f16e274] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378975?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Delete record" [ref=f16e275] [cursor=pointer]:
+                      - /url: /delete-dns-record/galactic-family-hub.com/1022378975?linkId=ct.link.dns.deleterecord.button
+                      - img
+                    - link "Disable service" [ref=f16e276] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=mail&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select CNAME s2-ionos._domainkey.galactic-family-hub.com Points to: s2.dkim.ionos.com • TTL: 3600 Mail Edit record Delete record Disable service" [ref=f16e277]':
+                  - cell "Select" [ref=f16e278]:
+                    - checkbox "Select" [ref=f16e279]
+                    - generic [ref=f16e280] [cursor=pointer]: Select
+                  - cell "CNAME" [ref=f16e281]:
+                    - link "CNAME" [ref=f16e282] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378973?linkId=ct.link.dns.editrecord
+                  - cell "s2-ionos._domainkey.galactic-family-hub.com" [ref=f16e283]: s2-ionos._domainkey
+                  - 'cell "Points to: s2.dkim.ionos.com • TTL: 3600" [ref=f16e284]': s2.dkim.ionos.com
+                  - cell "Mail" [ref=f16e285]
+                  - cell "Edit record Delete record Disable service" [ref=f16e286]:
+                    - link "Edit record" [ref=f16e287] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378973?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Delete record" [ref=f16e288] [cursor=pointer]:
+                      - /url: /delete-dns-record/galactic-family-hub.com/1022378973?linkId=ct.link.dns.deleterecord.button
+                      - img
+                    - link "Disable service" [ref=f16e289] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=mail&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select CNAME s42582890._domainkey.galactic-family-hub.com Points to: s42582890.dkim.ionos.com • TTL: 3600 Mail Edit record Delete record Disable service" [ref=f16e290]':
+                  - cell "Select" [ref=f16e291]:
+                    - checkbox "Select" [ref=f16e292]
+                    - generic [ref=f16e293] [cursor=pointer]: Select
+                  - cell "CNAME" [ref=f16e294]:
+                    - link "CNAME" [ref=f16e295] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378972?linkId=ct.link.dns.editrecord
+                  - cell "s42582890._domainkey.galactic-family-hub.com" [ref=f16e296]: s42582890._domainkey
+                  - 'cell "Points to: s42582890.dkim.ionos.com • TTL: 3600" [ref=f16e297]': s42582890.dkim.ionos.com
+                  - cell "Mail" [ref=f16e298]
+                  - cell "Edit record Delete record Disable service" [ref=f16e299]:
+                    - link "Edit record" [ref=f16e300] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378972?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Delete record" [ref=f16e301] [cursor=pointer]:
+                      - /url: /delete-dns-record/galactic-family-hub.com/1022378972?linkId=ct.link.dns.deleterecord.button
+                      - img
+                    - link "Disable service" [ref=f16e302] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=mail&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+                - 'row "Select CNAME autodiscover.galactic-family-hub.com Points to: adsredir.ionos.info • TTL: 3600 Mail Edit record Delete record Disable service" [ref=f16e303]':
+                  - cell "Select" [ref=f16e304]:
+                    - checkbox "Select" [ref=f16e305]
+                    - generic [ref=f16e306] [cursor=pointer]: Select
+                  - cell "CNAME" [ref=f16e307]:
+                    - link "CNAME" [ref=f16e308] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378971?linkId=ct.link.dns.editrecord
+                  - cell "autodiscover.galactic-family-hub.com" [ref=f16e309]: autodiscover
+                  - 'cell "Points to: adsredir.ionos.info • TTL: 3600" [ref=f16e310]': adsredir.ionos.info
+                  - cell "Mail" [ref=f16e311]
+                  - cell "Edit record Delete record Disable service" [ref=f16e312]:
+                    - link "Edit record" [ref=f16e313] [cursor=pointer]:
+                      - /url: /edit-dns-record/galactic-family-hub.com/1022378971?linkId=ct.link.dns.editrecord.button
+                      - img
+                    - link "Delete record" [ref=f16e314] [cursor=pointer]:
+                      - /url: /delete-dns-record/galactic-family-hub.com/1022378971?linkId=ct.link.dns.deleterecord.button
+                      - img
+                    - link "Disable service" [ref=f16e315] [cursor=pointer]:
+                      - /url: /deactivate-dns-template/galactic-family-hub.com?providerId=ionos.com&serviceId=mail&host=%40&linkId=ct.link.dns.deactivateservice.button
+                      - img
+            - heading "More features" [level=2] [ref=f16e316]
+            - list [ref=f16e317]:
+              - listitem [ref=f16e318]:
+                - link " Open API Portal" [ref=f16e319] [cursor=pointer]:
+                  - /url: /jumpto-customer-api?linkId=ct.txt.domainlist.apiportal
+      - generic [ref=f16e321]:
+        - heading "Increased stability through advanced DNS settings" [level=2] [ref=f16e322]
+        - paragraph [ref=f16e323]: "DNS Pro provides reliability and superior performance through a variety of features by distributing DNS data among multiple servers around the world so that visitors to your site are connected to the nearest server location for low latency. DNS Pro is a package of DNS security and management features:"
+        - list [ref=f16e324]:
+          - listitem [ref=f16e325]:
+            - strong [ref=f16e326]: Premium Anycast
+            - text: Low latency and high availability for your domains around the world. (Does not work in combination with secondary DNS)
+          - listitem [ref=f16e327]:
+            - strong [ref=f16e328]: DNSSEC
+            - text: Prevents hackers from taking control of your website and stealing messages and data. (Does not work in combination with secondary DNS)
+          - listitem [ref=f16e329]:
+            - strong [ref=f16e330]: DNS templates
+            - text: Create reusable groups of DNS records that can be applied to each of your domains.
+          - listitem [ref=f16e331]:
+            - strong [ref=f16e332]: DNS backup
+            - text: Backup and restore DNS settings
+          - listitem [ref=f16e333]:
+            - strong [ref=f16e334]: Secondary DNS
+            - text: Dedicated to DNS administrators/providers who need strong secondary services or want to hide their primary server.
+        - link " Order" [ref=f16e335] [cursor=pointer]:
+          - /url: /JumpToCPShop?product=dns-pro&domain=galactic-family-hub.com&itc=J5QB9K7E&contract=107165705
+      - list [ref=f16e338]:
+        - listitem [ref=f16e339]:
+          - button "Recommended help topics " [ref=f16e340]
+          - list [ref=f16e345]:
+            - listitem [ref=f16e346]:
+              - button " DNS Settings" [ref=f16e347] [cursor=pointer]
+      - button "Your satisfaction is important to us Please give us feedback on the product. This way we can support you even better in the future." [ref=f16e351]:
+        - img
+        - strong [ref=f16e353]: Your satisfaction is important to us
+        - generic [ref=f16e354]: Please give us feedback on the product. This way we can support you even better in the future.
+  - contentinfo [ref=f16e355]:
+    - generic [ref=f16e356]:
+      - generic [ref=f16e357]:
+        - generic [ref=f16e359]:
+          - heading "My IONOS" [level=4] [ref=f16e360]
+          - list [ref=f16e361]:
+            - listitem [ref=f16e362]:
+              - link " Home" [ref=f16e363] [cursor=pointer]:
+                - /url: /product-overview?linkId=ft.nav.home
+            - listitem [ref=f16e364]:
+              - link " My account" [ref=f16e365] [cursor=pointer]:
+                - /url: /account-overview?linkId=ft.nav.my-account
+            - listitem [ref=f16e366]:
+              - link "Discover IONOS" [ref=f16e367] [cursor=pointer]:
+                - /url: /add-product?linkId=ft.nav.discover-ionos&itc=HDS26HW0
+                - img
+                - text: Discover IONOS
+        - generic [ref=f16e368]:
+          - heading "Customer Support" [level=4] [ref=f16e369]
+          - list [ref=f16e370]:
+            - listitem [ref=f16e371]:
+              - link "Help Center" [ref=f16e372] [cursor=pointer]:
+                - /url: /JumpToHelpCenterDirect?linkId=ft.nav.help&direct=%2F
+            - listitem [ref=f16e373]:
+              - link "Contact us / My personal consultant" [ref=f16e374] [cursor=pointer]:
+                - /url: /JumpToCPSupportContact?__sendingdata=1&linkId=ft.nav.contact
+        - generic [ref=f16e375]:
+          - link "Ionos logo" [ref=f16e376] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fabout%2F%3FlinkId%3Dft.nav.logo&__sign=5ff57c33d564a9cf62ef1e38c9a9a9f8&__ts=1782881178266
+            - img "Ionos logo" [ref=f16e377]
+          - link "Instagram" [ref=f16e378] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.instagram.com%2Fionos.official&__sign=5d2f483e1d5cf91f397e5c5474a15d00&__ts=1782881178266
+            - img [ref=f16e379]
+          - link "Facebook" [ref=f16e381] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_FB_US&__sign=07a062e558873c231c31c1f30fd89c2f&__ts=1782881178266
+            - img [ref=f16e382]
+          - link "YouTube" [ref=f16e384] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_YT_US&__sign=b1c49f9a61323cfbd9a400bb08682ebb&__ts=1782881178266
+            - img [ref=f16e385]
+          - link "LinkedIn" [ref=f16e387] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_IN&__sign=b8744a2854d9ae80a27134c104d8a835&__ts=1782881178266
+            - img [ref=f16e388]
+          - link "TikTok" [ref=f16e390] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.tiktok.com%2F%40ionos.global&__sign=9ab985f1687e48dce3f46954897ec269&__ts=1782881178266
+            - img [ref=f16e391]
+      - generic [ref=f16e393]:
+        - generic [ref=f16e395]:
+          - heading "Download the IONOS App" [level=4] [ref=f16e396]
+          - link "Ionos on Google Play" [ref=f16e397]:
+            - /url: https://play.google.com/store/apps/details?id=com.oneandone.ciso.mobile.app.android&referrer=utm_source%3Dcp%26utm_campaign%3Dfooterl
+            - img "Ionos on Google Play" [ref=f16e398]
+        - link "Ionos on the App Store" [ref=f16e400]:
+          - /url: https://apps.apple.com/app/apple-store/id1080444849?pt=119330501&ct=cp.footer&mt=8
+          - img "Ionos on the App Store" [ref=f16e401]
+      - generic [ref=f16e403]:
+        - paragraph [ref=f16e405]:
+          - link "All Systems Operational" [ref=f16e406] [cursor=pointer]:
+            - /url: https://www.ionos-status.ca/?utm_medium=footer&utm_content=none&utm_source=CONTROL_PANEL_HOSTING&utm_campaign=domain-dns-settings&utm_term=no_search
+        - paragraph [ref=f16e408]:
+          - text: © 2026
+          - link "IONOS Inc." [ref=f16e409] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fabout%2F%3FlinkId%3Dft.nav.company&__sign=25c97033899df3063e577d6350d50307&__ts=1782881178266
+        - generic [ref=f16e410]:
+          - link "Privacy policy" [ref=f16e411] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fterms-gtc%2Fterms-privacy%2F%3FlinkId%3Dft.nav.privacy&__sign=a6a2006df3fd55f3bfcde073a9098de7&__ts=1782881178266
+          - text: "-"
+          - link "T&Cs" [ref=f16e412] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fterms-gtc%2F%3FlinkId%3Dft.nav.terms&__sign=d852268c41e985999075380c2eb4e65f&__ts=1782881178266
+  - button "Hey, I’m the AI Assistant of" [ref=f16e413] [cursor=pointer]:
+    - img [ref=f16e414]

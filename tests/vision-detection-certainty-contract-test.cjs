@@ -239,7 +239,7 @@ function staleTimestamp(offsetMs = 6000) {
 // Test 10: repeated consistent fresh detections move from uncertain to confirmed
 {
   resetObjectTemporalTracks();
-  const det = objectDetection('tv', 0.75, ['yolo', 'grounding_dino']);
+  const det = objectDetection('chair', 0.75, ['yolo', 'grounding_dino']);
   const ts1 = freshTimestamp();
   const first = annotateDetectionCertainty([det], ts1);
   assert.equal(first[0].certainty, 'uncertain', 'Test 10 FAIL: first detection must start uncertain');
@@ -522,10 +522,10 @@ function staleTimestamp(offsetMs = 6000) {
   assert.equal(rejectedResult.bucket, 'suppressed', 'Test 24 FAIL: rejected computer monitor must be suppressed');
 }
 
-// Test 25: certainty field is preserved through classifyVerifiedDetectionForDisplay for objects
+// Test 25: unconfirmed objects are hidden until temporal confirmation, then certainty is preserved
 {
   resetObjectTemporalTracks();
-  const det = objectDetection('tv', 0.70, ['yolo', 'grounding_dino']);
+  const det = objectDetection('chair', 0.70, ['yolo', 'grounding_dino']);
   const ts1 = freshTimestamp();
   const ts2 = new Date(Date.now() + 1500).toISOString();
   const [firstAnnotated] = annotateDetectionCertainty([det], ts1);
@@ -536,17 +536,13 @@ function staleTimestamp(offsetMs = 6000) {
 
   // After first detection: uncertain
   assert.equal(firstAnnotated.certainty, 'uncertain', 'Test 25 FAIL: first detection certainty must be uncertain');
-  // After second detection: confirmed
   assert.equal(secondAnnotated.certainty, 'confirmed', 'Test 25 FAIL: second detection certainty must be confirmed');
 
-  // Both must be in objects bucket (threshold-wise)
-  assert.equal(firstResult.bucket, 'objects', 'Test 25 FAIL: first tv must reach objects bucket');
-  assert.equal(secondResult.bucket, 'objects', 'Test 25 FAIL: second tv must reach objects bucket');
+  assert.equal(firstResult.bucket, 'suppressed', 'Test 25 FAIL: first unconfirmed object must not render');
+  assert.equal(firstResult.unavailable_reason, 'object_temporal_confirmation_pending');
+  assert.equal(secondResult.bucket, 'objects', 'Test 25 FAIL: confirmed object must reach objects bucket');
 
-  // The certainty field must be accessible via the result detection
-  const firstDet = firstResult.detection;
   const secondDet = secondResult.detection;
-  assert.equal(firstDet.certainty, 'uncertain', 'Test 25 FAIL: certainty must be preserved in classified detection');
   assert.equal(secondDet.certainty, 'confirmed', 'Test 25 FAIL: certainty must be preserved in classified detection');
 }
 

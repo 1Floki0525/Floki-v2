@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 
 import json
+import math
 import os
 import random
 import sys
 import time
 from pathlib import Path
+
+EXCLUSIVE_TRAINING_PREFLIGHT_VERSION = "FLOKI_EXCLUSIVE_TRAINING_PREFLIGHT_V2"
 
 
 def load_config():
@@ -74,6 +77,80 @@ def write_metrics(adapter_dir, metrics, metrics_file_name):
     atomic_json(os.path.join(adapter_dir, metrics_file_name), metrics)
 
 
+
+def emit_event(event_type, **detail):
+    payload = {
+        "type": event_type,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "detail": detail,
+    }
+    print(json.dumps(payload, sort_keys=True), flush=True)
+
+
+def verify_gpu(config, torch):
+    gpu = config.get("gpu") or {}
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "FLOKI_TRAINING_CUDA_UNAVAILABLE: CUDA-enabled PyTorch and an exposed NVIDIA GPU are required"
+        )
+    if not torch.version.cuda:
+        raise RuntimeError("FLOKI_TRAINING_CPU_ONLY_TORCH: torch.version.cuda is empty")
+
+    device_index = torch.cuda.current_device()
+    actual_name = torch.cuda.get_device_name(device_index)
+    actual_capability = tuple(torch.cuda.get_device_capability(device_index))
+    expected_name = str(gpu.get("expected_name") or "").strip()
+    expected_capability = tuple(int(value) for value in gpu.get("expected_compute_capability", []))
+
+    if expected_name and actual_name != expected_name:
+        raise RuntimeError(
+            "FLOKI_TRAINING_GPU_NAME_MISMATCH: expected "
+            + repr(expected_name)
+            + " but found "
+            + repr(actual_name)
+        )
+    if expected_capability and actual_capability != expected_capability:
+        raise RuntimeError(
+            "FLOKI_TRAINING_COMPUTE_CAPABILITY_MISMATCH: expected "
+            + repr(expected_capability)
+            + " but found "
+            + repr(actual_capability)
+        )
+
+    bf16_supported = bool(torch.cuda.is_bf16_supported())
+    if bool(gpu.get("require_bf16")) and not bf16_supported:
+        raise RuntimeError(
+            "FLOKI_TRAINING_BF16_UNAVAILABLE: configured GPU/PyTorch CUDA stack does not support BF16"
+        )
+
+    probe = torch.tensor([1.0, 2.0, 3.0], device="cuda", dtype=torch.float32)
+    probe_total = float((probe * 2.0).sum().item())
+    torch.cuda.synchronize()
+    if probe_total != 12.0:
+        raise RuntimeError("FLOKI_TRAINING_CUDA_PROBE_FAILED: unexpected tensor result")
+
+    emit_event(
+        "training_gpu_preflight_pass",
+        marker="FLOKI_V2_RSI_GPU_PREFLIGHT_PASS",
+        exclusive_training_preflight=EXCLUSIVE_TRAINING_PREFLIGHT_VERSION,
+        torch_version=torch.__version__,
+        torch_cuda_version=torch.version.cuda,
+        cudnn_version=torch.backends.cudnn.version(),
+        gpu_name=actual_name,
+        compute_capability=list(actual_capability),
+        bf16_supported=bf16_supported,
+    )
+
+
+def optimizer_step_budget(dataset_size, training):
+    batch_size = max(1, int(training["per_device_train_batch_size"]))
+    accumulation = max(1, int(training["gradient_accumulation_steps"]))
+    max_steps = int(training["max_steps"])
+    if max_steps > 0:
+        return max_steps
+    updates_per_epoch = max(1, math.ceil(dataset_size / (batch_size * accumulation)))
+    return max(1, math.ceil(updates_per_epoch * float(training["num_train_epochs"])))
+
 def main():
     config = load_config()
 
@@ -85,11 +162,11 @@ def main():
         AutoTokenizer,
         BitsAndBytesConfig,
         TrainerCallback,
-        TrainingArguments,
     )
     from transformers.trainer import TRAINING_ARGS_NAME
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-    from trl import SFTTrainer
+    from trl import SFTConfig, SFTTrainer
+    verify_gpu(config, torch)
 
     quant = config["quantization"]
     compute_dtype = getattr(
@@ -122,7 +199,7 @@ def main():
         base_path,
         quantization_config=bnb_config,
         device_map=config["device_map"],
-        torch_dtype=compute_dtype,
+        dtype=compute_dtype,
     )
     model = prepare_model_for_kbit_training(model)
 
@@ -152,6 +229,7 @@ def main():
     class CheckpointControlCallback(TrainerCallback):
         def __init__(self):
             self.handled_request_id = None
+            self.pending_request_id = None
             self.acknowledged = False
 
         def _save_checkpoint(self, args, state, kwargs, request_id):
@@ -163,7 +241,11 @@ def main():
             os.makedirs(checkpoint_dir, exist_ok=True)
 
             callback_model = kwargs.get("model")
-            callback_tokenizer = kwargs.get("tokenizer") or tokenizer
+            callback_tokenizer = (
+                kwargs.get("processing_class")
+                or kwargs.get("tokenizer")
+                or tokenizer
+            )
             optimizer = kwargs.get("optimizer")
             lr_scheduler = kwargs.get("lr_scheduler")
 
@@ -209,14 +291,14 @@ def main():
             self.handled_request_id = request_id
             self.acknowledged = True
 
-        def on_step_end(self, args, state, control, **kwargs):
+        def _read_checkpoint_request(self):
             if not control_file or not response_file:
-                return control
+                return None
             try:
                 with open(control_file, "r", encoding="utf-8") as handle:
                     request = json.load(handle)
             except (FileNotFoundError, json.JSONDecodeError, OSError):
-                return control
+                return None
 
             request_id = str(request.get("request_id") or "").strip()
             action = str(request.get("action") or "").strip()
@@ -225,6 +307,21 @@ def main():
                 or not request_id
                 or request_id == self.handled_request_id
             ):
+                return None
+            return request_id
+
+        def on_step_end(self, args, state, control, **kwargs):
+            request_id = self._read_checkpoint_request()
+            if request_id:
+                self.pending_request_id = request_id
+            return control
+
+        def on_epoch_end(self, args, state, control, **kwargs):
+            request_id = (
+                self.pending_request_id
+                or self._read_checkpoint_request()
+            )
+            if not request_id or request_id == self.handled_request_id:
                 return control
 
             self._save_checkpoint(args, state, kwargs, request_id)
@@ -232,20 +329,23 @@ def main():
                 os.unlink(control_file)
             except FileNotFoundError:
                 pass
+            self.pending_request_id = None
             control.should_training_stop = True
             control.should_save = False
             return control
 
     max_steps = int(tparams["max_steps"])
+    total_optimizer_steps = optimizer_step_budget(len(dataset), tparams)
+    warmup_steps = int(math.ceil(total_optimizer_steps * float(tparams["warmup_ratio"])))
 
-    training_args = TrainingArguments(
+    training_args = SFTConfig(
         output_dir=adapter_dir,
         per_device_train_batch_size=int(tparams["per_device_train_batch_size"]),
         gradient_accumulation_steps=int(tparams["gradient_accumulation_steps"]),
         learning_rate=float(tparams["learning_rate"]),
         num_train_epochs=float(tparams["num_train_epochs"]),
         max_steps=max_steps,
-        warmup_ratio=float(tparams["warmup_ratio"]),
+        warmup_steps=warmup_steps,
         weight_decay=float(tparams["weight_decay"]),
         lr_scheduler_type=tparams["lr_scheduler_type"],
         optim=tparams["optim"],
@@ -256,6 +356,9 @@ def main():
         save_total_limit=int(tparams["save_total_limit"]),
         bf16=compute_dtype == torch.bfloat16,
         report_to=list(tparams["report_to"]),
+        disable_tqdm=bool(tparams["disable_tqdm"]),
+        dataset_text_field=config["dataset_text_field"],
+        max_length=int(tparams["max_seq_length"]),
     )
 
     control_callback = CheckpointControlCallback()
@@ -263,9 +366,7 @@ def main():
         model=model,
         args=training_args,
         train_dataset=dataset,
-        dataset_text_field=config["dataset_text_field"],
-        max_seq_length=int(tparams["max_seq_length"]),
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         callbacks=[control_callback],
     )
 
@@ -302,6 +403,9 @@ def main():
             "segment_number": segment_number,
             "resume_from_checkpoint": resume_value,
             "checkpoint_request_acknowledged": control_callback.acknowledged,
+            "completed_epochs": int(float(
+                metrics.get("epoch", 0) or 0
+            )),
         }
     )
     write_metrics(adapter_dir, metrics, config["metrics_file_name"])

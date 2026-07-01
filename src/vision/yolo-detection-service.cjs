@@ -19,6 +19,14 @@ const { getVisionConfig,
   getDetectionConfig: getYamlDetectionConfig
 } = require('../config/floki-config.cjs');
 const { ensureDirSync, writeJsonFileAtomicSync, existsSync } = require('../util/fs-safe.cjs');
+const { suppressDuplicateDetections } = require('./detection-frame-contract.cjs');
+const {
+  configuredObjectClassPolicy,
+  boxArea,
+  boxAspectRatio,
+  objectClassForDetection,
+  objectPolicyDisposition
+} = require('./object-class-policy.cjs');
 
 /* Persistent YOLO Python worker state */
 let yoloWorkerProcess = null;
@@ -34,6 +42,7 @@ let yoloWorkerSpawnCount = 0;
 
 /* Object temporal confirmation state */
 const objectTemporalTracks = new Map();
+const objectTemporalTrackCounters = new Map();
 
 function getTemporalConfirmationConfig() {
   const detection = getYamlDetectionConfig('chat');
@@ -49,21 +58,49 @@ function getTemporalConfirmationConfig() {
   });
 }
 
+function normalizedBoxIou(left, right) {
+  const lx1 = Number(left && left.x || 0);
+  const ly1 = Number(left && left.y || 0);
+  const lx2 = lx1 + Number(left && left.width || 0);
+  const ly2 = ly1 + Number(left && left.height || 0);
+  const rx1 = Number(right && right.x || 0);
+  const ry1 = Number(right && right.y || 0);
+  const rx2 = rx1 + Number(right && right.width || 0);
+  const ry2 = ry1 + Number(right && right.height || 0);
+  const width = Math.max(0, Math.min(lx2, rx2) - Math.max(lx1, rx1));
+  const height = Math.max(0, Math.min(ly2, ry2) - Math.max(ly1, ry1));
+  const intersection = width * height;
+  const union = Math.max(0, lx2 - lx1) * Math.max(0, ly2 - ly1) +
+    Math.max(0, rx2 - rx1) * Math.max(0, ry2 - ry1) -
+    intersection;
+  return union > 0 ? intersection / union : 0;
+}
+
+function objectTrackKey(canonical) {
+  const key = String(canonical || 'object');
+  const next = Number(objectTemporalTrackCounters.get(key) || 0) + 1;
+  objectTemporalTrackCounters.set(key, next);
+  return key + ':' + String(next);
+}
+
 function annotateDetectionCertainty(detections, capturedAt) {
-  if (!Array.isArray(detections) || detections.length === 0) return detections;
+  if (!Array.isArray(detections)) return detections;
   const config = getTemporalConfirmationConfig();
   const now = typeof capturedAt === 'string'
     ? (Date.parse(capturedAt) || Date.now())
     : (Number(capturedAt) || Date.now());
   const windowStart = now - config.windowMs;
+  const matchedTrackKeys = new Set();
 
   for (const [key, track] of objectTemporalTracks.entries()) {
-    if (track.lastSeenAt < windowStart) {
+    const policy = track.policy || {};
+    const ageMs = now - Number(track.lastSeenAt || 0);
+    if (track.lastSeenAt < windowStart && (!track.confirmed || ageMs > Number(policy.maxMissedAgeMs || config.windowMs))) {
       objectTemporalTracks.delete(key);
     }
   }
 
-  return detections.map((detection) => {
+  const annotated = detections.map((detection) => {
     const label = String(detection.label || '').toLowerCase().trim();
     // Person candidates use VLM verification, not temporal object confirmation.
     const isPersonLabel = Number(detection.class_id) === 0 || label === 'person';
@@ -71,23 +108,107 @@ function annotateDetectionCertainty(detections, capturedAt) {
       return { ...detection, certainty: 'confirmed' };
     }
 
-    const existing = objectTemporalTracks.get(label);
+    const resolved = objectClassForDetection(detection);
+    const policy = resolved.policy;
+    const match = [...objectTemporalTracks.entries()]
+      .filter(([, track]) => track.canonical === resolved.canonical)
+      .map(([key, track]) => ({ key, track, iou: normalizedBoxIou(track.bbox, detection.bbox) }))
+      .filter((entry) =>
+        now - Number(entry.track.lastSeenAt || 0) <= policy.confirmationWindowMs &&
+        entry.iou >= policy.temporalIouThreshold
+      )
+      .sort((a, b) => b.iou - a.iou)[0] || null;
+    const trackKey = match ? match.key : objectTrackKey(resolved.canonical);
+    const existing = match ? match.track : null;
+    const policyPhase = existing && existing.confirmed ? 'maintain' : 'initial';
+    const eligible = objectPolicyDisposition(
+      {
+        ...detection,
+        certainty: 'confirmed',
+        object_policy_phase: policyPhase
+      },
+      policyPhase === 'maintain' ? { phase: 'maintain' } : {}
+    );
 
-    if (!existing || existing.lastSeenAt < windowStart) {
-      const confirmed = config.requiredFrames <= 1;
-      objectTemporalTracks.set(label, { label, count: 1, lastSeenAt: now, confirmed });
-      return { ...detection, certainty: confirmed ? 'confirmed' : 'uncertain' };
+    if (!existing) {
+      const confirmed = policy.confirmationFrames <= 1 && eligible.allowed;
+      objectTemporalTracks.set(trackKey, {
+        canonical: resolved.canonical,
+        count: 1,
+        missedFrames: 0,
+        lastSeenAt: now,
+        bbox: detection.bbox,
+        confirmed,
+        policy,
+        lastDetection: { ...detection }
+      });
+      matchedTrackKeys.add(trackKey);
+      return {
+        ...detection,
+        certainty: confirmed ? 'confirmed' : 'uncertain',
+        object_track_id: trackKey,
+        object_track_class: resolved.canonical,
+        object_policy_max_boxes: policy.maxBoxes,
+        object_policy_min_confidence: policy.initialMinConfidence,
+        object_policy_phase: 'initial',
+        object_track_count: 1,
+        object_track_iou: null,
+        object_policy_reason: eligible.reason
+      };
     }
 
     existing.count += 1;
+    existing.missedFrames = 0;
     existing.lastSeenAt = now;
-    existing.confirmed = existing.count >= config.requiredFrames;
-    return { ...detection, certainty: existing.confirmed ? 'confirmed' : 'uncertain' };
+    existing.bbox = detection.bbox;
+    existing.policy = policy;
+    existing.confirmed = existing.count >= policy.confirmationFrames && eligible.allowed;
+    existing.lastDetection = { ...detection };
+    matchedTrackKeys.add(trackKey);
+    return {
+      ...detection,
+      certainty: existing.confirmed ? 'confirmed' : 'uncertain',
+      object_track_id: trackKey,
+      object_track_class: resolved.canonical,
+      object_policy_max_boxes: policy.maxBoxes,
+      object_policy_min_confidence: policyPhase === 'maintain' ? policy.maintainMinConfidence : policy.initialMinConfidence,
+      object_policy_phase: policyPhase,
+      object_track_count: existing.count,
+      object_track_iou: match.iou,
+      object_policy_reason: eligible.reason
+    };
   });
+
+  for (const [key, track] of objectTemporalTracks.entries()) {
+    if (!track.confirmed || matchedTrackKeys.has(key)) continue;
+    const policy = track.policy || {};
+    const missedFrames = Number(track.missedFrames || 0) + 1;
+    const ageMs = now - Number(track.lastSeenAt || 0);
+    if (missedFrames > Number(policy.maxMissedFrames || 0) || ageMs > Number(policy.maxMissedAgeMs || 0)) continue;
+    track.missedFrames = missedFrames;
+    const retained = {
+      ...(track.lastDetection || {}),
+      id: String((track.lastDetection && track.lastDetection.id) || key) + '-retained-' + String(missedFrames),
+      certainty: 'confirmed',
+      retained_track: true,
+      object_track_id: key,
+      object_track_class: track.canonical,
+      object_policy_max_boxes: Number(policy.maxBoxes || 0) || undefined,
+      object_policy_min_confidence: Number(policy.maintainMinConfidence || 0) || undefined,
+      object_policy_phase: 'maintain',
+      object_track_count: track.count,
+      object_track_missed_frames: missedFrames,
+      object_policy_reason: 'retained_confirmed_object_track'
+    };
+    annotated.push(retained);
+  }
+
+  return annotated;
 }
 
 function resetObjectTemporalTracks() {
   objectTemporalTracks.clear();
+  objectTemporalTrackCounters.clear();
 }
 
 const YOLO_WORKER_TIMEOUT_MS = 30000;
@@ -465,11 +586,16 @@ function getDetectionConfig() {
   return {
     enabled: detection.object_detector_enabled !== false,
     yoloModelPath: detection.yolo_model_path || '.floki-tools/models/yolo/yolo11m.pt',
-    confidenceThreshold: Number(detection.detection_confidence_threshold || 0.5),
-    personCandidateConfidenceThreshold: Number(detection.person_candidate_confidence_threshold || 0.30),
+    confidenceThreshold: Number(detection.detection_min_confidence || detection.detection_confidence_threshold || 0.5),
+    personCandidateConfidenceThreshold: Number(detection.person_min_confidence || detection.person_candidate_confidence_threshold || 0.30),
+    faceConfidenceThreshold: Number(detection.face_min_confidence || detection.detection_min_confidence || detection.detection_confidence_threshold || 0.5),
     detectionIntervalFrames: Number(detection.detection_interval_frames || 5),
     detectionMinIntervalMs: Number(detection.detection_min_interval_ms || 500),
-    maxAgeMs: Number(detection.detection_max_age_ms || 5000),
+    maxAgeMs: Number(detection.detection_result_max_age_ms || detection.detection_max_age_ms || 5000),
+    nmsIouThreshold: Number(detection.detection_nms_iou_threshold || 0.5),
+    maxBoxesPerFrame: Number(detection.detection_max_boxes_per_frame || 50),
+    maxBoxesPerClass: Number(detection.detection_max_boxes_per_class || 10),
+    outOfOrderDropEnabled: detection.detection_out_of_order_drop_enabled !== false,
     cudaEnabled: true
   };
 }
@@ -514,8 +640,13 @@ function validateDetectionFrame(frame) {
   if (!frame || typeof frame !== 'object') return { valid: false, error: 'frame must be object' };
   if (frame.schema_version !== 1) return { valid: false, error: 'schema_version must be 1' };
   if (typeof frame.frame_id !== 'string') return { valid: false, error: 'frame_id must be string' };
+  if (frame.stream_session_id != null && typeof frame.stream_session_id !== 'string') return { valid: false, error: 'stream_session_id must be string if present' };
+  if (frame.frame_sequence != null && (!Number.isFinite(Number(frame.frame_sequence)) || Number(frame.frame_sequence) < 0)) return { valid: false, error: 'frame_sequence must be non-negative number if present' };
+  if (frame.result_sequence != null && (!Number.isFinite(Number(frame.result_sequence)) || Number(frame.result_sequence) < 0)) return { valid: false, error: 'result_sequence must be non-negative number if present' };
   if (!frame.captured_at) return { valid: false, error: 'captured_at is required' };
   if (!frame.detected_at) return { valid: false, error: 'detected_at is required' };
+  if (frame.captured_at_ms != null && !Number.isFinite(Number(frame.captured_at_ms))) return { valid: false, error: 'captured_at_ms must be finite number if present' };
+  if (frame.detected_at_ms != null && !Number.isFinite(Number(frame.detected_at_ms))) return { valid: false, error: 'detected_at_ms must be finite number if present' };
   if (typeof frame.image_width !== 'number' || frame.image_width <= 0) return { valid: false, error: 'image_width must be >0' };
   if (typeof frame.image_height !== 'number' || frame.image_height <= 0) return { valid: false, error: 'image_height must be >0' };
   if (typeof frame.device !== 'string') return { valid: false, error: 'device must be string' };
@@ -544,12 +675,7 @@ function normalizeYoloDetection(yoloResult, frameWidth, frameHeight) {
     const d = yoloResult.detections[i];
     const label = String(d.label || d.type || '').toLowerCase();
     const personCandidate = Number(d.class_id) === 0 || label === 'person';
-    const threshold = personCandidate
-      ? config.personCandidateConfidenceThreshold
-      : config.confidenceThreshold;
-
-    if (!d.confidence || d.confidence < threshold) continue;
-    
+    const faceCandidate = label === 'face' || String(d.type || '').toLowerCase() === 'face';
     const conf = Number(d.confidence);
     if (!Number.isFinite(conf)) continue;
     
@@ -558,58 +684,114 @@ function normalizeYoloDetection(yoloResult, frameWidth, frameHeight) {
         !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)) {
       continue;
     }
-    
-    detections.push({
-      id: `yolo_${frameWidth}_${frameHeight}_${i}`,
+
+    const normalizedBox = {
+      x: Math.max(0, Math.min(1, bbox.x)),
+      y: Math.max(0, Math.min(1, bbox.y)),
+      width: Math.max(0, Math.min(1, bbox.width)),
+      height: Math.max(0, Math.min(1, bbox.height))
+    };
+    const candidate = {
       class_id: Number(d.class_id || 0),
       type: String(d.type || 'object'),
       label: String(d.label || d.type || 'object'),
       confidence: Math.max(0, Math.min(1, conf)),
-      source: String(d.source || 'yolo'),
       proposal_phrase: d.proposal_phrase ? String(d.proposal_phrase) : null,
+      bbox: normalizedBox
+    };
+    const objectPolicy = personCandidate || faceCandidate
+      ? null
+      : objectClassForDetection(candidate).policy;
+    const threshold = personCandidate
+      ? config.personCandidateConfidenceThreshold
+      : faceCandidate
+        ? config.faceConfidenceThreshold
+        : objectPolicy.initialMinConfidence;
+
+    if (candidate.confidence < threshold) continue;
+    if (objectPolicy) {
+      const area = boxArea(normalizedBox);
+      const aspect = boxAspectRatio(normalizedBox);
+      if (
+        area < objectPolicy.minArea ||
+        area > objectPolicy.maxArea ||
+        aspect < objectPolicy.minAspectRatio ||
+        aspect > objectPolicy.maxAspectRatio
+      ) {
+        continue;
+      }
+    }
+
+    detections.push({
+      id: `yolo_${frameWidth}_${frameHeight}_${i}`,
+      class_id: candidate.class_id,
+      type: candidate.type,
+      label: candidate.label,
+      confidence: candidate.confidence,
+      source: String(d.source || 'yolo'),
+      proposal_phrase: candidate.proposal_phrase,
       proposal_sources: Array.isArray(d.proposal_sources)
         ? d.proposal_sources.map(String)
         : [String(d.source || 'yolo')],
       visual_fingerprint: d.visual_fingerprint
         ? String(d.visual_fingerprint)
         : null,
-      bbox: {
-        x: Math.max(0, Math.min(1, bbox.x)),
-        y: Math.max(0, Math.min(1, bbox.y)),
-        width: Math.max(0, Math.min(1, bbox.width)),
-        height: Math.max(0, Math.min(1, bbox.height))
-      }
+      bbox: normalizedBox
     });
   }
   
   return detections;
 }
 
-function parseYoloDetectionFrame(yoloResult, capturedAt) {
+function parseYoloDetectionFrame(yoloResult, capturedAt, options = {}) {
   if (!yoloResult || typeof yoloResult !== 'object') {
     return { ok: false, marker: 'INVALID_YOLO_RESULT' };
   }
   
-  const frameId = `frame_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
+  const frameId = String(options.frame_id || yoloResult.frame_id || `frame_${Date.now()}_${Math.floor(Math.random() * 1000000)}`);
   const modelPath = getYoloModelPath();
   
   const rawDetections = normalizeYoloDetection(yoloResult, yoloResult.frame_width, yoloResult.frame_height);
   const capturedTs = capturedAt || yoloResult.captured_at || new Date().toISOString();
-  const detections = annotateDetectionCertainty(rawDetections, capturedTs);
+  const certaintyDetections = annotateDetectionCertainty(rawDetections, capturedTs);
+  const config = getDetectionConfig();
+  const objectPolicies = configuredObjectClassPolicy();
+  const maxBoxesByClass = new Map();
+  for (const [canonical, policy] of objectPolicies.policies.entries()) {
+    maxBoxesByClass.set(canonical, policy.maxBoxes);
+  }
+  const suppressed = suppressDuplicateDetections(certaintyDetections, {
+    iou_threshold: config.nmsIouThreshold,
+    max_boxes_per_frame: config.maxBoxesPerFrame,
+    max_boxes_per_class: config.maxBoxesPerClass,
+    max_boxes_by_class: maxBoxesByClass,
+    min_confidence: config.confidenceThreshold,
+    person_min_confidence: config.personCandidateConfidenceThreshold,
+    face_min_confidence: config.faceConfidenceThreshold
+  });
 
   const now = new Date();
+  const capturedAtMs = Date.parse(capturedTs) || now.getTime();
   
   return {
     ok: true,
     schema_version: 1,
+    stream_session_id: options.stream_session_id || yoloResult.stream_session_id || null,
     frame_id: frameId,
-    captured_at: capturedAt || now.toISOString(),
+    frame_sequence: Number(options.frame_sequence || yoloResult.frame_sequence || 0),
+    result_sequence: Number(options.result_sequence || options.frame_sequence || yoloResult.result_sequence || yoloResult.frame_sequence || 0),
+    captured_at: capturedTs || now.toISOString(),
+    captured_at_ms: capturedAtMs,
     detected_at: now.toISOString(),
+    detected_at_ms: now.getTime(),
     image_width: Number(yoloResult.frame_width || 1280),
     image_height: Number(yoloResult.frame_height || 720),
+    source_width: Number(yoloResult.frame_width || 1280),
+    source_height: Number(yoloResult.frame_height || 720),
     device: String(yoloResult.device || 'cpu'),
     model_source: String(yoloResult.model_source || modelPath),
-    detections: detections,
+    detections: suppressed.detections,
+    dropped_detections: suppressed.dropped,
     stale: false,
     age_ms: 0
   };

@@ -70,7 +70,8 @@ function httpJson(calls) {
     applyLifecycle: async () => { calls.push('lifecycle:restore'); },
     buildLifecycle: () => ({ is_awake: true }),
     httpJson: httpJson(calls),
-    gpu
+    gpu,
+    queryGpuComputeProcesses: async () => []
   };
 
   const entered = await enterTrainingRuntimeResourceMode({
@@ -127,7 +128,8 @@ function httpJson(calls) {
       applyLifecycle: async () => { rollbackCalls.push('lifecycle:restore'); },
       buildLifecycle: () => ({ is_awake: true }),
       httpJson: httpJson(rollbackCalls),
-      gpu: failingGpu
+      gpu: failingGpu,
+      queryGpuComputeProcesses: async () => []
     }),
     (error) => {
       assert.match(error.message, /FLOKI_TRAINING_RESOURCE_ENTER_FAILED/);

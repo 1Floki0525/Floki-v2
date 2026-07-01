@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+
+floki_node_24_or_newer() {
+  local floki_node_version="${1:-}"
+  local floki_node_major
+  if [ -z "$floki_node_version" ]; then
+    command -v node >/dev/null 2>&1 || return 1
+    floki_node_version="$(node -v 2>/dev/null)" || return 1
+  fi
+  floki_node_version="${floki_node_version#v}"
+  floki_node_major="${floki_node_version%%.*}"
+  case "$floki_node_major" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$floki_node_major" -ge 24 ]
+}
+
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)"
 NODE_RUN="$ROOT/bin/floki-node24-run.sh"
 PY_CACHE="${TMPDIR:-/tmp}/floki-production-verify-pycache-$$"
@@ -11,7 +27,9 @@ run_step() { local label="$1"; shift; echo; echo "=== $label ==="; "$@" || fail 
 
 [ -x "$NODE_RUN" ] || fail "Node 24 wrapper is missing or not executable"
 NODE_VERSION="$("$NODE_RUN" node --version 2>/dev/null || true)"
-case "$NODE_VERSION" in v24.*) ;; *) fail "Node 24.x is required; actual=${NODE_VERSION:-unavailable}" ;; esac
+if ! floki_node_24_or_newer "$NODE_VERSION"; then
+  fail "Node 24 or newer is required; actual=${NODE_VERSION:-unavailable}"
+fi
 
 cleanup() { rm -rf "$PY_CACHE"; }
 trap cleanup EXIT

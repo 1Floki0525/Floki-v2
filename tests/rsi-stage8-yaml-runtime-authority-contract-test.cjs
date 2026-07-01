@@ -17,7 +17,7 @@ const sleep = getSleepConfig('chat');
 const read = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
 
 const stringKeys = [
-  'training_base_cuda_image','training_source_fingerprint_files','training_image_fingerprint_label',
+  'training_base_cuda_image','training_torch_packages','training_torch_index_url','training_venv_path','training_expected_gpu_name','training_source_fingerprint_files','training_image_fingerprint_label',
   'training_container_context_dir','training_container_apt_packages','training_entrypoint',
   'training_script_path','training_debian_frontend','training_pip_no_cache_dir',
   'training_hf_hub_offline','training_transformers_offline','training_run_id_prefix',
@@ -42,7 +42,7 @@ const stringKeys = [
   'nightly_training_provider','vision_provider'
 ];
 const numberKeys = [
-  'training_run_id_random_bytes','training_log_tail_max_chars',
+  'training_run_id_random_bytes','training_log_tail_max_chars','training_gpu_query_timeout_ms','training_gpu_quiesce_timeout_ms','training_gpu_quiesce_poll_ms','training_expected_compute_capability_major','training_expected_compute_capability_minor',
   'nightly_training_run_id_random_bytes','nightly_training_checkpoint_request_random_bytes',
   'nightly_training_container_stop_timeout_seconds','nightly_training_container_stop_timeout_floor_ms',
   'nightly_training_min_completed_steps','hf_rem_id_random_bytes',
@@ -61,7 +61,7 @@ const numberKeys = [
   'manual_training_segment_number'
 ];
 const booleanKeys = [
-  'training_tokenizer_use_fast','hf_rem_tokenizer_use_fast','hf_rem_do_sample'
+  'training_tokenizer_use_fast','training_require_bf16','training_disable_tqdm','hf_rem_tokenizer_use_fast','hf_rem_do_sample'
 ];
 for (const key of stringKeys) assert.equal(typeof config[key], 'string', key + ' must come from chat YAML as string');
 for (const key of numberKeys) assert.equal(Number.isFinite(config[key]), true, key + ' must come from chat YAML as number');
@@ -74,7 +74,7 @@ assert.equal(sleep.manual_nap_rem_offset_minutes, 10);
 assert.equal(sleep.manual_nap_max_rem_cycles, 2);
 assert.equal(
   config.training_base_cuda_image,
-  'docker.io/nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04'
+  'docker.io/nvidia/cuda:12.6.3-cudnn-devel-ubuntu24.04'
 );
 assert.equal(
   assertQualifiedContainerImageReference(
@@ -84,7 +84,7 @@ assert.equal(
 );
 assert.throws(
   () => assertQualifiedContainerImageReference(
-    'nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04'
+    'nvidia/cuda:12.6.3-cudnn-devel-ubuntu24.04'
   ),
   /FLOKI_TRAINING_BASE_IMAGE_UNQUALIFIED/
 );
@@ -171,7 +171,7 @@ for (const pattern of [
   assert.doesNotMatch(trainingContainerfile, pattern, 'training Containerfile contains a build-setting default instead of requiring chat YAML build args');
 }
 for (const marker of [
-  'ARG BASE_CUDA_IMAGE', 'ARG PYTHON_PACKAGES', 'ARG APT_PACKAGES',
+  'ARG BASE_CUDA_IMAGE', 'ARG PYTHON_PACKAGES', 'ARG TORCH_PACKAGES', 'ARG TORCH_INDEX_URL', 'ARG TRAINING_VENV_PATH', 'ARG APT_PACKAGES',
   'ARG TRAINING_WORKDIR', 'ARG TRAINING_ENTRYPOINT',
   'ARG TRAINING_SCRIPT_PATH', 'ARG REM_INFERENCE_SCRIPT_PATH',
   'ARG DEBIAN_FRONTEND_VALUE', 'ARG PIP_NO_CACHE_DIR_VALUE',

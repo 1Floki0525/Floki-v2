@@ -76,10 +76,36 @@ function resolveNightlyProviders(config = {}) {
   });
 }
 
+function compactRestorationStatus(response) {
+  const result = response && response.result && typeof response.result === 'object'
+    ? response.result
+    : response;
+  if (!result || typeof result !== 'object') return null;
+  return Object.freeze({
+    marker: result.marker || null,
+    ok: result.ok === true,
+    reason: result.reason || null,
+    released_gpu: result.released_gpu === true,
+    ollama_reloaded:
+      Array.isArray(result.ollama_reload) &&
+      result.ollama_reload.some((row) => row && row.ok === true),
+    audio_restarted: result.audio_restarted === true,
+    knowledge_restarted: result.knowledge_restarted === true,
+    scheduler_restarted: result.scheduler_restarted === true,
+    lifecycle_restored: result.lifecycle_restored === true,
+    failures: Array.isArray(result.failures) ? result.failures.slice(0, 20) : [],
+    completed_at: result.completed_at || null
+  });
+}
+
+function manualNapProductionActive(input = {}) {
+  return input.manual_nap_active === true;
+}
+
 function nightlyTrainingDecision(input = {}) {
   const enabled = input.enabled === true;
   const within = input.within_sleep_window === true;
-  const manualNap = input.manual_nap_active === true;
+  const manualNap = manualNapProductionActive(input);
   if (!enabled) {
     return Object.freeze({
       action: 'disabled',
@@ -331,7 +357,7 @@ function createNightlyTrainingCoordinator(options = {}) {
     const next = deps.setResourceEntered(session, false, config);
     return deps.writeSession({
       ...next,
-      restoration: response,
+      restoration: compactRestorationStatus(response),
       restored_at: nowIso(),
       updated_at: nowIso()
     }, config);
@@ -395,7 +421,8 @@ function createNightlyTrainingCoordinator(options = {}) {
           if (session.current_container) {
             const checkpoint = await deps.checkpointSession(session, {
               config,
-              reason: 'wake_restoration'
+              reason: 'wake_restoration',
+              discard_partial_epoch: true
             });
             session = checkpoint.session || session;
           }
@@ -471,8 +498,11 @@ function createNightlyTrainingCoordinator(options = {}) {
     let checkpointError = null;
     let remResult = null;
     let remError = null;
-    const manualNapAtStart = deps.readManualNap({ now: nowDate(dreamOptions.now) });
-    let shouldResume = deps.isWithinSleepWindow(nowDate(dreamOptions.now)) &&
+    const manualNapAtStart = deps.readManualNap({
+      now: nowDate(dreamOptions.now)
+    });
+    let shouldResume =
+      deps.isWithinSleepWindow(nowDate(dreamOptions.now)) &&
       !(manualNapAtStart && manualNapAtStart.active === true);
 
     try {
@@ -486,7 +516,9 @@ function createNightlyTrainingCoordinator(options = {}) {
         try {
           const checkpoint = await deps.checkpointSession(session, {
             config,
-            reason: 'nightly_rem_cycle_' + String(cycleNumber)
+            reason: 'nightly_rem_cycle_' + String(cycleNumber),
+            require_epoch_boundary: true,
+            sleep_window_end: sleepWindow.end_at
           });
           session = checkpoint.session || session;
           if (!checkpoint.ok) checkpointError = checkpoint.error;
@@ -586,6 +618,17 @@ function createNightlyTrainingCoordinator(options = {}) {
         );
       }
       recordClaimComplete(key, remResult, config);
+      if (session) {
+        const remCyclesCompleted = Number(session.rem_cycles_completed || 0) + 1;
+        session = deps.writeSession({
+          ...session,
+          status: 'rem_completed_waiting_for_epoch',
+          rem_cycles_completed: remCyclesCompleted,
+          last_rem_cycle_completed: cycleNumber,
+          last_rem_completed_at: nowIso(),
+          updated_at: nowIso()
+        }, config);
+      }
       deps.audit('nightly_rem_handoff_completed', {
         run_id: session && session.run_id || null,
         sleep_date: sleepDate,
@@ -628,7 +671,13 @@ function createNightlyTrainingCoordinator(options = {}) {
       throw error;
     } finally {
       try {
-        if (shouldResume && session && session.training_failed !== true) {
+        if (
+          shouldResume &&
+          remResult &&
+          remResult.ok === true &&
+          session &&
+          session.training_failed !== true
+        ) {
           transferGpuBackToTraining(deps.gpu, config, {
             reason: 'resume_after_nightly_rem',
             run_id: session.run_id,
@@ -712,6 +761,8 @@ function resetProductionNightlyTrainingCoordinatorForTests() {
 }
 
 module.exports = {
+  manualNapProductionActive,
+  compactRestorationStatus,
   automaticTrainingEnabled,
   cachedDreamUsable,
   createNightlyTrainingCoordinator,

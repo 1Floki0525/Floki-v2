@@ -1,5 +1,21 @@
 #!/usr/bin/env bash
 
+
+floki_node_24_or_newer() {
+  local floki_node_version="${1:-}"
+  local floki_node_major
+  if [ -z "$floki_node_version" ]; then
+    command -v node >/dev/null 2>&1 || return 1
+    floki_node_version="$(node -v 2>/dev/null)" || return 1
+  fi
+  floki_node_version="${floki_node_version#v}"
+  floki_node_major="${floki_node_version%%.*}"
+  case "$floki_node_major" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$floki_node_major" -ge 24 ]
+}
+
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME_DIR=""
 PID_FILE=""
@@ -13,7 +29,7 @@ load_node_24() {
   if [ -s "$HOME/.nvm/nvm.sh" ]; then
     export NVM_DIR="$HOME/.nvm"
     . "$HOME/.nvm/nvm.sh"
-    if ! command -v node >/dev/null 2>&1 || ! node -v 2>/dev/null | grep -Eq '^v24\.'; then
+    if ! command -v node >/dev/null 2>&1 || ! floki_node_24_or_newer; then
       nvm use 24 >/dev/null 2>&1
     fi
   fi

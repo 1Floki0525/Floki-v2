@@ -5,7 +5,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-assert.match(process.version, /^v24\./);
+const nodeMajor = Number(process.versions.node.split('.')[0]);
+assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or newer is required');
 
 const {
   jsonlFileSize,

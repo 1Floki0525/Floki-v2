@@ -19,6 +19,7 @@ import {
   XCircle
 } from 'lucide-react'
 import flokiAdapter from '@/integrations/floki/adapter'
+import { formatTorontoTime } from '@/lib/time'
 import { toast } from 'sonner'
 
 const ACTIVE_STATUSES = new Set([
@@ -232,9 +233,13 @@ export default function SelfImprovementPanel() {
   const abortActive = useCallback(() => {
     const kind = status?.current_run_kind || status?.active_run_kind || 'code'
     act(
-      kind === 'training' ? 'Abort training' : 'Abort sandbox',
+      kind === 'training' ? 'Abort training' : 'Stop sandbox',
       () => flokiAdapter.abortSelfImprovement(kind),
-      (_next, result) => result?.ok === true && result?.abort_requested === true
+      (_next, result) => (
+        result?.ok === true &&
+        result?.verified === true &&
+        result?.stopped === true
+      )
     )
   }, [act, status])
 
@@ -275,6 +280,11 @@ export default function SelfImprovementPanel() {
   const canRunCode = status?.controls?.can_run_code === true
   const canRunTraining = status?.controls?.can_run_training === true
   const canAbort = status?.controls?.can_abort === true
+  const canStopCode = status?.controls?.can_stop_code === true
+  const canAbortTraining = status?.controls?.can_abort_training === true
+  const codeSandboxActive = canStopCode || (
+    canAbort && status?.current_run_kind === 'code'
+  )
   const makerCycleQueued = status?.phase === 'maker_requested_cycle'
   const progress = status?.training_progress || {}
   const progressPercent = Number(progress.percent || progress.progress_percent || 0)
@@ -327,10 +337,10 @@ export default function SelfImprovementPanel() {
               {status?.paused ? <CirclePlay className="w-3.5 h-3.5" /> : <CirclePause className="w-3.5 h-3.5" />}
               {status?.paused ? 'Resume' : 'Pause'}
             </button>
-            {canAbort && (
+            {(canStopCode || canAbortTraining || canAbort) && (
               <button type="button" onClick={abortActive} disabled={Boolean(busy)} className="px-2.5 py-1.5 text-xs rounded border border-red-500/40 bg-red-500/10 text-red-200 disabled:opacity-40 flex items-center gap-1.5">
                 <Square className="w-3.5 h-3.5" />
-                {status?.current_run_kind === 'training' ? 'Abort training' : 'Abort sandbox'}
+                {status?.current_run_kind === 'training' ? 'Abort training' : 'Stop sandbox'}
               </button>
             )}
             <button type="button" onClick={() => act('Refresh status', refresh)} disabled={Boolean(busy)} className="p-1.5 rounded border border-border hover:border-neon-cyan/40 disabled:opacity-40" aria-label="Refresh RSI status">
@@ -357,8 +367,9 @@ export default function SelfImprovementPanel() {
               <button type="button" onClick={runCode} disabled={Boolean(busy) || makerCycleQueued || !canRunCode} className="px-3 py-2 text-xs rounded border border-neon-cyan/30 bg-neon-cyan/10 disabled:opacity-40 flex items-center gap-2">
                 <Code2 className="w-4 h-4" /> Run now
               </button>
-              <button type="button" onClick={runTraining} disabled={Boolean(busy) || makerCycleQueued || !canRunTraining} className="px-3 py-2 text-xs rounded border border-violet-500/30 bg-violet-500/10 text-violet-200 disabled:opacity-40 flex items-center gap-2">
-                <Cpu className="w-4 h-4" /> Run training
+              <button type="button" onClick={runTraining} disabled={Boolean(busy) || !canRunTraining} className="px-3 py-2 text-xs rounded border border-violet-500/30 bg-violet-500/10 text-violet-200 disabled:opacity-40 flex items-center gap-2">
+                <Cpu className="w-4 h-4" />
+                {codeSandboxActive ? 'Stop sandbox & train' : 'Run training'}
               </button>
             </div>
           </div>
@@ -375,7 +386,7 @@ export default function SelfImprovementPanel() {
             }`}>{actionFeedback.message}</div>
           ) : <span />}
           <span className="text-[10px] font-mono text-muted-foreground">
-            {lastRefreshedAt ? new Date(lastRefreshedAt).toLocaleTimeString() : 'Not refreshed'}
+            {lastRefreshedAt ? formatTorontoTime(lastRefreshedAt) : 'Not refreshed'}
           </span>
         </div>
       </header>

@@ -31,6 +31,25 @@ function engineRun(config, args, options = {}) {
   return result;
 }
 
+function runHostCommand(config, command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: options.cwd,
+    env: options.env || process.env,
+    encoding: 'utf8',
+    timeout: options.timeout || config.snapshot_rsync_timeout_ms,
+    maxBuffer: config.podman_output_buffer_bytes
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      command + ' ' + args.join(' ') +
+      ' failed with status ' + result.status + '\n' +
+      String(result.stdout || '') + '\n' +
+      String(result.stderr || '')
+    );
+  }
+  return result;
+}
+
 function imageSourceFingerprint(config = loadSelfImprovementConfig()) {
   const hash = crypto.createHash(config.image_fingerprint_algorithm);
   for (const relative of splitList(config.image_source_files, '|')) {
@@ -49,6 +68,10 @@ function imageSourceFingerprint(config = loadSelfImprovementConfig()) {
   }
   for (const value of [
     config.container_base_image,
+    config.container_node_version,
+    config.container_node_dist_base_url,
+    config.container_browser_deb_url,
+    config.container_browser_command_path,
     config.container_apt_packages,
     config.context7_package_name,
     config.context7_package_version,
@@ -77,6 +100,23 @@ function inspectImageFingerprint(config) {
   return value && value !== '<no value>' ? value : null;
 }
 
+function inspectImageId(config) {
+  const result = spawnSync(config.sandbox_engine, [
+    'image',
+    'inspect',
+    '--format',
+    '{{.Id}}',
+    config.image_name
+  ], {
+    encoding: 'utf8',
+    timeout: config.podman_command_timeout_ms,
+    maxBuffer: config.podman_output_buffer_bytes
+  });
+  if (result.status !== 0) return null;
+  const value = String(result.stdout || '').trim();
+  return value && value !== '<no value>' ? value : null;
+}
+
 function ensureImage(config = loadSelfImprovementConfig()) {
   const expected = imageSourceFingerprint(config);
   const actual = inspectImageFingerprint(config);
@@ -88,6 +128,10 @@ function ensureImage(config = loadSelfImprovementConfig()) {
     '--pull=missing',
     '--label', config.image_source_label + '=' + expected,
     '--build-arg', 'BASE_IMAGE=' + config.container_base_image,
+    '--build-arg', 'NODE_VERSION=' + config.container_node_version,
+    '--build-arg', 'NODE_DIST_BASE_URL=' + config.container_node_dist_base_url,
+    '--build-arg', 'BROWSER_DEB_URL=' + config.container_browser_deb_url,
+    '--build-arg', 'BROWSER_COMMAND_PATH=' + config.container_browser_command_path,
     '--build-arg', 'APT_PACKAGES=' + config.container_apt_packages,
     '--build-arg', 'CONTEXT7_PACKAGE=' + config.context7_package_name,
     '--build-arg', 'CONTEXT7_VERSION=' + config.context7_package_version,
@@ -135,6 +179,16 @@ function readCurrentStopRequest(config = loadSelfImprovementConfig()) {
     reason: current.stop_reason,
     requested_at: current.stop_requested_at
   });
+}
+
+function parseInspectField(value) {
+  const text = String(value || '').trim();
+  if (!text || text === '<no value>') return null;
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    return text;
+  }
 }
 
 function claimCurrentStopRequest(
@@ -215,7 +269,7 @@ function inspectContainerStart(containerName, config = loadSelfImprovementConfig
     [
       'inspect',
       '--format',
-      '{{.State.Running}} {{.State.StartedAt}}',
+      '{{json .State.Running}}|{{json .State.StartedAt}}',
       containerName
     ],
     {
@@ -233,14 +287,16 @@ function inspectContainerStart(containerName, config = loadSelfImprovementConfig
     });
   }
 
-  const text = String(result.stdout || '').trim();
-  const [runningText, ...startedParts] = text.split(/\s+/);
-  const startedAt = startedParts.join(' ').trim();
+  const [runningRaw, startedRaw] = String(result.stdout || '')
+    .trim()
+    .split('|');
+  const running = parseInspectField(runningRaw) === true;
+  const startedAt = parseInspectField(startedRaw);
   return Object.freeze({
     found: true,
-    running: runningText === 'true',
+    running,
     started_at:
-      startedAt && !startedAt.startsWith('0001-01-01')
+      typeof startedAt === 'string' && startedAt && !startedAt.startsWith('0001-01-01')
         ? startedAt
         : null,
     error: null
@@ -284,9 +340,13 @@ function verificationCommands(config) {
 }
 
 function agentConfig(snapshot, options, config) {
+  const workspacePath =
+    typeof options.workspace_path === 'string' && options.workspace_path.trim() !== ''
+      ? options.workspace_path
+      : config.workspace_mount_path;
   return {
     run_id: snapshot.run_id,
-    workspace_path: config.workspace_mount_path,
+    workspace_path: workspacePath,
     outbox_path: config.outbox_mount_path,
     self_context_path: config.self_context_mount_path,
     self_context_manifest_file_name: config.self_context_manifest_file_name,
@@ -324,6 +384,8 @@ function agentConfig(snapshot, options, config) {
     max_no_change_iterations: config.max_no_change_iterations,
     focused_verification_failure_limit:
       config.focused_verification_failure_limit,
+    focused_repair_no_progress_iteration_limit:
+      config.focused_repair_no_progress_iteration_limit,
     environment_check_command_timeout_ms:
       config.environment_check_command_timeout_ms,
     shell_command_progress_interval_ms:
@@ -373,6 +435,12 @@ function agentConfig(snapshot, options, config) {
     agent_home_path: config.agent_home_path,
     agent_npm_cache_path: config.agent_npm_cache_path,
     agent_pip_cache_path: config.agent_pip_cache_path,
+    persistent_dependency_cache_root: config.persistent_dependency_cache_root,
+    persistent_dependency_cache_marker_file: config.persistent_dependency_cache_marker_file,
+    dependency_fingerprint_algorithm: config.dependency_fingerprint_algorithm,
+    selection_rescue_max_attempts: config.selection_rescue_max_attempts,
+    selection_rescue_temperature: config.selection_rescue_temperature,
+    selection_rescue_thinking_enabled: config.selection_rescue_thinking_enabled,
     browser_command: config.browser_command,
     browser_profile_root: config.browser_profile_root,
     browser_profile_prefix: config.browser_profile_prefix,
@@ -410,6 +478,7 @@ function agentConfig(snapshot, options, config) {
     interface_project_path: config.interface_project_path,
     snapshot_evidence_subdir: config.snapshot_evidence_subdir,
     snapshot_runtime_evidence_file_name: config.snapshot_runtime_evidence_file_name,
+    occupied_candidate_statuses: config.occupied_candidate_statuses,
     default_objective: config.default_objective
   };
 }
@@ -437,53 +506,482 @@ function smokeImage(config = loadSelfImprovementConfig()) {
   };
 }
 
-// Pure construction of the container engine run arguments. Kept separate so the
-// isolation contract (cap-drop, no-new-privileges, resource limits, the exact
-// mount set, and the ABSENCE of host sockets/secrets/privileged flags) can be
-// verified without launching a container. Floki has root authority INSIDE this
-// isolated container, but the host is protected by cap-drop + no-new-privileges
-// and a fixed, minimal mount set (no docker/podman socket, no host secrets).
-function buildSandboxRunArgs({ containerName, snapshot, hostConfigFile, config }) {
+// Floki's RSI coding environment is a provision-once Ubuntu container.
+// Its writable root filesystem survives every RSI cycle and every chat.local
+// restart. Only run-specific sanitized workspaces are exposed; the live project,
+// host container socket, secrets, and Maker-controlled promotion path are not.
+function shellQuote(value) {
+  return "'" + String(value).replace(/'/g, "'\\''") + "'";
+}
+
+function mountOptionsInclude(options, value) {
+  return String(options || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .includes(String(value || '').trim());
+}
+
+function persistentSelfContextHostRoot(config = loadSelfImprovementConfig()) {
+  return path.join(config.runtime_root, 'persistent-self-context');
+}
+
+function persistentConfigHostRoot(config = loadSelfImprovementConfig()) {
+  return path.join(config.runtime_root, 'persistent-config');
+}
+
+function persistentConfigHostFile(config = loadSelfImprovementConfig()) {
+  return path.join(
+    persistentConfigHostRoot(config),
+    path.posix.basename(config.container_config_path)
+  );
+}
+
+function bindMountSpec(source, target, options) {
+  const spec = [
+    'type=bind',
+    'src=' + source,
+    'target=' + target
+  ];
+  if (mountOptionsInclude(options, 'ro')) {
+    spec.push('ro');
+  }
+  return spec.join(',');
+}
+
+function containerPathForHost(hostPath, hostRoot, containerRoot) {
+  const absolutePath = path.resolve(hostPath);
+  const absoluteRoot = path.resolve(hostRoot);
+  const relative = path.relative(absoluteRoot, absolutePath);
+  if (
+    relative === '..' ||
+    relative.startsWith('..' + path.sep) ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error(
+      'persistent sandbox path escapes mounted workspace root: ' + absolutePath
+    );
+  }
+
+  if (!relative) return containerRoot;
+  return path.posix.join(
+    containerRoot,
+    ...relative.split(path.sep).filter(Boolean)
+  );
+}
+
+function persistentWorkspaceTarget(_snapshot = null, config = loadSelfImprovementConfig()) {
+  const target = String(config.persistent_project_workspace_path || '').trim();
+  if (!target || !target.startsWith('/')) {
+    throw new Error('persistent_project_workspace_path must be an absolute container path');
+  }
+  if (target === '/' || target === config.persistent_workspace_root_mount_path) {
+    throw new Error('persistent_project_workspace_path is not a safe project workspace');
+  }
+  return path.posix.normalize(target);
+}
+
+function persistentSourceMirrorHostRoot(config = loadSelfImprovementConfig()) {
+  const name = String(config.persistent_source_mirror_directory_name || '').trim();
+  if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..') {
+    throw new Error('persistent_source_mirror_directory_name must be a safe directory name');
+  }
+  return path.join(config.workspace_root, name);
+}
+
+function rsyncExcludeArgs(config) {
+  const args = [];
+  for (const pattern of splitList(config.snapshot_exclude_patterns, '|')) {
+    args.push('--exclude=' + pattern);
+  }
+  return args;
+}
+
+function clearDirectoryContents(directory) {
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  for (const entry of fs.readdirSync(directory)) {
+    fs.rmSync(path.join(directory, entry), { recursive: true, force: true });
+  }
+}
+
+function syncProductionSourceMirror(config = loadSelfImprovementConfig()) {
+  const mirror = persistentSourceMirrorHostRoot(config);
+  fs.mkdirSync(mirror, { recursive: true, mode: 0o700 });
+  const args = [
+    '-a',
+    '--checksum',
+    '--delete',
+    '--prune-empty-dirs',
+    '--itemize-changes',
+    ...rsyncExcludeArgs(config),
+    config.project_root + '/',
+    mirror + '/'
+  ];
+  const result = runHostCommand(
+    config,
+    'rsync',
+    args,
+    { timeout: config.snapshot_rsync_timeout_ms }
+  );
+  return Object.freeze({
+    host_path: mirror,
+    container_path: containerPathForHost(
+      mirror,
+      config.workspace_root,
+      config.persistent_workspace_root_mount_path
+    ),
+    changed_items: String(result.stdout || '')
+      .split(/\r?\n/)
+      .filter(Boolean).length
+  });
+}
+
+function sanitizedNpmrcCommand(config) {
+  const lines = splitList(config.snapshot_sanitized_npmrc_lines, '|');
+  if (lines.length === 0) return ':';
+  return 'printf ' + shellQuote(lines.join('\n') + '\n') + ' > .npmrc';
+}
+
+function gitInfoExcludeCommand(config) {
+  const patterns = splitList(config.snapshot_exclude_patterns, '|')
+    .map((entry) => entry.replace(/\/$/, ''))
+    .filter(Boolean);
+  return 'mkdir -p .git/info && printf ' +
+    shellQuote(patterns.join('\n') + '\n') +
+    ' > .git/info/exclude';
+}
+
+function syncPersistentProjectWorkspace(snapshot, config = loadSelfImprovementConfig()) {
+  const mirror = syncProductionSourceMirror(config);
+  const workspace = persistentWorkspaceTarget(snapshot, config);
+  const evidenceSource = path.join(
+    snapshot.run_root,
+    config.snapshot_evidence_subdir,
+    config.snapshot_runtime_evidence_file_name
+  );
+  const evidenceTargetDir = path.posix.join(
+    workspace,
+    config.snapshot_evidence_subdir
+  );
+  const rsyncArgs = [
+    '-a',
+    '--checksum',
+    '--delete',
+    '--prune-empty-dirs',
+    '--itemize-changes',
+    ...rsyncExcludeArgs(config).map(shellQuote),
+    shellQuote(mirror.container_path + '/'),
+    shellQuote(workspace + '/')
+  ].join(' ');
+  const setup = [
+    'set -eu',
+    'mkdir -p ' + shellQuote(workspace),
+    'rsync ' + rsyncArgs,
+    'cd ' + shellQuote(workspace),
+    sanitizedNpmrcCommand(config),
+    'if [ ! -d .git ]; then git init -q; fi',
+    'git config user.name ' + shellQuote(config.snapshot_git_user_name),
+    'git config user.email ' + shellQuote(config.snapshot_git_user_email),
+    gitInfoExcludeCommand(config),
+    'if git rev-parse --verify HEAD >/dev/null 2>&1; then has_head=1; else has_head=0; fi',
+    'git rm -r --cached --ignore-unmatch .floki-self-improvement node_modules apps/floki-neural-interface/node_modules state secrets >/dev/null 2>&1 || true',
+    'git add -A -- .',
+    'if [ "$has_head" = 0 ] || ! git diff --cached --quiet --exit-code; then git commit -q -m ' +
+      shellQuote(config.snapshot_git_commit_message) + '; fi',
+    'git rev-parse HEAD'
+  ].join('; ');
+  const result = engineRun(config, [
+    'exec',
+    '--user', config.persistent_container_user,
+    config.persistent_container_name,
+    '/bin/sh',
+    '-lc',
+    setup
+  ], {
+    cwd: config.project_root,
+    timeout: config.podman_command_timeout_ms
+  });
+  engineRun(config, [
+    'exec',
+    '--user', config.persistent_container_user,
+    config.persistent_container_name,
+    '/bin/sh',
+    '-lc',
+    'mkdir -p ' + shellQuote(evidenceTargetDir)
+  ], {
+    cwd: config.project_root,
+    timeout: config.podman_command_timeout_ms
+  });
+  if (fs.existsSync(evidenceSource)) {
+    engineRun(config, [
+      'cp',
+      evidenceSource,
+      config.persistent_container_name + ':' +
+        path.posix.join(evidenceTargetDir, config.snapshot_runtime_evidence_file_name)
+    ], {
+      cwd: config.project_root,
+      timeout: config.podman_command_timeout_ms
+    });
+  }
+  return Object.freeze({
+    workspace_path: workspace,
+    source_mirror_host_path: mirror.host_path,
+    source_mirror_container_path: mirror.container_path,
+    mirror_changed_items: mirror.changed_items,
+    base_commit: String(result.stdout || '').trim().split(/\r?\n/).pop()
+  });
+}
+
+function inspectPersistentContainer(config = loadSelfImprovementConfig()) {
+  const result = spawnSync(
+    config.sandbox_engine,
+    [
+      'inspect',
+      '--format',
+      '{{json .State.Running}}|{{json .State.StartedAt}}|{{json .ImageName}}|{{json .Image}}',
+      config.persistent_container_name
+    ],
+    {
+      cwd: config.project_root,
+      encoding: 'utf8',
+      timeout: config.podman_command_timeout_ms,
+      maxBuffer: config.podman_output_buffer_bytes
+    }
+  );
+  if (result.status !== 0) {
+    return Object.freeze({
+      found: false,
+      running: false,
+      started_at: null,
+      image: null
+    });
+  }
+  const [runningRaw, startedRaw, imageRaw, imageIdRaw] = String(result.stdout || '')
+    .trim()
+    .split('|');
+  const startedAt = parseInspectField(startedRaw);
+  return Object.freeze({
+    found: true,
+    running: parseInspectField(runningRaw) === true,
+    started_at: typeof startedAt === 'string' ? startedAt : null,
+    image: parseInspectField(imageRaw),
+    image_id: parseInspectField(imageIdRaw)
+  });
+}
+
+function buildPersistentSandboxCreateArgs({ config }) {
   return [
-    'run',
-    '--rm',
-    '--name', containerName,
+    'create',
+    '--name', config.persistent_container_name,
     '--hostname', config.container_hostname,
-    '--cap-drop=' + config.cap_drop,
-    '--security-opt=' + config.security_opt,
+    '--user', config.persistent_container_user,
     '--pids-limit', String(config.pids_limit),
     '--memory', String(config.memory_limit),
     '--cpus', String(config.cpu_limit),
     '--network', String(config.network_mode),
-    '--tmpfs', config.container_tmp_path + ':' + config.tmpfs_options,
+    '--cap-drop', config.cap_drop,
+    '--security-opt', config.security_opt,
     '-v',
-    snapshot.repo_dir + ':' +
-      config.workspace_mount_path + ':' +
+    config.workspace_root + ':' +
+      config.persistent_workspace_root_mount_path + ':' +
       config.workspace_mount_options,
     '-v',
     config.outbox_root + ':' +
       config.outbox_mount_path + ':' +
       config.outbox_mount_options,
     '-v',
-    snapshot.self_context_dir + ':' +
-      config.self_context_mount_path + ':' +
-      config.self_context_mount_options,
-    '-v',
-    hostConfigFile + ':' +
-      config.container_config_path + ':' +
-      config.config_mount_options,
-    '-v',
     config.model_proxy_root + ':' +
       config.model_proxy_mount_path + ':' +
       config.model_proxy_mount_options,
-    '-e', 'FLOKI_RSI_CONFIG_FILE=' + config.container_config_path,
-    config.image_name
+    '--mount',
+    bindMountSpec(
+      persistentSelfContextHostRoot(config),
+      config.self_context_mount_path,
+      config.self_context_mount_options
+    ),
+    '--mount',
+    bindMountSpec(
+      persistentConfigHostRoot(config),
+      path.posix.dirname(config.container_config_path),
+      config.config_mount_options
+    ),
+    '--entrypoint', '/bin/sh',
+    config.image_name,
+    '-lc', config.persistent_container_idle_command
   ];
+}
+
+function syncPersistentAgent(config = loadSelfImprovementConfig()) {
+  const source = path.join(
+    config.project_root,
+    'containers',
+    'self-improvement',
+    'agent.cjs'
+  );
+  engineRun(config, [
+    'cp',
+    source,
+    config.persistent_container_name + ':/opt/floki-self-improvement/agent.cjs'
+  ], {
+    cwd: config.project_root,
+    timeout: config.podman_command_timeout_ms
+  });
+}
+
+function ensurePersistentContainer(config = loadSelfImprovementConfig()) {
+  if (config.persistent_container_enabled !== true) {
+    throw new Error('persistent RSI sandbox must be enabled');
+  }
+
+  fs.mkdirSync(config.workspace_root, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(config.outbox_root, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(config.model_proxy_root, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(config.runtime_root, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(persistentSelfContextHostRoot(config), {
+    recursive: true,
+    mode: 0o700
+  });
+  fs.mkdirSync(persistentConfigHostRoot(config), {
+    recursive: true,
+    mode: 0o700
+  });
+
+  ensureImage(config);
+  const expectedImageId = inspectImageId(config);
+  let state = inspectPersistentContainer(config);
+  let provisioned = false;
+  const current = readCurrentContainer(config);
+  const containerStale =
+    state.found &&
+    expectedImageId &&
+    state.image_id &&
+    state.image_id !== expectedImageId;
+  if (containerStale) {
+    if (current && current.name === config.persistent_container_name) {
+      throw new Error(
+        'persistent RSI sandbox image changed while a run is active; reprovision when idle'
+      );
+    }
+    engineRun(config, ['rm', '-f', config.persistent_container_name], {
+      cwd: config.project_root,
+      timeout: config.podman_command_timeout_ms
+    });
+    state = inspectPersistentContainer(config);
+  }
+  if (!state.found) {
+    engineRun(config, buildPersistentSandboxCreateArgs({ config }), {
+      cwd: config.project_root,
+      timeout: config.podman_command_timeout_ms
+    });
+    provisioned = true;
+    state = inspectPersistentContainer(config);
+    if (!state.found) {
+      throw new Error('persistent RSI sandbox provisioning did not create container');
+    }
+    appendAudit('persistent_sandbox_provisioned', {
+      container: config.persistent_container_name,
+      image: config.image_name
+    }, config);
+  }
+
+  syncPersistentAgent(config);
+  return Object.freeze({
+    container: config.persistent_container_name,
+    provisioned,
+    running: state.running,
+    image: state.image
+  });
+}
+
+function ensurePersistentContainerRunning(config = loadSelfImprovementConfig()) {
+  const ensured = ensurePersistentContainer(config);
+  let state = inspectPersistentContainer(config);
+  if (!state.running) {
+    engineRun(config, ['start', config.persistent_container_name], {
+      cwd: config.project_root,
+      timeout: config.podman_command_timeout_ms
+    });
+    state = inspectPersistentContainer(config);
+  }
+  if (!state.running) {
+    throw new Error('persistent RSI sandbox failed to start');
+  }
+  return Object.freeze({ ...ensured, running: true, started_at: state.started_at });
+}
+
+function preparePersistentSandboxInputs(snapshot, hostConfigFile, config) {
+  const selfContextHostRoot = persistentSelfContextHostRoot(config);
+  const configHostRoot = persistentConfigHostRoot(config);
+  const configHostFile = persistentConfigHostFile(config);
+
+  clearDirectoryContents(selfContextHostRoot);
+  if (fs.existsSync(snapshot.self_context_dir)) {
+    fs.cpSync(snapshot.self_context_dir, selfContextHostRoot, {
+      recursive: true,
+      force: true,
+      preserveTimestamps: true
+    });
+  } else {
+    fs.mkdirSync(selfContextHostRoot, { recursive: true, mode: 0o700 });
+  }
+
+  clearDirectoryContents(configHostRoot);
+  if (fs.existsSync(hostConfigFile)) {
+    fs.copyFileSync(hostConfigFile, configHostFile);
+    fs.chmodSync(configHostFile, 0o600);
+  } else {
+    fs.writeFileSync(configHostFile, '{}\n', { mode: 0o600 });
+  }
+}
+
+function buildPersistentSandboxExecArgs({
+  containerName,
+  snapshot,
+  hostConfigFile,
+  config
+}) {
+  const workspaceTarget = persistentWorkspaceTarget(snapshot, config);
+
+  const setup = [
+    'set -eu',
+    'mkdir -p ' + shellQuote(config.agent_home_path),
+    'mkdir -p ' + shellQuote(config.agent_npm_cache_path),
+    'mkdir -p ' + shellQuote(config.agent_pip_cache_path),
+    'test -d ' + shellQuote(config.self_context_mount_path),
+    'test -f ' + shellQuote(config.container_config_path),
+    'exec env ' +
+      'HOME=' + shellQuote(config.agent_home_path) + ' ' +
+      'NPM_CONFIG_CACHE=' + shellQuote(config.agent_npm_cache_path) + ' ' +
+      'PIP_CACHE_DIR=' + shellQuote(config.agent_pip_cache_path) + ' ' +
+      'FLOKI_RSI_CONFIG_FILE=' + shellQuote(config.container_config_path) + ' ' +
+      'FLOKI_LEGACY_WORKSPACE_PATH=' + shellQuote(config.workspace_mount_path) + ' ' +
+      'node /opt/floki-self-improvement/agent.cjs'
+  ].join('; ');
+
+  return [
+    'exec',
+    '--user', config.persistent_container_user,
+    '--workdir', workspaceTarget,
+    containerName,
+    '/bin/sh',
+    '-lc',
+    setup
+  ];
+}
+
+// Compatibility export retained for narrow callers. It now constructs an exec
+// into the persistent container rather than an ephemeral `podman run --rm`.
+function buildSandboxRunArgs({ containerName, snapshot, hostConfigFile, config }) {
+  return buildPersistentSandboxExecArgs({
+    containerName: containerName || config.persistent_container_name,
+    snapshot,
+    hostConfigFile,
+    config
+  });
 }
 
 function runSandbox(snapshot, options = {}) {
   const config = options.config || loadSelfImprovementConfig();
-  ensureImage(config);
 
   const proxySocket = path.join(
     config.model_proxy_root,
@@ -493,20 +991,33 @@ function runSandbox(snapshot, options = {}) {
     throw new Error('self-improvement model proxy socket is unavailable: ' + proxySocket);
   }
 
-  const safeRunId = snapshot.run_id.replace(/[^a-zA-Z0-9_.-]/g, '-');
-  const containerName = config.container_name_prefix + '-' + safeRunId;
+  const containerName = config.persistent_container_name;
+  ensurePersistentContainerRunning(config);
+  const workspaceSync = syncPersistentProjectWorkspace(snapshot, config);
+
   const outboxRun = path.join(config.outbox_root, snapshot.run_id);
   fs.rmSync(outboxRun, { recursive: true, force: true });
   fs.mkdirSync(config.outbox_root, { recursive: true, mode: 0o700 });
 
   const hostConfigFile = path.join(snapshot.run_root, 'agent-config.json');
+  const workspaceTarget = workspaceSync.workspace_path;
   fs.writeFileSync(
     hostConfigFile,
-    JSON.stringify(agentConfig(snapshot, options, config), null, 2) + '\n',
+    JSON.stringify(
+      agentConfig(snapshot, { ...options, workspace_path: workspaceTarget }, config),
+      null,
+      2
+    ) + '\n',
     { mode: 0o600 }
   );
+  preparePersistentSandboxInputs(snapshot, hostConfigFile, config);
 
-  const args = buildSandboxRunArgs({ containerName, snapshot, hostConfigFile, config });
+  const args = buildPersistentSandboxExecArgs({
+    containerName,
+    snapshot,
+    hostConfigFile,
+    config
+  });
 
   const p = paths(config);
   fs.rmSync(currentContainerStopLock(config), { force: true });
@@ -551,6 +1062,7 @@ function runSandbox(snapshot, options = {}) {
         marker: 'FLOKI_V2_SELF_IMPROVEMENT_CONTAINER',
         run_id: snapshot.run_id,
         name: containerName,
+        persistent: true,
         started_at: startedAt,
         podman_started_at: inspected.started_at,
         podman_running_at_ack: inspected.running === true,
@@ -570,6 +1082,7 @@ function runSandbox(snapshot, options = {}) {
         {
           run_id: snapshot.run_id,
           container: containerName,
+          persistent: true,
           log_file: runLogFile,
           podman_started_at: inspected.started_at,
           podman_running_at_ack: inspected.running === true
@@ -579,6 +1092,8 @@ function runSandbox(snapshot, options = {}) {
       return inspected;
     },
     cleanup() {
+      // The named Ubuntu sandbox intentionally survives. Only the current-run
+      // state is cleared. chat.local cleanup stops the container without rm.
       fs.rmSync(p.currentContainerFile, { force: true });
       fs.rmSync(currentContainerStopLock(config), { force: true });
     }
@@ -587,18 +1102,27 @@ function runSandbox(snapshot, options = {}) {
 
 module.exports = {
   agentConfig,
+  buildPersistentSandboxCreateArgs,
+  buildPersistentSandboxExecArgs,
   buildSandboxRunArgs,
   claimCurrentStopRequest,
   currentContainerStopLock,
   ensureImage,
+  ensurePersistentContainer,
+  ensurePersistentContainerRunning,
   engineRun,
   imageSourceFingerprint,
   inspectContainerStart,
   inspectImageFingerprint,
+  inspectPersistentContainer,
+  persistentSourceMirrorHostRoot,
+  persistentWorkspaceTarget,
   readCurrentContainer,
   readCurrentStopRequest,
   runSandbox,
   smokeImage,
   stopCurrentContainer,
+  syncPersistentProjectWorkspace,
+  syncProductionSourceMirror,
   waitForContainerStart
 };

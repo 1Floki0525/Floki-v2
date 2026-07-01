@@ -5,7 +5,11 @@ const { buildVisionStatus } = require('../src/vision/vision-status.cjs');
 const { getVisionConfig } = require('../src/config/floki-config.cjs');
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
   const vision = getVisionConfig('chat');
   const envDevice = 'contract-status-camera';
   const status = buildVisionStatus({active_mode:'chat',env:{[vision.webcam_device_env]:envDevice},webcam_status:{measured_fps:vision.target_capture_fps}});

@@ -11,6 +11,7 @@ const {
 const { PROJECT_ROOT: ROOT, getPathConfig, getSleepConfig } = require('../config/floki-config.cjs');
 const { runSleepCycleTick, loadSleepCycleState } = require('./sleep-cycle.cjs');
 const { getProductionNightlyTrainingCoordinator } = require('../self-improvement/training/training-scheduler.cjs');
+const { loadSelfImprovementConfig } = require('../self-improvement/config.cjs');
 
 const SCHEDULER_CONFIG = getSleepConfig('chat');
 const SCHEDULER_TICK_MS = Number(SCHEDULER_CONFIG.scheduler_tick_ms);
@@ -137,6 +138,17 @@ function isRecoverableNightlyRemError(error) {
     message.startsWith('FLOKI_V2_HF_REM_');
 }
 
+function automaticNightlyCoordinatorEnabled(
+  config = loadSelfImprovementConfig()
+) {
+  return (
+    config.training_enabled === true &&
+    config.nightly_training_enabled === true &&
+    config.nightly_training_provider === 'huggingface' &&
+    config.nightly_rem_provider === 'huggingface'
+  );
+}
+
 async function runSchedulerIteration(options = {}) {
   const paths = schedulerPaths(options);
   ensureDirSync(paths.runtime_dir);
@@ -147,11 +159,12 @@ async function runSchedulerIteration(options = {}) {
     FLOKI_ALLOW_SLEEP_CYCLE: '1',
     FLOKI_ALLOW_DREAM_ENGINE: '1'
   };
-  const trainingCoordinator = options.training_coordinator || (
-    env.FLOKI_ALLOW_NIGHTLY_TRAINING === '1'
-      ? getProductionNightlyTrainingCoordinator()
-      : null
-  );
+  const trainingCoordinator =
+    Object.prototype.hasOwnProperty.call(options, 'training_coordinator')
+      ? options.training_coordinator
+      : (automaticNightlyCoordinatorEnabled(options.self_improvement_config)
+          ? getProductionNightlyTrainingCoordinator()
+          : null);
   let nightlyTrainingError = null;
   if (trainingCoordinator) {
     try {
@@ -371,11 +384,12 @@ function cleanupSchedulerProcess(pid, paths, timeoutMs) {
 async function runSchedulerService(options = {}) {
   const paths = schedulerPaths(options);
   ensureDirSync(paths.runtime_dir);
-  const serviceTrainingCoordinator = options.training_coordinator || (
-    process.env.FLOKI_ALLOW_NIGHTLY_TRAINING === '1'
-      ? getProductionNightlyTrainingCoordinator()
-      : null
-  );
+  const serviceTrainingCoordinator =
+    Object.prototype.hasOwnProperty.call(options, 'training_coordinator')
+      ? options.training_coordinator
+      : (automaticNightlyCoordinatorEnabled(options.self_improvement_config)
+          ? getProductionNightlyTrainingCoordinator()
+          : null);
 
   const existingPid = readPid(paths.pid_file);
   if (existingPid && existingPid !== process.pid && processIsAlive(existingPid)) {
@@ -512,6 +526,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  automaticNightlyCoordinatorEnabled,
   ROOT,
   SCHEDULER_TICK_MS,
   SCHEDULER_HEARTBEAT_STALE_MS,

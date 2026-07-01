@@ -33,6 +33,14 @@ function buildTrainingConfig(options = {}) {
     lr_scheduler_state_file_name: config.training_lr_scheduler_state_file_name,
     rng_state_file_name: config.training_rng_state_file_name,
     dataset_text_field: config.qlora_dataset_text_field,
+    gpu: Object.freeze({
+      expected_name: config.training_expected_gpu_name,
+      expected_compute_capability: Object.freeze([
+        config.training_expected_compute_capability_major,
+        config.training_expected_compute_capability_minor
+      ]),
+      require_bf16: config.training_require_bf16
+    }),
     quantization: Object.freeze({
       load_in_4bit: config.qlora_load_in_4bit,
       bnb_4bit_quant_type: config.qlora_bnb_4bit_quant_type,
@@ -63,7 +71,8 @@ function buildTrainingConfig(options = {}) {
       save_steps: config.training_checkpoint_interval_steps,
       save_total_limit: config.nightly_training_save_total_limit,
       save_strategy: config.qlora_save_strategy,
-      report_to: splitPipeList(config.training_report_to)
+      report_to: splitPipeList(config.training_report_to),
+      disable_tqdm: config.training_disable_tqdm
     }),
     scheduler: Object.freeze({
       mode: config.manual_training_mode,

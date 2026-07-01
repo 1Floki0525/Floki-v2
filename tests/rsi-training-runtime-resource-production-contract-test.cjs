@@ -24,7 +24,7 @@ const { enterTrainingRuntimeResourceMode, exitTrainingRuntimeResourceMode } = re
     if (body && body.keep_alive === 0) return { ok: true, status: 200, json: { done: true } };
     return { ok: true, status: 200, json: { done: true } };
   };
-  const entered = await enterTrainingRuntimeResourceMode({ config, run_id: 'training-test', liveAudio: { setAwake: async (awake) => calls.push('audio:' + awake) }, visionReconciler: { reconcile: async (awake) => calls.push('vision:' + awake) }, knowledgeBootstrap: { stopAndWait: async () => { calls.push('knowledge:stop'); return true; } }, gpu, httpJson });
+  const entered = await enterTrainingRuntimeResourceMode({ config, run_id: 'training-test', liveAudio: { setAwake: async (awake) => calls.push('audio:' + awake) }, visionReconciler: { reconcile: async (awake) => calls.push('vision:' + awake) }, knowledgeBootstrap: { stopAndWait: async () => { calls.push('knowledge:stop'); return true; } }, gpu, httpJson, queryGpuComputeProcesses: async () => [] });
   assert.equal(entered.ok, true);
   assert.equal(entered.gpu_owner, 'hf_training');
   assert.deepEqual(calls.slice(0, 3), ['audio:false', 'vision:false', 'knowledge:stop']);

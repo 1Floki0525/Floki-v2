@@ -178,6 +178,131 @@ function latestActivityMs(runtime) {
   );
 }
 
+function automaticNightCycleOwnsWorker(
+  config,
+  now = new Date(),
+  options = {}
+) {
+  if (
+    config.training_enabled !== true ||
+    config.nightly_training_enabled !== true
+  ) {
+    return false;
+  }
+
+  const isWithin =
+    options.is_within_sleep_window ||
+    require('../chat/sleep-cycle.cjs').isWithinSleepWindow;
+
+  if (isWithin(now)) return true;
+
+  const readSession =
+    options.read_nightly_session ||
+    require(
+      './training/nightly-training-session.cjs'
+    ).readNightlySession;
+
+  const current = readSession(config);
+  return Boolean(
+    current &&
+    current.active === true &&
+    current.finalized !== true
+  );
+}
+
+async function pauseNightlyTrainingForManualCode(
+  config,
+  options = {}
+) {
+  const sessionModule =
+    options.session_module ||
+    require('./training/nightly-training-session.cjs');
+  const runtimeClient =
+    options.runtime_client ||
+    require('./training/runtime-client.cjs');
+
+  let current = sessionModule.readNightlySession(config);
+  if (!current || current.finalized === true) {
+    return Object.freeze({
+      ok: true,
+      paused: false,
+      reason: 'no_active_nightly_session',
+      session: current
+    });
+  }
+
+  if (current.current_container) {
+    const checkpoint =
+      await sessionModule.checkpointNightlyTraining(
+        current,
+        {
+          config,
+          reason: 'manual_code_run_now_override',
+          require_epoch_boundary: true,
+          sleep_window_end: current.sleep_window_end
+        }
+      );
+    if (!checkpoint || checkpoint.ok !== true) {
+      throw new Error(
+        checkpoint && checkpoint.error
+          ? checkpoint.error
+          : 'nightly training did not reach a full epoch boundary'
+      );
+    }
+    current = checkpoint.session || current;
+  }
+
+  if (current.resource_entered === true) {
+    const restored =
+      await runtimeClient.exitTrainingResource(
+        'manual_code_run_now_override',
+        config
+      );
+    if (!restored || restored.ok !== true) {
+      throw new Error(
+        'nightly training resource could not be released ' +
+        'for manual code Run Now'
+      );
+    }
+    current = sessionModule.setSessionResourceEntered(
+      current,
+      false,
+      config
+    );
+  }
+
+  current = sessionModule.writeSession({
+    ...current,
+    status: 'paused_for_manual_code_run_now',
+    manual_code_override_active: true,
+    manual_code_override_started_at: nowIso(),
+    updated_at: nowIso()
+  }, config);
+
+  updateStatus({
+    state: 'starting',
+    phase: 'manual_code_run_now_override',
+    current_container: null,
+    training_resource_mode: 'idle',
+    gpu_owner: null
+  }, config);
+
+  appendAudit('nightly_training_paused_for_manual_code', {
+    run_id: current.run_id,
+    completed_epochs:
+      Number(current.completed_epochs || 0),
+    rem_cycles_completed:
+      Number(current.rem_cycles_completed || 0)
+  }, config);
+
+  return Object.freeze({
+    ok: true,
+    paused: true,
+    reason: 'manual_code_run_now_override',
+    session: current
+  });
+}
+
 function idleEligibility(runtime, status, config, force = false) {
   if (!runtime || runtime.api_ready !== true) {
     return { eligible: false, reason: 'chat_runtime_not_ready' };
@@ -294,6 +419,46 @@ async function runCycle(options = {}) {
   const runKind = normalizeRunKind(options.kind, config);
   const candidateType = candidateTypeForKind(runKind, config);
   if (runKind === 'training') {
+    // training_cycle_runner_injection_precedes_night_routing
+    if (typeof options.training_cycle_runner === 'function') {
+      return options.training_cycle_runner({
+        ...options,
+        config,
+        kind: runKind,
+        candidate_type: candidateType
+      });
+    }
+    const { isWithinSleepWindow } = require('../chat/sleep-cycle.cjs');
+    if (isWithinSleepWindow(new Date())) {
+      const {
+        getProductionNightlyTrainingCoordinator
+      } = require('./training/training-scheduler.cjs');
+      const coordinator = getProductionNightlyTrainingCoordinator();
+      const result = await coordinator.reconcile({ now: new Date() });
+      updateStatus({
+        state: 'training',
+        phase: 'training_request_joined_nightly_session',
+        current_run_kind: 'training',
+        current_candidate_type: candidateType,
+        current_objective: options.objective || config.nightly_training_default_objective,
+        manual_run_pending: false,
+        manual_run_request_id: options.manual_request_id || null,
+        manual_run_acknowledged_at: options.manual_request_id ? nowIso() : null
+      }, config);
+      appendAudit('training_request_joined_nightly_session', {
+        request_id: options.manual_request_id || null,
+        objective: options.objective || null,
+        session_run_id: result && result.session && result.session.run_id || null,
+        action: result && result.action || null
+      }, config);
+      return Object.freeze({
+        ok: true,
+        joined_nightly_session: true,
+        candidate_created: false,
+        action: result && result.action || null,
+        session_run_id: result && result.session && result.session.run_id || null
+      });
+    }
     return (options.training_cycle_runner || runTrainingCycle)({
       ...options,
       config,
@@ -301,6 +466,36 @@ async function runCycle(options = {}) {
       candidate_type: candidateType
     });
   }
+  if (
+    options.force !== true &&
+    automaticNightCycleOwnsWorker(
+      config,
+      options.now || new Date(),
+      options
+    )
+  ) {
+    updateStatus({
+      state: 'training',
+      phase: 'automatic_night_code_cycle_blocked',
+      current_run_id: null,
+      current_container: null,
+      current_run_kind: 'training',
+      current_candidate_type: 'model_adapter',
+      current_objective:
+        config.nightly_training_default_objective,
+      last_error: null
+    }, config);
+    appendAudit('automatic_night_code_cycle_blocked', {
+      requested_kind: runKind,
+      requested_objective: options.objective || null
+    }, config);
+    return Object.freeze({
+      ok: false,
+      skipped: true,
+      reason: 'automatic_night_training_only'
+    });
+  }
+
   const snapshot = createSourceSnapshot({ config });
   updateStatus({
     state: 'researching',
@@ -348,6 +543,21 @@ async function runCycle(options = {}) {
     throw error;
   }
   const preemptTimer = setInterval(() => {
+    if (
+      options.force !== true &&
+      automaticNightCycleOwnsWorker(
+        config,
+        new Date()
+      )
+    ) {
+      preemptReason = 'automatic_code_crossed_into_night';
+      stopCurrentContainer(
+        'automatic_code_crossed_into_night',
+        config
+      );
+      return;
+    }
+
     const status = readStatus(config);
     updateStatus({}, config);
     touchWorkerHeartbeat(config);
@@ -654,11 +864,97 @@ async function serviceLoop(options = {}) {
       continue;
     }
 
+    // single_night_scheduler_owns_worker_loop
+    const queuedNightRequestForScheduler = readRunRequest(config);
+    const manualNightOverrideQueued =
+      queuedNightRequestForScheduler?.force === true;
+    if (
+      !manualNightOverrideQueued &&
+      automaticNightCycleOwnsWorker(config, new Date())
+    ) {
+      if (!(
+        status.current_run_kind === 'training' &&
+        typeof status.phase === 'string' &&
+        status.phase.startsWith('nightly_')
+      )) {
+        updateStatus({
+          state: 'training',
+          phase: 'nightly_scheduler_owns_worker_loop',
+          current_run_kind: 'training',
+          current_candidate_type: 'model_adapter',
+          current_objective: config.nightly_training_default_objective,
+          current_container: null
+        }, config);
+      }
+      await wakeController.wait(config.poll_ms);
+      continue;
+    }
+
+
+    // automatic_night_cycle_before_general_rsi
+    const queuedNightRequest = readRunRequest(config);
+    const queuedManualOverride =
+      queuedNightRequest?.force === true;
+
+    if (
+      !queuedManualOverride &&
+      automaticNightCycleOwnsWorker(
+        config,
+        new Date()
+      )
+    ) {
+      try {
+        const {
+          getProductionNightlyTrainingCoordinator
+        } = require(
+          './training/training-scheduler.cjs'
+        );
+        const coordinator =
+          getProductionNightlyTrainingCoordinator();
+        await coordinator.reconcile({
+          now: new Date()
+        });
+      } catch (error) {
+        const message =
+          error && error.stack
+            ? error.stack
+            : String(error && error.message || error);
+        updateStatus({
+          state: 'failed',
+          phase: 'nightly_training_coordinator_failed',
+          current_container: null,
+          nightly_training_error: message,
+          last_error: message,
+          failure_latched_at: nowIso()
+        }, config);
+        appendAudit(
+          'nightly_training_coordinator_failed',
+          { error: message },
+          config
+        );
+      }
+
+      await wakeController.wait(config.poll_ms);
+      continue;
+    }
+
     const fileRequest = readRunRequest(config);
     const request = resolveManualRunRequest(
       fileRequest,
       status,
       config
+    );
+
+    const manualNightCodeOverride = Boolean(
+      request?.force === true &&
+      normalizeRunKind(
+        request.kind || config.default_rsi_run_kind,
+        config
+      ) === 'code' &&
+      automaticNightCycleOwnsWorker(
+        config,
+        new Date()
+      )
     );
 
     // Let the pending-review queue grow up to max_pending_review_candidates so
@@ -705,6 +1001,10 @@ async function serviceLoop(options = {}) {
       }, config);
     }
 
+    if (manualNightCodeOverride) {
+      await pauseNightlyTrainingForManualCode(config);
+    }
+
     clearRunRequest(config);
     try {
       await runCycle({
@@ -735,6 +1035,10 @@ async function serviceLoop(options = {}) {
       );
     }
     if (stopping) break;
+    // manualNightCodeOverride_resume_nightly_immediately
+    if (manualNightCodeOverride) {
+      continue;
+    }
     await wakeController.wait(config.cooldown_seconds * 1000);
   }
 
@@ -778,6 +1082,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  pauseNightlyTrainingForManualCode,
+  automaticNightCycleOwnsWorker,
   createServiceWakeController,
   idleEligibility,
   latestActivityMs,

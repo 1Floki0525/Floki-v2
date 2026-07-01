@@ -65,7 +65,8 @@ function transport() {
     visionReconciler: { reconcile: async () => undefined },
     knowledgeBootstrap: { stopAndWait: async () => true },
     gpu,
-    httpJson: transport()
+    httpJson: transport(),
+    queryGpuComputeProcesses: async () => []
   });
   assert.equal(entered.ok, true);
   assert.equal(owner, 'hf_training');
@@ -108,7 +109,8 @@ function transport() {
       visionReconciler: { reconcile: async () => undefined },
       knowledgeBootstrap: { stopAndWait: async () => true },
       gpu: failingGpu,
-      httpJson: transport()
+      httpJson: transport(),
+      queryGpuComputeProcesses: async () => []
     }),
     (error) => {
       assert.match(

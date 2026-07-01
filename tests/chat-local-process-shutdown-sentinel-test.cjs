@@ -101,7 +101,11 @@ function stop(child) {
 }
 
 async function main() {
-  assert.match(process.version, /^v24\./);
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
 
   const rsi = getSelfImprovementConfig('chat');
   const vision = getVisionConfig('chat');

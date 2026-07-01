@@ -6,14 +6,28 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..');
-const stalePatch = ['24', '17', '0'].join('.');
+const THIS_TEST = 'tests/node24-patch-portability-contract-test.cjs';
+const ACTIVE_ROOTS = new Set([
+  'bin',
+  'src',
+  'tests',
+  'apps',
+  'containers',
+  'brain',
+  'config'
+]);
+const activeMajor = Number(process.versions.node.split('.')[0]);
 
-assert.match(process.version, /^v24\./);
+assert.equal(
+  Number.isInteger(activeMajor) && activeMajor >= 24,
+  true,
+  'Node 24 or newer is required'
+);
 
 const pkg = JSON.parse(
   fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')
 );
-assert.equal(pkg.engines.node, '>=24 <25');
+assert.equal(pkg.engines.node, '>=24');
 
 assert.equal(
   fs.readFileSync(path.join(ROOT, '.nvmrc'), 'utf8').trim(),
@@ -26,82 +40,77 @@ assert.equal(
 
 const tracked = execFileSync(
   'git',
-  ['ls-files', '-z'],
+  ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
   { cwd: ROOT }
 ).toString('utf8').split('\0').filter(Boolean);
 
-const stalePatchOffenders = [];
-const exactVersionCheckOffenders = [];
-const shellPatternOffenders = [];
-
-const exactVersionPatterns = [
-  /assert\.(?:equal|strictEqual)\(\s*process\.version\s*,\s*['"]v24\.x['"]/s,
-  /assert\.(?:equal|strictEqual)\(\s*['"]v24\.x['"]\s*,\s*process\.version/s,
-  /process\.version\s*(?:===|!==|==|!=)\s*['"]v24\.x['"]/,
-  /['"]v24\.x['"]\s*(?:===|!==|==|!=)\s*process\.version/
+const oldEngineRange = ['>=24', '<25'].join(' ');
+const exactJsGuards = [
+  /process\.version\.startsWith\(\s*['"]v24\./,
+  /assert\.match\(\s*process\.version\s*,\s*\/\^v24\\\.\//,
+  /\/\^v24\\\.\/\.test\(\s*process\.version/
+];
+const exactShellGuards = [
+  /v24\.\*\)/,
+  /\^v24\\\./,
+  /node_is_24\(\)/
 ];
 
+const offenders = [];
+
 for (const relative of tracked) {
-  const absolute = path.join(ROOT, relative);
+  if (relative === THIS_TEST) continue;
+  const first = relative.split('/')[0];
+  if (!ACTIVE_ROOTS.has(first)) continue;
+
   let source;
   try {
-    source = fs.readFileSync(absolute, 'utf8');
+    source = fs.readFileSync(path.join(ROOT, relative), 'utf8');
   } catch {
     continue;
   }
 
-  if (source.includes(stalePatch)) {
-    stalePatchOffenders.push(relative);
-  }
-
   if (
-    /\.(?:cjs|mjs|js)$/.test(relative) &&
-    exactVersionPatterns.some((pattern) => pattern.test(source))
+    /\.(?:cjs|mjs|js|jsx|ts|tsx)$/.test(relative) &&
+    exactJsGuards.some((pattern) => pattern.test(source))
   ) {
-    exactVersionCheckOffenders.push(relative);
+    offenders.push(relative + ': exact-JavaScript-Node-24 guard');
   }
 
   if (
     relative.endsWith('.sh') &&
-    (
-      source.includes('v24.x)') ||
-      source.includes('nvm use 24.x')
-    )
+    exactShellGuards.some((pattern) => pattern.test(source))
   ) {
-    shellPatternOffenders.push(relative);
+    offenders.push(relative + ': exact-shell-Node-24 guard');
+  }
+
+  if (source.includes(oldEngineRange)) {
+    offenders.push(relative + ': obsolete-engine-upper-bound');
   }
 }
 
 assert.deepEqual(
-  stalePatchOffenders,
+  offenders,
   [],
-  'tracked files must not pin Node to one patch release'
-);
-assert.deepEqual(
-  exactVersionCheckOffenders,
-  [],
-  'JavaScript must test the Node 24 major version, not equality with v24.x'
-);
-assert.deepEqual(
-  shellPatternOffenders,
-  [],
-  'shell scripts must use v24.* patterns and nvm use 24'
+  'active code must accept every Node major version 24 or newer'
 );
 
 const wrapper = fs.readFileSync(
   path.join(ROOT, 'bin/floki-node24-run.sh'),
   'utf8'
 );
-assert.match(wrapper, /v24\.\*/);
-assert.doesNotMatch(wrapper, /v24\.\d+\.\d+\)/);
+assert.match(wrapper, /node_is_24_or_newer/);
+assert.match(wrapper, /-ge 24/);
+assert.match(wrapper, /nvm use 24/);
 
 console.log(JSON.stringify({
   ok: true,
-  marker: 'FLOKI_NODE24_PATCH_PORTABILITY_PASS',
+  marker: 'FLOKI_NODE24PLUS_COMPLETE_PORTABILITY_PASS',
   active_version: process.version,
+  active_major: activeMajor,
   engine_range: pkg.engines.node,
-  stale_patch_pins: stalePatchOffenders.length,
-  invalid_exact_version_checks: exactVersionCheckOffenders.length,
-  invalid_shell_patterns: shellPatternOffenders.length,
-  any_node_24_supported: true
+  preferred_baseline: 24,
+  offenders: offenders.length,
+  active_tree_only: true,
+  node_24_or_newer_supported: true
 }, null, 2));

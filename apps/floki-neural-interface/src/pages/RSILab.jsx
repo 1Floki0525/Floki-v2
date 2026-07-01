@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { ChevronDown, FlaskConical, Terminal, AlertTriangle } from 'lucide-react'
 import SelfImprovementPanel from '@/components/system/SelfImprovementPanel'
 import flokiAdapter from '@/integrations/floki/adapter'
+import { formatTorontoTime } from '@/lib/time'
 
 const SENSITIVE_PATTERN = /(?:api[_-]?key|token|secret|password|auth[_-]?header|authorization|cookie|credential)["\s:=]+["']?[A-Za-z0-9+/=_\-]{8,}/gi;
 
@@ -210,6 +211,10 @@ function expandToDisplayItems(item, limits) {
 
   if (type === 'fatal') {
     return main(`[FATAL] ${safe(de.error, limits.terminal_summary_max_chars)}`, 'text-red-400 font-bold');
+  }
+
+  if (type === 'sandbox_output') {
+    return main(safe(de.text, limits.terminal_output_max_chars), 'text-foreground/60');
   }
 
   if (type === 'parse_error') {
@@ -445,7 +450,7 @@ function RSITerminal() {
           ) : (
             <div key={item.id} className={`flex gap-2 py-px ${item.color}`}>
               <span className="text-muted-foreground/25 flex-none w-[4.5rem] text-right overflow-hidden text-ellipsis whitespace-nowrap">
-                {item.ts ? new Date(item.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--'}
+                {item.ts ? formatTorontoTime(item.ts) : '--:--:--'}
               </span>
               <span className="flex-none text-[9px] uppercase px-1 rounded border border-current/20 bg-current/5 leading-tight self-start mt-0.5">
                 {item.source === 'controller' ? 'ctrl' : item.source === 'sandbox' ? 'sbox' : '    '}

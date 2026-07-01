@@ -8,12 +8,14 @@ fail() {
   exit 1
 }
 
-node_is_24() {
+node_is_24_or_newer() {
   command -v node >/dev/null 2>&1 || return 1
-  case "$(node -v 2>/dev/null)" in
-    v24.*) return 0 ;;
-    *) return 1 ;;
-  esac
+  local version major
+  version="$(node -v 2>/dev/null)" || return 1
+  version="${version#v}"
+  major="${version%%.*}"
+  [[ "$major" =~ ^[0-9]+$ ]] || return 1
+  [ "$major" -ge 24 ]
 }
 
 activate_node24_with_nvm() {
@@ -32,14 +34,14 @@ activate_node24_with_nvm() {
   nvm use 24 >/dev/null 2>&1 || return 1
 }
 
-# Preserve an already-active Node 24.x exactly as selected by the user's shell.
-# Only use NVM when the active node is missing or outside major version 24.
-if ! node_is_24; then
+# Preserve an already-active Node 24 or newer exactly as selected by the user's shell.
+# Only use NVM when the active node is missing or older than major version 24.
+if ! node_is_24_or_newer; then
   activate_node24_with_nvm || true
 fi
 
-if ! node_is_24; then
-  fail "Floki-v2 requires Node 24.x; active version is $(node -v 2>/dev/null || echo unavailable)"
+if ! node_is_24_or_newer; then
+  fail "Floki-v2 requires Node 24 or newer; active version is $(node -v 2>/dev/null || echo unavailable)"
 fi
 
 NODE_VERSION="$(node -v)"

@@ -1,0 +1,70 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - navigation "Primary" [ref=e6]:
+        - list [ref=e7]:
+          - menu [ref=e8]:
+            - link " Login" [ref=e9] [cursor=pointer]:
+              - /url: https://login.ionos.com/
+              - generic [ref=e10]: 
+              - generic [ref=e11]: Login
+      - menu [ref=e13]:
+        - menu [ref=e14]:
+          - generic [ref=e16]:
+            - generic: Search for features, domains, and help
+            - generic [ref=e17] [cursor=pointer]: 
+            - searchbox "Search for features, domains, and help" [ref=e18]
+            - button "Turn on microphone" [ref=e19] [cursor=pointer]: 
+      - navigation "Secondary" [ref=e21]:
+        - menu [ref=e22]:
+          - text:  
+          - menu [ref=e23]:
+            - button "Help & contact" [ref=e24] [cursor=pointer]:
+              - img [ref=e25]
+    - main [ref=e31]:
+      - generic [ref=e33]:
+        - text: 
+        - generic [ref=e34]:
+          - list [ref=e36]:
+            - listitem [ref=e37]:
+              - img [ref=e39]
+              - heading "My IONOS Login" [level=1] [ref=e41]
+          - list [ref=e44]:
+            - listitem [ref=e45]:
+              - generic [ref=e46]: Customer ID, email address or domain
+              - textbox "Customer ID, email address or domain" [active] [ref=e47]
+              - paragraph [ref=e48]:
+                - link "Forgot your login details?" [ref=e49] [cursor=pointer]:
+                  - /url: https://www.ionos.com/help/index.php?id=4152
+                - link "Forgot Your Password?" [ref=e50] [cursor=pointer]:
+                  - /url: https://password.ionos.com/
+            - listitem [ref=e51]:
+              - button "Next" [ref=e52]
+        - heading "More IONOS Logins" [level=2] [ref=e54]
+        - generic [ref=e55]:
+          - link "Webmail" [ref=e57] [cursor=pointer]:
+            - /url: https://mail.ionos.com/
+            - img
+            - generic [ref=e58]: Webmail
+          - link "Data Center Designer" [ref=e60] [cursor=pointer]:
+            - /url: https://dcd.ionos.com/latest?regDomain=ionos.com
+            - img
+            - generic [ref=e61]: Data Center Designer
+          - link "HiDrive" [ref=e63] [cursor=pointer]:
+            - /url: https://hidrive.ionos.com/
+            - img
+            - generic [ref=e64]: HiDrive
+  - contentinfo [ref=e65]:
+    - generic [ref=e67]:
+      - link "All Systems Operational" [ref=e70] [cursor=pointer]:
+        - /url: https://www.ionos-status.com/?utm_medium=footer&utm_content=none&utm_source=CENTRAL_LOGIN&utm_campaign=HOME&utm_term=no_search
+      - generic [ref=e71]:
+        - text: © 2026
+        - link "IONOS Inc." [ref=e72] [cursor=pointer]:
+          - /url: https://www.ionos.com/about
+      - generic [ref=e73]:
+        - link "Privacy Policy" [ref=e74] [cursor=pointer]:
+          - /url: https://www.ionos.com/terms-gtc/terms-privacy
+        - text: "-"
+        - link "T&Cs" [ref=e75] [cursor=pointer]:
+          - /url: https://www.ionos.com/terms-gtc

@@ -1,0 +1,171 @@
+- generic [ref=f710e2]:
+  - generic [ref=f710e3]:
+    - navigation "Main navigation" [ref=f710e4]:
+      - generic [ref=f710e6]:
+        - img [ref=f710e8]
+        - generic [ref=f710e10]:
+          - heading "Floki Neural" [level=1] [ref=f710e11]
+          - paragraph [ref=f710e12]: INTERFACE
+      - generic [ref=f710e13]:
+        - generic [ref=f710e18]: Floki Offline
+        - generic [ref=f710e22]: chat.local
+        - generic [ref=f710e26]: Vision
+        - generic [ref=f710e30]: Hearing
+        - generic [ref=f710e34]: Unknown
+      - generic [ref=f710e35]:
+        - button "Chat Interface" [ref=f710e36] [cursor=pointer]:
+          - img [ref=f710e37]
+          - generic [ref=f710e39]: Chat Interface
+        - button "Dreams" [ref=f710e40] [cursor=pointer]:
+          - img [ref=f710e41]
+          - generic [ref=f710e51]: Dreams
+        - button "Neural Stream" [ref=f710e52] [cursor=pointer]:
+          - img [ref=f710e53]
+          - generic [ref=f710e55]: Neural Stream
+        - button "RSI Lab" [ref=f710e56] [cursor=pointer]:
+          - img [ref=f710e57]
+          - generic [ref=f710e59]: RSI Lab
+        - button "System" [ref=f710e60] [cursor=pointer]:
+          - img [ref=f710e61]
+          - generic [ref=f710e64]: System
+        - button "Settings" [ref=f710e65] [cursor=pointer]:
+          - img [ref=f710e66]
+          - generic [ref=f710e69]: Settings
+      - button "Collapse navigation" [ref=f710e71] [cursor=pointer]:
+        - img [ref=f710e72]
+    - main [ref=f710e74]:
+      - generic [ref=f710e75]:
+        - generic [ref=f710e77]:
+          - generic [ref=f710e78]:
+            - generic [ref=f710e79]:
+              - img [ref=f710e80]
+              - generic [ref=f710e83]: Idle
+            - button "Clear visible chat transcript" [disabled] [ref=f710e84]:
+              - img [ref=f710e85]
+              - text: Clear chat
+          - generic [ref=f710e90]:
+            - img [ref=f710e92]
+            - heading "Floki Neural Interface" [level=2] [ref=f710e95]
+            - paragraph [ref=f710e96]: Start a conversation with Floki. Type a message or speak to him while hearing is online.
+            - generic [ref=f710e97]:
+              - generic [ref=f710e98]:
+                - img [ref=f710e99]
+                - generic [ref=f710e109]: "Cognition: Offline"
+              - generic [ref=f710e110]:
+                - img [ref=f710e111]
+                - generic [ref=f710e114]: "Vision: Offline"
+              - generic [ref=f710e115]:
+                - img [ref=f710e116]
+                - generic [ref=f710e119]: "Hearing: Offline"
+              - generic [ref=f710e120]:
+                - img [ref=f710e121]
+                - generic [ref=f710e125]: "Speech: Offline"
+              - generic [ref=f710e126]:
+                - img [ref=f710e127]
+                - generic [ref=f710e129]: "Memory: Offline"
+          - generic [ref=f710e131]:
+            - generic [ref=f710e132]:
+              - textbox "Message input" [ref=f710e133]:
+                - /placeholder: Message Floki...
+              - button "Send message" [disabled] [ref=f710e134]:
+                - img [ref=f710e135]
+            - paragraph [ref=f710e138]: Microphone, wake-word hearing, Piper speech, and webcam sight are controlled by the real chat.local services shown in System Status.
+        - generic [ref=f710e140]:
+          - generic [ref=f710e141]:
+            - generic [ref=f710e142]:
+              - heading "Live Vision" [level=3] [ref=f710e143]
+              - generic [ref=f710e144]: OFFLINE
+            - generic [ref=f710e145]:
+              - generic [ref=f710e147]:
+                - img [ref=f710e148]
+                - paragraph [ref=f710e151]: Vision stream reconnecting
+              - generic [ref=f710e152]:
+                - generic [ref=f710e153]:
+                  - img [ref=f710e154]
+                  - text: Offline
+                - generic [ref=f710e156]: "Detector: offline"
+                - generic [ref=f710e157]: 11:00:25 AM
+              - generic [ref=f710e158]:
+                - button "Objects" [pressed] [ref=f710e159] [cursor=pointer]
+                - button "Persons" [pressed] [ref=f710e160] [cursor=pointer]
+                - button "Labels" [pressed] [ref=f710e161] [cursor=pointer]
+                - button "Conf" [pressed] [ref=f710e162] [cursor=pointer]
+                - button "Scene" [pressed] [ref=f710e163] [cursor=pointer]
+              - generic [ref=f710e164]:
+                - button "Freeze" [ref=f710e165] [cursor=pointer]:
+                  - img [ref=f710e166]
+                  - text: Freeze
+                - button "Blackout" [ref=f710e179] [cursor=pointer]:
+                  - img [ref=f710e180]
+                  - text: Blackout
+          - generic [ref=f710e183]:
+            - generic [ref=f710e184]:
+              - heading "Latest Observation" [level=3] [ref=f710e185]
+              - generic [ref=f710e186]: OFFLINE
+            - generic [ref=f710e187]:
+              - paragraph [ref=f710e188]: No current visual observation is available.
+              - generic [ref=f710e189]:
+                - generic [ref=f710e190]: Status
+                - generic [ref=f710e191]: Unavailable
+                - generic [ref=f710e192]: Age
+                - generic [ref=f710e193]: —
+                - generic [ref=f710e194]: Source
+                - generic [ref=f710e195]: webcam
+                - generic [ref=f710e196]: Timestamp
+                - generic [ref=f710e197]: —
+          - generic [ref=f710e198]:
+            - heading "Emotional State" [level=3] [ref=f710e200]
+            - generic [ref=f710e201]:
+              - generic [ref=f710e202]:
+                - button "1 min" [ref=f710e203] [cursor=pointer]
+                - button "5 min" [ref=f710e204] [cursor=pointer]
+                - button "15 min" [ref=f710e205] [cursor=pointer]
+                - button "Session" [ref=f710e206] [cursor=pointer]
+              - generic [ref=f710e207]:
+                - img [ref=f710e208]
+                - generic [ref=f710e209]: Collecting affect data...
+              - generic [ref=f710e210]:
+                - generic [ref=f710e211]:
+                  - generic [ref=f710e212]: valence
+                  - generic [ref=f710e213]: "0.00"
+                - generic [ref=f710e214]:
+                  - generic [ref=f710e215]: arousal
+                  - generic [ref=f710e216]: "0.00"
+                - generic [ref=f710e217]:
+                  - generic [ref=f710e218]: trust
+                  - generic [ref=f710e219]: "0.00"
+                - generic [ref=f710e220]:
+                  - generic [ref=f710e221]: curiosity
+                  - generic [ref=f710e222]: "0.00"
+                - generic [ref=f710e223]:
+                  - generic [ref=f710e224]: hope
+                  - generic [ref=f710e225]: "0.00"
+                - generic [ref=f710e226]:
+                  - generic [ref=f710e227]: fear
+                  - generic [ref=f710e228]: "0.00"
+                - generic [ref=f710e229]:
+                  - generic [ref=f710e230]: frustration
+                  - generic [ref=f710e231]: "0.00"
+                - generic [ref=f710e232]:
+                  - generic [ref=f710e233]: attachment
+                  - generic [ref=f710e234]: "0.00"
+                - generic [ref=f710e235]:
+                  - generic [ref=f710e236]: confidence
+                  - generic [ref=f710e237]: "0.00"
+                - generic [ref=f710e238]:
+                  - generic [ref=f710e239]: uncertainty
+                  - generic [ref=f710e240]: "0.00"
+          - generic [ref=f710e241]:
+            - heading "Lifecycle" [level=3] [ref=f710e243]
+            - generic [ref=f710e245]:
+              - generic [ref=f710e246]: State
+              - generic [ref=f710e247]: Unknown
+              - generic [ref=f710e248]: Alertness
+              - generic [ref=f710e249]: 0%
+              - generic [ref=f710e250]: Sleep pressure
+              - generic [ref=f710e251]: 0%
+              - generic [ref=f710e252]: REM
+              - generic [ref=f710e253]: Inactive
+              - generic [ref=f710e254]: Eyes
+              - generic [ref=f710e255]: Offline
+  - region "Notifications alt+T"

@@ -1,5 +1,21 @@
 #!/usr/bin/env bash
 
+
+floki_node_24_or_newer() {
+  local floki_node_version="${1:-}"
+  local floki_node_major
+  if [ -z "$floki_node_version" ]; then
+    command -v node >/dev/null 2>&1 || return 1
+    floki_node_version="$(node -v 2>/dev/null)" || return 1
+  fi
+  floki_node_version="${floki_node_version#v}"
+  floki_node_major="${floki_node_version%%.*}"
+  case "$floki_node_major" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$floki_node_major" -ge 24 ]
+}
+
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME_DIR=""
 PID_FILE=""
@@ -16,7 +32,7 @@ load_node() {
   if [ -s "$HOME/.nvm/nvm.sh" ]; then
     export NVM_DIR="$HOME/.nvm"
     . "$HOME/.nvm/nvm.sh"
-    if ! command -v node >/dev/null 2>&1 || ! node -v 2>/dev/null | grep -Eq '^v24\.'; then
+    if ! command -v node >/dev/null 2>&1 || ! floki_node_24_or_newer; then
       nvm use 24 >/dev/null 2>&1
     fi
   fi
@@ -117,9 +133,66 @@ client.on('error', (error) => {
 NODE
 }
 
+runtime_api_ready() {
+  local check_host="$1"
+  local check_port="$2"
+  node - "$check_host" "$check_port" <<'NODE'
+const http = require('node:http');
+const host = process.argv[2];
+const port = Number(process.argv[3]);
+const request = http.get({
+  host,
+  port,
+  path: '/status',
+  timeout: 3000
+}, (response) => {
+  let body = '';
+  response.setEncoding('utf8');
+  response.on('data', (chunk) => { body += chunk; });
+  response.on('end', () => {
+    if (response.statusCode !== 200) process.exit(1);
+    try {
+      const status = JSON.parse(body);
+      process.exit(
+        status &&
+        status.api_ready === true &&
+        status.brain_loaded === true
+          ? 0
+          : 1
+      );
+    } catch (_error) {
+      process.exit(1);
+    }
+  });
+});
+request.on('timeout', () => {
+  request.destroy(new Error('runtime API timeout'));
+});
+request.on('error', () => process.exit(1));
+NODE
+}
+
+wait_for_runtime_api() {
+  local check_pid="$1"
+  local count=0
+  while [ "$count" -lt "$MAX_POLLS" ]; do
+    if runtime_api_ready "$RUNTIME_HOST" "$RUNTIME_PORT"; then
+      return 0
+    fi
+    if ! runtime_active "$check_pid"; then
+      return 1
+    fi
+    sleep "$POLL_SECONDS"
+    count=$((count + 1))
+  done
+  return 1
+}
+
 cd "$PROJECT_DIR" || fail "could not enter project directory"
 load_node
-case "$(node -v 2>/dev/null)" in v24.*) ;; *) fail "Node 24.x is required" ;; esac
+if ! floki_node_24_or_newer "$(node -v 2>/dev/null)"; then
+  fail "Node 24 or newer is required"
+fi
 resolve_runtime_paths
 mkdir -p "$RUNTIME_DIR"
 
@@ -177,20 +250,38 @@ EXISTING_PID=""
 [ -f "$PID_FILE" ] && EXISTING_PID="$(cat "$PID_FILE" 2>/dev/null)"
 
 if runtime_active "$EXISTING_PID"; then
-  if [ -f "$STATUS_FILE" ] && node -e "const fs=require('fs');const s=JSON.parse(fs.readFileSync(process.argv[1]));process.exit(s.pid===Number(process.argv[2])&&s.api_ready===true&&s.brain_loaded===true?0:1)" "$STATUS_FILE" "$EXISTING_PID" >/dev/null 2>&1; then
+  if wait_for_runtime_api "$EXISTING_PID"; then
+    echo "$EXISTING_PID" > "$PID_FILE"
     echo "$EXISTING_PID" > "$COMPAT_PID_FILE"
-    echo "{\"ok\":true,\"marker\":\"FLOKI_V2_CHAT_START_SCRIPT_PASS\",\"already_active\":true,\"pid\":$EXISTING_PID,\"pid_file\":\"$PID_FILE\",\"chat_mode_only\":true}"
+    echo "{\"ok\":true,\"marker\":\"FLOKI_V2_CHAT_START_SCRIPT_PASS\",\"already_active\":true,\"shared_runtime_preserved\":true,\"pid\":$EXISTING_PID,\"pid_file\":\"$PID_FILE\",\"chat_mode_only\":true}"
     exit 0
   fi
 
-  stop_runtime_pid "$EXISTING_PID"
+  if runtime_active "$EXISTING_PID"; then
+    fail "existing chat runtime PID $EXISTING_PID is alive but its API is not ready; preserving it because it may be the shared web/APK runtime"
+  fi
+
+  rm -f "$PID_FILE" "$COMPAT_PID_FILE" "$STATUS_FILE"
 fi
 
-for ORPHAN_PID in $(runtime_pids_for_project); do
-  if [ "$ORPHAN_PID" != "$$" ]; then
-    stop_runtime_pid "$ORPHAN_PID"
+mapfile -t PROJECT_RUNTIME_PIDS < <(runtime_pids_for_project)
+if [ "${#PROJECT_RUNTIME_PIDS[@]}" -gt 1 ]; then
+  fail "multiple chat-local-runtime processes exist for this project; preserving all of them and refusing to start a second backend"
+fi
+
+if [ "${#PROJECT_RUNTIME_PIDS[@]}" -eq 1 ]; then
+  DISCOVERED_PID="${PROJECT_RUNTIME_PIDS[0]}"
+  if wait_for_runtime_api "$DISCOVERED_PID"; then
+    echo "$DISCOVERED_PID" > "$PID_FILE"
+    echo "$DISCOVERED_PID" > "$COMPAT_PID_FILE"
+    echo "{\"ok\":true,\"marker\":\"FLOKI_V2_CHAT_START_SCRIPT_PASS\",\"already_active\":true,\"shared_runtime_preserved\":true,\"pid_recovered\":true,\"pid\":$DISCOVERED_PID,\"pid_file\":\"$PID_FILE\",\"chat_mode_only\":true}"
+    exit 0
   fi
-done
+
+  if runtime_active "$DISCOVERED_PID"; then
+    fail "discovered chat runtime PID $DISCOVERED_PID is alive but its API is not ready; preserving it because it may be the shared web/APK runtime"
+  fi
+fi
 
 if port_in_use "$RUNTIME_HOST" "$RUNTIME_PORT"; then
   fail "runtime port $RUNTIME_HOST:$RUNTIME_PORT is already in use by a process that is not the reusable backend"

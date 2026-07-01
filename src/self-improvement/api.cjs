@@ -8,6 +8,7 @@ const {
   readStatus
 } = require('./store.cjs');
 const {
+  abortActiveRun,
   approveCandidate,
   denyCandidate,
   pause,
@@ -47,23 +48,13 @@ function createSelfImprovementApi() {
     runNow(token, objective, kind) {
       return runNow(token, objective, kind, config);
     },
-    abort(token, reason, kind) {
-      assertApprovalToken(token, config);
-      const runKind = String(kind || 'code');
-      const abortReason = String(reason || ('maker_abort_' + runKind));
-      const requested = stopCurrentContainer(abortReason, config);
-      appendAudit('maker_abort_requested', {
-        run_kind: runKind,
-        reason: abortReason,
-        requested
-      }, config);
-      return Object.freeze({
-        ok: true,
-        verified: true,
-        abort_requested: requested === true,
-        run_kind: runKind,
-        reason: abortReason
-      });
+    async abort(token, reason, kind) {
+      return abortActiveRun(
+        token,
+        reason,
+        kind,
+        config
+      );
     },
     preempt(reason) {
       return stopCurrentContainer(reason, config);

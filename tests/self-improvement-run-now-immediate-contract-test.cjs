@@ -111,7 +111,8 @@ function modelEndpointReady(config) {
 }
 
 async function main() {
-  assert.match(process.version, /^v24\./);
+  const nodeMajor = Number(process.versions.node.split('.')[0]);
+assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or newer is required');
 
   const configured = loadSelfImprovementConfig();
   assert.equal(

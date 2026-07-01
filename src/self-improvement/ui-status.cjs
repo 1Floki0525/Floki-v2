@@ -155,6 +155,33 @@ function buildSelfImprovementUiStatus(options = {}) {
       : null
   }) : null;
 
+  const controlState = String(base.state || '');
+  const activeControlStates = new Set([
+    'queued',
+    'starting',
+    'researching',
+    'experimenting',
+    'verifying',
+    'training'
+  ]);
+  const activeRun = Boolean(
+    base.current_run_id ||
+    base.current_container ||
+    activeControlStates.has(controlState)
+  );
+  const activeKind =
+    base.current_run_kind ||
+    (
+      base.current_candidate_type === 'model_adapter' ||
+      base.training_resource_mode === 'active'
+        ? 'training'
+        : config.default_rsi_run_kind
+    );
+  const codeSandboxActive =
+    activeRun && activeKind === 'code';
+  const trainingRunActive =
+    activeRun && activeKind === 'training';
+
   return Object.freeze({
     ...base,
     active_run_kind: base.current_run_kind || config.default_rsi_run_kind,
@@ -235,12 +262,20 @@ function buildSelfImprovementUiStatus(options = {}) {
       terminal_summary_max_chars: config.rsi_terminal_summary_max_chars
     }),
     controls: Object.freeze({
-      can_run_code: base.worker_running === true && base.model_proxy_ready === true && base.paused !== true && !base.current_run_id,
-      can_run_training: config.manual_training_enabled === true &&
+      can_run_code:
+        base.worker_running === true &&
+        base.model_proxy_ready === true &&
+        base.paused !== true &&
+        !activeRun,
+      can_run_training:
+        config.manual_training_enabled === true &&
         base.worker_running === true &&
         base.paused !== true &&
-        !base.current_run_id,
-      can_abort: Boolean(base.current_run_id || base.current_container),
+        !trainingRunActive,
+      can_stop_code: codeSandboxActive,
+      can_abort_training: trainingRunActive,
+      can_abort: activeRun,
+      training_preempts_code_sandbox: true,
       can_pause: base.worker_running === true
     })
   });

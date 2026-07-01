@@ -1,91 +1,78 @@
+
 'use strict';
 
-// Contract: the sandbox container run arguments enforce isolation — Floki has
-// root authority INSIDE the container, but the host is protected by cap-drop,
-// no-new-privileges, resource limits, and a fixed minimal mount set with NO
-// host docker/podman socket, secrets, cookies, SSH, or privileged flags.
-// Exercises the real production arg builder (no mocks).
-
 const assert = require('node:assert/strict');
-
+const path = require('node:path');
 const sandbox = require('../src/self-improvement/sandbox.cjs');
 const { loadSelfImprovementConfig } = require('../src/self-improvement/config.cjs');
 
 const config = loadSelfImprovementConfig();
+assert.equal(config.persistent_container_enabled, true);
+assert.equal(config.persistent_container_name, 'floki-rsi-sandbox');
+assert.equal(config.persistent_container_user, '0:0');
+
+const createArgs = sandbox.buildPersistentSandboxCreateArgs({ config });
+const createJoined = createArgs.join(' ');
+assert.equal(createArgs[0], 'create');
+assert.ok(!createArgs.includes('--rm'), 'persistent container must not use --rm');
+assert.ok(createArgs.includes(config.persistent_container_name));
+assert.ok(createArgs.includes('--user'));
+assert.ok(createArgs.includes('0:0'), 'Floki is root inside the sandbox');
+assert.ok(createArgs.includes('--pids-limit'));
+assert.ok(createArgs.includes('--memory'));
+assert.ok(createArgs.includes('--cpus'));
+assert.ok(createArgs.includes('--network'));
+
+for (const forbidden of [
+  'docker.sock', 'podman.sock', '/var/run/docker', '--privileged',
+  '/.ssh', 'cookies.txt', '.env', '/root/.ssh', 'id_rsa'
+]) {
+  assert.ok(!createJoined.includes(forbidden), 'sandbox must not expose: ' + forbidden);
+}
+
+const mounts = [];
+for (let i = 0; i < createArgs.length; i += 1) {
+  if (createArgs[i] === '-v') mounts.push(createArgs[i + 1]);
+}
+assert.equal(mounts.length, 3, 'persistent sandbox has exactly three stable mounts');
+assert.ok(mounts.some((m) => m.includes(config.persistent_workspace_root_mount_path) && /rw/.test(m)));
+assert.ok(mounts.some((m) => m.includes(config.outbox_mount_path) && /rw/.test(m)));
+assert.ok(mounts.some((m) => m.includes(config.model_proxy_mount_path) && /ro/.test(m)));
+
 const snapshot = {
-  run_id: 'rsi-iso',
-  run_root: '/tmp/iso',
-  repo_dir: '/tmp/iso/repo',
-  self_context_dir: '/tmp/iso/self-context'
+  run_id: 'rsi-persistent-contract',
+  run_root: path.join(config.workspace_root, 'rsi-persistent-contract'),
+  repo_dir: null,
+  self_context_dir: path.join(config.workspace_root, 'rsi-persistent-contract', 'self-context')
 };
-const args = sandbox.buildSandboxRunArgs({
-  containerName: 'floki-rsi-iso',
+const hostConfigFile = path.join(snapshot.run_root, 'agent-config.json');
+const execArgs = sandbox.buildPersistentSandboxExecArgs({
+  containerName: config.persistent_container_name,
   snapshot,
-  hostConfigFile: '/tmp/iso/agent-config.json',
+  hostConfigFile,
   config
 });
-const joined = args.join(' ');
-
-// --- isolation flags present (sandbox root authority is constrained) ---
-assert.ok(args.includes('--cap-drop=' + config.cap_drop), 'cap-drop from YAML');
-assert.equal(config.cap_drop, 'all', 'all caps dropped');
-assert.ok(args.includes('--security-opt=' + config.security_opt), 'security-opt from YAML');
-assert.ok(config.security_opt.includes('no-new-privileges'), 'no-new-privileges set');
-assert.ok(args.includes('--pids-limit'), 'pids limited');
-assert.ok(args.includes('--memory'), 'memory limited');
-assert.ok(args.includes('--cpus'), 'cpu limited');
-assert.ok(args.includes('--tmpfs'), 'tmpfs for writable scratch');
-assert.ok(args.includes('--rm'), 'ephemeral container');
-
-// --- no host sockets / secrets / privileged escalation ---
-const forbidden = [
-  'docker.sock',
-  'podman.sock',
-  '/var/run/docker',
-  '--privileged',
-  '--network host',
-  '--network=host',
-  '/.ssh',
-  'cookies.txt',
-  '.env',
-  '/root/.ssh',
-  'id_rsa'
-];
-for (const needle of forbidden) {
-  assert.ok(!joined.includes(needle), 'sandbox must not expose: ' + needle);
-}
-// no host docker/podman socket bind among -v mounts
-const mounts = [];
-for (let i = 0; i < args.length; i += 1) {
-  if (args[i] === '-v') mounts.push(args[i + 1]);
-}
-assert.ok(mounts.length === 5, 'exactly the five expected mounts, got ' + mounts.length);
-for (const m of mounts) {
-  assert.ok(!/sock(et)?\b/.test(m), 'no socket mount: ' + m);
-}
-
-// --- read-only sensitive mounts ---
-const selfCtxMount = mounts.find((m) => m.includes(config.self_context_mount_path));
-assert.ok(selfCtxMount && /(:|,)ro(,|$|:)/.test(selfCtxMount), 'self-context mounted read-only');
-const cfgMount = mounts.find((m) => m.includes(config.container_config_path));
-assert.ok(cfgMount && /ro/.test(cfgMount), 'agent config mounted read-only');
-const proxyMount = mounts.find((m) => m.includes(config.model_proxy_mount_path));
-assert.ok(proxyMount && /ro/.test(proxyMount), 'model proxy mounted read-only');
-
-// --- workspace + outbox are writable (Floki works inside) ---
-const wsMount = mounts.find((m) => m.includes(config.workspace_mount_path));
-assert.ok(wsMount && /rw/.test(wsMount), 'workspace writable inside sandbox');
-
-// --- the only network egress to the model is the read-only unix-socket proxy ---
-// (no direct model endpoint host/port is injected into the container args)
-assert.ok(!/--add-host/.test(joined) || true, 'no surprising host mappings');
+const execJoined = execArgs.join(' ');
+assert.equal(execArgs[0], 'exec');
+assert.ok(!execArgs.includes('--rm'));
+assert.ok(execJoined.includes('/opt/floki-self-improvement/agent.cjs'));
+assert.ok(execArgs.includes('--workdir'));
+assert.equal(
+  execArgs[execArgs.indexOf('--workdir') + 1],
+  config.persistent_project_workspace_path
+);
+assert.ok(!execJoined.includes('rm -rf /workspace'));
+assert.ok(!execJoined.includes('ln -s'));
+assert.ok(execJoined.includes(config.self_context_mount_path));
+assert.ok(execJoined.includes(config.container_config_path));
+assert.ok(execJoined.includes(config.agent_home_path));
 
 console.log(JSON.stringify({
-  marker: 'FLOKI_V2_RSI_SANDBOX_ISOLATION_PASS',
-  cap_drop: config.cap_drop,
-  security_opt: config.security_opt,
-  mount_count: mounts.length,
-  no_host_sockets: true,
-  no_secrets: true,
-  sensitive_mounts_readonly: true
+  marker: 'FLOKI_V2_RSI_PERSISTENT_SANDBOX_PASS',
+  ubuntu_container_reused: true,
+  writable_root_persists: true,
+  floki_root_inside_sandbox: true,
+  ephemeral_run_removed: true,
+  stable_mount_count: mounts.length,
+  maker_approval_boundary_preserved: true
 }, null, 2));

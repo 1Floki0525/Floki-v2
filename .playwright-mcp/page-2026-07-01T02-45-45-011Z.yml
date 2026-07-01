@@ -1,0 +1,829 @@
+- generic [ref=f15e2]:
+  - navigation "Main menu":
+    - link "Skip to main content" [ref=f15e3] [cursor=pointer]:
+      - /url: "#wpbody-content"
+    - link "Skip to toolbar" [ref=f15e4] [cursor=pointer]:
+      - /url: "#wp-toolbar"
+    - list [ref=f15e7]:
+      - listitem [ref=f15e8]:
+        - link "Dashboard" [ref=f15e9] [cursor=pointer]:
+          - /url: index.php
+          - generic [ref=f15e10]: 
+          - generic [ref=f15e11]: Dashboard
+        - list [ref=f15e12]:
+          - listitem [ref=f15e13]: Dashboard
+          - listitem [ref=f15e14]:
+            - link "Home" [ref=f15e15] [cursor=pointer]:
+              - /url: index.php
+          - listitem [ref=f15e16]:
+            - link "Updates 10" [ref=f15e17] [cursor=pointer]:
+              - /url: update-core.php
+              - text: Updates
+              - generic [ref=f15e18]: "10"
+      - listitem [ref=f15e19]
+      - listitem [ref=f15e21]:
+        - link "Posts" [ref=f15e22] [cursor=pointer]:
+          - /url: edit.php
+          - generic [ref=f15e23]: 
+          - generic [ref=f15e24]: Posts
+        - list [ref=f15e25]:
+          - listitem [ref=f15e26]: Posts
+          - listitem [ref=f15e27]:
+            - link "All Posts" [ref=f15e28] [cursor=pointer]:
+              - /url: edit.php
+          - listitem [ref=f15e29]:
+            - link "Add Post" [ref=f15e30] [cursor=pointer]:
+              - /url: post-new.php
+          - listitem [ref=f15e31]:
+            - link "Categories" [ref=f15e32] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=category
+          - listitem [ref=f15e33]:
+            - link "Tags" [ref=f15e34] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=post_tag
+      - listitem [ref=f15e35]:
+        - link "Media" [ref=f15e36] [cursor=pointer]:
+          - /url: upload.php
+          - generic [ref=f15e37]: 
+          - generic [ref=f15e38]: Media
+        - list [ref=f15e39]:
+          - listitem [ref=f15e40]: Media
+          - listitem [ref=f15e41]:
+            - link "Library" [ref=f15e42] [cursor=pointer]:
+              - /url: upload.php
+          - listitem [ref=f15e43]:
+            - link "Add Media File" [ref=f15e44] [cursor=pointer]:
+              - /url: media-new.php
+      - listitem [ref=f15e45]:
+        - link "Pages" [ref=f15e46] [cursor=pointer]:
+          - /url: edit.php?post_type=page
+          - generic [ref=f15e47]: 
+          - generic [ref=f15e48]: Pages
+        - list [ref=f15e49]:
+          - listitem [ref=f15e50]: Pages
+          - listitem [ref=f15e51]:
+            - link "All Pages" [ref=f15e52] [cursor=pointer]:
+              - /url: edit.php?post_type=page
+          - listitem [ref=f15e53]:
+            - link "Add Page" [ref=f15e54] [cursor=pointer]:
+              - /url: post-new.php?post_type=page
+      - listitem [ref=f15e55]:
+        - link "Comments 1,000 Comments in moderation" [ref=f15e56] [cursor=pointer]:
+          - /url: edit-comments.php
+          - generic [ref=f15e57]: 
+          - generic [ref=f15e58]:
+            - text: Comments
+            - generic [ref=f15e59]:
+              - text: 1,000
+              - generic [ref=f15e60]: 1,000 Comments in moderation
+      - listitem [ref=f15e61]
+      - listitem [ref=f15e63]:
+        - link "Appearance" [ref=f15e64] [cursor=pointer]:
+          - /url: themes.php
+          - generic [ref=f15e65]: 
+          - generic [ref=f15e66]: Appearance
+        - list [ref=f15e67]:
+          - listitem [ref=f15e68]: Appearance
+          - listitem [ref=f15e69]:
+            - link "Themes 5" [ref=f15e70] [cursor=pointer]:
+              - /url: themes.php
+              - text: Themes
+              - generic [ref=f15e71]: "5"
+          - listitem [ref=f15e72]:
+            - link "Patterns" [ref=f15e73] [cursor=pointer]:
+              - /url: site-editor.php?p=/pattern
+          - listitem [ref=f15e74]:
+            - link "Customize" [ref=f15e75] [cursor=pointer]:
+              - /url: customize.php?return=%2Fwp-admin%2Fplugin-install.php
+          - listitem [ref=f15e76]:
+            - link "Fonts" [ref=f15e77] [cursor=pointer]:
+              - /url: font-library.php
+          - listitem [ref=f15e78]:
+            - link "Theme File Editor" [ref=f15e79] [cursor=pointer]:
+              - /url: theme-editor.php
+      - listitem [ref=f15e80]:
+        - link "Floki Access" [ref=f15e81] [cursor=pointer]:
+          - /url: admin.php?page=floki-access
+          - generic [ref=f15e82]: 
+          - generic [ref=f15e83]: Floki Access
+        - list [ref=f15e84]:
+          - listitem [ref=f15e85]: Floki Access
+          - listitem [ref=f15e86]:
+            - link "Floki Access" [ref=f15e87] [cursor=pointer]:
+              - /url: admin.php?page=floki-access
+          - listitem [ref=f15e88]:
+            - link "Applications" [ref=f15e89] [cursor=pointer]:
+              - /url: admin.php?page=floki-access-applications
+      - listitem [ref=f15e90]:
+        - link "Plugins 5" [ref=f15e91] [cursor=pointer]:
+          - /url: plugins.php
+          - generic [ref=f15e92]: 
+          - generic [ref=f15e93]:
+            - text: Plugins
+            - generic [ref=f15e94]: "5"
+        - list [ref=f15e95]:
+          - listitem [ref=f15e96]:
+            - text: Plugins
+            - generic [ref=f15e97]: "5"
+          - listitem [ref=f15e98]:
+            - link "Installed Plugins" [ref=f15e99] [cursor=pointer]:
+              - /url: plugins.php
+          - listitem [ref=f15e100]:
+            - link "Add Plugin" [ref=f15e101] [cursor=pointer]:
+              - /url: plugin-install.php
+          - listitem [ref=f15e102]:
+            - link "Plugin File Editor" [ref=f15e103] [cursor=pointer]:
+              - /url: plugin-editor.php
+      - listitem [ref=f15e104]:
+        - link "Users" [ref=f15e105] [cursor=pointer]:
+          - /url: users.php
+          - generic [ref=f15e106]: 
+          - generic [ref=f15e107]: Users
+        - list [ref=f15e108]:
+          - listitem [ref=f15e109]: Users
+          - listitem [ref=f15e110]:
+            - link "All Users" [ref=f15e111] [cursor=pointer]:
+              - /url: users.php
+          - listitem [ref=f15e112]:
+            - link "Add User" [ref=f15e113] [cursor=pointer]:
+              - /url: user-new.php
+          - listitem [ref=f15e114]:
+            - link "Profile" [ref=f15e115] [cursor=pointer]:
+              - /url: profile.php
+      - listitem [ref=f15e116]:
+        - link "Tools" [ref=f15e117] [cursor=pointer]:
+          - /url: tools.php
+          - generic [ref=f15e118]: 
+          - generic [ref=f15e119]: Tools
+        - list [ref=f15e120]:
+          - listitem [ref=f15e121]: Tools
+          - listitem [ref=f15e122]:
+            - link "Available Tools" [ref=f15e123] [cursor=pointer]:
+              - /url: tools.php
+          - listitem [ref=f15e124]:
+            - link "Import" [ref=f15e125] [cursor=pointer]:
+              - /url: import.php
+          - listitem [ref=f15e126]:
+            - link "Export" [ref=f15e127] [cursor=pointer]:
+              - /url: export.php
+          - listitem [ref=f15e128]:
+            - link "Site Health" [ref=f15e129] [cursor=pointer]:
+              - /url: site-health.php
+          - listitem [ref=f15e130]:
+            - link "Export Personal Data" [ref=f15e131] [cursor=pointer]:
+              - /url: export-personal-data.php
+          - listitem [ref=f15e132]:
+            - link "Erase Personal Data" [ref=f15e133] [cursor=pointer]:
+              - /url: erase-personal-data.php
+          - listitem [ref=f15e134]:
+            - link "WP Reset" [ref=f15e135] [cursor=pointer]:
+              - /url: tools.php?page=wp-reset
+      - listitem [ref=f15e136]:
+        - link "Settings" [ref=f15e137] [cursor=pointer]:
+          - /url: options-general.php
+          - generic [ref=f15e138]: 
+          - generic [ref=f15e139]: Settings
+        - list [ref=f15e140]:
+          - listitem [ref=f15e141]: Settings
+          - listitem [ref=f15e142]:
+            - link "General" [ref=f15e143] [cursor=pointer]:
+              - /url: options-general.php
+          - listitem [ref=f15e144]:
+            - link "Connectors" [ref=f15e145] [cursor=pointer]:
+              - /url: options-connectors.php
+          - listitem [ref=f15e146]:
+            - link "Writing" [ref=f15e147] [cursor=pointer]:
+              - /url: options-writing.php
+          - listitem [ref=f15e148]:
+            - link "Reading" [ref=f15e149] [cursor=pointer]:
+              - /url: options-reading.php
+          - listitem [ref=f15e150]:
+            - link "Discussion" [ref=f15e151] [cursor=pointer]:
+              - /url: options-discussion.php
+          - listitem [ref=f15e152]:
+            - link "Media" [ref=f15e153] [cursor=pointer]:
+              - /url: options-media.php
+          - listitem [ref=f15e154]:
+            - link "Permalinks" [ref=f15e155] [cursor=pointer]:
+              - /url: options-permalink.php
+          - listitem [ref=f15e156]:
+            - link "Privacy" [ref=f15e157] [cursor=pointer]:
+              - /url: options-privacy.php
+      - listitem [ref=f15e158]:
+        - button "Expand Main menu" [ref=f15e159] [cursor=pointer]
+  - generic [ref=f15e161]:
+    - generic [ref=f15e162]:
+      - navigation "Toolbar":
+        - menu:
+          - group [ref=f15e163]:
+            - menuitem "About WordPress" [ref=f15e164] [cursor=pointer]:
+              - generic [ref=f15e166]: About WordPress
+          - group [ref=f15e167]:
+            - menuitem "GalacticFamilyHub" [ref=f15e168] [cursor=pointer]
+          - group [ref=f15e169]:
+            - menuitem "10 updates available" [ref=f15e170] [cursor=pointer]:
+              - generic [ref=f15e172]: "10"
+              - generic [ref=f15e173]: 10 updates available
+          - group [ref=f15e174]:
+            - menuitem "Ctrl+K Open command palette" [ref=f15e175] [cursor=pointer]:
+              - generic [ref=f15e177]:
+                - text: Ctrl+K
+                - generic [ref=f15e178]: Open command palette
+          - group [ref=f15e179]:
+            - menuitem "1,000 Comments in moderation" [ref=f15e180] [cursor=pointer]:
+              - generic [ref=f15e182]: 1,000
+              - generic [ref=f15e183]: 1,000 Comments in moderation
+          - group [ref=f15e184]:
+            - menuitem "New" [ref=f15e185] [cursor=pointer]:
+              - generic [ref=f15e187]: New
+        - menu [ref=f15e188]:
+          - group [ref=f15e189]:
+            - menuitem "Howdy, Galact_Admin" [ref=f15e190] [cursor=pointer]
+    - main [ref=f15e191]:
+      - generic [ref=f15e192]:
+        - button "Help" [ref=f15e195] [cursor=pointer]
+        - generic [ref=f15e196]:
+          - heading "Add Plugins" [level=1] [ref=f15e197]
+          - button "Upload Plugin" [ref=f15e198] [cursor=pointer]
+          - heading "Filter plugins list" [level=2] [ref=f15e199]
+          - paragraph [ref=f15e200]:
+            - text: Plugins extend and expand the functionality of WordPress. You may install plugins from the
+            - link "WordPress Plugin Directory" [ref=f15e201] [cursor=pointer]:
+              - /url: https://wordpress.org/plugins/
+            - text: right on this page, or upload a plugin in .zip format by clicking the button above.
+          - generic [ref=f15e202]:
+            - list [ref=f15e203]:
+              - listitem [ref=f15e204]:
+                - link "Featured" [ref=f15e205] [cursor=pointer]:
+                  - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=featured
+              - listitem [ref=f15e206]:
+                - link "Popular" [ref=f15e207] [cursor=pointer]:
+                  - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=popular
+              - listitem [ref=f15e208]:
+                - link "Recommended" [ref=f15e209] [cursor=pointer]:
+                  - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=recommended
+              - listitem [ref=f15e210]:
+                - link "Favorites" [ref=f15e211] [cursor=pointer]:
+                  - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=favorites
+            - generic [ref=f15e212]:
+              - generic [ref=f15e213]: Search Plugins
+              - searchbox "Search Plugins" [ref=f15e214]
+              - generic [ref=f15e215]: "Search plugins by:"
+              - combobox "Search plugins by:" [ref=f15e216] [cursor=pointer]:
+                - option "Keyword" [selected]
+                - option "Author"
+                - option "Tag"
+          - generic [ref=f15e218]:
+            - heading "Plugins list" [level=2] [ref=f15e219]
+            - generic [ref=f15e220]:
+              - generic [ref=f15e221]:
+                - generic [ref=f15e222]:
+                  - heading "KineticHub – Animated Gutenberg Blocks" [level=3] [ref=f15e224]:
+                    - link "KineticHub – Animated Gutenberg Blocks" [ref=f15e225] [cursor=pointer]:
+                      - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=kinetichub&TB_iframe=true&width=600&height=550
+                  - list [ref=f15e227]:
+                    - listitem [ref=f15e228]:
+                      - button "Install KineticHub – Animated Gutenberg Blocks 1.0.8 now" [ref=f15e229] [cursor=pointer]: Install Now
+                    - listitem [ref=f15e230]:
+                      - link "More information about KineticHub – Animated Gutenberg Blocks 1.0.8" [ref=f15e231] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=kinetichub&TB_iframe=true&width=600&height=550
+                        - text: More Details
+                  - generic [ref=f15e232]:
+                    - paragraph [ref=f15e233]: Animated Gutenberg blocks for motion, media, typography, buttons, marquees, dividers, and interactive page sections.
+                    - paragraph [ref=f15e234]:
+                      - generic [ref=f15e235]:
+                        - text: By
+                        - link "kinetichub" [ref=f15e236] [cursor=pointer]:
+                          - /url: https://profiles.wordpress.org/kinetichub/
+                - generic [ref=f15e237]:
+                  - generic [ref=f15e238]:
+                    - generic [ref=f15e240]: 5.0 rating based on 1 rating
+                    - text: (1)
+                  - generic [ref=f15e246]:
+                    - strong [ref=f15e247]: "Last Updated:"
+                    - text: 4 days ago
+                  - generic [ref=f15e248]: 400+ Active Installations
+                  - generic [ref=f15e250]:
+                    - strong [ref=f15e251]: Compatible
+                    - text: with your version of WordPress
+              - generic [ref=f15e252]:
+                - generic [ref=f15e253]:
+                  - heading "Reviso – Client Feedback & Approvals" [level=3] [ref=f15e255]:
+                    - link "Reviso – Client Feedback & Approvals" [ref=f15e256] [cursor=pointer]:
+                      - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=reviso-for-bricks&TB_iframe=true&width=600&height=550
+                  - list [ref=f15e258]:
+                    - listitem [ref=f15e259]:
+                      - button "Install Reviso – Client Feedback & Approvals 1.2.2 now" [ref=f15e260] [cursor=pointer]: Install Now
+                    - listitem [ref=f15e261]:
+                      - link "More information about Reviso – Client Feedback & Approvals 1.2.2" [ref=f15e262] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=reviso-for-bricks&TB_iframe=true&width=600&height=550
+                        - text: More Details
+                  - generic [ref=f15e263]:
+                    - paragraph [ref=f15e264]: "Client & website feedback for WordPress: pin comments, collect approvals & sign-off, share no-login review links. Bricks, Elementor & Gutenberg."
+                    - paragraph [ref=f15e265]:
+                      - generic [ref=f15e266]:
+                        - text: By
+                        - link "Ben Elwood" [ref=f15e267] [cursor=pointer]:
+                          - /url: https://profiles.wordpress.org/benelwoods/
+                - generic [ref=f15e268]:
+                  - generic [ref=f15e269]:
+                    - generic [ref=f15e271]: 5.0 rating based on 2 ratings
+                    - text: (2)
+                  - generic [ref=f15e277]:
+                    - strong [ref=f15e278]: "Last Updated:"
+                    - text: 2 days ago
+                  - generic [ref=f15e279]: 200+ Active Installations
+                  - generic [ref=f15e281]:
+                    - strong [ref=f15e282]: Compatible
+                    - text: with your version of WordPress
+              - generic [ref=f15e283]:
+                - generic [ref=f15e284]:
+                  - heading "BlockFlow – FSE Blocks, Site Builder & Starter Templates" [level=3] [ref=f15e286]:
+                    - link "BlockFlow – FSE Blocks, Site Builder & Starter Templates" [ref=f15e287] [cursor=pointer]:
+                      - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=blockflow&TB_iframe=true&width=600&height=550
+                  - list [ref=f15e289]:
+                    - listitem [ref=f15e290]:
+                      - button "Install BlockFlow – FSE Blocks, Site Builder & Starter Templates 1.1.0 now" [ref=f15e291] [cursor=pointer]: Install Now
+                    - listitem [ref=f15e292]:
+                      - link "More information about BlockFlow – FSE Blocks, Site Builder & Starter Templates 1.1.0" [ref=f15e293] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=blockflow&TB_iframe=true&width=600&height=550
+                        - text: More Details
+                  - generic [ref=f15e294]:
+                    - paragraph [ref=f15e295]: 25+ responsive Gutenberg blocks with dark mode. Customize desktop, tablet & mobile separately. Fast, lightweight, no bloat and friendly to use.
+                    - paragraph [ref=f15e296]:
+                      - generic [ref=f15e297]:
+                        - text: By
+                        - link "ThemeRuby" [ref=f15e298] [cursor=pointer]:
+                          - /url: https://profiles.wordpress.org/themeruby/
+                - generic [ref=f15e299]:
+                  - generic [ref=f15e300]:
+                    - generic [ref=f15e302]: 0.0 rating
+                    - text: (0)
+                  - generic [ref=f15e308]:
+                    - strong [ref=f15e309]: "Last Updated:"
+                    - text: 3 weeks ago
+                  - generic [ref=f15e310]: 200+ Active Installations
+                  - generic [ref=f15e312]:
+                    - strong [ref=f15e313]: Compatible
+                    - text: with your version of WordPress
+              - generic [ref=f15e314]:
+                - generic [ref=f15e315]:
+                  - heading "rtCarousel – Flexible Carousel & Slider Block for Images, Videos, Testimonials & More" [level=3] [ref=f15e317]:
+                    - link "rtCarousel – Flexible Carousel & Slider Block for Images, Videos, Testimonials & More" [ref=f15e318] [cursor=pointer]:
+                      - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=rt-carousel&TB_iframe=true&width=600&height=550
+                  - list [ref=f15e320]:
+                    - listitem [ref=f15e321]:
+                      - button "Install rtCarousel – Flexible Carousel & Slider Block for Images, Videos, Testimonials & More 2.0.3 now" [ref=f15e322] [cursor=pointer]: Install Now
+                    - listitem [ref=f15e323]:
+                      - link "More information about rtCarousel – Flexible Carousel & Slider Block for Images, Videos, Testimonials & More 2.0.3" [ref=f15e324] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=rt-carousel&TB_iframe=true&width=600&height=550
+                        - text: More Details
+                  - generic [ref=f15e325]:
+                    - paragraph [ref=f15e326]: A modular, high-performance carousel block for WordPress, powered by the Interactivity API and Embla Carousel.
+                    - paragraph [ref=f15e327]:
+                      - generic [ref=f15e328]:
+                        - text: By
+                        - link "rtCamp" [ref=f15e329] [cursor=pointer]:
+                          - /url: https://profiles.wordpress.org/rtcamp/
+                - generic [ref=f15e330]:
+                  - generic [ref=f15e331]:
+                    - generic [ref=f15e333]: 0.0 rating
+                    - text: (0)
+                  - generic [ref=f15e339]:
+                    - strong [ref=f15e340]: "Last Updated:"
+                    - text: 5 days ago
+                  - generic [ref=f15e341]: 100+ Active Installations
+                  - generic [ref=f15e343]:
+                    - strong [ref=f15e344]: Compatible
+                    - text: with your version of WordPress
+              - generic [ref=f15e345]:
+                - generic [ref=f15e346]:
+                  - heading "Sobi Forms" [level=3] [ref=f15e348]:
+                    - link "Sobi Forms" [ref=f15e349] [cursor=pointer]:
+                      - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=sobi-forms&TB_iframe=true&width=600&height=550
+                  - list [ref=f15e351]:
+                    - listitem [ref=f15e352]:
+                      - button "Install Sobi Forms 1.5.1 now" [ref=f15e353] [cursor=pointer]: Install Now
+                    - listitem [ref=f15e354]:
+                      - link "More information about Sobi Forms 1.5.1" [ref=f15e355] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=sobi-forms&TB_iframe=true&width=600&height=550
+                        - text: More Details
+                  - generic [ref=f15e356]:
+                    - paragraph [ref=f15e357]: Lightweight form builder with inbox, shortcode, Gutenberg block, and vanilla AJAX.
+                    - paragraph [ref=f15e358]:
+                      - generic [ref=f15e359]:
+                        - text: By
+                        - link "alesas" [ref=f15e360] [cursor=pointer]:
+                          - /url: https://profiles.wordpress.org/alesas/
+                - generic [ref=f15e361]:
+                  - generic [ref=f15e362]:
+                    - generic [ref=f15e364]: 5.0 rating based on 2 ratings
+                    - text: (2)
+                  - generic [ref=f15e370]:
+                    - strong [ref=f15e371]: "Last Updated:"
+                    - text: 2 weeks ago
+                  - generic [ref=f15e372]: 90+ Active Installations
+                  - generic [ref=f15e374]:
+                    - strong [ref=f15e375]: Compatible
+                    - text: with your version of WordPress
+              - generic [ref=f15e376]:
+                - generic [ref=f15e377]:
+                  - heading "Asteris Blocks" [level=3] [ref=f15e379]:
+                    - link "Asteris Blocks" [ref=f15e380] [cursor=pointer]:
+                      - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=asteris-blocks&TB_iframe=true&width=600&height=550
+                  - list [ref=f15e382]:
+                    - listitem [ref=f15e383]:
+                      - button "Install Asteris Blocks 0.3.15 now" [ref=f15e384] [cursor=pointer]: Install Now
+                    - listitem [ref=f15e385]:
+                      - link "More information about Asteris Blocks 0.3.15" [ref=f15e386] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=asteris-blocks&TB_iframe=true&width=600&height=550
+                        - text: More Details
+                  - generic [ref=f15e387]:
+                    - paragraph [ref=f15e388]: 50 free Gutenberg blocks — alphabetised inserter, FAQ + Recipe schema, Newsletter integrations, 12 patterns. Full-featured and free forever.
+                    - paragraph [ref=f15e389]:
+                      - generic [ref=f15e390]:
+                        - text: By
+                        - link "Asteris Commerce" [ref=f15e391] [cursor=pointer]:
+                          - /url: https://profiles.wordpress.org/asteriscommerce/
+                - generic [ref=f15e392]:
+                  - generic [ref=f15e393]:
+                    - generic [ref=f15e395]: 0.0 rating
+                    - text: (0)
+                  - generic [ref=f15e401]:
+                    - strong [ref=f15e402]: "Last Updated:"
+                    - text: 2 weeks ago
+                  - generic [ref=f15e403]: 100+ Active Installations
+                  - generic [ref=f15e405]:
+                    - strong [ref=f15e406]: Compatible
+                    - text: with your version of WordPress
+              - generic [ref=f15e407]:
+                - generic [ref=f15e408]:
+                  - heading "Admin Optimizer – Performance, Security & Site Cleanup" [level=3] [ref=f15e410]:
+                    - link "Admin Optimizer – Performance, Security & Site Cleanup" [ref=f15e411] [cursor=pointer]:
+                      - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=admin-optimizer&TB_iframe=true&width=600&height=550
+                  - list [ref=f15e413]:
+                    - listitem [ref=f15e414]:
+                      - button "Install Admin Optimizer – Performance, Security & Site Cleanup 2.3.1 now" [ref=f15e415] [cursor=pointer]: Install Now
+                    - listitem [ref=f15e416]:
+                      - link "More information about Admin Optimizer – Performance, Security & Site Cleanup 2.3.1" [ref=f15e417] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=admin-optimizer&TB_iframe=true&width=600&height=550
+                        - text: More Details
+                  - generic [ref=f15e418]:
+                    - paragraph [ref=f15e419]: Database cleaner, redirect manager, custom code snippets, SMTP email, 2FA, XML sitemap, duplicate post, custom post types, and more — all in one WordP …
+                    - paragraph [ref=f15e420]:
+                      - generic [ref=f15e421]:
+                        - text: By
+                        - link "yipresser" [ref=f15e422] [cursor=pointer]:
+                          - /url: https://profiles.wordpress.org/yipresser/
+                - generic [ref=f15e423]:
+                  - generic [ref=f15e424]:
+                    - generic [ref=f15e426]: 5.0 rating based on 1 rating
+                    - text: (1)
+                  - generic [ref=f15e432]:
+                    - strong [ref=f15e433]: "Last Updated:"
+                    - text: 6 days ago
+                  - generic [ref=f15e434]: 200+ Active Installations
+                  - generic [ref=f15e436]:
+                    - strong [ref=f15e437]: Compatible
+                    - text: with your version of WordPress
+              - generic [ref=f15e438]:
+                - generic [ref=f15e439]:
+                  - heading "Senzastile Featured Image Fallbacks" [level=3] [ref=f15e441]:
+                    - link "Senzastile Featured Image Fallbacks" [ref=f15e442] [cursor=pointer]:
+                      - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=senzastile-featured-image-fallbacks&TB_iframe=true&width=600&height=550
+                  - list [ref=f15e444]:
+                    - listitem [ref=f15e445]:
+                      - button "Install Senzastile Featured Image Fallbacks 1.1.1 now" [ref=f15e446] [cursor=pointer]: Install Now
+                    - listitem [ref=f15e447]:
+                      - link "More information about Senzastile Featured Image Fallbacks 1.1.1" [ref=f15e448] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=senzastile-featured-image-fallbacks&TB_iframe=true&width=600&height=550
+                        - text: More Details
+                  - generic [ref=f15e449]:
+                    - paragraph [ref=f15e450]: Never show a blank thumbnail again. Automatically display a default featured image, fallback image, or placeholder image for any post, page, or custom …
+                    - paragraph [ref=f15e451]:
+                      - generic [ref=f15e452]:
+                        - text: By
+                        - link "senzastile" [ref=f15e453] [cursor=pointer]:
+                          - /url: https://profiles.wordpress.org/senzastile/
+                - generic [ref=f15e454]:
+                  - generic [ref=f15e455]:
+                    - generic [ref=f15e457]: 0.0 rating
+                    - text: (0)
+                  - generic [ref=f15e463]:
+                    - strong [ref=f15e464]: "Last Updated:"
+                    - text: 15 hours ago
+                  - generic [ref=f15e465]: 20+ Active Installations
+                  - generic [ref=f15e467]:
+                    - strong [ref=f15e468]: Compatible
+                    - text: with your version of WordPress
+          - generic [ref=f15e469]:
+            - heading "Popular tags" [level=2] [ref=f15e470]
+            - paragraph [ref=f15e471]: "You may also browse based on the most popular tags in the Plugin Directory:"
+            - paragraph [ref=f15e472]:
+              - link "accessibility (490 plugins)" [ref=f15e473] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=accessibility
+                - text: accessibility
+              - link "admin (2,906 plugins)" [ref=f15e474] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=admin
+                - text: admin
+              - link "ads (617 plugins)" [ref=f15e475] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=ads
+                - text: ads
+              - link "affiliate (702 plugins)" [ref=f15e476] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=affiliate
+                - text: affiliate
+              - link "AI (1,685 plugins)" [ref=f15e477] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=AI
+                - text: AI
+              - link "ajax (727 plugins)" [ref=f15e478] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=ajax
+                - text: ajax
+              - link "analytics (1,329 plugins)" [ref=f15e479] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=analytics
+                - text: analytics
+              - link "api (766 plugins)" [ref=f15e480] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=api
+                - text: api
+              - link "automation (629 plugins)" [ref=f15e481] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=automation
+                - text: automation
+              - link "block (1,167 plugins)" [ref=f15e482] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=block
+                - text: block
+              - link "blocks (682 plugins)" [ref=f15e483] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=blocks
+                - text: blocks
+              - link "booking (552 plugins)" [ref=f15e484] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=booking
+                - text: booking
+              - link "buddypress (783 plugins)" [ref=f15e485] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=buddypress
+                - text: buddypress
+              - link "button (574 plugins)" [ref=f15e486] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=button
+                - text: button
+              - link "cache (518 plugins)" [ref=f15e487] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=cache
+                - text: cache
+              - link "calendar (682 plugins)" [ref=f15e488] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=calendar
+                - text: calendar
+              - link "categories (589 plugins)" [ref=f15e489] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=categories
+                - text: categories
+              - link "category (711 plugins)" [ref=f15e490] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=category
+                - text: category
+              - link "chat (833 plugins)" [ref=f15e491] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=chat
+                - text: chat
+              - link "chatbot (733 plugins)" [ref=f15e492] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=chatbot
+                - text: chatbot
+              - link "checkout (728 plugins)" [ref=f15e493] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=checkout
+                - text: checkout
+              - link "comment (572 plugins)" [ref=f15e494] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=comment
+                - text: comment
+              - link "comments (2,008 plugins)" [ref=f15e495] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=comments
+                - text: comments
+              - link "contact (643 plugins)" [ref=f15e496] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=contact
+                - text: contact
+              - link "contact form (921 plugins)" [ref=f15e497] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=contact+form
+                - text: contact form
+              - link "contact form 7 (773 plugins)" [ref=f15e498] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=contact+form+7
+                - text: contact form 7
+              - link "content (1,137 plugins)" [ref=f15e499] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=content
+                - text: content
+              - link "css (652 plugins)" [ref=f15e500] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=css
+                - text: css
+              - link "custom (575 plugins)" [ref=f15e501] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=custom
+                - text: custom
+              - link "dashboard (747 plugins)" [ref=f15e502] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=dashboard
+                - text: dashboard
+              - link "e-commerce (1,046 plugins)" [ref=f15e503] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=e-commerce
+                - text: e-commerce
+              - link "ecommerce (1,857 plugins)" [ref=f15e504] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=ecommerce
+                - text: ecommerce
+              - link "editor (866 plugins)" [ref=f15e505] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=editor
+                - text: editor
+              - link "elementor (1,292 plugins)" [ref=f15e506] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=elementor
+                - text: elementor
+              - link "email (1,622 plugins)" [ref=f15e507] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=email
+                - text: email
+              - link "embed (837 plugins)" [ref=f15e508] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=embed
+                - text: embed
+              - link "events (671 plugins)" [ref=f15e509] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=events
+                - text: events
+              - link "facebook (1,523 plugins)" [ref=f15e510] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=facebook
+                - text: facebook
+              - link "feed (748 plugins)" [ref=f15e511] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=feed
+                - text: feed
+              - link "form (938 plugins)" [ref=f15e512] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=form
+                - text: form
+              - link "forms (725 plugins)" [ref=f15e513] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=forms
+                - text: forms
+              - link "gallery (1,439 plugins)" [ref=f15e514] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=gallery
+                - text: gallery
+              - link "gateway (526 plugins)" [ref=f15e515] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=gateway
+                - text: gateway
+              - link "GDPR (538 plugins)" [ref=f15e516] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=GDPR
+                - text: GDPR
+              - link "google (1,570 plugins)" [ref=f15e517] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=google
+                - text: google
+              - link "gutenberg (1,338 plugins)" [ref=f15e518] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=gutenberg
+                - text: gutenberg
+              - link "image (1,637 plugins)" [ref=f15e519] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=image
+                - text: image
+              - link "images (1,745 plugins)" [ref=f15e520] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=images
+                - text: images
+              - link "import (548 plugins)" [ref=f15e521] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=import
+                - text: import
+              - link "javascript (616 plugins)" [ref=f15e522] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=javascript
+                - text: javascript
+              - link "jquery (664 plugins)" [ref=f15e523] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=jquery
+                - text: jquery
+              - link "link (624 plugins)" [ref=f15e524] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=link
+                - text: link
+              - link "links (967 plugins)" [ref=f15e525] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=links
+                - text: links
+              - link "live chat (574 plugins)" [ref=f15e526] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=live+chat
+                - text: live chat
+              - link "login (1,374 plugins)" [ref=f15e527] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=login
+                - text: login
+              - link "marketing (737 plugins)" [ref=f15e528] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=marketing
+                - text: marketing
+              - link "media (1,015 plugins)" [ref=f15e529] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=media
+                - text: media
+              - link "menu (805 plugins)" [ref=f15e530] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=menu
+                - text: menu
+              - link "mobile (532 plugins)" [ref=f15e531] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=mobile
+                - text: mobile
+              - link "navigation (562 plugins)" [ref=f15e532] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=navigation
+                - text: navigation
+              - link "newsletter (580 plugins)" [ref=f15e533] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=newsletter
+                - text: newsletter
+              - link "notification (504 plugins)" [ref=f15e534] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=notification
+                - text: notification
+              - link "page (1,155 plugins)" [ref=f15e535] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=page
+                - text: page
+              - link "pages (764 plugins)" [ref=f15e536] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=pages
+                - text: pages
+              - link "payment (1,155 plugins)" [ref=f15e537] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=payment
+                - text: payment
+              - link "payment gateway (1,102 plugins)" [ref=f15e538] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=payment+gateway
+                - text: payment gateway
+              - link "payments (674 plugins)" [ref=f15e539] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=payments
+                - text: payments
+              - link "performance (999 plugins)" [ref=f15e540] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=performance
+                - text: performance
+              - link "popup (662 plugins)" [ref=f15e541] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=popup
+                - text: popup
+              - link "post (2,801 plugins)" [ref=f15e542] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=post
+                - text: post
+              - link "posts (2,201 plugins)" [ref=f15e543] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=posts
+                - text: posts
+              - link "products (482 plugins)" [ref=f15e544] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=products
+                - text: products
+              - link "redirect (538 plugins)" [ref=f15e545] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=redirect
+                - text: redirect
+              - link "responsive (683 plugins)" [ref=f15e546] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=responsive
+                - text: responsive
+              - link "reviews (475 plugins)" [ref=f15e547] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=reviews
+                - text: reviews
+              - link "rss (799 plugins)" [ref=f15e548] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=rss
+                - text: rss
+              - link "search (927 plugins)" [ref=f15e549] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=search
+                - text: search
+              - link "security (1,745 plugins)" [ref=f15e550] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=security
+                - text: security
+              - link "seo (2,870 plugins)" [ref=f15e551] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=seo
+                - text: seo
+              - link "share (623 plugins)" [ref=f15e552] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=share
+                - text: share
+              - link "shipping (808 plugins)" [ref=f15e553] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=shipping
+                - text: shipping
+              - link "shortcode (2,302 plugins)" [ref=f15e554] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=shortcode
+                - text: shortcode
+              - link "sidebar (1,324 plugins)" [ref=f15e555] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=sidebar
+                - text: sidebar
+              - link "slider (1,013 plugins)" [ref=f15e556] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=slider
+                - text: slider
+              - link "social (1,201 plugins)" [ref=f15e557] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=social
+                - text: social
+              - link "social media (555 plugins)" [ref=f15e558] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=social+media
+                - text: social media
+              - link "spam (980 plugins)" [ref=f15e559] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=spam
+                - text: spam
+              - link "statistics (514 plugins)" [ref=f15e560] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=statistics
+                - text: statistics
+              - link "stats (476 plugins)" [ref=f15e561] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=stats
+                - text: stats
+              - link "tags (547 plugins)" [ref=f15e562] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=tags
+                - text: tags
+              - link "theme (585 plugins)" [ref=f15e563] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=theme
+                - text: theme
+              - link "tracking (614 plugins)" [ref=f15e564] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=tracking
+                - text: tracking
+              - link "twitter (1,513 plugins)" [ref=f15e565] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=twitter
+                - text: twitter
+              - link "user (540 plugins)" [ref=f15e566] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=user
+                - text: user
+              - link "users (551 plugins)" [ref=f15e567] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=users
+                - text: users
+              - link "video (1,129 plugins)" [ref=f15e568] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=video
+                - text: video
+              - link "widget (5,057 plugins)" [ref=f15e569] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=widget
+                - text: widget
+              - link "widgets (1,049 plugins)" [ref=f15e570] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=widgets
+                - text: widgets
+              - link "woocommerce (9,804 plugins)" [ref=f15e571] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=woocommerce
+                - text: woocommerce
+              - link "youtube (714 plugins)" [ref=f15e572] [cursor=pointer]:
+                - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=search&type=tag&s=youtube
+                - text: youtube
+  - contentinfo [ref=f15e573]:
+    - paragraph [ref=f15e574]:
+      - generic [ref=f15e575]:
+        - text: Thank you for creating with
+        - link "WordPress" [ref=f15e576] [cursor=pointer]:
+          - /url: https://wordpress.org/
+        - text: .
+    - paragraph [ref=f15e577]: Version 7.0

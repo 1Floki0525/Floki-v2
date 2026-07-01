@@ -44,15 +44,15 @@ try {
     path.join(ROOT, 'src/self-improvement/snapshot.cjs'),
     'utf8'
   );
-  assert.match(
+  assert.doesNotMatch(
     snapshotSource,
-    /removeInheritedGitMetadata\(repoDir\)[\s\S]*git', \['init', '-q'\]/,
-    'copied Git metadata must be removed before the isolated git init'
+    /path\.join\(runRoot,\s*['"]repo['"]\)/,
+    'snapshot creation must not create a per-run source repository'
   );
   assert.match(
     snapshotSource,
-    /initializedGitPath[\s\S]*isDirectory\(\)/,
-    'snapshot creation must verify that .git is a local directory'
+    /persistent_project_workspace_path:\s*config\.persistent_project_workspace_path/,
+    'snapshot metadata must point at the persistent sandbox project workspace'
   );
 
   const agentSource = fs.readFileSync(
@@ -104,6 +104,7 @@ try {
     marker: 'FLOKI_V2_RSI_SNAPSHOT_GIT_ISOLATION_CONTRACT_PASS',
     worktree_pointer_removed: true,
     git_directory_removed: true,
+    per_run_source_repository_removed: true,
     environment_check_fails_closed: true
   }, null, 2));
 } finally {

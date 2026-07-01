@@ -15,10 +15,11 @@ const REQUIRED_LATENCY_TESTS = Object.freeze([
 ]);
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  const nodeMajor = Number(process.versions.node.split('.')[0]);
+  assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or newer is required');
 
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  assert.equal(pkg.engines.node, '>=24 <25');
+  assert.equal(pkg.engines.node, '>=24');
   assert.equal(pkg.scripts.test, 'bash bin/floki-node24-run.sh npm run test:node24');
   assert.equal(typeof pkg.scripts['test:node24'], 'string');
   assert.equal(pkg.scripts['test:node24'].includes('bin/floki-node24-run.sh'), false);
@@ -36,7 +37,8 @@ function run() {
 
   const wrapper = fs.readFileSync(path.join(ROOT, 'bin', 'floki-node24-run.sh'), 'utf8');
   assert.equal(wrapper.includes('nvm use 24'), true);
-  assert.equal(wrapper.includes('requires Node'), true);
+  assert.equal(wrapper.includes('requires Node 24 or newer'), true);
+  assert.equal(wrapper.includes('node_is_24_or_newer'), true);
 
   console.log(JSON.stringify({
     ok: true,

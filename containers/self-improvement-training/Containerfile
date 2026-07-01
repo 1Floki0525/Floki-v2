@@ -1,12 +1,13 @@
 # Floki-v2 RSI QLoRA training container.
-#
-# Every build-time value is mandatory and supplied by the host from the
-# authoritative chat YAML. This file intentionally has no operational defaults.
+# All operational values are mandatory and supplied from authoritative chat YAML.
 
 ARG BASE_CUDA_IMAGE
 FROM ${BASE_CUDA_IMAGE}
 
 ARG PYTHON_PACKAGES
+ARG TORCH_PACKAGES
+ARG TORCH_INDEX_URL
+ARG TRAINING_VENV_PATH
 ARG APT_PACKAGES
 ARG TRAINING_WORKDIR
 ARG TRAINING_ENTRYPOINT
@@ -20,9 +21,15 @@ ARG TRANSFORMERS_OFFLINE_VALUE
 ENV DEBIAN_FRONTEND=${DEBIAN_FRONTEND_VALUE} \
     PIP_NO_CACHE_DIR=${PIP_NO_CACHE_DIR_VALUE} \
     HF_HUB_OFFLINE=${HF_HUB_OFFLINE_VALUE} \
-    TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE_VALUE}
+    TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE_VALUE} \
+    HF_HUB_DISABLE_PROGRESS_BARS=1 \
+    TRANSFORMERS_NO_ADVISORY_WARNINGS=1 \
+    PATH=${TRAINING_VENV_PATH}/bin:${PATH}
 
 RUN test -n "${PYTHON_PACKAGES}" \
+    && test -n "${TORCH_PACKAGES}" \
+    && test -n "${TORCH_INDEX_URL}" \
+    && test -n "${TRAINING_VENV_PATH}" \
     && test -n "${APT_PACKAGES}" \
     && test -n "${TRAINING_WORKDIR}" \
     && test -n "${TRAINING_ENTRYPOINT}" \
@@ -36,8 +43,13 @@ RUN test -n "${PYTHON_PACKAGES}" \
     && apt-get install -y --no-install-recommends ${APT_PACKAGES} \
     && rm -rf /var/lib/apt/lists/*
 
-RUN ${TRAINING_ENTRYPOINT} -m pip install --upgrade pip \
-    && ${TRAINING_ENTRYPOINT} -m pip install ${PYTHON_PACKAGES}
+RUN python3 -m venv "${TRAINING_VENV_PATH}" \
+    && "${TRAINING_VENV_PATH}/bin/python" -m pip install --upgrade pip setuptools wheel \
+    && "${TRAINING_VENV_PATH}/bin/python" -m pip install \
+      --index-url "${TORCH_INDEX_URL}" ${TORCH_PACKAGES} \
+    && "${TRAINING_VENV_PATH}/bin/python" -m pip install ${PYTHON_PACKAGES} \
+    && "${TRAINING_VENV_PATH}/bin/python" -c \
+      "import torch; assert torch.version.cuda, 'CUDA-enabled PyTorch is required'; print(torch.__version__, torch.version.cuda)"
 
 WORKDIR ${TRAINING_WORKDIR}
 

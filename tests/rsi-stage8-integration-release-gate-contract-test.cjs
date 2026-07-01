@@ -8,7 +8,8 @@ const { getSleepConfig } = require('../src/config/floki-config.cjs');
 const ROOT = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
 
-assert.match(process.version, /^v24\./);
+const nodeMajor = Number(process.versions.node.split('.')[0]);
+assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or newer is required');
 assert.equal(read('.nvmrc').trim(), '24');
 assert.equal(read('.node-version').trim(), '24');
 
@@ -43,7 +44,7 @@ for (const relative of requiredFiles) {
 }
 
 const pkg = JSON.parse(read('package.json'));
-assert.equal(pkg.engines.node, '>=24 <25');
+assert.equal(pkg.engines.node, '>=24');
 const suite = String(pkg.scripts?.['test:node24'] || '');
 const rsiTests = fs.readdirSync(path.join(ROOT, 'tests'))
   .filter((name) => /^rsi-.*-test\.cjs$/.test(name))

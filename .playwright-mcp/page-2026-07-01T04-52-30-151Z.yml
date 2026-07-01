@@ -1,0 +1,96 @@
+- generic [ref=f95e8]:
+  - generic [ref=f95e13]:
+    - complementary [ref=f95e15]:
+      - generic [ref=f95e17]:
+        - link [ref=f95e20] [cursor=pointer]:
+          - /url: /
+          - img [ref=f95e22]
+        - button "Collapse sidebar" [expanded] [ref=f95e27] [cursor=pointer]:
+          - img [ref=f95e28]
+    - generic [ref=f95e30]:
+      - banner [ref=f95e31]:
+        - generic [ref=f95e32]:
+          - link "Support" [ref=f95e33] [cursor=pointer]:
+            - /url: /?to=/:account/support
+            - img [ref=f95e34]
+            - generic [ref=f95e36]: Support
+          - button "User menu" [ref=f95e37] [cursor=pointer]:
+            - img [ref=f95e38]
+      - main [ref=f95e40]:
+        - main [ref=f95e43]:
+          - generic [ref=f95e46]:
+            - generic [ref=f95e48]:
+              - heading "Authorize Cloudflare Tunnel" [level=1] [ref=f95e49]
+              - generic [ref=f95e51]:
+                - paragraph [ref=f95e52]: Cloudflare Tunnel wishes to serve as an origin on one of your zones.
+                - paragraph [ref=f95e53]: Please select the zone you want to add a Tunnel to.
+            - generic [ref=f95e55]:
+              - generic [ref=f95e58]:
+                - generic [ref=f95e59]: Search across all accounts…
+                - generic [ref=f95e61]:
+                  - img [ref=f95e63]
+                  - textbox "Search across all accounts…" [ref=f95e65]
+                - button "Search" [ref=f95e67] [cursor=pointer]:
+                  - generic [ref=f95e68]: Search
+              - table [ref=f95e71] [cursor=pointer]:
+                - rowgroup [ref=f95e72]:
+                  - row "Name Status Account Plan Plan Status" [ref=f95e73]:
+                    - columnheader "Name" [ref=f95e74]:
+                      - generic [ref=f95e75]: Name
+                    - columnheader "Status" [ref=f95e76]:
+                      - generic [ref=f95e77]: Status
+                    - columnheader "Account" [ref=f95e78]:
+                      - generic [ref=f95e79]: Account
+                    - columnheader "Plan" [ref=f95e80]:
+                      - generic [ref=f95e81]: Plan
+                    - columnheader "Plan Status" [ref=f95e82]:
+                      - generic [ref=f95e83]: Plan Status
+                - rowgroup [ref=f95e84]:
+                  - row "galactic-family-hub.com Active Msrabbitrescue@gmail.com's Account Free Active" [ref=f95e85]:
+                    - cell "galactic-family-hub.com" [ref=f95e86]:
+                      - generic [ref=f95e88]: galactic-family-hub.com
+                    - cell "Active" [ref=f95e89]:
+                      - img [ref=f95e90]
+                      - text: Active
+                    - cell "Msrabbitrescue@gmail.com's Account" [ref=f95e92]
+                    - cell "Free" [ref=f95e93]:
+                      - generic [ref=f95e94]: Free
+                    - cell "Active" [ref=f95e95]:
+                      - generic [ref=f95e97]: Active
+      - contentinfo [ref=f95e98]:
+        - list [ref=f95e100]:
+          - listitem [ref=f95e101]:
+            - link "Support" [ref=f95e102] [cursor=pointer]:
+              - /url: https://support.cloudflare.com
+          - listitem [ref=f95e103]:
+            - link "System status" [ref=f95e104] [cursor=pointer]:
+              - /url: https://www.cloudflarestatus.com
+          - listitem [ref=f95e105]:
+            - link "Careers" [ref=f95e106] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/careers/
+          - listitem [ref=f95e107]:
+            - link "Terms of Use" [ref=f95e108] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/website-terms/
+          - listitem [ref=f95e109]:
+            - link "Report Security Issues" [ref=f95e110] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/disclosure/
+          - listitem [ref=f95e111]:
+            - link "Privacy Policy" [ref=f95e112] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/privacypolicy/
+          - listitem [ref=f95e113]:
+            - button "A blue and white pill with a checkmark and an x, representing privacy choices Cookie Preferences" [ref=f95e114] [cursor=pointer]:
+              - img "A blue and white pill with a checkmark and an x, representing privacy choices" [ref=f95e115]
+              - text: Cookie Preferences
+          - listitem [ref=f95e116]:
+            - generic [ref=f95e117]: © 2026 Cloudflare, Inc.
+  - generic:
+    - region "Notifications"
+  - dialog [ref=f95e121]:
+    - banner [ref=f95e122]:
+      - heading "Authorize Tunnel for galactic-family-hub.com" [level=1] [ref=f95e123]
+      - button "Close" [active] [ref=f95e124] [cursor=pointer]:
+        - img [ref=f95e125]
+    - paragraph [ref=f95e129]: To finish configuring Tunnel for your zone, click Authorize below.
+    - generic [ref=f95e132]:
+      - button "Cancel" [ref=f95e133] [cursor=pointer]
+      - button "Authorize" [ref=f95e134] [cursor=pointer]

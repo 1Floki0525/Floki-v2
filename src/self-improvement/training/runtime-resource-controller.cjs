@@ -1,8 +1,11 @@
 'use strict';
 
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { loadSelfImprovementConfig } = require('../config.cjs');
 const gpuOwnership = require('./gpu-ownership.cjs');
 const {
+  queryLoadedModels,
   unloadAllLoaded,
   reloadModel,
   splitPipeList
@@ -19,6 +22,55 @@ function optionalFunction(value) {
   return typeof value === 'function' ? value : null;
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseLastJsonLine(value) {
+  const lines = String(value || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try {
+      return JSON.parse(lines[index]);
+    } catch (_error) {
+      // Continue searching older lines.
+    }
+  }
+  return null;
+}
+
+function runConfiguredScript(config, key, options = {}) {
+  const configured = String(config[key] || '').trim();
+  if (!configured) {
+    throw new Error('missing YAML self_improvement.' + key);
+  }
+  const scriptPath = path.isAbsolute(configured)
+    ? configured
+    : path.resolve(config.project_root, configured);
+  const execute = options.spawnSync || spawnSync;
+  const result = execute(
+    config.training_shell_command,
+    [scriptPath],
+    {
+      cwd: config.project_root,
+      encoding: 'utf8',
+      timeout: config.runtime_transition_timeout_ms,
+      maxBuffer: config.podman_output_buffer_bytes
+    }
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      key + ' failed: ' +
+      String(result.stderr || result.stdout || 'status=' + String(result.status)).trim()
+    );
+  }
+  return Object.freeze({
+    stdout: String(result.stdout || ''),
+    stderr: String(result.stderr || ''),
+    record: parseLastJsonLine(result.stdout)
+  });
+}
+
 async function stopKnowledge(knowledgeBootstrap) {
   if (!knowledgeBootstrap) {
     throw new Error('training runtime controller missing knowledgeBootstrap');
@@ -30,6 +82,155 @@ async function stopKnowledge(knowledgeBootstrap) {
     return knowledgeBootstrap.stop();
   }
   throw new Error('knowledge runtime bootstrap has no stop operation');
+}
+
+async function stopLiveAudio(liveAudio) {
+  if (!liveAudio) {
+    throw new Error('training runtime controller missing liveAudio');
+  }
+  if (typeof liveAudio.stop === 'function') {
+    await liveAudio.stop();
+    return 'stopped_recorder_vad_whisper';
+  }
+  // Narrow compatibility for injected contract-test doubles. Production has
+  // liveAudio.stop(), which terminates recorder, VAD, and Whisper.
+  requireFunction(liveAudio.setAwake, 'liveAudio.stop');
+  await liveAudio.setAwake(false);
+  return 'compatibility_set_awake_false';
+}
+
+async function startLiveAudio(liveAudio) {
+  if (!liveAudio) return false;
+  if (typeof liveAudio.start === 'function') {
+    await liveAudio.start();
+    return true;
+  }
+  if (typeof liveAudio.setAwake === 'function') {
+    await liveAudio.setAwake(true);
+    return true;
+  }
+  return false;
+}
+
+function parseNvidiaComputeRows(stdout) {
+  return String(stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(',').map((part) => part.trim());
+      return Object.freeze({
+        pid: Number(parts[0]),
+        process_name: parts[1] || 'unknown',
+        used_memory_mb: Number(parts[2])
+      });
+    });
+}
+
+function queryGpuComputeProcesses(config, options = {}) {
+  if (typeof options.queryGpuComputeProcesses === 'function') {
+    return options.queryGpuComputeProcesses();
+  }
+  const execute = options.spawnSync || spawnSync;
+  const command = String(config.training_gpu_process_query_command);
+  const args = splitPipeList(config.training_gpu_process_query_args);
+  const result = execute(command, args, {
+    cwd: config.project_root,
+    encoding: 'utf8',
+    timeout: config.training_gpu_query_timeout_ms,
+    maxBuffer: config.podman_output_buffer_bytes
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      'configured GPU compute-process query failed: ' +
+      String(result.stderr || result.stdout || 'status=' + result.status).trim()
+    );
+  }
+  return parseNvidiaComputeRows(result.stdout);
+}
+
+async function waitForGpuComputeQuiescence(config, options = {}) {
+  const timeoutMs = Number(config.training_gpu_quiesce_timeout_ms);
+  const pollMs = Number(config.training_gpu_quiesce_poll_ms);
+  const deadline = Date.now() + timeoutMs;
+  let rows = [];
+  do {
+    rows = await Promise.resolve(queryGpuComputeProcesses(config, options));
+    if (!Array.isArray(rows)) {
+      throw new Error('GPU process query must return an array');
+    }
+    if (rows.length === 0) {
+      return Object.freeze({
+        ok: true,
+        compute_processes: Object.freeze([]),
+        verified_at: new Date().toISOString()
+      });
+    }
+    if (Date.now() >= deadline) break;
+    await delay(pollMs);
+  } while (true);
+
+  throw new Error(
+    'FLOKI_TRAINING_GPU_NOT_EXCLUSIVE: compute processes still own the GPU after ' +
+    String(timeoutMs) + 'ms: ' + JSON.stringify(rows)
+  );
+}
+
+function resolveNightlyRestorePolicy(
+  config,
+  reason,
+  observedAt = new Date(),
+  options = {}
+) {
+  const isWithin = options.is_within_sleep_window ||
+    require('../../chat/sleep-cycle.cjs').isWithinSleepWindow;
+  const policy = String(
+    config.nightly_ollama_reload_policy || 'wake_only'
+  ).trim();
+  const wakeRestoration =
+    reason === 'nightly_wake_restoration' ||
+    reason === 'wake_restoration';
+  const withinNight = isWithin(observedAt);
+  const deferUntilWake =
+    policy === 'wake_only' && withinNight && !wakeRestoration;
+  return Object.freeze({
+    policy,
+    within_night: withinNight,
+    wake_restoration: wakeRestoration,
+    defer_until_wake: deferUntilWake,
+    reload_ollama: !deferUntilWake,
+    restore_daytime_services: !deferUntilWake
+  });
+}
+
+async function verifyOllamaUnloaded(config, options = {}) {
+  const endpoints = splitPipeList(config.ollama_unload_endpoints);
+  const loaded = [];
+  const failures = [];
+  for (const endpoint of endpoints) {
+    try {
+      const listing = await queryLoadedModels(
+        endpoint,
+        { httpJson: options.httpJson },
+        config
+      );
+      if (!listing.ok) {
+        failures.push({ endpoint, error: 'Ollama /api/ps verification failed' });
+        continue;
+      }
+      for (const model of listing.models) loaded.push({ endpoint, model });
+    } catch (error) {
+      failures.push({ endpoint, error: error.message });
+    }
+  }
+  return Object.freeze({
+    ok: failures.length === 0 && loaded.length === 0,
+    marker: 'FLOKI_V2_OLLAMA_UNLOADED_VERIFIED',
+    endpoints,
+    loaded,
+    failures
+  });
 }
 
 function acquireTrainingGpu(config, options = {}) {
@@ -56,9 +257,22 @@ function acquireTrainingGpu(config, options = {}) {
 
 async function restoreRuntimeResources(options = {}) {
   const config = options.config || loadSelfImprovementConfig();
+  const restorePolicy = resolveNightlyRestorePolicy(
+    config,
+    options.reason || 'training_finished',
+    options.now || new Date(),
+    options
+  );
   const gpu = options.gpu || gpuOwnership;
-  const shouldRestartKnowledge = options.restart_knowledge === true;
-  const shouldRestoreLifecycle = options.restore_lifecycle !== false;
+  const shouldRestartKnowledge =
+    restorePolicy.restore_daytime_services &&
+    options.restart_knowledge === true;
+  const shouldRestartScheduler =
+    restorePolicy.restore_daytime_services &&
+    options.restart_scheduler === true;
+  const shouldRestoreLifecycle =
+    restorePolicy.restore_daytime_services &&
+    options.restore_lifecycle !== false;
   const restartKnowledge = optionalFunction(options.restartKnowledge);
   const applyLifecycle = optionalFunction(options.applyLifecycle);
   const buildLifecycle = optionalFunction(options.buildLifecycle);
@@ -69,9 +283,13 @@ async function restoreRuntimeResources(options = {}) {
     reason: options.reason || 'training_finished',
     released_gpu: false,
     ollama_reload: [],
+    audio_restart_required: options.restart_audio === true,
+    audio_restarted: false,
     knowledge_restart_required: shouldRestartKnowledge,
     knowledge_restarted: false,
     knowledge_restart_skipped: !shouldRestartKnowledge,
+    scheduler_restart_required: shouldRestartScheduler,
+    scheduler_restarted: false,
     lifecycle_restore_required: shouldRestoreLifecycle,
     lifecycle_restored: false,
     lifecycle_restore_skipped: !shouldRestoreLifecycle,
@@ -95,7 +313,7 @@ async function restoreRuntimeResources(options = {}) {
     result.failures.push({ step: 'release_gpu', error: error.message });
   }
 
-  if (options.reload_ollama !== false) {
+  if (restorePolicy.reload_ollama && options.reload_ollama !== false) {
     for (const endpoint of splitPipeList(config.ollama_unload_endpoints)) {
       try {
         const row = await reloadModel(
@@ -130,28 +348,32 @@ async function restoreRuntimeResources(options = {}) {
       });
     } else {
       try {
-        const knowledge = await restartKnowledge();
-        result.knowledge_restart = knowledge || null;
+        result.knowledge_restart = await restartKnowledge() || null;
         result.knowledge_restarted = true;
       } catch (error) {
-        result.failures.push({
-          step: 'restart_knowledge',
-          error: error.message
-        });
+        result.failures.push({ step: 'restart_knowledge', error: error.message });
       }
     }
   }
 
+  if (options.restart_audio === true) {
+    try {
+      result.audio_restarted = await startLiveAudio(options.liveAudio);
+    } catch (error) {
+      result.failures.push({ step: 'restart_live_audio', error: error.message });
+    }
+  }
+
   if (shouldRestoreLifecycle) {
-    if (!applyLifecycle) {
+    if (!applyLifecycle || !buildLifecycle) {
+      const missing = [];
+      if (!applyLifecycle) missing.push('applyLifecycle');
+      if (!buildLifecycle) missing.push('buildLifecycle');
       result.failures.push({
         step: 'restore_runtime_lifecycle',
-        error: 'training runtime controller missing applyLifecycle'
-      });
-    } else if (!buildLifecycle) {
-      result.failures.push({
-        step: 'restore_runtime_lifecycle',
-        error: 'training runtime controller missing buildLifecycle'
+        error:
+          'training runtime controller missing ' +
+          missing.join(' and ')
       });
     } else {
       try {
@@ -166,6 +388,22 @@ async function restoreRuntimeResources(options = {}) {
     }
   }
 
+  if (shouldRestartScheduler) {
+    try {
+      result.scheduler_restart = runConfiguredScript(
+        config,
+        'training_sleep_scheduler_start_script',
+        options
+      );
+      result.scheduler_restarted = true;
+    } catch (error) {
+      result.failures.push({
+        step: 'restart_sleep_scheduler',
+        error: error.message
+      });
+    }
+  }
+
   result.completed_at = new Date().toISOString();
   result.ok = result.failures.length === 0;
   return Object.freeze(result);
@@ -175,7 +413,6 @@ async function enterTrainingRuntimeResourceMode(options = {}) {
   const config = options.config || loadSelfImprovementConfig();
   const liveAudio = options.liveAudio;
   const visionReconciler = options.visionReconciler;
-  requireFunction(liveAudio && liveAudio.setAwake, 'liveAudio.setAwake');
   requireFunction(
     visionReconciler && visionReconciler.reconcile,
     'visionReconciler.reconcile'
@@ -185,18 +422,40 @@ async function enterTrainingRuntimeResourceMode(options = {}) {
     marker: 'FLOKI_V2_TRAINING_RUNTIME_RESOURCE_ENTER',
     ok: false,
     run_id: options.run_id || null,
+    scheduler_suspended: false,
+    scheduler_restart_required: false,
     hearing_suspended: false,
+    hearing_stop_mode: null,
     vision_suspended: false,
     knowledge_suspended: false,
     ollama_unload_attempted: false,
     ollama_unload: null,
+    gpu_quiescence: null,
     gpu_owner: null,
     rollback: null,
     entered_at: new Date().toISOString()
   };
 
   try {
-    await liveAudio.setAwake(false);
+    if (typeof options.stopSleepScheduler === 'function') {
+      const schedulerStop = await options.stopSleepScheduler();
+      result.scheduler_suspended = true;
+      result.scheduler_stop = schedulerStop || null;
+      result.scheduler_restart_required = true;
+    } else if (config.training_sleep_scheduler_stop_script) {
+      const schedulerStop = runConfiguredScript(
+        config,
+        'training_sleep_scheduler_stop_script',
+        options
+      );
+      result.scheduler_suspended = true;
+      result.scheduler_stop = schedulerStop;
+      result.scheduler_restart_required = Boolean(
+        schedulerStop.record && schedulerStop.record.stopped === true
+      );
+    }
+
+    result.hearing_stop_mode = await stopLiveAudio(liveAudio);
     result.hearing_suspended = true;
 
     await visionReconciler.reconcile(false, {
@@ -205,9 +464,8 @@ async function enterTrainingRuntimeResourceMode(options = {}) {
     });
     result.vision_suspended = true;
 
-    result.knowledge_suspended = Boolean(
-      await stopKnowledge(options.knowledgeBootstrap)
-    );
+    await stopKnowledge(options.knowledgeBootstrap);
+    result.knowledge_suspended = true;
 
     result.ollama_unload_attempted = true;
     result.ollama_unload = await unloadAllLoaded(
@@ -219,6 +477,19 @@ async function enterTrainingRuntimeResourceMode(options = {}) {
         'Ollama unload failed; training cannot acquire the GPU'
       );
       error.ollama_unload = result.ollama_unload;
+      throw error;
+    }
+
+    result.gpu_quiescence = await waitForGpuComputeQuiescence(config, options);
+
+    result.ollama_unload_verification =
+      await verifyOllamaUnloaded(config, options);
+    if (result.ollama_unload_verification.ok !== true) {
+      const error = new Error(
+        'Ollama remained loaded after unload; HF GPU ownership denied'
+      );
+      error.ollama_unload_verification =
+        result.ollama_unload_verification;
       throw error;
     }
 
@@ -239,6 +510,8 @@ async function enterTrainingRuntimeResourceMode(options = {}) {
       reason: 'training_resource_entry_failure',
       reload_ollama: result.ollama_unload_attempted,
       restart_knowledge: result.knowledge_suspended,
+      restart_audio: result.hearing_suspended,
+      restart_scheduler: result.scheduler_restart_required,
       restore_lifecycle: result.hearing_suspended || result.vision_suspended,
       allow_non_training_owner: true
     });
@@ -256,14 +529,31 @@ async function enterTrainingRuntimeResourceMode(options = {}) {
 }
 
 async function exitTrainingRuntimeResourceMode(options = {}) {
+  const config = options.config || loadSelfImprovementConfig();
+  const reason = options.reason || 'training_finished';
+  const policy = resolveNightlyRestorePolicy(
+    config,
+    reason,
+    options.now || new Date(),
+    options
+  );
+  const restoreDaytime = policy.restore_daytime_services;
   const result = await restoreRuntimeResources({
     ...options,
-    reason: options.reason || 'training_finished',
-    reload_ollama: true,
+    config,
+    reason,
+    reload_ollama: restoreDaytime && options.reload_ollama !== false,
     restart_knowledge:
-      options.restart_knowledge === true ||
-      typeof options.restartKnowledge === 'function',
-    restore_lifecycle: options.restore_lifecycle !== false,
+      restoreDaytime &&
+      (
+        options.restart_knowledge === true ||
+        typeof options.restartKnowledge === 'function'
+      ),
+    restart_audio: restoreDaytime && options.restart_audio !== false,
+    restart_scheduler:
+      restoreDaytime && options.restart_scheduler === true,
+    restore_lifecycle:
+      restoreDaytime && options.restore_lifecycle !== false,
     allow_non_training_owner: false
   });
   return Object.freeze({
@@ -273,11 +563,19 @@ async function exitTrainingRuntimeResourceMode(options = {}) {
 }
 
 module.exports = {
+  verifyOllamaUnloaded,
+  resolveNightlyRestorePolicy,
   acquireTrainingGpu,
   enterTrainingRuntimeResourceMode,
   exitTrainingRuntimeResourceMode,
   optionalFunction,
+  parseNvidiaComputeRows,
+  queryGpuComputeProcesses,
   requireFunction,
   restoreRuntimeResources,
-  stopKnowledge
+  runConfiguredScript,
+  startLiveAudio,
+  stopKnowledge,
+  stopLiveAudio,
+  waitForGpuComputeQuiescence
 };

@@ -135,6 +135,7 @@ async function readJsonlActivityChunk(
   options = {}
 ) {
   const source = String(options.source || 'activity');
+  const plainTextFallback = options.plain_text_fallback === true;
   const maxBytes = Number(options.max_bytes);
   const maxEvents = Number(options.max_events);
 
@@ -224,10 +225,16 @@ async function readJsonlActivityChunk(
       events.push({
         source,
         index: lineOffset,
-        record: {
-          type: 'parse_error',
-          raw: raw.slice(0, 200)
-        }
+        record: plainTextFallback
+          ? {
+              type: 'sandbox_output',
+              created_at: new Date().toISOString(),
+              detail: { text: raw.slice(0, 12000) }
+            }
+          : {
+              type: 'parse_error',
+              raw: raw.slice(0, 200)
+            }
       });
     }
   }
@@ -237,6 +244,15 @@ async function readJsonlActivityChunk(
     next_cursor: nextCursor,
     file_size: size,
     cursor_reset: cursorReset
+  });
+}
+
+function filterActivityEventsForRun(events, currentRunId) {
+  const runId = currentRunId ? String(currentRunId) : null;
+  if (!runId) return [];
+  return (Array.isArray(events) ? events : []).filter((event) => {
+    const eventRunId = event?.record?.detail?.run_id;
+    return !eventRunId || String(eventRunId) === runId;
   });
 }
 
@@ -1027,6 +1043,7 @@ function createChatLocalRuntime(options = {}) {
     assertApprovalToken(body.token, config);
     if (state.active_turn === true) throw new Error('cannot enter training resource mode during an active foreground turn');
     if (liveAudio.status().speaking === true) throw new Error('cannot enter training resource mode while speech output is active');
+    selfImprovementApi.preempt('exclusive_training_resource_transition');
     state.training_resource_mode = 'entering';
     state.training_resource_error = null;
     publish();
@@ -1046,6 +1063,7 @@ function createChatLocalRuntime(options = {}) {
       state.training_resource_entered_at = result.entered_at;
       state.training_resource_error = null;
       state.gpu_owner = result.gpu_owner;
+      state.training_scheduler_restart_required = result.scheduler_restart_required === true;
       state.knowledge_worker_running = false;
       publish();
       return { ok: true, verified: true, result, status: status() };
@@ -1066,7 +1084,9 @@ function createChatLocalRuntime(options = {}) {
     const result = await exitTrainingRuntimeResourceMode({
       config,
       reason: String(body.reason || 'training_finished'),
+      liveAudio,
       restartKnowledge: restartKnowledgeAfterTraining,
+      restart_scheduler: state.training_scheduler_restart_required === true,
       applyLifecycle,
       buildLifecycle: buildFlokiLifecycleStatus
     });
@@ -1074,6 +1094,7 @@ function createChatLocalRuntime(options = {}) {
     state.training_resource_error = result.ok ? null : JSON.stringify(result.failures);
     state.training_resource_restored_at = result.completed_at;
     state.gpu_owner = null;
+    state.training_scheduler_restart_required = false;
     publish();
     if (!result.ok) throw new Error('training runtime restoration failed: ' + JSON.stringify(result.failures));
     return { ok: true, verified: true, result, status: status() };
@@ -1282,7 +1303,7 @@ function createChatLocalRuntime(options = {}) {
       sendJson(
         res,
         200,
-        selfImprovementApi.abort(
+        await selfImprovementApi.abort(
           body.token,
           body.reason,
           body.kind
@@ -1298,8 +1319,9 @@ function createChatLocalRuntime(options = {}) {
           rsiConfig.audit_file_name
         );
         const rsiStatus = selfImprovementApi.status();
+        const currentRunId = rsiStatus?.current_run_id || null;
         const sandboxLogFile =
-          rsiStatus?.last_sandbox_log_file || null;
+          currentRunId ? (rsiStatus?.last_sandbox_log_file || null) : null;
         const parseActivityQueryInteger = (name, fallback) => {
           const raw = url.searchParams.get(name);
           if (raw == null || raw === '') return fallback;
@@ -1343,7 +1365,7 @@ function createChatLocalRuntime(options = {}) {
             next_audit_cursor: auditSize,
             next_sandbox_cursor: sandboxSize,
             sandbox_log_file: sandboxLogFile,
-            run_id: rsiStatus?.current_run_id || null,
+            run_id: currentRunId,
             phase: rsiStatus?.phase || null,
             ui_limits: uiLimits
           });
@@ -1363,6 +1385,7 @@ function createChatLocalRuntime(options = {}) {
                 sandboxCursor,
                 {
                   source: 'sandbox',
+                  plain_text_fallback: true,
                   max_bytes: maxBytes,
                   max_events: maxEvents
                 }
@@ -1375,9 +1398,13 @@ function createChatLocalRuntime(options = {}) {
               })
         ]);
 
+        const runScopedSandboxEvents = filterActivityEventsForRun(
+          sandboxChunk.events,
+          currentRunId
+        );
         const merged = [
           ...auditChunk.events,
-          ...sandboxChunk.events
+          ...runScopedSandboxEvents
         ].sort((a, b) => {
           const ta = String(a.record?.created_at || '');
           const tb = String(b.record?.created_at || '');
@@ -1394,7 +1421,7 @@ function createChatLocalRuntime(options = {}) {
           audit_cursor_reset: auditChunk.cursor_reset,
           sandbox_cursor_reset: sandboxChunk.cursor_reset,
           sandbox_log_file: sandboxLogFile,
-          run_id: rsiStatus?.current_run_id || null,
+          run_id: currentRunId,
           phase: rsiStatus?.phase || null,
           ui_limits: uiLimits
         });
@@ -1583,7 +1610,7 @@ function createChatLocalRuntime(options = {}) {
 }
 
 async function main() {
-  if (!process.version.startsWith('v24.')) {
+  if (Number(process.versions.node.split('.')[0]) < 24) {
     throw new Error('Node 24 required, got ' + process.version);
   }
   const runtime = createChatLocalRuntime();
@@ -1608,6 +1635,7 @@ module.exports = {
   DEFAULT_PORT,
   jsonlFileSize,
   readJsonlActivityChunk,
+  filterActivityEventsForRun,
   memoryPathsWritable,
   normalizeIntentText,
   configuredVisionQuestionPhrases,

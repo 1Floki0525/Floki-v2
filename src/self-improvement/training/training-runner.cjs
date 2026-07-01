@@ -44,6 +44,9 @@ function sourceFingerprint(config) {
   for (const value of [
     config.training_base_cuda_image,
     config.training_python_packages,
+    config.training_torch_packages,
+    config.training_torch_index_url,
+    config.training_venv_path,
     config.training_container_apt_packages,
     config.training_container_workdir,
     config.training_entrypoint,
@@ -81,6 +84,9 @@ function ensureTrainingImage(config = loadSelfImprovementConfig()) {
     'build', '--pull=missing', '--label', label + '=' + expected,
     '--build-arg', 'BASE_CUDA_IMAGE=' + baseCudaImage,
     '--build-arg', 'PYTHON_PACKAGES=' + config.training_python_packages,
+    '--build-arg', 'TORCH_PACKAGES=' + config.training_torch_packages,
+    '--build-arg', 'TORCH_INDEX_URL=' + config.training_torch_index_url,
+    '--build-arg', 'TRAINING_VENV_PATH=' + config.training_venv_path,
     '--build-arg', 'APT_PACKAGES=' + config.training_container_apt_packages,
     '--build-arg', 'TRAINING_WORKDIR=' + config.training_container_workdir,
     '--build-arg', 'TRAINING_ENTRYPOINT=' + config.training_entrypoint,
@@ -154,12 +160,100 @@ function waitForTrainingContainerLaunch(child, containerName, config, options = 
   });
 }
 
-function validateTrainingArtifacts(adapterDir, config = loadSelfImprovementConfig()) {
-  const required = String(config.training_required_artifact_files).split('|').map((item) => item.trim()).filter(Boolean);
-  const missing = required.filter((name) => !fs.existsSync(path.join(adapterDir, name)));
-  if (missing.length) throw new Error('training container did not produce required adapter artifacts: ' + missing.join(', '));
-  const metrics = JSON.parse(fs.readFileSync(path.join(adapterDir, config.training_metrics_file_name), 'utf8'));
-  return Object.freeze({ required, metrics });
+function completedTrainingEpochs(metrics) {
+  const epoch = Number(metrics && metrics.epoch);
+  if (!Number.isFinite(epoch) || epoch < 0) return 0;
+  return Math.max(0, Math.floor(epoch + 1e-9));
+}
+
+function assertCompletedTrainingMetrics(metrics) {
+  const epoch = Number(metrics && metrics.epoch);
+  const globalStep = Number(metrics && metrics.global_step);
+  const completedEpochs = completedTrainingEpochs(metrics);
+  if (
+    !Number.isFinite(epoch) ||
+    completedEpochs < 1 ||
+    !Number.isFinite(globalStep) ||
+    globalStep < 1
+  ) {
+    const error = new Error(
+      'FLOKI_TRAINING_INCOMPLETE_EPOCH: refusing model-adapter candidate; ' +
+      'epoch=' + String(metrics && metrics.epoch) +
+      ', global_step=' + String(metrics && metrics.global_step)
+    );
+    error.code = 'FLOKI_TRAINING_INCOMPLETE_EPOCH';
+    throw error;
+  }
+  return Object.freeze({
+    epoch,
+    completed_epochs: completedEpochs,
+    global_step: globalStep
+  });
+}
+
+function completeEpochMetrics(metrics = {}) {
+  const epoch = Number(metrics.epoch || 0);
+  const globalStep = Number(metrics.global_step || 0);
+  const completedEpochs = Number.isFinite(epoch)
+    ? Math.floor(epoch + 1e-9)
+    : 0;
+  return Object.freeze({
+    ok: completedEpochs >= 1 && Number.isFinite(globalStep) && globalStep >= 1,
+    epoch,
+    global_step: globalStep,
+    completed_epochs: completedEpochs
+  });
+}
+
+function compactRestorationStatus(response) {
+  const result = response && response.result && typeof response.result === 'object'
+    ? response.result
+    : response;
+  if (!result || typeof result !== 'object') return null;
+  return Object.freeze({
+    marker: result.marker || null,
+    ok: result.ok === true,
+    reason: result.reason || null,
+    released_gpu: result.released_gpu === true,
+    ollama_reloaded:
+      Array.isArray(result.ollama_reload) &&
+      result.ollama_reload.some((row) => row && row.ok === true),
+    audio_restarted: result.audio_restarted === true,
+    knowledge_restarted: result.knowledge_restarted === true,
+    scheduler_restarted: result.scheduler_restarted === true,
+    lifecycle_restored: result.lifecycle_restored === true,
+    failures: Array.isArray(result.failures) ? result.failures.slice(0, 20) : [],
+    completed_at: result.completed_at || null
+  });
+}
+
+function validateTrainingArtifacts(
+  adapterDir,
+  config = loadSelfImprovementConfig()
+) {
+  const required = String(config.training_required_artifact_files)
+    .split('|').map((item) => item.trim()).filter(Boolean);
+  const missing = required.filter(
+    (name) => !fs.existsSync(path.join(adapterDir, name))
+  );
+  if (missing.length) {
+    throw new Error(
+      'training container did not produce required adapter artifacts: ' +
+      missing.join(', ')
+    );
+  }
+  const metrics = JSON.parse(fs.readFileSync(
+    path.join(adapterDir, config.training_metrics_file_name),
+    'utf8'
+  ));
+  const completion = completeEpochMetrics(metrics);
+  if (!completion.ok) {
+    throw new Error(
+      'FLOKI_INCOMPLETE_EPOCH_CANDIDATE_BLOCKED: ' +
+      JSON.stringify(completion)
+    );
+  }
+  return Object.freeze({ required, metrics, completion });
 }
 
 function readExistingTrainingCandidate(dir, input) {
@@ -188,6 +282,15 @@ function readExistingTrainingCandidate(dir, input) {
 }
 
 function writeAdapterCandidate(input, config) {
+  const completion = completeEpochMetrics(input.metrics);
+  if (!completion.ok) {
+    throw new Error(
+      'FLOKI_INCOMPLETE_EPOCH_CANDIDATE_BLOCKED: ' +
+      JSON.stringify(completion)
+    );
+  }
+
+  assertCompletedTrainingMetrics(input && input.metrics);
   const candidateId = input.lineage.adapter_id;
   const dir = path.join(config.candidate_root, candidateId);
   if (fs.existsSync(dir)) {
@@ -363,7 +466,10 @@ async function runTrainingCycle(options = {}) {
     if (entered) {
       try {
         restoration = await exitTrainingResource(trainingSucceeded ? 'training_complete' : 'training_failure', config);
-        appendAudit('training_resource_mode_exited', { run_id: runId, restoration }, config);
+        appendAudit('training_resource_mode_exited', {
+          run_id: runId,
+          restoration: compactRestorationStatus(restoration)
+        }, config);
         if (!restoration || restoration.ok !== true) {
           cleanupFailures.push({
             step: 'restore_runtime_resources',
@@ -385,7 +491,7 @@ async function runTrainingCycle(options = {}) {
         current_run_id: null,
         current_container: null,
         training_resource_mode: 'failed',
-        restoration_status: restoration,
+        restoration_status: compactRestorationStatus(restoration),
         last_error: message,
         failure_latched_at: nowIso()
       }, config);
@@ -398,13 +504,15 @@ async function runTrainingCycle(options = {}) {
       updateStatus({
         training_resource_mode: 'idle',
         gpu_owner: null,
-        restoration_status: restoration
+        restoration_status: compactRestorationStatus(restoration)
       }, config);
     }
   }
 }
 
 module.exports = {
+  compactRestorationStatus,
+  completeEpochMetrics,
   assertQualifiedContainerImageReference,
   containerAbsent,
   ensureTrainingImage,
