@@ -20,7 +20,7 @@ load_node_24() {
     # shellcheck disable=SC1090
     . "$HOME/.nvm/nvm.sh"
     if ! command -v node >/dev/null 2>&1 ||
-       ! node -v 2>/dev/null | grep -Eq '^v24\.'; then
+       ! node -v 2>/dev/null | grep -Eq '^v(2[4-9]|[3-9][0-9]|[1-9][0-9]{2,})\.'; then
       nvm use 24 >/dev/null 2>&1
     fi
   fi
@@ -29,7 +29,7 @@ load_node_24() {
     fail "Node was not found on PATH"
 
   case "$(node -v 2>/dev/null)" in
-    v24.*) ;;
+    v2[4-9].*|v[3-9][0-9].*|v[1-9][0-9][0-9]*.*) ;;
     *) fail "Node 24.x is required" ;;
   esac
 }

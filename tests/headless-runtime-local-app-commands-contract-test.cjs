@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-assert.match(process.version, /^v24\./);
+assert.match(process.version, /^v(?:2[4-9]|[3-9]\d|[1-9]\d{2,})\./);
 
 const root = path.resolve(__dirname, '..');
 const read = (relative) =>

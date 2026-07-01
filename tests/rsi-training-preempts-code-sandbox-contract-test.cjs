@@ -14,7 +14,7 @@ const {
 );
 
 async function main() {
-  assert.match(process.version, /^v24\./);
+  assert.match(process.version, /^v(?:2[4-9]|[3-9]\d|[1-9]\d{2,})\./);
 
   const root = fs.mkdtempSync(
     path.join(
