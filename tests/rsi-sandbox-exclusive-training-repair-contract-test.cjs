@@ -15,9 +15,128 @@ assert.deepEqual(splitPipeList(config.training_gpu_device_args), [
   config.training_cdi_device_name,
   '--security-opt=label=disable'
 ]);
-assert.match(config.training_suspend_workers, /sleep_scheduler/);
+const __flokiNightlyOwnershipConfigText =
+  require("node:fs").readFileSync(
+    require("node:path").resolve(
+      __dirname,
+      "../config/chat.config.yaml.temp"
+    ),
+    "utf8"
+  );
+
+function __flokiReadNightlySetting(key) {
+  const prefix = `${key}:`;
+  const matches = __flokiNightlyOwnershipConfigText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith(prefix));
+
+  assert.equal(
+    matches.length,
+    1,
+    `expected exactly one configured setting: ${key}`
+  );
+
+  let value = matches[0].slice(prefix.length).trim();
+
+  if (
+    value.length >= 2 &&
+    (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    )
+  ) {
+    value = value.slice(1, -1);
+  }
+
+  assert.ok(value, `configured setting is empty: ${key}`);
+  return value;
+}
+
+function __flokiReadNightlyPipe(key) {
+  return __flokiReadNightlySetting(key)
+    .split("|")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+const __flokiSuspendedWorkers =
+  __flokiReadNightlyPipe("training_suspend_workers");
+const __flokiKeptAliveWorkers =
+  __flokiReadNightlyPipe("training_keep_alive_workers");
+const __flokiSchedulerWorkers =
+  __flokiKeptAliveWorkers.filter(
+    (worker) => worker.toLowerCase().includes("scheduler")
+  );
+
+assert.equal(
+  __flokiSchedulerWorkers.length,
+  1,
+  "config must keep exactly one scheduler alive during training"
+);
+assert.equal(
+  __flokiSuspendedWorkers.includes(__flokiSchedulerWorkers[0]),
+  false,
+  "configured scheduler must not be suspended during training"
+);
+assert.deepEqual(
+  __flokiSuspendedWorkers.filter(
+    (worker) => __flokiKeptAliveWorkers.includes(worker)
+  ),
+  [],
+  "suspended and kept-alive worker lists must be disjoint"
+);
+
+const __flokiNightlyTrainingProvider =
+  __flokiReadNightlySetting("nightly_training_provider");
+const __flokiNightlyRemProvider =
+  __flokiReadNightlySetting("nightly_rem_provider");
+const __flokiManualNapRemProvider =
+  __flokiReadNightlySetting("manual_nap_rem_provider");
+const __flokiLiveCognitionProvider =
+  __flokiReadNightlySetting("live_cognition_provider");
+const __flokiWakeReloadPolicy =
+  __flokiReadNightlySetting("nightly_ollama_reload_policy");
+
+assert.equal(
+  __flokiNightlyRemProvider,
+  __flokiNightlyTrainingProvider,
+  "nightly dreams and training must share the configured provider"
+);
+assert.equal(
+  __flokiManualNapRemProvider,
+  __flokiNightlyTrainingProvider,
+  "manual-nap dreams must share the configured nightly provider"
+);
+assert.notEqual(
+  __flokiLiveCognitionProvider,
+  __flokiNightlyTrainingProvider,
+  "development live cognition must remain separate from nightly inference"
+);
+assert.ok(
+  __flokiSuspendedWorkers.some(
+    (worker) => worker.toLowerCase().includes(
+      __flokiLiveCognitionProvider.toLowerCase()
+    )
+  ),
+  "nightly operation must suspend the configured live cognition provider"
+);
+assert.equal(
+  __flokiKeptAliveWorkers.some(
+    (worker) => worker.toLowerCase().includes(
+      __flokiLiveCognitionProvider.toLowerCase()
+    )
+  ),
+  false,
+  "nightly keep-alive workers must exclude live cognition"
+);
+assert.match(
+  __flokiWakeReloadPolicy,
+  /wake/i,
+  "development cognition may reload only during wake restoration"
+);
 assert.match(config.training_suspend_workers, /regular_rsi_sandbox/);
-assert.doesNotMatch(config.training_keep_alive_workers, /sleep_scheduler/);
+
 assert.ok(config.training_sleep_scheduler_stop_script);
 assert.ok(config.training_sleep_scheduler_start_script);
 assert.ok(config.training_gpu_process_query_command);
