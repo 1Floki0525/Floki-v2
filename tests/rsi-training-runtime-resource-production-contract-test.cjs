@@ -9,6 +9,7 @@ const { enterTrainingRuntimeResourceMode, exitTrainingRuntimeResourceMode } = re
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'floki-stage6-resource-'));
   const calls = [];
   let owner = 'ollama_cognition';
+  let ollamaLoaded = true;
   const config = { ollama_unload_endpoints: 'http://127.0.0.1:11434', ollama_ps_path: '/api/ps', ollama_unload_path: '/api/generate', ollama_unload_keep_alive_seconds: 0, ollama_unload_timeout_ms: 1000, ollama_reload_timeout_ms: 1000, gpu_owners: 'ollama_cognition|hf_training|hf_rem_inference|vision', gpu_ownership_lock_file: path.join(tmp, 'gpu-owner.json'), model: { name: 'production-cognition-model' } };
   const gpu = {
     currentOwner: () => owner,
@@ -20,13 +21,39 @@ const { enterTrainingRuntimeResourceMode, exitTrainingRuntimeResourceMode } = re
   };
   const httpJson = async ({ method, url, body }) => {
     calls.push(method + ':' + url);
-    if (url.endsWith('/api/ps')) return { ok: true, status: 200, json: { models: [{ name: 'production-cognition-model' }] } };
-    if (body && body.keep_alive === 0) return { ok: true, status: 200, json: { done: true } };
+    if (url.endsWith('/api/ps')) {
+      return {
+        ok: true,
+        status: 200,
+        json: {
+          models: ollamaLoaded
+            ? [{ name: 'production-cognition-model' }]
+            : []
+        }
+      };
+    }
+    if (body && body.keep_alive === 0) {
+      ollamaLoaded = false;
+      return {
+        ok: true,
+        status: 200,
+        json: { done: true }
+      };
+    }
     return { ok: true, status: 200, json: { done: true } };
   };
   const entered = await enterTrainingRuntimeResourceMode({ config, run_id: 'training-test', liveAudio: { setAwake: async (awake) => calls.push('audio:' + awake) }, visionReconciler: { reconcile: async (awake) => calls.push('vision:' + awake) }, knowledgeBootstrap: { stopAndWait: async () => { calls.push('knowledge:stop'); return true; } }, gpu, httpJson, queryGpuComputeProcesses: async () => [] });
   assert.equal(entered.ok, true);
   assert.equal(entered.gpu_owner, 'hf_training');
+  assert.equal(ollamaLoaded, false);
+  assert.equal(
+    entered.ollama_unload_verification.ok,
+    true
+  );
+  assert.deepEqual(
+    entered.ollama_unload_verification.loaded,
+    []
+  );
   assert.deepEqual(calls.slice(0, 3), ['audio:false', 'vision:false', 'knowledge:stop']);
   const exited = await exitTrainingRuntimeResourceMode({ config, gpu, httpJson, applyLifecycle: async () => calls.push('lifecycle:restore'), buildLifecycle: () => ({ is_awake: true }) });
   assert.equal(exited.ok, true);
