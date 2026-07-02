@@ -193,9 +193,8 @@ unload_configured_models() {
 'use strict';
 const { loadSelfImprovementConfig } = require('./src/self-improvement/config.cjs');
 const {
-  queryLoadedModels,
-  splitPipeList,
-  unloadAllLoaded
+  unloadAllLoaded,
+  waitForNoLoadedModels
 } = require('./src/self-improvement/training/ollama-control.cjs');
 (async () => {
   const config = loadSelfImprovementConfig();
@@ -203,21 +202,18 @@ const {
   if (!unload || unload.ok !== true) {
     throw new Error('configured Ollama unload failed: ' + JSON.stringify(unload));
   }
-  const remaining = [];
-  for (const endpoint of splitPipeList(config.ollama_unload_endpoints)) {
-    const listing = await queryLoadedModels(endpoint, {}, config);
-    if (!listing.ok) {
-      throw new Error('configured Ollama residency check failed: ' + endpoint);
-    }
-    for (const model of listing.models) remaining.push({ endpoint, model });
-  }
-  if (remaining.length > 0) {
-    throw new Error('configured Ollama models remain loaded: ' + JSON.stringify(remaining));
+  const settled = await waitForNoLoadedModels({}, config);
+  if (!settled.ok) {
+    throw new Error(
+      'configured Ollama models remain loaded after settlement deadline: ' +
+      JSON.stringify(settled.remaining)
+    );
   }
   process.stdout.write(JSON.stringify({
     ok: true,
     marker: 'FLOKI_RUNTIME_MODELS_UNLOADED',
-    remaining: []
+    remaining: [],
+    verification_attempts: settled.attempts
   }) + '\n');
 })().catch((error) => {
   console.error(error.stack || error.message);

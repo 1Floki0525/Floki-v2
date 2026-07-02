@@ -15,6 +15,7 @@ const { PROJECT_ROOT, getPathConfig, getLiveChatConfig, getControlPlaneConfig } 
 const { buildFlokiLifecycleStatus } = require('../chat/floki-lifecycle-status.cjs');
 const { readDreamEngineControl } = require('../chat/dream-engine-control.cjs');
 const { readChatWebcamVisionStatus } = require('../vision/chat-webcam-vision-service.cjs');
+const { readStatus: readRsiStatus } = require('../self-improvement/store.cjs');
 
 const MODULE_KEYS = Object.freeze([
   'floki_core',
@@ -82,6 +83,14 @@ function runtimeContext(runtimeDir) {
   const runtimePid = readPidFile(path.join(runtimeDir, 'chat-local-runtime.pid'));
   const schedulerPid = readPidFile(path.join(runtimeDir, 'sleep-cycle-scheduler.pid'));
   const visionPid = readPidFile(path.join(runtimeDir, 'chat-webcam-vision.pid'));
+  const rsiStatus = (() => {
+    try { return readRsiStatus(); } catch (_error) { return {}; }
+  })();
+  const rsiPid = readPidFile(path.join(
+    PROJECT_ROOT,
+    getPathConfig('chat').state_root || 'state/floki',
+    'self-improvement', 'runtime', 'worker.pid'
+  ));
   const now = Date.now();
 
   const hearingError = (currentStatus.hearing && (currentStatus.hearing.last_error || currentStatus.hearing.last_wake_gate_error)) || currentStatus.hearing_start_error || null;
@@ -95,6 +104,8 @@ function runtimeContext(runtimeDir) {
     runtimePid,
     schedulerPid,
     visionPid,
+    rsiStatus,
+    rsiPid: rsiStatus.worker_pid || rsiPid,
     now,
     hearingError,
     visionError
@@ -143,8 +154,14 @@ const STATUS_SOURCES = Object.freeze({
       : 'stopped'
   ),
   rsi: (ctx) => {
-    const status = (ctx.currentStatus.self_improvement || {});
-    return status.running === true || status.phase === 'active' ? 'running' : 'stopped';
+    const s = ctx.rsiStatus || {};
+    if (s.enabled === false) return 'stopped';
+    if (s.worker_running === true) return 'running';
+    if (s.current_run_id || s.current_container) return 'running';
+    const activeStates = ['starting', 'queued', 'researching', 'experimenting', 'verifying', 'training'];
+    if (activeStates.includes(String(s.state || ''))) return 'running';
+    if (s.last_error) return 'degraded';
+    return 'stopped';
   }
 });
 
@@ -225,15 +242,19 @@ function getModuleConfig(key) {
   const statusFn = STATUS_SOURCES[key] || (() => 'unknown');
   const status = statusFn(ctx);
 
+  const rsiRuntimeDir = path.resolve(PROJECT_ROOT, paths.state_root || 'state/floki', 'self-improvement', 'runtime');
+
   const heartbeatFile = (() => {
     if (key === 'sleep_scheduler') return path.join(runtimeDir, 'sleep-cycle-scheduler.heartbeat.json');
     if (key === 'vision') return path.join(runtimeDir, 'chat-webcam-vision.heartbeat.json');
+    if (key === 'rsi') return path.join(rsiRuntimeDir, 'worker.heartbeat.json');
     return path.join(runtimeDir, 'chat-local-runtime.heartbeat.json');
   })();
 
   const uptimeFile = (() => {
     if (key === 'sleep_scheduler') return path.join(runtimeDir, 'sleep-cycle-scheduler.pid');
     if (key === 'vision') return path.join(runtimeDir, 'chat-webcam-vision.pid');
+    if (key === 'rsi') return path.join(rsiRuntimeDir, 'worker.pid');
     return path.join(runtimeDir, 'chat-local-runtime.pid');
   })();
 

@@ -121,6 +121,10 @@ function readStatus(config = loadSelfImprovementConfig()) {
   const workerRunning = processAlive(pid);
   const workerHeartbeat = readWorkerHeartbeat(config);
   const sandboxHeartbeat = readSandboxHeartbeat(config);
+  const currentRunId = current?.current_run_id || null;
+  const sandboxHeartbeatMatchesRun = sandboxHeartbeat
+    && currentRunId
+    && sandboxHeartbeat.run_id === currentRunId;
   const activeWithoutWorker =
     !workerRunning &&
     ['starting', 'experimenting', 'verifying'].includes(
@@ -152,7 +156,7 @@ function readStatus(config = loadSelfImprovementConfig()) {
     worker_alive_at: workerRunning && workerHeartbeat
       ? workerHeartbeat.observed_at
       : null,
-    sandbox_alive_at: workerRunning && sandboxHeartbeat
+    sandbox_alive_at: workerRunning && sandboxHeartbeatMatchesRun
       ? sandboxHeartbeat.observed_at
       : null,
     ui_poll_ms: config.ui_poll_ms,
@@ -200,7 +204,6 @@ function updateStatus(patch, config = loadSelfImprovementConfig()) {
 }
 
 function touchWorkerHeartbeat(config = loadSelfImprovementConfig()) {
-  const p = ensureLayout(config);
   const file = path.join(config.runtime_root, config.worker_heartbeat_file_name || 'worker.heartbeat.json');
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const observed = nowIso();
@@ -211,10 +214,6 @@ function touchWorkerHeartbeat(config = loadSelfImprovementConfig()) {
     chat_mode_only: true,
     game_mode_started: false
   }, null, 2) + '\n', { mode: 0o600 });
-  const current = safeJson(p.statusFile, {}) || {};
-  const nowPatch = { last_heartbeat_at: observed };
-  if (current.worker_alive_at !== observed) nowPatch.worker_alive_at = observed;
-  atomicJson(p.statusFile, { ...current, ...nowPatch }, config);
 }
 
 function readWorkerHeartbeat(config = loadSelfImprovementConfig()) {
@@ -224,7 +223,6 @@ function readWorkerHeartbeat(config = loadSelfImprovementConfig()) {
 }
 
 function touchSandboxHeartbeat(config = loadSelfImprovementConfig(), runId) {
-  const p = ensureLayout(config);
   const file = path.join(config.runtime_root, config.sandbox_heartbeat_file_name || 'sandbox.heartbeat.json');
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const observed = nowIso();
@@ -236,10 +234,6 @@ function touchSandboxHeartbeat(config = loadSelfImprovementConfig(), runId) {
     chat_mode_only: true,
     game_mode_started: false
   }, null, 2) + '\n', { mode: 0o600 });
-  const current = safeJson(p.statusFile, {}) || {};
-  const nowPatch = { last_heartbeat_at: observed };
-  if (current.sandbox_alive_at !== observed) nowPatch.sandbox_alive_at = observed;
-  atomicJson(p.statusFile, { ...current, ...nowPatch }, config);
 }
 
 function readSandboxHeartbeat(config = loadSelfImprovementConfig()) {

@@ -79,6 +79,20 @@ function isNoCandidateSandboxFailure(message) {
   );
 }
 
+function classifyNoCandidateReason(message) {
+  const text = String(message || '').toLowerCase();
+  if (text.includes('iteration limit reached') || text.includes('iteration_limit')) return 'iteration_limit';
+  if (text.includes('wall-clock budget exceeded') || text.includes('wall_clock_limit')) return 'wall_clock_limit';
+  if (text.includes('implementation_has_no_workspace_change') || text.includes('no_workspace_change')) return 'no_source_change';
+  if (text.includes('model_request_failed') || text.includes('model_error')) return 'model_request_failure';
+  if (text.includes('tool_failure') || text.includes('tool_error')) return 'tool_failure';
+  if (text.includes('duplicate_experiment') || text.includes('duplicate experiment')) return 'duplicate_experiment_rejection';
+  if (text.includes('focused_test_failed') || text.includes('focused_verification_failed')) return 'focused_test_failure';
+  if (text.includes('sandbox_failure') || text.includes('container_failure')) return 'sandbox_container_failure';
+  if (text.includes('convergence policy ended') || text.includes('convergence_refusal')) return 'convergence_refusal';
+  return 'controlled_no_verified_candidate';
+}
+
 function noCandidateStatusPatch(message, execution, completedAt = nowIso()) {
   return Object.freeze({
     state: 'waiting_for_idle',
@@ -677,8 +691,8 @@ async function runCycle(options = {}) {
           run_id: snapshot.run_id,
           exit_code: exit.code,
           signal: exit.signal,
-          reason: 'no_verified_candidate',
-          error: message,
+          reason: classifyNoCandidateReason(message),
+          error: message.slice(0, 800),
           sandbox_log_file: execution.log_file
         },
         config
@@ -689,7 +703,7 @@ async function runCycle(options = {}) {
           run_id: snapshot.run_id,
           objective: cycleObjective,
           outcome: 'no_candidate',
-          reason: message.slice(0, 400),
+          reason: classifyNoCandidateReason(message),
           importance: 0.55
         });
       } catch (_) {}
@@ -741,7 +755,8 @@ async function runCycle(options = {}) {
       run_id: snapshot.run_id,
       exit_code: exit.code,
       signal: exit.signal,
-      reason: 'controlled_no_verified_candidate',
+      reason: classifyNoCandidateReason(completionSummary),
+      error: String(completionSummary || '').slice(0, 800),
       sandbox_log_file: execution.log_file
     }, config);
     try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
@@ -750,7 +765,7 @@ async function runCycle(options = {}) {
         run_id: snapshot.run_id,
         objective: cycleObjective,
         outcome: 'no_candidate',
-        reason: 'controlled_no_verified_candidate',
+        reason: classifyNoCandidateReason(completionSummary),
         importance: 0.55
       });
     } catch (_) {}

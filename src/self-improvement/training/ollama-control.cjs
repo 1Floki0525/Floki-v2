@@ -46,6 +46,82 @@ async function queryLoadedModels(endpoint, options = {}, config = loadSelfImprov
   return { endpoint, url, ok: Boolean(res && res.ok), models, raw: res };
 }
 
+async function waitForNoLoadedModels(
+  options = {},
+  config = loadSelfImprovementConfig()
+) {
+  const endpoints = splitPipeList(config.ollama_unload_endpoints);
+  const timeoutMs = Number(config.ollama_unload_timeout_ms);
+  const pollMs = Number(config.nightly_ollama_guard_poll_ms);
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
+    throw new Error(
+      'ollama_unload_timeout_ms must be a non-negative YAML number'
+    );
+  }
+  if (!Number.isFinite(pollMs) || pollMs <= 0) {
+    throw new Error(
+      'nightly_ollama_guard_poll_ms must be a positive YAML number'
+    );
+  }
+
+  const now = typeof options.now === 'function'
+    ? options.now
+    : Date.now;
+  const sleep = typeof options.sleep === 'function'
+    ? options.sleep
+    : (delayMs) =>
+        new Promise((resolve) => setTimeout(resolve, delayMs));
+
+  const deadline = now() + timeoutMs;
+  let attempts = 0;
+  let remaining = [];
+
+  while (true) {
+    attempts += 1;
+    remaining = [];
+
+    for (const endpoint of endpoints) {
+      const listing = await queryLoadedModels(
+        endpoint,
+        options,
+        config
+      );
+      if (!listing.ok) {
+        throw new Error(
+          'configured Ollama residency check failed: ' + endpoint
+        );
+      }
+      for (const model of listing.models) {
+        remaining.push({ endpoint, model });
+      }
+    }
+
+    if (remaining.length === 0) {
+      return Object.freeze({
+        ok: true,
+        attempts,
+        remaining: Object.freeze([])
+      });
+    }
+
+    const delayMs = Math.min(
+      pollMs,
+      Math.max(0, deadline - now())
+    );
+    if (delayMs <= 0) {
+      return Object.freeze({
+        ok: false,
+        attempts,
+        remaining: Object.freeze(
+          remaining.map((entry) => Object.freeze({ ...entry }))
+        )
+      });
+    }
+
+    await sleep(delayMs);
+  }
+}
+
 async function unloadModel(endpoint, model, options = {}, config = loadSelfImprovementConfig()) {
   const httpJson = options.httpJson || defaultHttpJson;
   const url = endpoint.replace(/\/$/, '') + config.ollama_unload_path;
@@ -144,6 +220,7 @@ module.exports = {
   queryLoadedModels,
   unloadModel,
   unloadAllLoaded,
+  waitForNoLoadedModels,
   reloadModel,
   splitPipeList
 };

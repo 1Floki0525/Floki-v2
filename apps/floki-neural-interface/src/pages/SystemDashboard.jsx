@@ -1,41 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import flokiAdapter from '@/integrations/floki/adapter'
-import { ServiceStatus } from '@/integrations/floki/types'
 import ServiceCard from '@/components/system/ServiceCard'
 import SystemControls from '@/components/system/SystemControls'
 import { FlaskConical, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
-
-function selfImprovementService(status) {
-  const failed = status?.state === 'failed' || Boolean(status?.last_error)
-  const running = status?.worker_running === true
-  const state = String(status?.state || 'unknown').replaceAll('_', ' ')
-  const phase = String(status?.phase || '').replaceAll('_', ' ')
-  return {
-    name: 'Recursive Self-Improvement',
-    status: failed
-      ? ServiceStatus.DEGRADED
-      : running
-        ? ServiceStatus.RUNNING
-        : ServiceStatus.STOPPED,
-    lastHeartbeat: status?.last_heartbeat_at
-      ? Date.parse(status.last_heartbeat_at)
-      : Date.now(),
-    uptime: status?.started_at
-      ? Math.max(0, Date.now() - Date.parse(status.started_at))
-      : 0,
-    latency: 0,
-    lastError: status?.last_error || null,
-    detail: [
-      running ? 'Worker running' : 'Worker stopped',
-      state,
-      phase
-    ].filter(Boolean).join(' · '),
-    restartAvailable: false,
-    logAvailable: true,
-    logKey: 'Self-Improvement Worker'
-  }
-}
 
 export default function SystemDashboard({ onNavigate }) {
   const [services, setServices] = useState([])
@@ -52,10 +20,7 @@ export default function SystemDashboard({ onNavigate }) {
       throw new Error('self_improvement.ui_poll_ms is invalid')
     }
     return {
-      rows: [
-        ...(Array.isArray(next) ? next : []),
-        selfImprovementService(rsiStatus)
-      ],
+      rows: Array.isArray(next) ? next : [],
       pollMs
     }
   }, [])
@@ -143,7 +108,7 @@ export default function SystemDashboard({ onNavigate }) {
               <div>
                 <div className="text-sm font-semibold">Recursive Self-Improvement</div>
                 {services.length > 0 && (() => {
-                  const rsi = services.find((s) => s.name === 'Recursive Self-Improvement');
+                  const rsi = services.find((s) => s.key === 'rsi');
                   return rsi ? (
                     <div className="text-xs text-muted-foreground mt-0.5">{rsi.detail || 'Self-improvement service'}</div>
                   ) : null;

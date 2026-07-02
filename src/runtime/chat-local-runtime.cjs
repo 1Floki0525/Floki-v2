@@ -2465,8 +2465,11 @@ function createChatLocalRuntime(options = {}) {
         );
         const rsiStatus = selfImprovementApi.status();
         const currentRunId = rsiStatus?.current_run_id || null;
-        const sandboxLogFile =
-          currentRunId ? (rsiStatus?.last_sandbox_log_file || null) : null;
+        const lastSandboxLogFile = rsiStatus?.last_sandbox_log_file || null;
+        const sandboxLogFile = currentRunId
+          ? lastSandboxLogFile
+          : lastSandboxLogFile;
+        const displayRunId = currentRunId || null;
         const parseActivityQueryInteger = (name, fallback) => {
           const raw = url.searchParams.get(name);
           if (raw == null || raw === '') return fallback;
@@ -2510,7 +2513,7 @@ function createChatLocalRuntime(options = {}) {
             next_audit_cursor: auditSize,
             next_sandbox_cursor: sandboxSize,
             sandbox_log_file: sandboxLogFile,
-            run_id: currentRunId,
+            run_id: displayRunId,
             phase: rsiStatus?.phase || null,
             ui_limits: uiLimits
           });
@@ -2545,7 +2548,7 @@ function createChatLocalRuntime(options = {}) {
 
         const runScopedSandboxEvents = filterActivityEventsForRun(
           sandboxChunk.events,
-          currentRunId
+          displayRunId || currentRunId
         );
         const merged = [
           ...auditChunk.events,
@@ -2566,7 +2569,7 @@ function createChatLocalRuntime(options = {}) {
           audit_cursor_reset: auditChunk.cursor_reset,
           sandbox_cursor_reset: sandboxChunk.cursor_reset,
           sandbox_log_file: sandboxLogFile,
-          run_id: currentRunId,
+          run_id: displayRunId,
           phase: rsiStatus?.phase || null,
           ui_limits: uiLimits
         });

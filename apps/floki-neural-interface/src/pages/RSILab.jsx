@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { ChevronDown, FlaskConical, Terminal, AlertTriangle } from 'lucide-react'
 import SelfImprovementPanel from '@/components/system/SelfImprovementPanel'
 import flokiAdapter from '@/integrations/floki/adapter'
-import { formatTorontoTime } from '@/lib/time'
 
 const SENSITIVE_PATTERN = /(?:api[_-]?key|token|secret|password|auth[_-]?header|authorization|cookie|credential)["\s:=]+["']?[A-Za-z0-9+/=_\-]{8,}/gi;
 
@@ -191,22 +190,22 @@ function expandToDisplayItems(item, limits) {
   }
 
   if (type === 'sandbox_started') {
-    return main(`[sandbox] started — ${de.run_id || ''}`, 'text-neon-cyan');
+    return main(`started — ${de.run_id || ''}`, 'text-neon-cyan');
   }
 
   if (type === 'cycle_no_candidate') {
-    return main(`[cycle end] no candidate — ${de.reason || ''}`, 'text-yellow-400');
+    return main(`no candidate — ${de.reason || ''}`, 'text-yellow-400');
   }
 
   if (type === 'cycle_failed') {
     const errText = safe(de.error, limits.terminal_selection_error_max_chars);
     const lines = outputLines(errText, limits.terminal_selection_error_max_lines, limits.terminal_selection_error_line_max_chars);
-    const header = `[cycle FAILED] ${(lines[0] || de.reason || '').slice(0, limits.terminal_summary_max_chars)}`;
+    const header = `FAILED: ${(lines[0] || de.reason || '').slice(0, limits.terminal_summary_max_chars)}`;
     return withOutput(header, 'text-red-400', lines.slice(1), 'text-red-300/60');
   }
 
   if (type === 'cycle_preempted') {
-    return main(`[preempted] ${de.reason || ''}`, 'text-muted-foreground/60');
+    return main(`preempted — ${de.reason || ''}`, 'text-muted-foreground/60');
   }
 
   if (type === 'fatal') {
@@ -251,8 +250,8 @@ function expandToDisplayItems(item, limits) {
     return main(`[APPROVED] ${de.candidate_id || ''}`, 'text-emerald-400 font-bold');
   }
 
-  if (type === 'worker_started') return main('[worker] started', 'text-neon-cyan/60');
-  if (type === 'worker_cycle_start') return main('[worker] cycle starting', 'text-neon-cyan/60');
+  if (type === 'worker_started') return main('started', 'text-neon-cyan/60');
+  if (type === 'worker_cycle_start') return main('cycle starting', 'text-neon-cyan/60');
 
   // Skip extremely noisy low-value events entirely
   if (['finalize_git_add', 'sandbox_heartbeat', 'worker_heartbeat'].includes(type)) return [];
@@ -324,13 +323,15 @@ function RSITerminal() {
   useEffect(() => {
     activeRef.current = true;
     let timer = null;
+    let generation = 0;
+    let lastAppliedGeneration = 0;
+    let lastKnownRunId = runIdRef.current;
+    let lastKnownLogFile = sandboxLogFileRef.current;
 
     const poll = async () => {
       if (!activeRef.current) return;
+      const thisGeneration = ++generation;
       try {
-        // On first load, backfill the current run from the TOP (cursor 0) so the
-        // terminal reads top-down with full scrollback, exactly like a real
-        // terminal session. Afterwards, tail incrementally from the saved cursor.
         if (!uiLimitsRef.current) {
           const uiStatus = await flokiAdapter.getSelfImprovementStatus();
           const configuredLimits = uiStatus?.ui_limits;
@@ -346,31 +347,39 @@ function RSITerminal() {
 
         const result = await flokiAdapter.getSelfImprovementActivity(params);
         if (!activeRef.current) return;
+        if (thisGeneration <= lastAppliedGeneration) return;
+        lastAppliedGeneration = thisGeneration;
 
         if (result?.ok) {
           if (result.ui_limits) uiLimitsRef.current = result.ui_limits;
           const newRunId = result.run_id || null;
           const newSandboxFile = result.sandbox_log_file || null;
 
-          // A new sandbox run started: clear the view and backfill the new log
-          // from the top on the next poll (cursor reset to 0). Skip appending
-          // this round so we don't mix events read at the old offset.
-          if (!isInit && newSandboxFile !== sandboxLogFileRef.current) {
+          const runChanged = newRunId && newRunId !== lastKnownRunId;
+          const logChanged = newSandboxFile && newSandboxFile !== lastKnownLogFile;
+
+          if (!isInit && (runChanged || logChanged) && newRunId && newSandboxFile) {
+            lastKnownRunId = newRunId;
+            lastKnownLogFile = newSandboxFile;
             sandboxLogFileRef.current = newSandboxFile;
             sandboxCursorRef.current = 0;
             pendingEventsRef.current = [];
             setPendingCount(0);
             setEvents([]);
             setAtBottom(true);
-            if (newRunId !== runIdRef.current) { runIdRef.current = newRunId; setRunId(newRunId); }
+            runIdRef.current = newRunId;
+            setRunId(newRunId);
             if (result.phase) setPhase(result.phase);
             setError(null);
           } else {
             if (isInit) {
+              lastKnownRunId = newRunId;
+              lastKnownLogFile = newSandboxFile;
               sandboxLogFileRef.current = newSandboxFile;
               runIdRef.current = newRunId;
               setRunId(newRunId);
-            } else if (newRunId !== runIdRef.current) {
+            } else if (newRunId && newRunId !== runIdRef.current) {
+              lastKnownRunId = newRunId;
               runIdRef.current = newRunId;
               setRunId(newRunId);
             }
@@ -378,7 +387,6 @@ function RSITerminal() {
             auditCursorRef.current = result.next_audit_cursor ?? (auditCursorRef.current ?? 0);
             sandboxCursorRef.current = result.next_sandbox_cursor ?? (sandboxCursorRef.current ?? 0);
 
-            // Expand each API event into one or more display lines (top-down order)
             const displayItems = (result.events || []).flatMap(item => {
               try { return expandToDisplayItems(item, uiLimitsRef.current); } catch (error) { setError(error.message); return []; }
             });
@@ -444,18 +452,12 @@ function RSITerminal() {
         )}
         {events.map((item) => (
           item.isOutput ? (
-            <div key={item.id} className={`pl-[5.5rem] py-px whitespace-pre-wrap break-words ${item.color}`}>
+            <div key={item.id} className={`pl-4 py-px whitespace-pre-wrap break-words ${item.color}`}>
               {item.text}
             </div>
           ) : (
-            <div key={item.id} className={`flex gap-2 py-px ${item.color}`}>
-              <span className="text-muted-foreground/25 flex-none w-[4.5rem] text-right overflow-hidden text-ellipsis whitespace-nowrap">
-                {item.ts ? formatTorontoTime(item.ts) : '--:--:--'}
-              </span>
-              <span className="flex-none text-[9px] uppercase px-1 rounded border border-current/20 bg-current/5 leading-tight self-start mt-0.5">
-                {item.source === 'controller' ? 'ctrl' : item.source === 'sandbox' ? 'sbox' : '    '}
-              </span>
-              <span className="break-words min-w-0 whitespace-pre-wrap">{item.text}</span>
+            <div key={item.id} className={`py-px ${item.color}`}>
+              <span className="break-words whitespace-pre-wrap">{item.text}</span>
             </div>
           )
         ))}

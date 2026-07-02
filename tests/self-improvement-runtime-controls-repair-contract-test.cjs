@@ -49,8 +49,8 @@ assert.doesNotMatch(agent, /host\.containers\.internal/);
 
 const system = text('apps/floki-neural-interface/src/pages/SystemDashboard.jsx');
 assert.match(system, /Recursive Self-Improvement/);
-assert.match(system, /selfImprovementService/);
 assert.match(system, /getSelfImprovementStatus/);
+assert.match(system, /s\.key === 'rsi'/);
 assert.match(system, /pollMsRef/);
 assert.match(system, /setTimeout\(run,\s*pollMsRef\.current\)/);
 

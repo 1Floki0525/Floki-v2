@@ -55,7 +55,20 @@ config/game.config.yaml
 **/__pycache__/
 **/*.pyc
 
+# Playwright MCP session artifacts
+.playwright-mcp/
+
 # Private local configuration and credentials
 /hearing-speech-fix-report.txt
+
+# Android (apps/Floki-mobile-app)
+apps/Floki-mobile-app/.gradle/
+apps/Floki-mobile-app/.kotlin/
+apps/Floki-mobile-app/build/
+apps/Floki-mobile-app/app/build/
+apps/Floki-mobile-app/local.properties
+apps/Floki-mobile-app/*.apk
+apps/Floki-mobile-app/*.jks
+apps/Floki-mobile-app/*.keystore
 
 /.claude/
