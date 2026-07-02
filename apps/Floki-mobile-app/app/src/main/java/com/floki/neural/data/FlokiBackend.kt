@@ -263,6 +263,18 @@ class FlokiBackend(profile: ServerProfile) {
         })
     }
 
+    fun visionFrameUrl(): String = "$baseUrl/interface/vision/frame/latest.jpg"
+
+    suspend fun getBytes(path: String): ByteArray = withContext(Dispatchers.IO) {
+        val response = client.newCall(
+            Request.Builder().url(url(path)).get().build()
+        ).execute()
+        if (!response.isSuccessful) {
+            throw FlokiHttpException("HTTP ${response.code} for $path")
+        }
+        response.body.bytes()
+    }
+
     fun close() {
         client.dispatcher.executorService.shutdown()
         client.connectionPool.evictAll()

@@ -122,6 +122,8 @@ data class FlokiUiState(
     val candidates: List<CandidateItem> = emptyList(),
     val rsiActivity: List<RsiActivityItem> = emptyList(),
     val rsiTerminalError: String? = null,
+    val visionFrameBytes: ByteArray? = null,
+    val visionFrameGeneration: Int = 0,
     val message: String? = null,
     val error: String? = null
 )
@@ -133,6 +135,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     private var socket: WebSocket? = null
     private var pollingJob: Job? = null
     private var activityPollingJob: Job? = null
+    private var visionPollingJob: Job? = null
     private var reconnectJob: Job? = null
     private var transportGeneration = 0
 
@@ -307,6 +310,25 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun flushVisionFrame() {
+        _state.update { it.copy(visionFrameBytes = null) }
+    }
+
+    fun refreshVisionFrame() {
+        viewModelScope.launch {
+            try {
+                val bytes = backend.getBytes("/interface/vision/frame/latest.jpg")
+                _state.update {
+                    it.copy(
+                        visionFrameBytes = bytes,
+                        visionFrameGeneration = it.visionFrameGeneration + 1
+                    )
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     fun sendChat(text: String) {
         val value = text.trim()
         if (value.isBlank()) return
@@ -431,6 +453,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         reconnectJob?.cancel()
         pollingJob?.cancel()
         activityPollingJob?.cancel()
+        visionPollingJob?.cancel()
         socket?.close(1000, "profile changed")
         backend.close()
 
@@ -461,6 +484,13 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             while (isActive && generation == transportGeneration) {
                 delay(2_000L)
                 refreshRsiActivity()
+            }
+        }
+
+        visionPollingJob = viewModelScope.launch {
+            while (isActive && generation == transportGeneration) {
+                delay(500L)
+                refreshVisionFrame()
             }
         }
     }
@@ -517,6 +547,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         reconnectJob?.cancel()
         pollingJob?.cancel()
         activityPollingJob?.cancel()
+        visionPollingJob?.cancel()
         socket?.close(1000, "app closing")
         backend.close()
     }

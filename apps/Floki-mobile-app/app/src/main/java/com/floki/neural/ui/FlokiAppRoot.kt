@@ -1,5 +1,6 @@
 package com.floki.neural.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +68,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -86,6 +89,7 @@ import com.floki.neural.ui.theme.NeonCyan
 import com.floki.neural.ui.theme.NeonGreen
 import com.floki.neural.ui.theme.NeonRed
 import com.floki.neural.ui.theme.NeonViolet
+import android.graphics.BitmapFactory
 import java.text.DateFormat
 import java.util.Date
 
@@ -101,6 +105,7 @@ private val ACTIVE_RSI_STATUSES = setOf(
 
 private enum class MobileTab(val label: String, val icon: ImageVector) {
     CHAT("Chat", Icons.AutoMirrored.Filled.Chat),
+    VISION("Vision", Icons.Filled.Visibility),
     DREAMS("Dreams", Icons.Filled.Bedtime),
     NEURAL("Neural", Icons.Filled.Timeline),
     SYSTEM("System", Icons.Filled.Build),
@@ -153,6 +158,7 @@ fun FlokiMobileApp(vm: FlokiViewModel = viewModel()) {
             MessageBanner(state = state, onClear = vm::clearMessage)
             when (tab) {
                 MobileTab.CHAT -> ChatScreen(state, vm)
+                MobileTab.VISION -> VisionScreen(state, vm)
                 MobileTab.DREAMS -> DreamsScreen(state, vm)
                 MobileTab.NEURAL -> NeuralScreen(state)
                 MobileTab.SYSTEM -> SystemScreen(state, vm)
@@ -777,6 +783,83 @@ private fun RsiTerminalScreen(state: FlokiUiState, vm: FlokiViewModel) {
                         fontFamily = FontFamily.Monospace,
                         fontSize = 9.sp,
                         modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VisionScreen(state: FlokiUiState, vm: FlokiViewModel) {
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(FlokiSurface)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "VISION FEED",
+                color = NeonCyan,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                "gen #${state.visionFrameGeneration}",
+                color = FlokiTextDim,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 9.sp
+            )
+            Spacer(Modifier.width(8.dp))
+            IconButton(onClick = { vm.flushVisionFrame() }) {
+                Icon(Icons.Filled.Refresh, contentDescription = "Flush vision frame", tint = NeonCyan)
+            }
+        }
+
+        val bytes = state.visionFrameBytes
+        if (bytes == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.38f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Waiting for vision feed…",
+                    color = FlokiTextDim,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp
+                )
+            }
+        } else {
+            val bitmap = remember(bytes) {
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Vision feed",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black),
+                    contentScale = ContentScale.Fit
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.38f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Failed to decode frame",
+                        color = NeonRed,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp
                     )
                 }
             }
