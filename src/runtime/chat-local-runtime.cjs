@@ -270,6 +270,94 @@ function filterActivityEventsForRun(events, currentRunId) {
   });
 }
 
+async function safeExistingFileWithin(root, candidate) {
+  if (!root || !candidate) return null;
+  try {
+    const rootPath = await fs.promises.realpath(path.resolve(root));
+    const candidatePath = await fs.promises.realpath(path.resolve(candidate));
+    const relative = path.relative(rootPath, candidatePath);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      return null;
+    }
+    const stat = await fs.promises.stat(candidatePath);
+    return stat.isFile() ? candidatePath : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function statExistingFileWithin(root, candidate) {
+  const filePath = await safeExistingFileWithin(root, candidate);
+  if (!filePath) return null;
+  const stat = await fs.promises.stat(filePath);
+  if (!stat.isFile()) return null;
+  return Object.freeze({ filePath, stat });
+}
+
+function pipeFileResponse(res, source, headers) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    res.once('error', fail);
+    res.once('finish', finish);
+    if (Buffer.isBuffer(source)) {
+      res.writeHead(200, headers);
+      res.end(source);
+      return;
+    }
+    const stream = fs.createReadStream(source);
+    stream.once('error', fail);
+    res.writeHead(200, headers);
+    stream.pipe(res);
+  });
+}
+
+const FRAME_SNAPSHOT_MAX_ATTEMPTS = 4;
+const FRAME_SNAPSHOT_RETRY_DELAY_MS = 40;
+const JPEG_SOI = Buffer.from([0xff, 0xd8]);
+const JPEG_EOI = Buffer.from([0xff, 0xd9]);
+
+async function readStableFrameSnapshot(filePath, maxBytes) {
+  for (let attempt = 0; attempt < FRAME_SNAPSHOT_MAX_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await sleep(FRAME_SNAPSHOT_RETRY_DELAY_MS);
+    let handle = null;
+    try {
+      handle = await fs.promises.open(filePath, 'r');
+      const before = await handle.stat();
+      if (!before.isFile() || before.size < 4 || before.size > maxBytes) continue;
+      const buffer = Buffer.allocUnsafe(before.size);
+      const { bytesRead } = await handle.read(buffer, 0, before.size, 0);
+      const after = await handle.stat();
+      const unchanged =
+        bytesRead === before.size &&
+        after.size === before.size &&
+        Number(after.mtimeMs) === Number(before.mtimeMs);
+      const completeJpeg =
+        buffer[0] === JPEG_SOI[0] &&
+        buffer[1] === JPEG_SOI[1] &&
+        buffer[bytesRead - 2] === JPEG_EOI[0] &&
+        buffer[bytesRead - 1] === JPEG_EOI[1];
+      if (unchanged && completeJpeg) {
+        return Object.freeze({ buffer, stat: after });
+      }
+    } catch (_error) {
+      // Producer may be replacing the frame mid-attempt; retry within bounds.
+    } finally {
+      if (handle) await handle.close().catch(() => undefined);
+    }
+  }
+  return null;
+}
+
 function memoryPathsWritable() {
   const candidates = [
     path.join(ROOT, 'state/floki/memories'),
@@ -2581,6 +2669,84 @@ function createChatLocalRuntime(options = {}) {
       }
       return;
     }
+    if (req.method === 'GET' && url.pathname === '/interface/vision/frame/latest.jpg') {
+      try {
+        const visionPaths = visionRuntimePaths({ runtime_dir: runtimeDir });
+        const frame = await statExistingFileWithin(
+          visionPaths.runtime_dir,
+          visionPaths.latest_frame_file
+        );
+        if (!frame) {
+          sendJson(res, 404, {
+            ok: false,
+            error: 'no frame available',
+            reason: 'missing_frame'
+          });
+          return;
+        }
+        const maxFrameBytes = Math.max(
+          4096,
+          Number(getVisionConfig('chat').latest_frame_max_bytes || 8 * 1024 * 1024)
+        );
+        if (frame.stat.size > maxFrameBytes) {
+          sendJson(res, 413, {
+            ok: false,
+            error: 'latest frame exceeds configured frame transport bound',
+            reason: 'frame_too_large',
+            frame_bytes: frame.stat.size,
+            max_frame_bytes: maxFrameBytes
+          });
+          return;
+        }
+        const mtimeMs = Number(frame.stat.mtimeMs || 0);
+        const ageMs = Math.max(0, Date.now() - mtimeMs);
+        const liveChat = getLiveChatConfig('chat');
+        const runtimeHeartbeatStaleMs = Math.max(
+          3000,
+          3 * Number(liveChat.runtime_heartbeat_ms || 1000)
+        );
+        const staleMs = Math.max(
+          runtimeHeartbeatStaleMs,
+          Number(getVisionConfig('chat').latest_frame_stale_ms || 0)
+        );
+        if (!Number.isFinite(mtimeMs) || mtimeMs <= 0 || ageMs > staleMs) {
+          sendJson(res, 409, {
+            ok: false,
+            error: 'latest frame is stale',
+            reason: 'stale_frame',
+            frame_timestamp: frame.stat.mtime.toISOString(),
+            frame_age_ms: ageMs,
+            stale_after_ms: staleMs
+          });
+          return;
+        }
+        const snapshot = await readStableFrameSnapshot(frame.filePath, maxFrameBytes);
+        if (!snapshot) {
+          res.setHeader('Retry-After', '1');
+          sendJson(res, 503, {
+            ok: false,
+            error: 'latest frame is being replaced; no stable snapshot obtained',
+            reason: 'frame_snapshot_unstable',
+            retryable: true
+          });
+          return;
+        }
+        const snapshotMtimeMs = Number(snapshot.stat.mtimeMs || mtimeMs);
+        const snapshotAgeMs = Math.max(0, Date.now() - snapshotMtimeMs);
+        await pipeFileResponse(res, snapshot.buffer, {
+          'Content-Type': 'image/jpeg',
+          'Content-Length': snapshot.buffer.length,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+          'X-Floki-Frame-Timestamp': new Date(snapshotMtimeMs).toISOString(),
+          'X-Floki-Frame-Age-Ms': String(snapshotAgeMs)
+        });
+      } catch (error) {
+        sendJson(res, 500, { ok: false, error: error.message });
+      }
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/speak') {
       const body = await bodyJson(req);
       const text = String(body.text || '').trim();
@@ -2807,5 +2973,7 @@ module.exports = {
   toFirstPersonInnerExperience,
   visionObservationTimestamp,
   waitForFreshVision,
+  pipeFileResponse,
+  readStableFrameSnapshot,
   createChatLocalRuntime
 };
