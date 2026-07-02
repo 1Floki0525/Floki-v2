@@ -12,6 +12,9 @@ const {
 } = require('../util/fs-safe.cjs');
 const { appendJsonlSync } = require('../util/jsonl.cjs');
 const { runDreamEngineOnce } = require('./dream-engine.cjs');
+const {
+  readDreamEngineControl
+} = require('./dream-engine-control.cjs');
 const { computeBackoffSeconds } = require('./dream-novelty.cjs');
 const { runPreRemMemoryPreparation } = require('./pre-rem-memory-preparation.cjs');
 
@@ -321,6 +324,42 @@ function stateFile(options = {}) {
 function eventsFile(options = {}) {
   return options.events_file || DEFAULT_EVENTS_FILE;
 }
+
+function dreamEngineControlForTick(options = {}) {
+  if (
+    Object.prototype.hasOwnProperty.call(
+      options,
+      'dream_engine_control'
+    )
+  ) {
+    const provided = options.dream_engine_control || {};
+    return Object.freeze({
+      enabled: provided.enabled !== false,
+      reason: String(
+        provided.reason || 'provided_by_caller'
+      ),
+      control_file: provided.control_file || null
+    });
+  }
+
+  const customStateFile = (
+    options.state_file &&
+    path.resolve(options.state_file) !==
+      path.resolve(DEFAULT_STATE_FILE)
+  );
+  if (customStateFile) {
+    return Object.freeze({
+      enabled: true,
+      reason: 'isolated_state_default_enabled',
+      control_file: null
+    });
+  }
+
+  return readDreamEngineControl({
+    runtime_dir: options.runtime_dir
+  });
+}
+
 
 function createSleepCycleState(options = {}) {
   const now = nowDate(options);
@@ -724,6 +763,42 @@ async function runSleepCycleTick(options = {}) {
     }
   }
 
+  const dreamControl = dreamEngineControlForTick(options);
+  if (dreamControl.enabled !== true) {
+    if (stateDirty) saveSleepCycleState(state, options);
+    const suspendedStatus = Object.freeze({
+      ok: true,
+      marker: 'FLOKI_V2_SLEEP_CYCLE_CONTRACT_PASS',
+      sleep_cycle_active: true,
+      sleep_window_start: state.sleep_window_start,
+      sleep_window_end: state.sleep_window_end,
+      within_sleep_window: true,
+      rem_cycles_total: state.rem_cycles.length,
+      rem_cycles_completed: countCycles(state, 'complete'),
+      rem_cycles_pending: countCycles(state, 'pending'),
+      interrupted_now: interruptedNow,
+      resumed_after_idle: resumedAfterIdle,
+      idle_resume_seconds: state.idle_resume_seconds,
+      pre_rem_memory_consolidation:
+        state.pre_rem_memory_consolidation || null,
+      dream_engine_enabled: false,
+      dream_generation_suspended: true,
+      dream_engine_control_reason:
+        dreamControl.reason || null,
+      dream_engine_control_file:
+        dreamControl.control_file || null,
+      dreams_generated_this_tick: 0,
+      dream_files_written: [],
+      chat_mode_only: true,
+      game_mode_started: false
+    });
+    return Object.freeze({
+      ...suspendedStatus,
+      report_file:
+        writeSleepCycleReport(suspendedStatus, options)
+    });
+  }
+
   const preRem = await ensurePreRemMemoryConsolidation(state, options);
   state = preRem.state;
   const dreamRunner = options.dream_runner || runDreamEngineOnce;
@@ -914,6 +989,8 @@ async function runSleepCycleTick(options = {}) {
     resumed_after_idle: resumedAfterIdle,
     idle_resume_seconds: state.idle_resume_seconds,
     pre_rem_memory_consolidation: state.pre_rem_memory_consolidation || null,
+    dream_engine_enabled: true,
+    dream_generation_suspended: false,
     dreams_generated_this_tick: dreamsGenerated,
     dream_files_written: dreamFilesWritten,
     chat_mode_only: true,
@@ -971,6 +1048,7 @@ module.exports = {
   shouldResumeSleepAfterIdle,
   recordWakeActivityIfSleeping,
   ensurePreRemMemoryConsolidation,
+  dreamEngineControlForTick,
   runSleepCycleTick,
   printSleepCycleProof
 };

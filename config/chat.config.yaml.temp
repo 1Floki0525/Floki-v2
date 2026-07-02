@@ -1319,3 +1319,21 @@ self_improvement:
   training_rem_claim_file: "state/floki/self-improvement/rem-claims.json"
   training_segment_min_seconds: 60
   training_checkpoint_before_rem: true
+
+control_plane:
+  supervisor_host: "127.0.0.1"
+  supervisor_port: 7710
+  supervisor_omen_listen_port: 17701
+  supervisor_public_key_path: "state/floki/control-plane/supervisor.pub"
+  supervisor_signature_skew_seconds: 30
+  supervisor_nonce_window_seconds: 300
+  supervisor_operation_timeout_ms: 360000
+  supervisor_log_subdir: "supervisor"
+  supervisor_log_file_name: "floki-control-supervisor.log"
+  supervisor_pid_file_name: "floki-control-supervisor.pid"
+  module_log_subdir: "module-logs"
+  module_log_max_lines: 4000
+  module_log_tail_default_lines: 200
+  module_log_max_source_bytes: 2000000
+  lifecycle_verify_timeout_ms: 30000
+  lifecycle_verify_poll_ms: 500

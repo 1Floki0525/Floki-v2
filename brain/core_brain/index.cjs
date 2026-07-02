@@ -437,35 +437,145 @@ async function handleChatText(core, text, options = {}) {
   const routeOutput = thalamus.routeEvent(event);
   const understandingOutput = temporal.understandEvent(event);
   const salienceOutput = amygdala.computeSalience(event);
-  const affectDelta = emotions.affectDeltaFromSalience(salienceOutput);
-  const affectOutput = emotions.applyAffectDelta(affectDelta);
-  const affectSummary = summarizeAffectForMemory(affectOutput.payload.state);
+  const emotionEnabled = options.emotion_enabled !== false;
+  let affectOutput;
+  let affectSummary;
 
-  const memoryOutput = hippocampus.rememberEvent(event, {
-    stream: 'short_term',
-    type: 'experience',
-    tags: ['terminal_chat', 'core_brain', 'qwen_cognition', 'broca_speech', understandingOutput.payload.intent_hint],
-    importance: salienceOutput.payload.salience.memory_importance_hint,
-    affect: {
-      valence: affectSummary.valence,
-      arousal: affectSummary.arousal
-    }
-  });
+  if (emotionEnabled) {
+    const affectDelta = emotions.affectDeltaFromSalience(salienceOutput);
+    affectOutput = emotions.applyAffectDelta(affectDelta);
+    affectSummary = summarizeAffectForMemory(
+      affectOutput.payload.state
+    );
+  } else {
+    const frozenAffectState = emotions.loadAffectState({
+      persist_diagnostics: false
+    });
+    affectSummary = summarizeAffectForMemory(frozenAffectState);
+    affectOutput = Object.freeze({
+      id: null,
+      type: 'affect_snapshot',
+      source: 'emotions_base',
+      payload: Object.freeze({
+        previous: affectSummary,
+        current: affectSummary,
+        state: frozenAffectState
+      }),
+      diagnostics: Object.freeze({
+        module: 'emotions_base',
+        status: 'emotion_stopped',
+        affect_write_performed: false
+      })
+    });
+  }
 
-  const personalityOutput = personality.updateFromMemory(memoryOutput.payload.record);
-  const identityOutput = pineal.updateFromMemory(
-    memoryOutput.payload.record,
-    personalityOutput.payload.current,
-    { runtime_capabilities: runtimeCapabilities }
-  );
+  const memoryEnabled = options.memory_enabled !== false;
+  let memoryOutput;
+  let personalityOutput;
+  let identityOutput;
+  let recallOutput;
+  let memoryMatches;
+  let knowledgeContext;
 
-  const recallOutput = hippocampus.recall({
-    text,
-    streams: ['short_term', 'episodic', 'semantic', 'autobiographical'],
-    limit: 5
-  });
-  const memoryMatches = memoryMatchesForContext(recallOutput, [memoryOutput.payload.record.id]);
-  const knowledgeContext = retrieveKnowledgeContext(text, { limit: 8 });
+  if (memoryEnabled) {
+    memoryOutput = hippocampus.rememberEvent(event, {
+      stream: 'short_term',
+      type: 'experience',
+      tags: ['terminal_chat', 'core_brain', 'qwen_cognition', 'broca_speech', understandingOutput.payload.intent_hint],
+      importance: salienceOutput.payload.salience.memory_importance_hint,
+      affect: {
+        valence: affectSummary.valence,
+        arousal: affectSummary.arousal
+      }
+    });
+
+    personalityOutput = personality.updateFromMemory(
+      memoryOutput.payload.record
+    );
+    identityOutput = pineal.updateFromMemory(
+      memoryOutput.payload.record,
+      personalityOutput.payload.current,
+      { runtime_capabilities: runtimeCapabilities }
+    );
+
+    recallOutput = hippocampus.recall({
+      text,
+      streams: ['short_term', 'episodic', 'semantic', 'autobiographical'],
+      limit: 5
+    });
+    memoryMatches = memoryMatchesForContext(
+      recallOutput,
+      [memoryOutput.payload.record.id]
+    );
+    knowledgeContext = retrieveKnowledgeContext(text, { limit: 8 });
+  } else {
+    const personalityState = personality.loadPersonalityState({
+      persist_diagnostics: false
+    });
+    const identityState = pineal.loadIdentityState({
+      persist_diagnostics: false
+    });
+    const personalityCurrent =
+      personality.summarizePersonality(personalityState);
+    const identityCurrent =
+      pineal.summarizeIdentity(identityState);
+
+    memoryOutput = Object.freeze({
+      id: null,
+      type: 'memory_disabled',
+      source: 'hippocampus',
+      payload: Object.freeze({
+        disabled: true,
+        record: null
+      }),
+      diagnostics: Object.freeze({
+        module: 'hippocampus',
+        status: 'memory_stopped',
+        writes_performed: false
+      })
+    });
+    personalityOutput = Object.freeze({
+      id: null,
+      type: 'personality_snapshot',
+      source: 'personality',
+      payload: Object.freeze({
+        previous: personalityCurrent,
+        current: personalityCurrent,
+        state: personalityState
+      })
+    });
+    identityOutput = Object.freeze({
+      id: null,
+      type: 'identity_snapshot',
+      source: 'pineal',
+      payload: Object.freeze({
+        previous: identityCurrent,
+        current: identityCurrent,
+        state: identityState
+      })
+    });
+    recallOutput = Object.freeze({
+      id: null,
+      type: 'memory_recall_disabled',
+      source: 'hippocampus',
+      payload: Object.freeze({
+        disabled: true,
+        matches: Object.freeze([])
+      })
+    });
+    memoryMatches = Object.freeze([]);
+    knowledgeContext = Object.freeze({
+      knowledge_retrieval_run_now: false,
+      persistent_knowledge_used: false,
+      knowledge_chunk_count_total: 0,
+      knowledge_matches: Object.freeze([]),
+      memory_enabled: false,
+      model_called_now: false,
+      network_called_now: false,
+      chat_mode_only: true,
+      game_mode_started: false
+    });
+  }
   if (trace) trace.emit('memory_context_ready', { memory_match_count: memoryMatches.length, knowledge_match_count: knowledgeContext.knowledge_matches.length });
 
   const brocaContext = {
@@ -586,7 +696,9 @@ async function handleChatText(core, text, options = {}) {
     salienceOutput,
     affectOutput,
     affectSummary,
+    emotionEnabled,
     memoryOutput,
+    memoryEnabled,
     personalityOutput,
     identityOutput,
     recallOutput,

@@ -238,6 +238,7 @@ function createLiveAudioService(options = {}) {
 
   function snapshot(extra = {}) {
     refreshComponentState();
+    const piperStatus = piper ? piper.status() : null;
     return Object.freeze({
       ok: !state.last_error,
       marker: 'FLOKI_V2_LIVE_AUDIO_STATUS',
@@ -252,7 +253,8 @@ function createLiveAudioService(options = {}) {
       rolling_buffer_ms: rollingBufferFrames * frameMs,
       vad_endpoint_silence_frames: vadEndpointSilenceFrames,
       whisper: whisper.status(),
-      piper: piper ? piper.status() : null,
+      speech_enabled: piperStatus ? piperStatus.enabled !== false : false,
+      piper: piperStatus,
       ...extra
     });
   }
@@ -468,7 +470,12 @@ function createLiveAudioService(options = {}) {
         sequence: state.utterances_completed,
         source
       });
-      if (response && response.reply && interfaceSettings.voice.speakerEnabled === true) {
+      if (
+        response &&
+        response.reply &&
+        piper.status().enabled !== false &&
+        interfaceSettings.voice.speakerEnabled === true
+      ) {
         if (typeof options.on_tts_start === 'function') options.on_tts_start({ utterance_id: utteranceId, started_at: nowIso(), text: response.reply });
         await piper.speak(response.reply, { utterance_id: utteranceId, text_hash: 'live_audio_' + String(response.reply.length) });
         state.last_reply_spoken_at = nowIso();
@@ -1184,12 +1191,32 @@ function createLiveAudioService(options = {}) {
     else voiceLock.endSpeaking({ reason: 'test_inject' });
   }
 
+
+  function setSpeechEnabled(enabled) {
+    if (!piper || typeof piper.setEnabled !== 'function') {
+      throw new Error('Piper speech enable control is unavailable');
+    }
+    const result = piper.setEnabled(enabled === true);
+    publish({
+      speech_control_changed: result.changed === true,
+      speech_control_enabled: result.enabled === true
+    });
+    return snapshot({
+      speech_control_changed: result.changed === true,
+      speech_control_enabled: result.enabled === true,
+      speech_interrupted: Boolean(
+        result.interruption && result.interruption.interrupted
+      )
+    });
+  }
+
   return Object.freeze({
     start,
     stop,
     setAwake,
+    setSpeechEnabled,
     speak: (text, metadata) => piper.speak(text, metadata),
-    interruptSpeech: () => piper.interrupt(),
+    interruptSpeech: (options) => piper.interrupt(options),
     status: () => snapshot(),
     publish,
     injectVadProbability,

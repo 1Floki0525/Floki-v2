@@ -77,8 +77,8 @@ assertOrdered(readyToShow, [
 assert.match(runtime, /initial_awake: false/, 'audio must begin gated off');
 assert.match(
   runtime,
-  /const hearingEnabled = awake && state\.client_ready === true/,
-  'hearing must require both awake time and visible interface readiness'
+  /const hearingEnabled = state\.hearing_enabled === true && awake && state\.client_ready === true/,
+  'hearing must require the hearing module gate, awake time, and visible interface readiness'
 );
 assert.match(
   runtime,

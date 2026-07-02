@@ -10,6 +10,9 @@ const {
 } = require('../util/fs-safe.cjs');
 const { getSleepConfig, getDreamConfig } = require('../config/floki-config.cjs');
 const { computeBackoffSeconds } = require('./dream-novelty.cjs');
+const {
+  readDreamEngineControl
+} = require('./dream-engine-control.cjs');
 
 const DEFAULT_STATE_FILE = statePath('chat/sleep/manual-nap-state.json');
 
@@ -57,6 +60,40 @@ function napConfig(options = {}) {
 function file(options = {}) {
   return options.state_file || DEFAULT_STATE_FILE;
 }
+
+function manualNapDreamEngineControl(options = {}) {
+  if (
+    Object.prototype.hasOwnProperty.call(
+      options,
+      'dream_engine_control'
+    )
+  ) {
+    const provided = options.dream_engine_control || {};
+    return Object.freeze({
+      enabled: provided.enabled !== false,
+      reason: String(
+        provided.reason || 'provided_by_caller'
+      )
+    });
+  }
+
+  const customStateFile = Boolean(
+    options.state_file &&
+    path.resolve(options.state_file) !==
+      path.resolve(DEFAULT_STATE_FILE)
+  );
+  if (customStateFile) {
+    return Object.freeze({
+      enabled: true,
+      reason: 'isolated_state_default_enabled'
+    });
+  }
+
+  return readDreamEngineControl({
+    runtime_dir: options.runtime_dir
+  });
+}
+
 
 function raw(options = {}) {
   return existsSync(file(options)) ? readJsonFileSync(file(options)) : null;
@@ -258,6 +295,9 @@ function wakeManualNap(reason = 'manual_wake', options = {}) {
 }
 
 function claimDueRemCycle(options = {}) {
+  const dreamControl = manualNapDreamEngineControl(options);
+  if (dreamControl.enabled !== true) return null;
+
   const state = readManualNapState(options);
   if (!state || state.active !== true) return null;
 
@@ -339,6 +379,7 @@ module.exports = {
   readManualNapState,
   beginManualNap,
   wakeManualNap,
+  manualNapDreamEngineControl,
   claimDueRemCycle,
   finishRemCycle,
   isDreamQualityRetry

@@ -29,7 +29,8 @@ const {
   getPathConfig,
   getKnowledgeConfig,
   getSleepConfig,
-  getVisionConfig
+  getVisionConfig,
+  getControlPlaneConfig
 } = require('../config/floki-config.cjs');
 const { nowIso } = require('../util/time.cjs');
 const { newId } = require('../util/ids.cjs');
@@ -37,6 +38,10 @@ const { getInterfaceSettings } = require('../config/interface-settings.cjs');
 const { readManualNapState, beginManualNap, wakeManualNap, claimDueRemCycle, finishRemCycle } = require('../chat/manual-nap.cjs');
 const { recordWakeActivityIfSleeping, loadSleepCycleState } = require('../chat/sleep-cycle.cjs');
 const { runDreamEngineOnce } = require('../chat/dream-engine.cjs');
+const {
+  readDreamEngineControl,
+  writeDreamEngineControl
+} = require('../chat/dream-engine-control.cjs');
 const { createSelfImprovementApi } = require('../self-improvement/api.cjs');
 const { loadSelfImprovementConfig } = require('../self-improvement/config.cjs');
 const {
@@ -52,6 +57,8 @@ const { createKnowledgeRuntimeBootstrap } = require('../chat/knowledge-runtime-b
 const { runPreRemMemoryPreparation } = require('../chat/pre-rem-memory-preparation.cjs');
 const { assertApprovalToken } = require('../self-improvement/store.cjs');
 const { enterTrainingRuntimeResourceMode, exitTrainingRuntimeResourceMode } = require('../self-improvement/training/runtime-resource-controller.cjs');
+const { getModuleConfig, getRegistryMetadata, isKnownModule, IN_PROCESS_MODULES, SUPERVISED_MODULES } = require('../control-plane/module-registry.cjs');
+const { buildAuthorizationHeader, parseAuthHeader, verifySignature } = require('../control-plane/sign-request.cjs');
 
 const DEFAULT_HOST = getLiveChatConfig('chat').runtime_host;
 const DEFAULT_PORT = getLiveChatConfig('chat').runtime_port;
@@ -442,6 +449,15 @@ function createChatLocalRuntime(options = {}) {
     last_heartbeat_at: null,
     last_error: null,
     brain_loaded: true,
+    cognition_enabled: true,
+    hearing_enabled: true,
+    memory_enabled: true,
+    emotion_enabled: true,
+    live_event_stream_enabled: true,
+    dream_engine_enabled:
+      readDreamEngineControl({
+        runtime_dir: runtimeDir
+      }).enabled === true,
     memory_loaded: memoryPathsWritable(),
     active_turn: false,
     nightly_chat_active: false,
@@ -493,12 +509,38 @@ function createChatLocalRuntime(options = {}) {
   }
 
   function broadcast(type, data) {
+    if (
+      state.live_event_stream_enabled !== true ||
+      state.websocket_ready !== true
+    ) {
+      return;
+    }
     const frame = encodeWebSocketText({ type, data });
     for (const socket of Array.from(websocketClients)) {
       if (socket.destroyed || !socket.writable) { websocketClients.delete(socket); continue; }
       try { socket.write(frame); } catch (error) { websocketClients.delete(socket); appendLog('websocket write failed: ' + error.message); }
     }
     state.websocket_clients = websocketClients.size;
+  }
+
+  function closeLiveEventStreamClients(reason) {
+    const sockets = Array.from(websocketClients);
+    for (const socket of sockets) {
+      try {
+        socket.end();
+      } catch (error) {
+        appendLog(
+          'websocket close failed during ' +
+          String(reason || 'stream lifecycle') +
+          ': ' +
+          error.message
+        );
+        try { socket.destroy(); } catch (_destroyError) {}
+      }
+    }
+    websocketClients.clear();
+    state.websocket_clients = 0;
+    return sockets.length;
   }
 
   function appendInnerExperience(text, category, extra = {}) {
@@ -550,6 +592,7 @@ function createChatLocalRuntime(options = {}) {
     const sensesAllowed = !sleeping && !awaitingClient;
     const hearingReady = Boolean(
       sensesAllowed &&
+      state.hearing_enabled === true &&
       audio.microphone_open &&
       audio.vad_ready &&
       audio.whisper_ready &&
@@ -565,21 +608,23 @@ function createChatLocalRuntime(options = {}) {
       !state.vision_start_error
     );
     const degradedReasons = [];
-    if (sensesAllowed && state.hearing_start_error) degradedReasons.push('hearing_start: ' + state.hearing_start_error);
-    if (sensesAllowed && audio.last_error) degradedReasons.push('hearing_runtime: ' + audio.last_error);
-    if (sensesAllowed && audio.last_wake_gate_error) degradedReasons.push('wake_gate: ' + audio.last_wake_gate_error);
+    if (sensesAllowed && state.hearing_enabled === true && state.hearing_start_error) degradedReasons.push('hearing_start: ' + state.hearing_start_error);
+    if (sensesAllowed && state.hearing_enabled === true && audio.last_error) degradedReasons.push('hearing_runtime: ' + audio.last_error);
+    if (sensesAllowed && state.hearing_enabled === true && audio.last_wake_gate_error) degradedReasons.push('wake_gate: ' + audio.last_wake_gate_error);
     if (sensesAllowed && state.vision_start_error) degradedReasons.push('vision_start: ' + state.vision_start_error);
-    const knowledgeRequired = getKnowledgeConfig('chat').autoload_blocking_on_chat_local_start === true;
+    const knowledgeRequired = state.memory_enabled === true && getKnowledgeConfig('chat').autoload_blocking_on_chat_local_start === true;
     if (knowledgeRequired && state.knowledge_refreshing) degradedReasons.push('knowledge_refreshing');
     if (knowledgeRequired && !state.knowledge_refreshing && state.knowledge_ready !== true) degradedReasons.push('knowledge_not_ready');
     if (knowledgeRequired && state.knowledge_refresh_error) degradedReasons.push('knowledge_refresh: ' + state.knowledge_refresh_error);
-    if (sensesAllowed && !hearingReady && degradedReasons.length === 0) degradedReasons.push('hearing_not_ready');
+    if (sensesAllowed && state.hearing_enabled === true && !hearingReady && degradedReasons.length === 0) degradedReasons.push('hearing_not_ready');
     if (sensesAllowed && !visionReady && degradedReasons.length === 0) degradedReasons.push('vision_not_ready');
-    const sensoryReady = awaitingClient || sleeping || (hearingReady && visionReady);
+    const hearingSatisfied = state.hearing_enabled !== true || hearingReady;
+    const sensoryReady = awaitingClient || sleeping || (hearingSatisfied && visionReady);
     const ready = Boolean(
       state.api_ready &&
       state.brain_loaded &&
-      state.memory_loaded &&
+      state.cognition_enabled === true &&
+      (state.memory_enabled !== true || state.memory_loaded === true) &&
       (!knowledgeRequired || state.knowledge_ready) &&
       sensoryReady &&
       !state.last_error &&
@@ -637,6 +682,15 @@ function createChatLocalRuntime(options = {}) {
   }
 
   async function rememberAmbient(record) {
+    if (state.memory_enabled !== true) {
+      appendLog('ambient memory skipped: Memory module is stopped');
+      return Object.freeze({
+        type: 'memory_disabled',
+        source: 'hippocampus',
+        memory_written: false,
+        reason: 'memory_module_stopped'
+      });
+    }
     const hippocampus = brain.requireModule('hippocampus');
     const summary = record.type === 'ambient_speech'
       ? 'I heard ambient speech nearby: ' + String(record.text || '').trim()
@@ -702,6 +756,11 @@ function createChatLocalRuntime(options = {}) {
   function enqueueTurn(request) {
     const task = async () => {
       if (stopping) throw new Error('chat.local runtime is stopping');
+      if (state.cognition_enabled !== true) {
+        return cognitionUnavailableResult(
+          request.source || 'chat_local_runtime'
+        );
+      }
       const nightlyPolicy = evaluateNightlyPolicy(
         selfImprovementConfig,
         new Date()
@@ -756,6 +815,8 @@ function createChatLocalRuntime(options = {}) {
               ? nightlyHfPostJson
               : undefined,
           signal: activeAbortController.signal,
+          memory_enabled: state.memory_enabled === true,
+          emotion_enabled: state.emotion_enabled === true,
           input_modality: request.input_modality || 'text',
           output_modality: request.output_modality || 'text',
           spoken_aloud: request.spoken_aloud === true,
@@ -831,6 +892,9 @@ function createChatLocalRuntime(options = {}) {
       publish();
     },
     async on_direct_speech(input) {
+      if (state.cognition_enabled !== true) {
+        return cognitionUnavailableResult('live_audio_service');
+      }
       const acceptedAt = nowIso();
       const result = await enqueueTurn({
         cognition_text: input.request_text,
@@ -875,7 +939,7 @@ function createChatLocalRuntime(options = {}) {
     const allGatesPass = desiredGates.length === 0
       ? gates.client_ready && gates.awake
       : desiredGates.every((gate) => gates[gate] === true);
-    const hearingEnabled = awake && state.client_ready === true && voice.microphoneEnabled === true && (voice.pushToTalk === true ? state.push_to_talk_active === true : voice.handsFreeListening === true);
+    const hearingEnabled = state.hearing_enabled === true && awake && state.client_ready === true && voice.microphoneEnabled === true && (voice.pushToTalk === true ? state.push_to_talk_active === true : voice.handsFreeListening === true);
     const visionEnabled = awake && state.client_ready === true && allGatesPass;
     state.senses_enabled = hearingEnabled || visionEnabled;
 
@@ -1032,7 +1096,23 @@ function createChatLocalRuntime(options = {}) {
   async function processManualNap() {
     const nap = readManualNapState();
     if (!nap || nap.active !== true) { if (lastManualNapActive) { lastManualNapActive = false; await applyLifecycle(buildFlokiLifecycleStatus()); } return; }
-    lastManualNapActive = true; if (manualNapDreamTask) return; const claim = claimDueRemCycle(); if (!claim) return;
+    lastManualNapActive = true;
+    if (manualNapDreamTask) return;
+    const dreamControl = readDreamEngineControl({
+      runtime_dir: runtimeDir
+    });
+    state.dream_engine_enabled =
+      dreamControl.enabled === true;
+    if (state.dream_engine_enabled !== true) {
+      publish({
+        dream_generation_suspended: true,
+        dream_engine_control_reason:
+          dreamControl.reason || null
+      });
+      return;
+    }
+    const claim = claimDueRemCycle();
+    if (!claim) return;
     appendInnerExperience('I am entering REM cycle ' + String(claim.cycle.cycle_number) + ' and beginning a dream.', 'dream', { source: 'manual_nap' });
     manualNapDreamTask = runDreamEngineOnce({ sleep_kind: 'manual_nap', env: { ...process.env, FLOKI_ALLOW_DREAM_ENGINE: '1' }, rem_cycle_number: claim.cycle.cycle_number, sleep_window_start: claim.state.started_at, sleep_window_end: claim.state.wake_at }).then((result) => finishRemCycle(result, null)).catch((error) => {
       const message = error && error.message ? error.message : String(error);
@@ -1047,6 +1127,15 @@ function createChatLocalRuntime(options = {}) {
 
 
   function restartKnowledgeAfterTraining() {
+    if (state.memory_enabled !== true) {
+      state.knowledge_worker_started = false;
+      state.knowledge_worker_running = false;
+      state.knowledge_refreshing = false;
+      return Object.freeze({
+        started: false,
+        reason: 'memory_module_stopped'
+      });
+    }
     const configured = getKnowledgeConfig('chat');
     if (configured.autoload_enabled !== true) {
       state.knowledge_worker_started = false;
@@ -1168,6 +1257,969 @@ function createChatLocalRuntime(options = {}) {
 
   const interfaceApi = createChatLocalInterfaceApi({ runtime_dir: runtimeDir, status, started_at: startedAt, session_id: brain.session_id });
 
+  function controlPlaneConfig() {
+    return getControlPlaneConfig('chat');
+  }
+
+  function supervisorRequestOptions(moduleKey, action, body = {}) {
+    const config = controlPlaneConfig();
+    const privateKeyPath = config.supervisor_private_key_path || process.env.FLOKI_CONTROL_PLANE_PRIVATE_KEY_PATH;
+    if (!privateKeyPath) {
+      throw new Error('supervisor_private_key_path not configured');
+    }
+    const expanded = String(privateKeyPath).replace(/^~(?=\/)/, process.env.HOME || '');
+    const resolved = path.isAbsolute(expanded) ? expanded : path.resolve(ROOT, expanded);
+    if (!fs.existsSync(resolved)) {
+      throw new Error('supervisor private key not found: ' + resolved);
+    }
+    const privateKey = fs.readFileSync(resolved, 'utf8').trim();
+    const signed = buildAuthorizationHeader(privateKey, 'POST', moduleKey, action, JSON.stringify(body || {}));
+    return {
+      host: config.supervisor_host,
+      port: config.supervisor_port,
+      path: '/modules/' + moduleKey + '/' + action,
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: signed.header
+      },
+      timeout: Number(config.supervisor_operation_timeout_ms || 360000)
+    };
+  }
+
+  function supervisorLifecycleRequest(moduleKey, action, body = {}) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const options = supervisorRequestOptions(moduleKey, action, body);
+      const reqBody = JSON.stringify(body || {});
+      const req = http.request(options, (response) => {
+        let raw = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => { raw += chunk; });
+        response.on('end', () => {
+          if (settled) return;
+          settled = true;
+          try {
+            const parsed = JSON.parse(raw);
+            resolve(Object.freeze({
+              ...(parsed && typeof parsed === 'object' ? parsed : { ok: false, error: 'invalid supervisor response' }),
+              httpStatus: Number(response.statusCode || 0)
+            }));
+          } catch (_error) {
+            resolve({ ok: false, error: 'invalid supervisor response', httpStatus: 502 });
+          }
+        });
+      });
+      req.on('error', (error) => {
+        if (settled) return;
+        settled = true;
+        resolve({ ok: false, error: error.message, httpStatus: 503 });
+      });
+      req.on('timeout', () => {
+        if (settled) return;
+        settled = true;
+        req.destroy();
+        resolve({ ok: false, error: 'supervisor request timed out', httpStatus: 504 });
+      });
+      req.write(reqBody);
+      req.end();
+    });
+  }
+
+
+  function cognitionUnavailableResult(source = 'chat_local_runtime') {
+    const error = 'Cognition is stopped; start Cognition before submitting a turn.';
+    return Object.freeze({
+      ok: false,
+      module: 'cognition',
+      changed: false,
+      previousStatus: 'stopped',
+      status: 'stopped',
+      lifecycleState: 'stopped',
+      error,
+      safeError: error,
+      message: error,
+      source,
+      httpStatus: 503,
+      health: Object.freeze({
+        ok: true,
+        pid: process.pid,
+        runtime_pid_preserved: true,
+        cognition_enabled: false
+      }),
+      operationId: newId('op'),
+      generation: 1
+    });
+  }
+
+  function cognitionIdleRuntimeState() {
+    return lifecycle && lifecycle.is_awake === false
+      ? 'sleeping'
+      : state.client_ready === true
+        ? 'listening'
+        : 'awaiting_client';
+  }
+
+  async function cognitionLifecycleResult(action) {
+    const previousStatus =
+      state.cognition_enabled === true ? 'running' : 'stopped';
+    let changed = false;
+    let message;
+
+    if (action === 'stop') {
+      changed = state.cognition_enabled === true;
+      state.cognition_enabled = false;
+      if (activeAbortController) {
+        activeAbortController.abort();
+      }
+      state.state = 'cognition_stopped';
+      message = changed
+        ? 'Cognition stopped inside the authoritative runtime.'
+        : 'Cognition is already stopped.';
+    } else if (action === 'start') {
+      changed = state.cognition_enabled !== true;
+      state.cognition_enabled = true;
+      state.state = cognitionIdleRuntimeState();
+      message = changed
+        ? 'Cognition started inside the authoritative runtime.'
+        : 'Cognition is already running.';
+    } else if (action === 'reset') {
+      if (activeAbortController) {
+        activeAbortController.abort();
+      }
+      state.cognition_enabled = false;
+      state.state = 'cognition_stopped';
+      publish();
+      await Promise.resolve();
+      state.cognition_enabled = true;
+      state.state = cognitionIdleRuntimeState();
+      changed = true;
+      message =
+        'Cognition reset completed inside the authoritative runtime.';
+    } else {
+      return unsupportedInProcessLifecycleResult('cognition', action);
+    }
+
+    const currentStatus =
+      state.cognition_enabled === true ? 'running' : 'stopped';
+    appendLog(
+      'control-plane cognition ' + action +
+      ' previous=' + previousStatus +
+      ' current=' + currentStatus +
+      ' changed=' + String(changed)
+    );
+    const snapshot = publish();
+
+    return Object.freeze({
+      ok: true,
+      module: 'cognition',
+      action,
+      changed,
+      previousStatus,
+      status: currentStatus,
+      lifecycleState: currentStatus,
+      health: Object.freeze({
+        ok: true,
+        pid: process.pid,
+        runtime_pid_preserved: true,
+        cognition_enabled: state.cognition_enabled === true,
+        runtime_ready: snapshot.ready === true
+      }),
+      message,
+      safeError: null,
+      httpStatus: 200,
+      operationId: newId('op'),
+      generation: 1
+    });
+  }
+
+
+  function hearingActivationRequired() {
+    const voice = getInterfaceSettings('chat').voice;
+    const awake = lifecycle && lifecycle.is_awake === true;
+    return Boolean(
+      state.hearing_enabled === true &&
+      awake &&
+      state.client_ready === true &&
+      voice.microphoneEnabled === true &&
+      (
+        voice.pushToTalk === true
+          ? state.push_to_talk_active === true
+          : voice.handsFreeListening === true
+      )
+    );
+  }
+
+  function currentHearingLifecycleStatus(audioStatus = liveAudio.status()) {
+    if (state.hearing_enabled !== true) return 'stopped';
+    if (!hearingActivationRequired()) return 'stopped';
+    if (
+      audioStatus.microphone_open === true &&
+      audioStatus.vad_ready === true &&
+      audioStatus.whisper_ready === true &&
+      !audioStatus.last_error &&
+      !audioStatus.last_wake_gate_error &&
+      !state.hearing_start_error
+    ) {
+      return 'running';
+    }
+    return 'degraded';
+  }
+
+  async function hearingLifecycleResult(action) {
+    const beforeAudio = liveAudio.status();
+    const previousStatus = currentHearingLifecycleStatus(beforeAudio);
+    const previousEnabled = state.hearing_enabled === true;
+    let changed = false;
+    let message;
+
+    if (action === 'stop') {
+      changed = previousEnabled;
+      state.hearing_enabled = false;
+      state.hearing_start_error = null;
+      await liveAudio.setAwake(false);
+      await applyLifecycle(buildFlokiLifecycleStatus());
+      message = changed
+        ? 'Hearing stopped through the authoritative live-audio service.'
+        : 'Hearing is already stopped.';
+    } else if (action === 'start') {
+      changed = !previousEnabled;
+      state.hearing_enabled = true;
+      state.hearing_start_error = null;
+      await applyLifecycle(buildFlokiLifecycleStatus());
+      message = hearingActivationRequired()
+        ? 'Hearing started through the authoritative live-audio service.'
+        : 'Hearing is enabled and waiting for the existing awake, client-ready, and voice-setting gates.';
+    } else if (action === 'reset') {
+      state.hearing_enabled = false;
+      state.hearing_start_error = null;
+      await liveAudio.setAwake(false);
+      await applyLifecycle(buildFlokiLifecycleStatus());
+      state.hearing_enabled = true;
+      await applyLifecycle(buildFlokiLifecycleStatus());
+      changed = true;
+      message = hearingActivationRequired()
+        ? 'Hearing reset completed through the authoritative live-audio service.'
+        : 'Hearing reset completed and remains gated until the existing activation conditions are satisfied.';
+    } else {
+      return unsupportedInProcessLifecycleResult('hearing', action);
+    }
+
+    const audioStatus = liveAudio.status();
+    const activationRequired = hearingActivationRequired();
+    const currentStatus = currentHearingLifecycleStatus(audioStatus);
+    const operationError = activationRequired && currentStatus !== 'running'
+      ? (
+          state.hearing_start_error ||
+          audioStatus.last_error ||
+          audioStatus.last_wake_gate_error ||
+          'Hearing activation was required but the microphone pipeline did not become ready'
+        )
+      : null;
+
+    appendLog(
+      'control-plane hearing ' + action +
+      ' previous=' + previousStatus +
+      ' current=' + currentStatus +
+      ' enabled=' + String(state.hearing_enabled === true) +
+      ' activation_required=' + String(activationRequired) +
+      ' changed=' + String(changed)
+    );
+    publish();
+
+    return Object.freeze({
+      ok: operationError === null,
+      module: 'hearing',
+      action,
+      changed,
+      previousStatus,
+      status: operationError ? 'degraded' : currentStatus,
+      lifecycleState: operationError ? 'degraded' : currentStatus,
+      health: Object.freeze({
+        ok: operationError === null,
+        pid: process.pid,
+        runtime_pid_preserved: true,
+        hearing_enabled: state.hearing_enabled === true,
+        activation_required: activationRequired,
+        client_ready: state.client_ready === true,
+        awake: lifecycle && lifecycle.is_awake === true,
+        microphone_open: audioStatus.microphone_open === true,
+        vad_ready: audioStatus.vad_ready === true,
+        whisper_ready: audioStatus.whisper_ready === true,
+        service_state: audioStatus.service_state
+      }),
+      message,
+      error: operationError,
+      safeError: operationError,
+      httpStatus: operationError ? 503 : 200,
+      operationId: newId('op'),
+      generation: 1
+    });
+  }
+
+
+  function speechActivationRequired() {
+    const voice = getInterfaceSettings('chat').voice;
+    return Boolean(
+      lifecycle &&
+      lifecycle.is_awake === true &&
+      voice.speakerEnabled === true
+    );
+  }
+
+  function currentSpeechLifecycleStatus(audioStatus = liveAudio.status()) {
+    if (audioStatus.speech_enabled !== true) return 'stopped';
+    if (!speechActivationRequired()) return 'stopped';
+    if (
+      audioStatus.piper_ready === true &&
+      audioStatus.playback_ready === true
+    ) {
+      return 'running';
+    }
+    return 'degraded';
+  }
+
+  async function speechLifecycleResult(action) {
+    const beforeAudio = liveAudio.status();
+    const previousStatus = currentSpeechLifecycleStatus(beforeAudio);
+    const previousEnabled = beforeAudio.speech_enabled === true;
+    let changed = false;
+    let message;
+
+    if (action === 'stop') {
+      const stopped = liveAudio.setSpeechEnabled(false);
+      changed = stopped.speech_control_changed === true;
+      message = changed
+        ? 'Speech stopped through the authoritative Piper output gate.'
+        : 'Speech is already stopped.';
+    } else if (action === 'start') {
+      const started = liveAudio.setSpeechEnabled(true);
+      changed = started.speech_control_changed === true;
+      message = speechActivationRequired()
+        ? 'Speech started through the authoritative Piper output gate.'
+        : 'Speech is enabled and waiting for the existing awake and speaker-setting gates.';
+    } else if (action === 'reset') {
+      liveAudio.setSpeechEnabled(false);
+      liveAudio.setSpeechEnabled(true);
+      changed = true;
+      message = speechActivationRequired()
+        ? 'Speech reset completed through the authoritative Piper output gate.'
+        : 'Speech reset completed and remains gated until the existing activation conditions are satisfied.';
+    } else {
+      return unsupportedInProcessLifecycleResult('speech', action);
+    }
+
+    const audioStatus = liveAudio.status();
+    const activationRequired = speechActivationRequired();
+    const currentStatus = currentSpeechLifecycleStatus(audioStatus);
+    const operationError = (
+      action !== 'stop' &&
+      activationRequired &&
+      currentStatus !== 'running'
+    )
+      ? 'Speech activation was required but Piper playback is not ready'
+      : null;
+
+    appendLog(
+      'control-plane speech ' + action +
+      ' previous=' + previousStatus +
+      ' current=' + currentStatus +
+      ' enabled=' + String(audioStatus.speech_enabled === true) +
+      ' activation_required=' + String(activationRequired) +
+      ' changed=' + String(changed) +
+      ' previous_enabled=' + String(previousEnabled)
+    );
+    publish();
+
+    return Object.freeze({
+      ok: operationError === null,
+      module: 'speech',
+      action,
+      changed,
+      previousStatus,
+      status: operationError ? 'degraded' : currentStatus,
+      lifecycleState: operationError ? 'degraded' : currentStatus,
+      health: Object.freeze({
+        ok: operationError === null,
+        pid: process.pid,
+        runtime_pid_preserved: true,
+        speech_enabled: audioStatus.speech_enabled === true,
+        activation_required: activationRequired,
+        awake: lifecycle && lifecycle.is_awake === true,
+        piper_ready: audioStatus.piper_ready === true,
+        playback_ready: audioStatus.playback_ready === true,
+        speaking: audioStatus.speaking === true
+      }),
+      message,
+      error: operationError,
+      safeError: operationError,
+      httpStatus: operationError ? 503 : 200,
+      operationId: newId('op'),
+      generation: 1
+    });
+  }
+
+
+  function inspectPersistentMemory() {
+    const existing = knowledgeBootstrap.inspect({
+      runtime_dir: runtimeDir
+    });
+    state.memory_loaded = memoryPathsWritable();
+    state.knowledge_ready = existing.ready === true ||
+      getKnowledgeConfig('chat').autoload_enabled !== true;
+    state.knowledge_refresh_error = existing.error || null;
+    state.knowledge_autoload = Object.freeze({
+      ...existing,
+      phase: state.memory_enabled === true
+        ? 'ready_or_pending_refresh'
+        : 'memory_stopped',
+      marker: existing.marker
+    });
+    return existing;
+  }
+
+  async function memoryLifecycleResult(action) {
+    const previousEnabled = state.memory_enabled === true;
+    const previousStatus = previousEnabled
+      ? (state.memory_loaded === true ? 'running' : 'degraded')
+      : 'stopped';
+    let changed = false;
+    let message;
+
+    if (action === 'stop') {
+      changed = previousEnabled;
+      state.memory_enabled = false;
+      if (typeof knowledgeBootstrap.stopAndWait === 'function') {
+        await knowledgeBootstrap.stopAndWait();
+      } else {
+        knowledgeBootstrap.stop();
+      }
+      state.knowledge_worker_started = false;
+      state.knowledge_worker_running = false;
+      state.knowledge_refreshing = false;
+      state.knowledge_refresh_error = null;
+      message = changed
+        ? 'Memory stopped; persistent writes, recall, living continuity, ambient memory, and knowledge refresh are disabled.'
+        : 'Memory is already stopped.';
+    } else if (action === 'start') {
+      changed = !previousEnabled;
+      state.memory_enabled = true;
+      inspectPersistentMemory();
+      restartKnowledgeAfterTraining();
+      message = changed
+        ? 'Memory started using the existing persistent state and knowledge index.'
+        : 'Memory is already running.';
+    } else if (action === 'reset') {
+      state.memory_enabled = false;
+      if (typeof knowledgeBootstrap.stopAndWait === 'function') {
+        await knowledgeBootstrap.stopAndWait();
+      } else {
+        knowledgeBootstrap.stop();
+      }
+      state.knowledge_worker_started = false;
+      state.knowledge_worker_running = false;
+      state.knowledge_refreshing = false;
+      state.memory_enabled = true;
+      inspectPersistentMemory();
+      restartKnowledgeAfterTraining();
+      changed = true;
+      message = 'Memory reset completed without deleting or clearing persistent state.';
+    } else {
+      return unsupportedInProcessLifecycleResult('memory', action);
+    }
+
+    const currentStatus = state.memory_enabled !== true
+      ? 'stopped'
+      : state.memory_loaded === true
+        ? 'running'
+        : 'degraded';
+    const operationError = (
+      state.memory_enabled === true &&
+      state.memory_loaded !== true
+    )
+      ? 'Persistent memory paths are not readable and writable'
+      : null;
+
+    appendLog(
+      'control-plane memory ' + action +
+      ' previous=' + previousStatus +
+      ' current=' + currentStatus +
+      ' enabled=' + String(state.memory_enabled === true) +
+      ' worker_running=' + String(state.knowledge_worker_running === true) +
+      ' changed=' + String(changed)
+    );
+    publish();
+
+    return Object.freeze({
+      ok: operationError === null,
+      module: 'memory',
+      action,
+      changed,
+      previousStatus,
+      status: operationError ? 'degraded' : currentStatus,
+      lifecycleState: operationError ? 'degraded' : currentStatus,
+      health: Object.freeze({
+        ok: operationError === null,
+        pid: process.pid,
+        runtime_pid_preserved: true,
+        memory_enabled: state.memory_enabled === true,
+        memory_loaded: state.memory_loaded === true,
+        knowledge_ready: state.knowledge_ready === true,
+        knowledge_worker_running:
+          state.knowledge_worker_running === true,
+        knowledge_refreshing:
+          state.knowledge_refreshing === true
+      }),
+      message,
+      error: operationError,
+      safeError: operationError,
+      httpStatus: operationError ? 503 : 200,
+      operationId: newId('op'),
+      generation: 1
+    });
+  }
+
+
+  async function emotionLifecycleResult(action) {
+    const previousEnabled = state.emotion_enabled === true;
+    const previousStatus = previousEnabled ? 'running' : 'stopped';
+    let changed = false;
+    let message;
+
+    if (action === 'stop') {
+      changed = previousEnabled;
+      state.emotion_enabled = false;
+      message = changed
+        ? 'Emotion stopped; affect and reinforcement updates are frozen without clearing existing emotional state.'
+        : 'Emotion is already stopped.';
+    } else if (action === 'start') {
+      changed = !previousEnabled;
+      state.emotion_enabled = true;
+      message = changed
+        ? 'Emotion started using the existing persistent affect and reinforcement state.'
+        : 'Emotion is already running.';
+    } else if (action === 'reset') {
+      state.emotion_enabled = false;
+      await Promise.resolve();
+      state.emotion_enabled = true;
+      changed = true;
+      message = 'Emotion reset completed without clearing or overwriting existing emotional state.';
+    } else {
+      return unsupportedInProcessLifecycleResult('emotion', action);
+    }
+
+    const currentStatus =
+      state.emotion_enabled === true ? 'running' : 'stopped';
+
+    appendLog(
+      'control-plane emotion ' + action +
+      ' previous=' + previousStatus +
+      ' current=' + currentStatus +
+      ' enabled=' + String(state.emotion_enabled === true) +
+      ' changed=' + String(changed)
+    );
+    publish();
+
+    return Object.freeze({
+      ok: true,
+      module: 'emotion',
+      action,
+      changed,
+      previousStatus,
+      status: currentStatus,
+      lifecycleState: currentStatus,
+      health: Object.freeze({
+        ok: true,
+        pid: process.pid,
+        runtime_pid_preserved: true,
+        emotion_enabled: state.emotion_enabled === true,
+        affect_state_preserved: true,
+        reinforcement_state_preserved: true
+      }),
+      message,
+      error: null,
+      safeError: null,
+      httpStatus: 200,
+      operationId: newId('op'),
+      generation: 1
+    });
+  }
+
+
+  async function liveEventStreamLifecycleResult(action) {
+    const previousEnabled =
+      state.live_event_stream_enabled === true;
+    const previousStatus = (
+      previousEnabled &&
+      state.websocket_ready === true
+    )
+      ? 'running'
+      : 'stopped';
+    let changed = false;
+    let disconnectedClients = 0;
+    let message;
+
+    if (action === 'stop') {
+      changed = previousEnabled || state.websocket_ready === true;
+      state.live_event_stream_enabled = false;
+      state.websocket_ready = false;
+      disconnectedClients =
+        closeLiveEventStreamClients('control-plane stop');
+      message = changed
+        ? 'Live Event Stream stopped; WebSocket delivery is disabled and connected clients were closed.'
+        : 'Live Event Stream is already stopped.';
+    } else if (action === 'start') {
+      changed = !previousEnabled || state.websocket_ready !== true;
+      state.live_event_stream_enabled = true;
+      state.websocket_ready = state.api_ready === true;
+      message = state.websocket_ready === true
+        ? 'Live Event Stream started and is accepting WebSocket clients.'
+        : 'Live Event Stream is enabled and waiting for the Authoritative API listener.';
+    } else if (action === 'reset') {
+      state.live_event_stream_enabled = false;
+      state.websocket_ready = false;
+      disconnectedClients =
+        closeLiveEventStreamClients('control-plane reset');
+      publish();
+      await Promise.resolve();
+      state.live_event_stream_enabled = true;
+      state.websocket_ready = state.api_ready === true;
+      changed = true;
+      message = state.websocket_ready === true
+        ? 'Live Event Stream reset completed; clients may reconnect.'
+        : 'Live Event Stream reset completed and is waiting for the Authoritative API listener.';
+    } else {
+      return unsupportedInProcessLifecycleResult(
+        'live_event_stream',
+        action
+      );
+    }
+
+    const currentStatus = (
+      state.live_event_stream_enabled === true &&
+      state.websocket_ready === true
+    )
+      ? 'running'
+      : 'stopped';
+
+    appendLog(
+      'control-plane live_event_stream ' + action +
+      ' previous=' + previousStatus +
+      ' current=' + currentStatus +
+      ' enabled=' +
+      String(state.live_event_stream_enabled === true) +
+      ' disconnected_clients=' +
+      String(disconnectedClients) +
+      ' changed=' + String(changed)
+    );
+    publish();
+
+    return Object.freeze({
+      ok: true,
+      module: 'live_event_stream',
+      action,
+      changed,
+      previousStatus,
+      status: currentStatus,
+      lifecycleState: currentStatus,
+      health: Object.freeze({
+        ok: true,
+        pid: process.pid,
+        runtime_pid_preserved: true,
+        live_event_stream_enabled:
+          state.live_event_stream_enabled === true,
+        websocket_ready: state.websocket_ready === true,
+        websocket_clients: state.websocket_clients,
+        disconnected_clients: disconnectedClients,
+        authoritative_api_ready: state.api_ready === true
+      }),
+      message,
+      error: null,
+      safeError: null,
+      httpStatus: 200,
+      operationId: newId('op'),
+      generation: 1
+    });
+  }
+
+
+  function schedulerDreamGateObservation(control) {
+    let schedulerPid = null;
+    try {
+      const value = Number(
+        fs.readFileSync(
+          path.join(
+            runtimeDir,
+            'sleep-cycle-scheduler.pid'
+          ),
+          'utf8'
+        ).trim()
+      );
+      if (Number.isInteger(value) && value > 0) {
+        process.kill(value, 0);
+        schedulerPid = value;
+      }
+    } catch (_error) {
+      schedulerPid = null;
+    }
+
+    const heartbeat = jsonFile(
+      path.join(
+        runtimeDir,
+        'sleep-cycle-scheduler.heartbeat.json'
+      ),
+      null
+    ) || {};
+    const observedGeneration =
+      Number.isInteger(heartbeat.dream_engine_generation)
+        ? heartbeat.dream_engine_generation
+        : null;
+    const observedEnabled =
+      typeof heartbeat.dream_engine_enabled === 'boolean'
+        ? heartbeat.dream_engine_enabled
+        : null;
+    const observationCurrent =
+      observedGeneration !== null &&
+      observedGeneration >= Number(control.generation) &&
+      observedEnabled === (control.enabled === true);
+
+    return Object.freeze({
+      scheduler_running: schedulerPid !== null,
+      scheduler_pid: schedulerPid,
+      observed_generation: observedGeneration,
+      observed_enabled: observedEnabled,
+      observation: observationCurrent ? 'current' : 'pending'
+    });
+  }
+
+  async function dreamEngineLifecycleResult(action) {
+    if (!['start', 'stop', 'reset'].includes(action)) {
+      return unsupportedInProcessLifecycleResult(
+        'dream_engine',
+        action
+      );
+    }
+
+    const before = readDreamEngineControl({
+      runtime_dir: runtimeDir
+    });
+    const previousStatus =
+      before.enabled === true ? 'running' : 'stopped';
+    const desiredEnabled = action !== 'stop';
+    const changed =
+      action === 'reset' ||
+      (before.enabled === true) !== desiredEnabled;
+
+    writeDreamEngineControl(desiredEnabled, {
+      runtime_dir: runtimeDir,
+      reason: 'control_plane_' + action
+    });
+    const current = readDreamEngineControl({
+      runtime_dir: runtimeDir
+    });
+
+    const persisted =
+      !current.read_error &&
+      current.enabled === desiredEnabled &&
+      Number(current.generation) > Number(before.generation);
+
+    if (!persisted) {
+      const error =
+        'Dream Engine ' + action +
+        ' control record did not persist atomically' +
+        (current.read_error
+          ? ': ' + current.read_error
+          : '');
+      appendLog(
+        'control-plane dream_engine ' + action +
+        ' failed: ' + error
+      );
+      return Object.freeze({
+        ok: false,
+        module: 'dream_engine',
+        action,
+        changed: false,
+        previousStatus,
+        status: 'degraded',
+        lifecycleState: 'degraded',
+        health: Object.freeze({
+          ok: false,
+          pid: process.pid,
+          runtime_pid_preserved: true,
+          dream_engine_enabled: current.enabled === true,
+          control_persisted: false,
+          control_file: current.control_file
+        }),
+        message: error,
+        error,
+        safeError: error,
+        httpStatus: 500,
+        operationId: newId('op'),
+        generation: Number(before.generation) || 0
+      });
+    }
+
+    state.dream_engine_enabled = current.enabled === true;
+    const schedulerObservation =
+      schedulerDreamGateObservation(current);
+    const currentStatus =
+      current.enabled === true ? 'running' : 'stopped';
+    let message;
+    if (action === 'stop') {
+      message = changed
+        ? 'Dream Engine stopped; new REM dream claims are suspended and due cycles remain pending.'
+        : 'Dream Engine stop re-persisted the disabled control record; due cycles remain pending.';
+    } else if (action === 'start') {
+      message = changed
+        ? 'Dream Engine started; pending REM cycles become eligible on the next normal scheduler iteration.'
+        : 'Dream Engine start re-persisted the enabled control record.';
+    } else {
+      message =
+        'Dream Engine reset completed; the control generation advanced and dreams, sleep state, and pending REM cycles were preserved.';
+    }
+
+    appendLog(
+      'control-plane dream_engine ' + action +
+      ' previous=' + previousStatus +
+      ' current=' + currentStatus +
+      ' enabled=' + String(current.enabled === true) +
+      ' generation=' + String(current.generation) +
+      ' scheduler_observation=' +
+      schedulerObservation.observation +
+      ' changed=' + String(changed)
+    );
+    publish({
+      dream_engine_control: current,
+      dream_engine_scheduler_observation:
+        schedulerObservation
+    });
+
+    return Object.freeze({
+      ok: true,
+      module: 'dream_engine',
+      action,
+      changed,
+      previousStatus,
+      status: currentStatus,
+      lifecycleState: currentStatus,
+      health: Object.freeze({
+        ok: true,
+        pid: process.pid,
+        runtime_pid_preserved: true,
+        dream_engine_enabled: current.enabled === true,
+        control_persisted: true,
+        control_generation: Number(current.generation),
+        control_file: current.control_file,
+        active_manual_nap_generation:
+          manualNapDreamTask !== null,
+        scheduler_running:
+          schedulerObservation.scheduler_running,
+        scheduler_pid: schedulerObservation.scheduler_pid,
+        scheduler_observation:
+          schedulerObservation.observation,
+        scheduler_observed_generation:
+          schedulerObservation.observed_generation,
+        dreams_preserved: true,
+        sleep_state_preserved: true,
+        pending_rem_cycles_preserved: true
+      }),
+      message,
+      error: null,
+      safeError: null,
+      httpStatus: 200,
+      operationId: newId('op'),
+      generation: Number(current.generation)
+    });
+  }
+
+  function unsupportedInProcessLifecycleResult(moduleKey, action) {
+    const module = getModuleConfig(moduleKey);
+    const currentStatus = module.status;
+    const error =
+      module.name + ' ' + action +
+      ' is not yet implemented as a real module-specific operation';
+
+    return Object.freeze({
+      ok: false,
+      module: moduleKey,
+      action,
+      changed: false,
+      previousStatus: currentStatus,
+      status: currentStatus,
+      lifecycleState: currentStatus,
+      health: Object.freeze({
+        ok: true,
+        pid: process.pid,
+        runtime_pid_preserved: module.preserve_runtime_pid
+      }),
+      message: error + '; no state was changed.',
+      error,
+      safeError: error,
+      httpStatus: 501,
+      operationId: newId('op'),
+      generation: 1
+    });
+  }
+
+  async function moduleLifecycle(moduleKey, action, body = {}) {
+    if (!isKnownModule(moduleKey)) {
+      return Object.freeze({ ok: false, error: 'unknown module key' });
+    }
+    if (!['start', 'stop', 'reset'].includes(action)) {
+      return Object.freeze({ ok: false, error: 'unknown action' });
+    }
+
+    const module = getModuleConfig(moduleKey);
+    if (SUPERVISED_MODULES.has(moduleKey)) {
+      try {
+        return await supervisorLifecycleRequest(moduleKey, action, body);
+      } catch (error) {
+        return Object.freeze({
+          ok: false,
+          module: moduleKey,
+          action,
+          error: error.message,
+          safeError: String(error.message || error).slice(0, 500),
+          httpStatus: 503
+        });
+      }
+    }
+
+    if (moduleKey === 'cognition') {
+      return cognitionLifecycleResult(action);
+    }
+
+    if (moduleKey === 'hearing') {
+      return hearingLifecycleResult(action);
+    }
+
+    if (moduleKey === 'speech') {
+      return speechLifecycleResult(action);
+    }
+
+    if (moduleKey === 'memory') {
+      return memoryLifecycleResult(action);
+    }
+
+    if (moduleKey === 'emotion') {
+      return emotionLifecycleResult(action);
+    }
+
+    if (moduleKey === 'live_event_stream') {
+      return liveEventStreamLifecycleResult(action);
+    }
+
+    if (moduleKey === 'dream_engine') {
+      return dreamEngineLifecycleResult(action);
+    }
+
+    if (IN_PROCESS_MODULES.has(moduleKey)) {
+      return unsupportedInProcessLifecycleResult(moduleKey, action);
+    }
+
+    return Object.freeze({ ok: false, error: 'module lifecycle type unknown' });
+  }
+
   function runControlScript(script) {
     const scriptPath = path.join(ROOT, 'bin', script);
     const result = spawnSync('bash', [scriptPath], { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 360000 });
@@ -1258,6 +2310,28 @@ function createChatLocalRuntime(options = {}) {
     if (req.method === 'GET' && url.pathname === '/interface/settings') { sendJson(res, 200, interfaceApi.getSettings()); return; }
     if (req.method === 'GET' && url.pathname === '/interface/coverage') { sendJson(res, 200, interfaceApi.coverage()); return; }
     if (req.method === 'GET' && url.pathname.startsWith('/interface/log/')) { sendJson(res, 200, interfaceApi.logPath(decodeURIComponent(url.pathname.slice('/interface/log/'.length)))); return; }
+    if (req.method === 'GET' && url.pathname === '/control/modules') {
+      const cardRows = interfaceApi.buildServices();
+      sendJson(res, 200, { ok: true, registry: getRegistryMetadata(), cards: cardRows });
+      return;
+    }
+    const lifecycleMatch = req.method === 'POST' && url.pathname.match(/^\/control\/modules\/([a-z_][a-z0-9_]*)\/(start|stop|reset)$/);
+    if (lifecycleMatch) {
+      const moduleKey = lifecycleMatch[1];
+      const action = lifecycleMatch[2];
+      const body = await bodyJson(req);
+      const result = await moduleLifecycle(moduleKey, action, body);
+      const upstreamStatus = Number(result.httpStatus || 0);
+      const safeStatus = result.ok
+        ? 200
+        : (result.error === 'unknown module key' || result.error === 'unknown action')
+          ? 404
+          : [400, 401, 403, 404, 409, 423, 429, 501, 502, 503, 504].includes(upstreamStatus)
+            ? upstreamStatus
+            : 400;
+      sendJson(res, safeStatus, result);
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/interface/settings/update') { const body = await bodyJson(req); const settings = interfaceApi.updateSettings(String(body.section || ''), body.values || {}); await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, settings); return; }
     if (req.method === 'POST' && url.pathname === '/interface/settings/reset') { const body = await bodyJson(req); const settings = interfaceApi.resetSettings(body.section == null ? null : String(body.section)); await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, settings); return; }
     if (req.method === 'POST' && url.pathname === '/interface/settings/import') { const body = await bodyJson(req); const settings = interfaceApi.importSettings(body.settings || {}); await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, settings); return; }
@@ -1291,6 +2365,11 @@ function createChatLocalRuntime(options = {}) {
       const body = await bodyJson(req);
       const text = String(body.text || '').trim();
       if (!text) throw new Error('message text is required');
+      if (state.cognition_enabled !== true) {
+        const unavailable = cognitionUnavailableResult('electron_chat');
+        sendJson(res, unavailable.httpStatus, unavailable);
+        return;
+      }
       const result = await enqueueTurn({
         cognition_text: text,
         transcript_user_text: text,
@@ -1299,7 +2378,7 @@ function createChatLocalRuntime(options = {}) {
         spoken_aloud: false,
         source: 'electron_chat'
       });
-      sendJson(res, 200, result);
+      sendJson(res, Number(result.httpStatus || 200), result);
       return;
     }
     if (req.method === 'POST' && url.pathname === '/interrupt') { sendJson(res, 200, await controlAction('interrupt')); return; }
@@ -1553,6 +2632,18 @@ function createChatLocalRuntime(options = {}) {
       try {
         const url = new URL(request.url, 'http://' + host + ':' + String(port));
         if (url.pathname !== '/ws') { socket.destroy(); return; }
+        if (
+          state.live_event_stream_enabled !== true ||
+          state.websocket_ready !== true
+        ) {
+          socket.end(
+            'HTTP/1.1 503 Service Unavailable\r\n' +
+            'Connection: close\r\n' +
+            'Content-Length: 0\r\n' +
+            '\r\n'
+          );
+          return;
+        }
         const key = request.headers['sec-websocket-key'];
         if (typeof key !== 'string' || !key) throw new Error('missing WebSocket key');
         const accept = crypto.createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
@@ -1578,7 +2669,8 @@ function createChatLocalRuntime(options = {}) {
     });
 
     state.api_ready = true;
-    state.websocket_ready = true;
+    state.websocket_ready =
+      state.live_event_stream_enabled === true;
 
     if (knowledgeConfig.autoload_enabled === true) {
       try {

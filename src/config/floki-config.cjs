@@ -30,8 +30,16 @@ const REQUIRED_SECTIONS = Object.freeze([
 const cache = new Map();
 
 function configPathForMode(mode) {
-  if (mode === 'chat') return path.join(PROJECT_ROOT, 'config', 'chat.config.yaml');
-  if (mode === 'game') return path.join(PROJECT_ROOT, 'config', 'game.config.yaml');
+  if (mode === 'chat') {
+    return process.env.FLOKI_CHAT_CONFIG_PATH
+      ? path.resolve(process.env.FLOKI_CHAT_CONFIG_PATH)
+      : path.join(PROJECT_ROOT, 'config', 'chat.config.yaml');
+  }
+  if (mode === 'game') {
+    return process.env.FLOKI_GAME_CONFIG_PATH
+      ? path.resolve(process.env.FLOKI_GAME_CONFIG_PATH)
+      : path.join(PROJECT_ROOT, 'config', 'game.config.yaml');
+  }
   throw new Error('unknown floki-config mode: ' + mode);
 }
 
@@ -128,6 +136,7 @@ function loadFlokiConfig(mode) {
     configDraft.audio = buildAudioSection(raw.audio, mode);
     configDraft.live_chat = buildLiveChatSection(raw.live_chat, mode);
     configDraft.interface_yaml = buildInterfaceYamlSection(raw.interface, mode);
+    configDraft.control_plane = buildControlPlaneSection(raw.control_plane, mode);
     if (raw.game_world_vision !== undefined) {
       throw new Error('chat config must not contain inactive game_world_vision section');
     }
@@ -137,6 +146,9 @@ function loadFlokiConfig(mode) {
     configDraft.game_world_vision = buildGameWorldVisionSection(raw.game_world_vision, mode);
     if (raw.chat_world_vision !== undefined) {
       throw new Error('game config must not contain inactive chat_world_vision section');
+    }
+    if (raw.control_plane !== undefined) {
+      throw new Error('game config must not contain chat-only control_plane section');
     }
   }
 
@@ -331,6 +343,38 @@ function buildInterfaceYamlSection(section, mode) {
       request_timeout_ms: requireNumber(conn.request_timeout_ms, 'interface.connection.request_timeout_ms'),
       mock_mode: requireBoolean(conn.mock_mode, 'interface.connection.mock_mode')
     })
+  });
+}
+
+function buildControlPlaneSection(section, mode) {
+  if (mode !== 'chat') throw new Error('control_plane is chat-mode only');
+  if (!section) failMissingYamlKey(mode, 'control_plane');
+  const host = requireString(section.supervisor_host, 'control_plane.supervisor_host');
+  if (host !== '127.0.0.1') {
+    throw new Error('control_plane.supervisor_host must stay on loopback (127.0.0.1); the supervisor is never public');
+  }
+  const port = requireNumber(section.supervisor_port, 'control_plane.supervisor_port');
+  const omenPort = requireNumber(section.supervisor_omen_listen_port, 'control_plane.supervisor_omen_listen_port');
+  if (port === omenPort) {
+    throw new Error('control_plane.supervisor_port and supervisor_omen_listen_port must differ');
+  }
+  return Object.freeze({
+    supervisor_host: host,
+    supervisor_port: port,
+    supervisor_omen_listen_port: omenPort,
+    supervisor_signature_skew_seconds: requireNumber(section.supervisor_signature_skew_seconds, 'control_plane.supervisor_signature_skew_seconds'),
+    supervisor_nonce_window_seconds: requireNumber(section.supervisor_nonce_window_seconds, 'control_plane.supervisor_nonce_window_seconds'),
+    supervisor_operation_timeout_ms: requireNumber(section.supervisor_operation_timeout_ms, 'control_plane.supervisor_operation_timeout_ms'),
+    supervisor_log_subdir: requireString(section.supervisor_log_subdir, 'control_plane.supervisor_log_subdir'),
+    supervisor_log_file_name: requireString(section.supervisor_log_file_name, 'control_plane.supervisor_log_file_name'),
+    supervisor_pid_file_name: requireString(section.supervisor_pid_file_name, 'control_plane.supervisor_pid_file_name'),
+    supervisor_public_key_path: requireString(section.supervisor_public_key_path, 'control_plane.supervisor_public_key_path'),
+    module_log_subdir: requireString(section.module_log_subdir, 'control_plane.module_log_subdir'),
+    module_log_max_lines: requireNumber(section.module_log_max_lines, 'control_plane.module_log_max_lines'),
+    module_log_tail_default_lines: requireNumber(section.module_log_tail_default_lines, 'control_plane.module_log_tail_default_lines'),
+    module_log_max_source_bytes: requireNumber(section.module_log_max_source_bytes, 'control_plane.module_log_max_source_bytes'),
+    lifecycle_verify_timeout_ms: requireNumber(section.lifecycle_verify_timeout_ms, 'control_plane.lifecycle_verify_timeout_ms'),
+    lifecycle_verify_poll_ms: requireNumber(section.lifecycle_verify_poll_ms, 'control_plane.lifecycle_verify_poll_ms')
   });
 }
 
@@ -723,6 +767,15 @@ function getInterfaceYamlConfig(mode) {
   return loadFlokiConfig(mode).interface_yaml;
 }
 
+function getControlPlaneConfig(mode) {
+  if (mode !== 'chat') throw new Error('control_plane is chat-mode only');
+  const config = loadFlokiConfig(mode);
+  if (!config.control_plane) {
+    throw new Error('Missing required YAML key "control_plane" in chat config. Add this key to config/chat.config.yaml.');
+  }
+  return config.control_plane;
+}
+
 function resolveProjectPath(relativePath) {
   if (typeof relativePath !== 'string' || relativePath.trim() === '') {
     throw new TypeError('relativePath must be a non-empty string');
@@ -777,6 +830,7 @@ module.exports = {
   getGameWorldVisionConfig,
   getPinealVisionConfig,
   getInterfaceYamlConfig,
+  getControlPlaneConfig,
   resolveProjectPath,
   resolveStatePath,
   resolveToolPath,

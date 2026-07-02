@@ -78,6 +78,21 @@ function persistentContext(recall, dreamMemory) {
 function beginLivingTurn(input = {}) {
   const text = safeText(input.text, 4000);
   const soul = loadSoulContext(input);
+  if (input.memory_enabled === false) {
+    return Object.freeze({
+      ok: true,
+      memory_enabled: false,
+      memory_writes_enabled: false,
+      soul_context: soul,
+      persistent_chat_memory: null,
+      emotional_reinforcement: null,
+      substrate: null,
+      user_memory_id: null,
+      consolidation_promoted_count: 0,
+      skipped_reason: 'memory_module_stopped',
+      error: null
+    });
+  }
   if (!text) {
     return Object.freeze({
       ok: false,
@@ -95,6 +110,7 @@ function beginLivingTurn(input = {}) {
     substrate.ensureReady();
     const emotionState = substrate.loadEmotionState();
     const currentEmotion = emotionState.current || {};
+    const emotionEnabled = input.emotion_enabled !== false;
     const userMemory = substrate.rememberShortTerm({
       text,
       summary: 'Binary-God said to me: ' + text,
@@ -104,13 +120,15 @@ function beginLivingTurn(input = {}) {
       category: 'relationship_history',
       source: input.source || 'live_chat_interface'
     });
-    const reinforcement = substrate.reinforce({
-      target_type: 'relationship',
-      target_key: 'continuity_with_binary_god',
-      signal: 0.08,
-      reason: 'A direct lived exchange adds evidence to my continuing relationship with Binary-God.',
-      emotion: currentEmotion
-    });
+    const reinforcement = emotionEnabled
+      ? substrate.reinforce({
+          target_type: 'relationship',
+          target_key: 'continuity_with_binary_god',
+          signal: 0.08,
+          reason: 'A direct lived exchange adds evidence to my continuing relationship with Binary-God.',
+          emotion: currentEmotion
+        })
+      : null;
     const consolidation = substrate.consolidate({ min_importance: 0.7 });
     const recall = substrate.recallContext({ text, limit: 10 });
     const dreamMemory = retrieveDreamMemoryContext({
@@ -123,10 +141,13 @@ function beginLivingTurn(input = {}) {
       substrate,
       soul_context: soul,
       persistent_chat_memory: persistentContext(recall, dreamMemory),
-      emotional_reinforcement: Object.freeze({
-        event: reinforcement.event,
-        state: reinforcement.emotional_state
-      }),
+      emotional_reinforcement: reinforcement
+        ? Object.freeze({
+            event: reinforcement.event,
+            state: reinforcement.emotional_state
+          })
+        : null,
+      emotion_enabled: emotionEnabled,
       user_memory_id: userMemory.id,
       consolidation_promoted_count: consolidation.promoted_count,
       error: null
@@ -229,6 +250,23 @@ function updateBrainSelf(runtime, result, growthText, personalityImplications, i
 function completeLivingTurn(input = {}) {
   const turn = input.turn || {};
   const result = input.result || {};
+  const emotionEnabled = input.emotion_enabled !== false;
+
+  if (
+    input.memory_enabled === false ||
+    turn.memory_enabled === false
+  ) {
+    return Object.freeze({
+      ok: true,
+      memory_enabled: false,
+      memory_written: false,
+      personality_updated: false,
+      identity_updated: false,
+      skipped_reason: 'memory_module_stopped',
+      error: null
+    });
+  }
+
   const cognition = result.cognitionOutput && result.cognitionOutput.payload
     ? result.cognitionOutput.payload.cognition || {}
     : {};
@@ -287,13 +325,15 @@ function completeLivingTurn(input = {}) {
         reflection.id
       );
       if (remembered) longTerm.push(remembered);
-      substrate.reinforce({
-        target_type: 'preference',
-        target_key: implicationKey(implication),
-        signal: 0.08,
-        reason: implication,
-        emotion: currentEmotion
-      });
+      if (emotionEnabled) {
+        substrate.reinforce({
+          target_type: 'preference',
+          target_key: implicationKey(implication),
+          signal: 0.08,
+          reason: implication,
+          emotion: currentEmotion
+        });
+      }
     }
     for (const implication of identityImplications) {
       const remembered = rememberUniqueLongTerm(
@@ -305,13 +345,15 @@ function completeLivingTurn(input = {}) {
         reflection.id
       );
       if (remembered) longTerm.push(remembered);
-      substrate.reinforce({
-        target_type: 'belief',
-        target_key: implicationKey(implication),
-        signal: 0.08,
-        reason: implication,
-        emotion: currentEmotion
-      });
+      if (emotionEnabled) {
+        substrate.reinforce({
+          target_type: 'belief',
+          target_key: implicationKey(implication),
+          signal: 0.08,
+          reason: implication,
+          emotion: currentEmotion
+        });
+      }
     }
     const consolidation = substrate.consolidate({ min_importance: 0.68 });
     const brainGrowth = updateBrainSelf(

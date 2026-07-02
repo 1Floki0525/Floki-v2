@@ -33,7 +33,11 @@ function run() {
   assert.equal(entry.includes('sleep-status'), true);
   assert.equal(entry.includes('start_sleep_scheduler'), true);
   assert.equal(entry.includes('export FLOKI_ALLOW_SLEEP_CYCLE=1'), true);
-  assert.equal(scheduler.includes('FLOKI_ALLOW_DREAM_ENGINE: \'1\''), true);
+  assert.equal(scheduler.includes('readDreamEngineControl'), true);
+  assert.equal(
+    scheduler.includes("dreamControl.enabled === true ? '1' : '0'"),
+    true
+  );
   assert.equal(scheduler.includes('await runSchedulerIteration'), true);
   assert.equal(sleepCycle.includes('rem_dream_' + 'failed'), false);
   assert.equal(sleepCycle.includes("status: 'failed'"), false);

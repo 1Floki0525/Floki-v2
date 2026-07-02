@@ -311,7 +311,9 @@ async function handleTypedText(runtime, text, options = {}) {
   const livingTurn = beginLivingTurn({
     text,
     source: options.source || 'live_chat_interface',
-    input_modality: options.input_modality || 'text'
+    input_modality: options.input_modality || 'text',
+    memory_enabled: options.memory_enabled !== false,
+    emotion_enabled: options.emotion_enabled !== false
   });
 
   let displayedText = null;
@@ -322,6 +324,8 @@ async function handleTypedText(runtime, text, options = {}) {
     persistent_chat_memory: livingTurn.persistent_chat_memory,
     emotional_reinforcement: livingTurn.emotional_reinforcement,
     soul_context: livingTurn.soul_context,
+    memory_enabled: options.memory_enabled !== false,
+    emotion_enabled: options.emotion_enabled !== false,
     model_config: options.model_config,
     signal: options.signal,
     latency_trace: trace,
@@ -384,7 +388,9 @@ async function handleTypedText(runtime, text, options = {}) {
     result,
     reply,
     source: options.source || 'live_chat_interface',
-    input_modality: options.input_modality || 'text'
+    input_modality: options.input_modality || 'text',
+    memory_enabled: options.memory_enabled !== false,
+    emotion_enabled: options.emotion_enabled !== false
   });
 
   const assistantTranscript = appendChatTranscriptTurn({

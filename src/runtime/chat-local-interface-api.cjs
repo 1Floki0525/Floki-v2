@@ -14,6 +14,8 @@ const { readLatestDetection, getDetectionConfig } = require('../vision/yolo-dete
 const { createInitialDetectionFrameState, reduceDetectionFrameState, splitDisplayDetections } = require('../vision/detection-frame-contract.cjs');
 const { loadAffectState } = require('../../brain/emotions_base/index.cjs');
 const { loadSelfImprovementConfig } = require('../self-improvement/config.cjs');
+const { getAllModuleConfigs, DISPLAY_NAMES } = require('../control-plane/module-registry.cjs');
+const { getCurrentWeekFile } = require('../control-plane/module-logging.cjs');
 
 const AFFECT_HISTORY_MAX = 360;
 
@@ -376,53 +378,52 @@ function createChatLocalInterfaceApi(options = {}) {
   }
 
   function buildServices() {
-    const paths = getPathConfig('chat');
-    const stateRoot = path.resolve(ROOT, paths.state_root || 'state/floki');
     const current = runtimeStatus();
-    const webcam = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
     const lifecycle = buildFlokiLifecycleStatus();
-    const schedulerPidFile = path.join(runtimeDir, 'sleep-cycle-scheduler.pid');
-    const visionPidFile = path.join(runtimeDir, 'chat-webcam-vision.pid');
-    const runtimePidFile = path.join(runtimeDir, 'chat-local-runtime.pid');
-    const schedulerHeartbeat = path.join(runtimeDir, 'sleep-cycle-scheduler.heartbeat.json');
-    const visionHeartbeat = path.join(runtimeDir, 'chat-webcam-vision.heartbeat.json');
-    const runtimeLog = path.join(runtimeDir, 'chat-local-runtime.log');
-    const schedulerRunning = processAlive(readPidFile(schedulerPidFile));
-    const visionRunning = processAlive(readPidFile(visionPidFile));
-    const runtimeRunning = processAlive(readPidFile(runtimePidFile));
-    const sleeping = current.lifecycle && current.lifecycle.is_awake === false || current.state === 'sleeping';
-    const hearingError = current.hearing && (current.hearing.last_error || current.hearing.last_wake_gate_error) || current.hearing_start_error || null;
-    const visionError = webcam.last_fatal_error || webcam.last_yolo_error || webcam.last_vlm_error || current.vision_start_error || null;
-    const now = Date.now();
-    let emotionHealthy = false;
-    try { emotionHealthy = Boolean(loadAffectState({ persist_diagnostics: false })); } catch (_error) { emotionHealthy = false; }
-    const memoryHealthy = current.memory_loaded === true && current.knowledge_ready === true && fs.existsSync(stateRoot);
-    const knowledge = current.knowledge_autoload || {};
+
     const exclusiveTraining = ['entering', 'active', 'restoring'].includes(
       String(current.training_resource_mode || '')
     );
     const exclusiveTrainingDetail =
       selfImprovementConfig.training_exclusive_status_label;
     const trainingControlPlaneNames = new Set([
-      'Authoritative API',
-      'Live Event Stream'
+      'authoritative_api',
+      'live_event_stream',
+      'rsi'
     ]);
-    const rows = [
-      { name: 'Floki Core', status: runtimeRunning && current.brain_loaded === true ? 'Running' : 'Stopped', lastHeartbeat: safeFileTime(runtimeLog), uptime: runtimeRunning ? Number(current.uptime_ms || uptimeFromFile(runtimePidFile)) : 0, latency: 0, lastError: current.last_error || null, detail: 'The authoritative chat.local runtime owns cognition, memory, hearing, sight, sleep, dreams, and interface data.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Floki Core' },
-      { name: 'Cognition', status: current.brain_loaded === true ? 'Running' : 'Stopped', lastHeartbeat: now, uptime: Number(current.uptime_ms || 0), latency: 0, lastError: current.last_error || null, detail: `Configured model: ${getModelConfig('chat').cognition.model}; runtime session ${current.session_id || 'unknown'}.`, restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Cognition' },
-      { name: 'Vision', status: webcam.capture_live === true ? 'Running' : (visionRunning || webcam.active === true ? 'Degraded' : 'Stopped'), lastHeartbeat: safeFileTime(visionHeartbeat), uptime: uptimeFromFile(visionPidFile), latency: 0, lastError: visionError, detail: `Eyes ${webcam.capture_live === true ? 'live' : (webcam.camera_open === true ? 'warming' : 'closed')} · ${Number(webcam.measured_capture_fps || 0).toFixed(1)} FPS · detector ${webcam.detection_live === true ? 'live' : 'stale'} · scene ${webcam.scene_live === true ? 'available' : 'refreshing'}.`, restartAvailable: true, logAvailable: true, controlAction: 'restartVision', logKey: 'Vision' },
-      { name: 'Hearing', status: sleeping ? 'Stopped' : (current.hearing_ready === true && !hearingError ? 'Running' : (runtimeRunning ? 'Degraded' : 'Stopped')), lastHeartbeat: Date.parse(current.hearing && current.hearing.last_heartbeat_at || '') || safeFileTime(runtimeLog), uptime: uptimeFromFile(runtimePidFile), latency: 0, lastError: hearingError, detail: sleeping ? 'Ears are intentionally closed while asleep.' : 'Continuous microphone, VAD, Whisper, and wake continuation are owned by the authoritative runtime.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Hearing' },
-      { name: 'Speech', status: sleeping ? 'Stopped' : (current.hearing && current.hearing.piper_ready === true && current.hearing.playback_ready === true && !hearingError ? 'Running' : 'Degraded'), lastHeartbeat: Date.parse(current.hearing && current.hearing.last_heartbeat_at || '') || safeFileTime(runtimeLog), uptime: uptimeFromFile(runtimePidFile), latency: 0, lastError: hearingError, detail: sleeping ? 'Voice is inactive while asleep.' : 'Piper playback and self-echo locking are owned by the authoritative runtime.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Speech' },
-      { name: 'Memory', status: memoryHealthy && current.knowledge_refreshing !== true && !current.knowledge_refresh_error ? 'Running' : 'Degraded', lastHeartbeat: safeFileTime(stateRoot), uptime: now - startedAt, latency: 0, lastError: current.knowledge_refresh_error || (memoryHealthy ? null : 'Persistent memory or transcript knowledge is not ready'), detail: 'Persistent memory and transcript knowledge are attached to the authoritative brain runtime. Knowledge status: ' + String(knowledge.marker || 'not loaded') + '; phase ' + String(knowledge.phase || 'unknown') + '; sources ' + String(knowledge.source_count || 0) + '; chunks ' + String(knowledge.chunk_count || 0) + '.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Memory' },
-      { name: 'Emotion', status: emotionHealthy ? 'Running' : 'Degraded', lastHeartbeat: now, uptime: now - startedAt, latency: 0, lastError: emotionHealthy ? null : 'Affect state could not be loaded', detail: 'Persistent affect state is attached to cognition and the interface.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Emotion' },
-      { name: 'Sleep Scheduler', status: schedulerRunning ? 'Running' : 'Stopped', lastHeartbeat: safeFileTime(schedulerHeartbeat), uptime: uptimeFromFile(schedulerPidFile), latency: 0, lastError: null, detail: lifecycle.sleep_cycle_scheduler_note || 'Sleep scheduler state unavailable.', restartAvailable: true, logAvailable: true, controlAction: schedulerRunning ? 'pauseSleep' : 'resumeSleep', logKey: 'Sleep Scheduler' },
-      { name: 'Dream Engine', status: schedulerRunning || lifecycle.is_dreaming ? 'Running' : 'Stopped', lastHeartbeat: Number(Date.parse(lifecycle.last_transition_at || '')) || now, uptime: schedulerRunning ? uptimeFromFile(schedulerPidFile) : 0, latency: 0, lastError: null, detail: lifecycle.is_dreaming ? 'REM dream generation is active.' : 'Dream generation is scheduled by the sleep runtime.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Dream Engine' },
-      { name: 'Authoritative API', status: current.api_ready === true ? 'Running' : 'Stopped', lastHeartbeat: now, uptime: Number(current.uptime_ms || 0), latency: 0, lastError: current.last_error || null, detail: 'All interface tabs use this single chat.local backend.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Authoritative API' },
-      { name: 'Live Event Stream', status: current.websocket_ready === true ? 'Running' : 'Stopped', lastHeartbeat: now, uptime: Number(current.uptime_ms || 0), latency: 0, lastError: null, detail: 'Transcript, inner experience, status, sleep, and sensory updates are delivered from the authoritative runtime.', restartAvailable: false, logAvailable: false, controlAction: null, logKey: null }
-    ];
+
+    const modules = getAllModuleConfigs();
+    const rows = modules.map((module) => {
+      const heartbeat = module.heartbeat_file ? safeFileTime(module.heartbeat_file) : Date.now();
+      const uptime = module.uptime_file ? uptimeFromFile(module.uptime_file) : 0;
+      const detail = buildModuleDetail(module.key, current, lifecycle, module);
+      const dependencyWarning = buildDependencyWarning(module.key, modules, module.status);
+
+      return Object.freeze({
+        key: module.key,
+        name: module.name,
+        status: formatDisplayStatus(module.status),
+        lifecycleState: module.status,
+        startAvailable: true,
+        stopAvailable: true,
+        resetAvailable: true,
+        logAvailable: true,
+        logKey: module.log_key,
+        requiresConfirmation: module.requires_confirmation,
+        dependencyWarning,
+        lastHeartbeat: heartbeat,
+        uptime,
+        latency: 0,
+        detail,
+        lastError: null
+      });
+    });
+
     if (!exclusiveTraining) return Object.freeze(rows);
+
     return Object.freeze(rows.map((row) => {
-      if (trainingControlPlaneNames.has(row.name)) {
+      if (trainingControlPlaneNames.has(row.key)) {
+        if (row.key === 'rsi') return row;
         return Object.freeze({
           ...row,
           detail: row.detail + ' Exclusive-training control plane remains online.'
@@ -431,12 +432,64 @@ function createChatLocalInterfaceApi(options = {}) {
       return Object.freeze({
         ...row,
         status: 'Stopped',
+        lifecycleState: 'stopped',
+        startAvailable: false,
+        stopAvailable: false,
+        resetAvailable: false,
         lastError: null,
-        detail: exclusiveTrainingDetail,
-        restartAvailable: false,
-        controlAction: null
+        detail: exclusiveTrainingDetail
       });
     }));
+  }
+
+  function formatDisplayStatus(status) {
+    if (!status) return 'Unknown';
+    return String(status).replace(/^\w/, (c) => c.toUpperCase());
+  }
+
+  function buildDependencyWarning(moduleKey, allModules, moduleStatus) {
+    const module = allModules.find((m) => m.key === moduleKey);
+    if (!module || !module.dependencies || module.dependencies.length === 0) return '';
+    const missing = module.dependencies
+      .map((depKey) => allModules.find((m) => m.key === depKey))
+      .filter((dep) => dep && dep.status !== 'running')
+      .map((dep) => dep.name);
+    if (missing.length === 0) return '';
+    return `Requires ${missing.join(', ')}`;
+  }
+
+  function buildModuleDetail(moduleKey, current, lifecycle, module) {
+    const webcam = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
+    const model = getModelConfig('chat').cognition;
+    const knowledge = current.knowledge_autoload || {};
+    switch (moduleKey) {
+      case 'floki_core':
+        return 'The authoritative chat.local runtime owns cognition, memory, hearing, sight, sleep, dreams, and interface data.';
+      case 'cognition':
+        return `Configured model: ${model.model}; runtime session ${current.session_id || 'unknown'}.`;
+      case 'vision':
+        return `Eyes ${webcam.capture_live === true ? 'live' : (webcam.camera_open === true ? 'warming' : 'closed')} · ${Number(webcam.measured_capture_fps || 0).toFixed(1)} FPS · detector ${webcam.detection_live === true ? 'live' : 'stale'} · scene ${webcam.scene_live === true ? 'available' : 'refreshing'}.`;
+      case 'hearing':
+        return lifecycle && lifecycle.is_awake === false ? 'Ears are intentionally closed while asleep.' : 'Continuous microphone, VAD, Whisper, and wake continuation are owned by the authoritative runtime.';
+      case 'speech':
+        return lifecycle && lifecycle.is_awake === false ? 'Voice is inactive while asleep.' : 'Piper playback and self-echo locking are owned by the authoritative runtime.';
+      case 'memory':
+        return 'Persistent memory and transcript knowledge are attached to the authoritative brain runtime. Knowledge status: ' + String(knowledge.marker || 'not loaded') + '; phase ' + String(knowledge.phase || 'unknown') + '; sources ' + String(knowledge.source_count || 0) + '; chunks ' + String(knowledge.chunk_count || 0) + '.';
+      case 'emotion':
+        return 'Persistent affect state is attached to cognition and the interface.';
+      case 'sleep_scheduler':
+        return lifecycle.sleep_cycle_scheduler_note || 'Sleep scheduler state unavailable.';
+      case 'dream_engine':
+        return lifecycle.is_dreaming ? 'REM dream generation is active.' : 'Dream generation is scheduled by the sleep runtime.';
+      case 'authoritative_api':
+        return 'All interface tabs use this single chat.local backend.';
+      case 'live_event_stream':
+        return 'Transcript, inner experience, status, sleep, and sensory updates are delivered from the authoritative runtime.';
+      case 'rsi':
+        return 'Recursive self-improvement worker and sandbox lifecycle.';
+      default:
+        return 'Module controlled through authoritative registry.';
+    }
   }
 
   function naturalInnerText(value) {
@@ -523,23 +576,41 @@ function createChatLocalInterfaceApi(options = {}) {
   }
 
   function logPath(service) {
+    const key = String(service || '');
+    try {
+      const filePath = getCurrentWeekFile(key);
+      return Object.freeze({ service: key, path: filePath, exists: fs.existsSync(filePath) });
+    } catch (_error) {
+      const legacy = legacyLogPath(key);
+      if (legacy && legacy.path) return legacy;
+      return Object.freeze({ service: key, path: null, exists: false });
+    }
+  }
+
+  function legacyLogPath(key) {
     const diagnostics = path.join(ROOT, 'state/floki/diagnostics.jsonl');
     const candidates = {
-      'Floki Core': path.join(runtimeDir, 'chat-local-runtime.log'),
-      Cognition: diagnostics,
-      Vision: path.join(runtimeDir, 'chat-webcam-vision.log'),
-      Hearing: path.join(runtimeDir, 'chat-local-runtime.log'),
-      Speech: path.join(runtimeDir, 'chat-local-runtime.log'),
-      Memory: diagnostics,
-      Emotion: diagnostics,
-      'Sleep Scheduler': path.join(runtimeDir, 'sleep-cycle-scheduler.log'),
-      'Dream Engine': path.join(runtimeDir, 'sleep-cycle-scheduler.log'),
-      'Authoritative API': path.join(runtimeDir, 'chat-local-runtime.log'),
-      'Self-Improvement Worker': selfImprovementWorkerLog(),
-      'Self-Improvement Sandbox': selfImprovementSandboxLog()
+      floki_core: path.join(runtimeDir, 'chat-local-runtime.log'),
+      cognition: diagnostics,
+      vision: path.join(runtimeDir, 'chat-webcam-vision.log'),
+      hearing: path.join(runtimeDir, 'chat-local-runtime.log'),
+      speech: path.join(runtimeDir, 'chat-local-runtime.log'),
+      memory: diagnostics,
+      emotion: diagnostics,
+      sleep_scheduler: path.join(runtimeDir, 'sleep-cycle-scheduler.log'),
+      dream_engine: path.join(runtimeDir, 'sleep-cycle-scheduler.log'),
+      authoritative_api: path.join(runtimeDir, 'chat-local-runtime.log'),
+      live_event_stream: path.join(runtimeDir, 'chat-local-runtime.log'),
+      rsi: selfImprovementWorkerLog() || selfImprovementSandboxLog()
     };
-    const filePath = candidates[String(service || '')] || null;
-    return Object.freeze({ service: String(service || ''), path: filePath, exists: Boolean(filePath && fs.existsSync(filePath)) });
+    const displayMap = Object.fromEntries(
+      Object.entries(DISPLAY_NAMES || {}).map(([k, name]) => [name, k])
+    );
+    const moduleKey = candidates[key] ? key : displayMap[key];
+    const filePath = moduleKey ? candidates[moduleKey] : null;
+    return filePath
+      ? Object.freeze({ service: key, path: filePath, exists: fs.existsSync(filePath) })
+      : Object.freeze({ service: key, path: null, exists: false });
   }
 
   return Object.freeze({

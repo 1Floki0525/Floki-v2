@@ -12,6 +12,9 @@ const { PROJECT_ROOT: ROOT, getPathConfig, getSleepConfig } = require('../config
 const { runSleepCycleTick, loadSleepCycleState } = require('./sleep-cycle.cjs');
 const { getProductionNightlyTrainingCoordinator } = require('../self-improvement/training/training-scheduler.cjs');
 const { loadSelfImprovementConfig } = require('../self-improvement/config.cjs');
+const {
+  readDreamEngineControl
+} = require('./dream-engine-control.cjs');
 
 const SCHEDULER_CONFIG = getSleepConfig('chat');
 const SCHEDULER_TICK_MS = Number(SCHEDULER_CONFIG.scheduler_tick_ms);
@@ -153,11 +156,15 @@ async function runSchedulerIteration(options = {}) {
   const paths = schedulerPaths(options);
   ensureDirSync(paths.runtime_dir);
   const tickRunner = options.tick_runner || runSleepCycleTick;
+  const dreamControl = readDreamEngineControl({
+    runtime_dir: paths.runtime_dir
+  });
   const env = {
     ...process.env,
     ...(options.env || {}),
     FLOKI_ALLOW_SLEEP_CYCLE: '1',
-    FLOKI_ALLOW_DREAM_ENGINE: '1'
+    FLOKI_ALLOW_DREAM_ENGINE:
+      dreamControl.enabled === true ? '1' : '0'
   };
   const trainingCoordinator =
     Object.prototype.hasOwnProperty.call(options, 'training_coordinator')
@@ -176,6 +183,10 @@ async function runSchedulerIteration(options = {}) {
 
   writeHeartbeat(paths, {
     phase: 'tick_start',
+    dream_engine_enabled: dreamControl.enabled === true,
+    dream_engine_generation: dreamControl.generation,
+    dream_engine_control_file:
+      dreamControl.control_file || null,
     nightly_training_error: nightlyTrainingError
   });
   const refresh = setInterval(() => {
@@ -186,6 +197,8 @@ async function runSchedulerIteration(options = {}) {
   try {
     const tickOptions = {
       env,
+      runtime_dir: paths.runtime_dir,
+      dream_engine_control: dreamControl,
       write_report: options.write_report !== false
     };
     if (trainingCoordinator) {
@@ -292,6 +305,12 @@ async function runSchedulerIteration(options = {}) {
     within_sleep_window: tick.within_sleep_window === true,
     sleep_cycle_active: tick.sleep_cycle_active === true,
     dreams_generated_this_tick: Number(tick.dreams_generated_this_tick || 0),
+    dream_engine_enabled: dreamControl.enabled === true,
+    dream_engine_generation: dreamControl.generation,
+    dream_generation_suspended:
+      tick.dream_generation_suspended === true,
+    dream_engine_control_file:
+      dreamControl.control_file || null,
     current_sleep_date: state ? state.current_sleep_date : null,
     nightly_training_enabled: Boolean(trainingCoordinator),
     nightly_training_error: nightlyTrainingError,
@@ -304,6 +323,10 @@ async function runSchedulerIteration(options = {}) {
     phase: 'idle',
     last_tick_completed_at: record.tick_completed_at,
     last_tick_marker: record.tick_marker,
+    dream_engine_enabled: dreamControl.enabled === true,
+    dream_engine_generation: dreamControl.generation,
+    dream_engine_control_file:
+      dreamControl.control_file || null,
     nightly_training_error: nightlyTrainingError
   });
   return record;
