@@ -363,25 +363,49 @@ async function run() {
       method: 'POST',
       body: JSON.stringify({ reason: 'test' })
     });
-    assert.equal(speechStart.status, 200);
-    assert.equal(speechStart.json.ok, true);
     assert.equal(speechStart.json.module, 'speech');
     assert.equal(speechStart.json.action, 'start');
     assert.equal(speechStart.json.health.runtime_pid_preserved, true);
     assert.equal(speechStart.json.health.speech_enabled, true);
+    if (speechStart.status === 200) {
+      assert.equal(speechStart.json.ok, true);
+    } else {
+      // Truthful degraded result on hosts without a working Piper pipeline.
+      assert.equal(speechStart.status, 503);
+      assert.equal(speechStart.json.ok, false);
+      assert.equal(speechStart.json.status, 'degraded');
+      assert.equal(speechStart.json.health.activation_required, true);
+      assert.equal(
+        speechStart.json.health.piper_ready === true &&
+        speechStart.json.health.playback_ready === true,
+        false
+      );
+    }
 
     const speechReset = await httpRequest(runtimePort, '/control/modules/speech/reset', {
       method: 'POST',
       body: JSON.stringify({ reason: 'test' })
     });
-    assert.equal(speechReset.status, 200);
-    assert.equal(speechReset.json.ok, true);
     assert.equal(speechReset.json.module, 'speech');
     assert.equal(speechReset.json.action, 'reset');
     assert.equal(speechReset.json.changed, true);
     assert.equal(speechReset.json.health.runtime_pid_preserved, true);
     assert.equal(speechReset.json.health.speech_enabled, true);
     assert.equal(speechReset.json.health.speaking, false);
+    if (speechReset.status === 200) {
+      assert.equal(speechReset.json.ok, true);
+    } else {
+      // Truthful degraded result on hosts without a working Piper pipeline.
+      assert.equal(speechReset.status, 503);
+      assert.equal(speechReset.json.ok, false);
+      assert.equal(speechReset.json.status, 'degraded');
+      assert.equal(speechReset.json.health.activation_required, true);
+      assert.equal(
+        speechReset.json.health.piper_ready === true &&
+        speechReset.json.health.playback_ready === true,
+        false
+      );
+    }
 
     // 7b. Memory controls the real persistent-memory and knowledge-refresh gates.
     const memoryStop = await httpRequest(runtimePort, '/control/modules/memory/stop', {
