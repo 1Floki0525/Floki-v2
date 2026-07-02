@@ -11,7 +11,11 @@ function read(relativePath) {
 }
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
 
   const start = read('bin/floki-sleep-scheduler-start.sh');
   const stop = read('bin/floki-sleep-scheduler-stop.sh');

@@ -8,6 +8,7 @@ const {
   getModelConfig,
   getDetectionConfig: getYamlDetectionConfig
 } = require('../config/floki-config.cjs');
+const { objectPolicyDisposition } = require('./object-class-policy.cjs');
 
 const verificationCache = new Map();
 const verificationTracks = [];
@@ -39,7 +40,7 @@ function parseClassConfidenceOverrides(raw) {
   for (const [key, value] of Object.entries(raw)) {
     const threshold = Number(value);
     if (Number.isFinite(threshold) && threshold >= 0 && threshold <= 1) {
-      result[String(key).toLowerCase().trim()] = threshold;
+      result[String(key).toLowerCase().trim().replace(/^['"]|['"]$/g, '')] = threshold;
     }
   }
   return Object.freeze(result);
@@ -700,11 +701,24 @@ function classifyVerifiedDetectionForDisplay(detection) {
     );
     const yoloSupported = sources.includes('yolo');
     const dinoSupported = sources.includes('grounding_dino');
+    const classPolicy = objectPolicyDisposition(detection);
+    const objectPolicyMinConfidence = Number(detection && detection.object_policy_min_confidence);
+    const hasObjectPolicyMinConfidence = Number.isFinite(objectPolicyMinConfidence) && objectPolicyMinConfidence >= 0;
+
+    if (!classPolicy.allowed) {
+      return Object.freeze({
+        bucket: 'suppressed',
+        detection,
+        unavailable_reason: classPolicy.reason === 'object_confidence_below_class_policy'
+          ? 'class_confidence_below_class_minimum'
+          : classPolicy.reason
+      });
+    }
 
     if (!yoloSupported && dinoSupported) {
       if (
         confidence <
-        config.dinoOnlyObjectDisplayMinConfidence
+        (hasObjectPolicyMinConfidence ? objectPolicyMinConfidence : config.dinoOnlyObjectDisplayMinConfidence)
       ) {
         return Object.freeze({
           bucket: 'suppressed',
@@ -722,7 +736,7 @@ function classifyVerifiedDetectionForDisplay(detection) {
         config.classMinConfidenceOverrides[
           String(detection.label || '').toLowerCase().trim()
         ];
-      if (dinoClassMin !== undefined && confidence < dinoClassMin) {
+      if (!hasObjectPolicyMinConfidence && dinoClassMin !== undefined && confidence < dinoClassMin) {
         return Object.freeze({
           bucket: 'suppressed',
           detection,
@@ -756,7 +770,7 @@ function classifyVerifiedDetectionForDisplay(detection) {
       ? config.objectConsensusMinConfidence
       : config.objectDisplayMinConfidence;
 
-    if (confidence < threshold) {
+    if (confidence < (hasObjectPolicyMinConfidence ? objectPolicyMinConfidence : threshold)) {
       return Object.freeze({
         bucket: 'suppressed',
         detection,
@@ -770,7 +784,7 @@ function classifyVerifiedDetectionForDisplay(detection) {
     ).toLowerCase().trim();
     const yoloClassMin =
       config.classMinConfidenceOverrides[yoloNormalizedLabel];
-    if (yoloClassMin !== undefined && confidence < yoloClassMin) {
+    if (!hasObjectPolicyMinConfidence && yoloClassMin !== undefined && confidence < yoloClassMin) {
       return Object.freeze({
         bucket: 'suppressed',
         detection,

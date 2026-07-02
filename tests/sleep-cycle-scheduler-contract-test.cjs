@@ -15,7 +15,11 @@ const {
 } = require('../src/chat/sleep-cycle-scheduler.cjs');
 
 async function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
   assert.equal(SCHEDULER_TICK_MS, 30000);
   assert.equal(SCHEDULER_HEARTBEAT_STALE_MS, 90000);
 

@@ -10,7 +10,8 @@ const agentSource = fs.readFileSync(
   'utf8'
 );
 
-assert.equal(process.version, 'v24.17.0');
+const nodeMajor = Number(process.versions.node.split('.')[0]);
+assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or newer is required');
 
 // --- Structural checks ---
 assert.match(agentSource, /FOCUSED_TEST_EXECUTABLE_PREFIX/, 'agent must define FOCUSED_TEST_EXECUTABLE_PREFIX');
@@ -33,7 +34,8 @@ const defaultConfig = {
   search_only_streak_limit: 6,
   failed_lookup_limit: 5,
   max_no_change_iterations: 4,
-  focused_verification_failure_limit: 4
+  focused_verification_failure_limit: 4,
+  focused_repair_no_progress_iteration_limit: 8
 };
 
 function makePolicy() {

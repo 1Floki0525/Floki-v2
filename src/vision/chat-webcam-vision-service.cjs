@@ -29,6 +29,11 @@ const {
   isPersonCandidate,
   verifyDetectionFramePersons
 } = require('./person-presence-verifier.cjs');
+const {
+  createInitialDetectionFrameState,
+  reduceDetectionFrameState,
+  splitDisplayDetections
+} = require('./detection-frame-contract.cjs');
 
 function readyTimeoutMs(options = {}) {
   if (options.timeout_ms) return Number(options.timeout_ms);
@@ -55,7 +60,7 @@ function maxPipeBufferBytes() {
 }
 
 function assertNode24() {
-  if (!process.version.startsWith('v24.')) {
+  if (Number(process.versions.node.split('.')[0]) < 24) {
     throw new Error('Node 24 required for chat webcam vision service, got ' + process.version);
   }
 }
@@ -443,6 +448,7 @@ function buildOperationalStatus(state, extra = {}) {
     last_vlm_inference_timestamp: state.last_vlm_inference_timestamp || null,
     last_yolo_inference_timestamp: state.last_yolo_inference_timestamp || null,
     last_detection_stored_at: state.last_detection_stored_at || null,
+    stream_session_id: state.stream_session_id || null,
     last_detection_frame_sequence: Number(state.last_detection_frame_sequence || 0),
     detection_in_flight: state.detection_in_flight === true,
     last_detection_started_at: state.last_detection_started_at || null,
@@ -674,14 +680,21 @@ function buildFreshDetectionObservation(options = {}) {
   }
 
   const visible = latest.detection.detections
-    .map((detection) => classifyVerifiedDetectionForDisplay(detection))
-    .filter((entry) => entry && (entry.bucket === 'persons' || entry.bucket === 'objects'));
+    ? splitDisplayDetections(latest.detection, {
+        now_ms: Date.now(),
+        max_age_ms: getDetectionConfig().maxAgeMs
+      })
+    : null;
+  const visibleEntries = [
+    ...((visible && visible.persons || []).map((detection) => ({ bucket: 'persons', detection }))),
+    ...((visible && visible.objects || []).map((detection) => ({ bucket: 'objects', detection })))
+  ];
 
-  const personCount = visible.filter((entry) => entry.bucket === 'persons').length;
+  const personCount = visibleEntries.filter((entry) => entry.bucket === 'persons').length;
   const confirmedObjectCounts = new Map();
   const uncertainObjectLabels = new Set();
 
-  for (const entry of visible) {
+  for (const entry of visibleEntries) {
     if (entry.bucket !== 'objects') continue;
     const label = normalizedDetectionLabel(entry.detection);
     if (!label) continue;
@@ -974,6 +987,7 @@ async function runChatWebcamVisionService(options = {}) {
   const capture = webcamCaptureConfig('chat');
   const state = {
     camera_device: capture.device,
+    stream_session_id: 'chat-webcam-' + String(process.pid) + '-' + String(Date.now()),
     target_capture_fps: capture.target_fps,
     camera_open: false,
     first_frame_received: false,
@@ -1232,9 +1246,33 @@ async function runChatWebcamVisionService(options = {}) {
 
       const parsedFrame = parseYoloDetectionFrame(
         hybridResult,
-        capturedAt
+        capturedAt,
+        {
+          stream_session_id: state.stream_session_id,
+          frame_id: 'webcam-' + String(state.stream_session_id) + '-' + String(frameSequence),
+          frame_sequence: frameSequence,
+          result_sequence: frameSequence
+        }
       );
-      const validation = validateDetectionFrame(parsedFrame);
+      const reducedFrame = reduceDetectionFrameState(
+        createInitialDetectionFrameState({ session_id: state.stream_session_id }),
+        parsedFrame,
+        {
+          now_ms: Date.now(),
+          max_age_ms: detectionConfig.maxAgeMs,
+          accept_new_session: true
+        }
+      ).state;
+      const currentFrame = {
+        ...parsedFrame,
+        detections: reducedFrame.detections,
+        dropped_detections: {
+          ...(parsedFrame.dropped_detections || {}),
+          invalid_at_frame_contract: reducedFrame.dropCounts.invalid,
+          suppressed_at_frame_contract: reducedFrame.dropCounts.suppressed
+        }
+      };
+      const validation = validateDetectionFrame(currentFrame);
 
       if (!validation.valid) {
         throw new Error(
@@ -1244,7 +1282,7 @@ async function runChatWebcamVisionService(options = {}) {
       }
 
       const displayFrame =
-        attachCachedPersonVerifications(parsedFrame);
+        attachCachedPersonVerifications(currentFrame);
       const stored = storeDetectionResult(
         displayFrame,
         { runtime_dir: paths.runtime_dir }
@@ -1312,7 +1350,7 @@ async function runChatWebcamVisionService(options = {}) {
           if (stopping) return null;
 
           return verifyDetectionFramePersons(
-            parsedFrame,
+            currentFrame,
             detectionFramePath,
             {
               runtime_dir: paths.runtime_dir,

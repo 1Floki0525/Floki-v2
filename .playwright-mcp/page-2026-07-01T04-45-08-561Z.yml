@@ -1,0 +1,251 @@
+- generic [active] [ref=f12e1]:
+  - link "Skip to main content" [ref=f12e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=f12e3]:
+    - banner [ref=f12e4]:
+      - navigation "Primary" [ref=f12e7]:
+        - list [ref=f12e8]:
+          - menu [ref=f12e9]:
+            - link "Home" [ref=f12e10] [cursor=pointer]:
+              - /url: https://navigation.ionos.ca/2.0/navi/CA/track/click?url=https%3A%2F%2Fmy.ionos.ca%2Fproduct-overview&linkid=appswitch.logo&c=CONTROL_PANEL_HOSTING&p=domain-details&ft=82ef0757-aee6-4771-8b96-31beb3de864b
+              - generic [ref=f12e11]: 
+              - button "Open Menu" [ref=f12e12]: Menu
+      - menu [ref=f12e14]:
+        - menu [ref=f12e15]:
+          - generic [ref=f12e17]:
+            - generic: Search for features, domains, and help
+            - generic [ref=f12e18] [cursor=pointer]: 
+            - searchbox "Search for features, domains, and help" [ref=f12e19]
+            - button "Turn on microphone" [ref=f12e20] [cursor=pointer]: 
+      - navigation "Secondary" [ref=f12e22]:
+        - menu [ref=f12e23]:
+          - text:  
+          - menu [ref=f12e24]:
+            - link "World Cup Deals" [ref=f12e25] [cursor=pointer]:
+              - /url: https://navigation.ionos.ca/2.0/navi/CA/track/click?url=https%3A%2F%2Fmy.ionos.ca%2Fspecial-offers%3Fias.campaign%3Dworldcup-26%26campaign%3Dfiller_campaign&linkid=nav.special-offer-a&c=CONTROL_PANEL_HOSTING&p=domain-details&ft=82ef0757-aee6-4771-8b96-31beb3de864b
+              - img [ref=f12e27]
+              - superscript [ref=f12e32]: "%"
+          - menu [ref=f12e33]:
+            - button "Help & contact" [ref=f12e34] [cursor=pointer]:
+              - img [ref=f12e35]
+          - menu [ref=f12e41]:
+            - link "Empty cart" [ref=f12e42] [cursor=pointer]:
+              - /url: https://my.ionos.ca/add-product?utm_source=global_navigation&utm_medium=notification&utm_campaign=cart&utm_content=cp-add-product
+              - img [ref=f12e43]
+          - menu [ref=f12e48]:
+            - button "Open preview of 5 messages" [ref=f12e49] [cursor=pointer]:
+              - img [ref=f12e50]
+              - superscript [ref=f12e55]: 5+
+          - menu [ref=f12e56]:
+            - button "Open my account & logout" [ref=f12e57] [cursor=pointer]:
+              - img [ref=f12e58]
+    - main [ref=f12e61]:
+      - generic [ref=f12e63]:
+        - navigation "Navigation" [ref=f12e64]:
+          - link " Home" [ref=f12e65] [cursor=pointer]:
+            - /url: https://my.ionos.ca/home/products
+          - link " Domains & SSL" [ref=f12e66] [cursor=pointer]:
+            - /url: /domain/
+        - generic [ref=f12e67]:
+          - generic [ref=f12e68]:
+            - button "Close"
+            - heading "galactic-family-hub.com" [level=1] [ref=f12e69]
+          - generic [ref=f12e72]:
+            - link "Adjust destination" [ref=f12e73] [cursor=pointer]:
+              - /url: /domain/details/galactic-family-hub.com/connect-domain
+            - button "More options" [ref=f12e74]: 
+      - navigation "Domain details tab navigation" [ref=f12e75]:
+        - generic [ref=f12e76]:
+          - generic [ref=f12e77]:
+            - link "Details" [ref=f12e79]:
+              - /url: /domain/details/galactic-family-hub.com?linkId=ct.tab.domainlist.details
+              - heading "Details" [level=2] [ref=f12e80]
+            - link "Subdomains" [ref=f12e82] [cursor=pointer]:
+              - /url: /domain/details/galactic-family-hub.com/subdomain?linkId=ct.tab.domainlist.subdomains
+              - heading "Subdomains" [level=2] [ref=f12e83]
+            - link "Contact Details" [ref=f12e85] [cursor=pointer]:
+              - /url: /domain/details/galactic-family-hub.com/domain-privacy?linkId=ct.tab.domainlist.privacy
+              - heading "Contact Details" [level=2] [ref=f12e86]
+            - link "Renewal & Transfer" [ref=f12e88] [cursor=pointer]:
+              - /url: /domain/details/galactic-family-hub.com/renewal-transfer?linkId=ct.tab.domainlist.transfer
+              - heading "Renewal & Transfer" [level=2] [ref=f12e89]
+            - link "Nameserver" [ref=f12e91] [cursor=pointer]:
+              - /url: /domain/details/galactic-family-hub.com/nameserver?linkId=ct.tab.domainlist.nameserver
+              - heading "Nameserver" [level=2] [ref=f12e92]
+            - link "DNS" [ref=f12e94] [cursor=pointer]:
+              - /url: /domain/details/galactic-family-hub.com/dns?linkId=ct.tab.domainlist.dns
+              - heading "DNS" [level=2] [ref=f12e95]
+          - text:  
+      - generic [ref=f12e98]:
+        - generic [ref=f12e99]:
+          - list [ref=f12e101]:
+            - listitem [ref=f12e102]:
+              - generic [ref=f12e103]:
+                - strong [ref=f12e105]: Destination
+                - paragraph [ref=f12e107]: Managed by IONOS
+                - link " Adjust" [ref=f12e109] [cursor=pointer]:
+                  - /url: /domain/details/galactic-family-hub.com/connect-domain
+            - listitem [ref=f12e110]:
+              - generic [ref=f12e111]:
+                - strong [ref=f12e113]: Target
+                - generic [ref=f12e114]: Click and Build
+                - link " Modify DNS Settings" [ref=f12e116] [cursor=pointer]:
+                  - /url: /domain/details/galactic-family-hub.com/dns?linkId=ct.txt.domainlist.dns-settings.pro
+            - listitem [ref=f12e117]:
+              - generic [ref=f12e118]:
+                - strong [ref=f12e120]: SSL certificate
+                - paragraph [ref=f12e122]: Assigned
+                - link " Manage" [ref=f12e124] [cursor=pointer]:
+                  - /url: /domain/details/galactic-family-hub.com/domain-ssl?linkId=ct.txt.domainlist.ssl-protected
+            - listitem [ref=f12e125]:
+              - generic [ref=f12e126]:
+                - strong [ref=f12e128]:
+                  - button "Domain security" [ref=f12e129]
+                - paragraph [ref=f12e131]: Your domain is not fully protected against unwanted changes by third parties. Activate Domain Guard now to protect your domain.
+                - link " Activate" [ref=f12e133] [cursor=pointer]:
+                  - /url: /domain/details/galactic-family-hub.com/domain-guard?linkId=ct.txt.domainlist.domainguard-activate
+          - list [ref=f12e135]:
+            - listitem [ref=f12e136]:
+              - generic [ref=f12e137]:
+                - generic [ref=f12e138]:
+                  - strong [ref=f12e139]: "Email address:"
+                  - paragraph [ref=f12e140]: asrael@galactic-family-hub.com
+                - generic [ref=f12e142]:
+                  - generic [ref=f12e143]:
+                    - paragraph [ref=f12e144]: No Premium Virus Protection
+                    - link " Optimize" [ref=f12e145] [cursor=pointer]:
+                      - /url: https://my.ionos.ca/select-contract?destination=email-overview&as=current&silentSelectionContract=107165705&itc=6PBXC5FH&mail-business-ac=3C23EZCA&mail-basic-ac=1IITWDE5&mail-anitvirus-ac=IBN62LQJ&filter.search=galactic-family-hub.com&backToDomain=galactic-family-hub.com
+                  - generic [ref=f12e146]:
+                    - paragraph [ref=f12e147]: No Email Archiving
+                    - link " Optimize" [ref=f12e148] [cursor=pointer]:
+                      - /url: https://my.ionos.ca/select-contract?destination=email-overview&as=current&silentSelectionContract=107165705&itc=6PBXC5FH&mail-business-ac=3C23EZCA&mail-basic-ac=1IITWDE5&mail-anitvirus-ac=IBN62LQJ&filter.search=galactic-family-hub.com&backToDomain=galactic-family-hub.com
+                  - generic [ref=f12e149]:
+                    - paragraph [ref=f12e150]: No AI assistant
+                    - link " Optimize" [ref=f12e151] [cursor=pointer]:
+                      - /url: https://my.ionos.ca/select-contract?destination=email-overview&as=current&silentSelectionContract=107165705&itc=6PBXC5FH&mail-business-ac=3C23EZCA&mail-basic-ac=1IITWDE5&mail-anitvirus-ac=IBN62LQJ&filter.search=galactic-family-hub.com&backToDomain=galactic-family-hub.com
+                - link " Manage" [ref=f12e153] [cursor=pointer]:
+                  - /url: https://my.ionos.ca/select-contract?destination=email-overview&as=current&silentSelectionContract=107165705&itc=6PBXC5FH&mail-business-ac=3C23EZCA&mail-basic-ac=1IITWDE5&mail-anitvirus-ac=IBN62LQJ&filter.search=galactic-family-hub.com&backToDomain=galactic-family-hub.com
+          - paragraph [ref=f12e154]:
+            - text: "Last updated: 12:45 a.m. EDT."
+            - link " Update domain info" [ref=f12e155] [cursor=pointer]:
+              - /url: /domain/details/galactic-family-hub.com?reload=true
+        - generic [ref=f12e157]:
+          - img [ref=f12e159]
+          - generic [ref=f12e160]:
+            - link " Visit" [ref=f12e162] [cursor=pointer]:
+              - /url: https://galactic-family-hub.com
+            - generic [ref=f12e163]:
+              - generic [ref=f12e164]:
+                - heading "Contract" [level=3] [ref=f12e165]
+                - button "More options" [ref=f12e168] [cursor=pointer]: 
+              - generic [ref=f12e169]:
+                - paragraph [ref=f12e170]:
+                  - generic [ref=f12e171]: Contract number . 1 0 7 1 6 5 7 0 5
+                  - text: 107165705 - IONOS Web Hosting Plus
+                - paragraph [ref=f12e172]:
+                  - text: (
+                  - generic [ref=f12e173]: Additional domain
+                  - text: )
+      - generic [ref=f12e178]:
+        - heading "Or search for your desired domain:" [level=3] [ref=f12e179]
+        - list [ref=f12e180]:
+          - listitem [ref=f12e181]:
+            - generic [ref=f12e182]:
+              - generic [ref=f12e184]:
+                - generic [ref=f12e185]: 
+                - textbox "Find your domain now" [ref=f12e186]
+                - text: 
+              - link "Search" [ref=f12e188] [cursor=pointer]:
+                - /url: https://my.ionos.ca/JumpToNewShopDomains?tlds=com&action=search&itc=7BDU2YZ4
+      - generic [ref=f12e190]:
+        - heading "Recommended help topics" [level=3] [ref=f12e191]
+        - list [ref=f12e192]:
+          - listitem [ref=f12e193]:
+            - link " Cancel individual domain" [ref=f12e194] [cursor=pointer]:
+              - /url: https://www.ionos.ca/help/index.php?id=453
+          - listitem [ref=f12e195]:
+            - link " Activate private domain registration at IONOS" [ref=f12e196] [cursor=pointer]:
+              - /url: https://www.ionos.ca/help/index.php?id=5138
+          - listitem [ref=f12e197]:
+            - link " DNS settings" [ref=f12e198] [cursor=pointer]:
+              - /url: https://www.ionos.ca/help/index.php?id=390
+          - listitem [ref=f12e199]:
+            - link " Higher billing amount on latest invoice" [ref=f12e200] [cursor=pointer]:
+              - /url: https://www.ionos.ca/help/index.php?id=185
+          - listitem [ref=f12e201]:
+            - link " Changing a domain's usage type" [ref=f12e202] [cursor=pointer]:
+              - /url: https://www.ionos.ca/help/index.php?id=429
+          - listitem [ref=f12e203]:
+            - link " Set up external domain at IONOS" [ref=f12e204] [cursor=pointer]:
+              - /url: https://www.ionos.ca/help/index.php?id=148
+      - link "Back to top of the page" [ref=f12e205] [cursor=pointer]:
+        - /url: "#top"
+  - contentinfo [ref=f12e206]:
+    - generic [ref=f12e207]:
+      - generic [ref=f12e208]:
+        - generic [ref=f12e210]:
+          - generic [ref=f12e211]:
+            - generic [ref=f12e212]:
+              - heading "My IONOS" [level=4] [ref=f12e213]
+              - list [ref=f12e214]:
+                - listitem [ref=f12e215]:
+                  - link " Home" [ref=f12e216] [cursor=pointer]:
+                    - /url: https://my.ionos.ca/home/products?linkId=ft.nav.home
+                - listitem [ref=f12e217]:
+                  - link " My account" [ref=f12e218] [cursor=pointer]:
+                    - /url: https://my.ionos.ca/account/?linkId=ft.nav.my-account
+                - listitem [ref=f12e219]:
+                  - link "Discover IONOS" [ref=f12e220] [cursor=pointer]:
+                    - /url: https://my.ionos.com/home/add-product?linkId=ft.nav.discover-ionos
+                    - img
+                    - text: Discover IONOS
+            - generic [ref=f12e221]:
+              - heading "Service" [level=4] [ref=f12e222]
+              - list [ref=f12e223]:
+                - listitem [ref=f12e224]:
+                  - link "Help Center" [ref=f12e225] [cursor=pointer]:
+                    - /url: https://www.ionos.ca/help/?hc=Control-Center&linkId=ft.nav.help
+                - listitem [ref=f12e226]:
+                  - link "Contact us / My personal consultant" [ref=f12e227] [cursor=pointer]:
+                    - /url: https://my.ionos.ca/support/contact?linkId=ft.nav.contact
+          - heading "Download the IONOS App" [level=4] [ref=f12e228]
+          - generic [ref=f12e229]:
+            - link "Google Play" [ref=f12e231]:
+              - /url: https://play.google.com/store/apps/details?id=com.oneandone.ciso.mobile.app.android&referrer=utm_source%3Dcp%26utm_campaign%3Dfooter
+              - img "Google Play" [ref=f12e232]
+            - link "App Store" [ref=f12e234]:
+              - /url: https://apps.apple.com/app/apple-store/id1080444849?pt=119330501&ct=cp.footer&mt=8
+              - img "App Store"
+        - generic [ref=f12e235]:
+          - img "IONOS"
+          - paragraph [ref=f12e236]:
+            - link "Instagram" [ref=f12e237] [cursor=pointer]:
+              - /url: https://www.instagram.com/ionos.official?linkId=ft.nav.instagram
+              - img [ref=f12e238]
+            - link "Facebook" [ref=f12e240] [cursor=pointer]:
+              - /url: https://ionos.ly/IONOS_FB_US?linkId=ft.nav.facebook
+              - img [ref=f12e241]
+            - link "YouTube" [ref=f12e243] [cursor=pointer]:
+              - /url: https://ionos.ly/IONOS_YT_US?linkId=ft.nav.youtube
+              - img [ref=f12e244]
+            - link "LinkedIn" [ref=f12e246] [cursor=pointer]:
+              - /url: https://ionos.ly/IONOS_IN?linkId=ft.nav.linkedin
+              - img [ref=f12e247]
+            - link "TikTok" [ref=f12e249] [cursor=pointer]:
+              - /url: https://www.tiktok.com/@ionos.global?linkId=ft.nav.linkedin
+              - img [ref=f12e250]
+      - generic [ref=f12e252]:
+        - link "All Systems Operational" [ref=f12e255] [cursor=pointer]:
+          - /url: https://www.ionos-status.ca/?utm_medium=footer&utm_content=none&utm_source=CONTROL_PANEL_HOSTING&utm_campaign=domain-details&utm_term=no_search
+        - paragraph [ref=f12e257]:
+          - text: © 2026
+          - link "IONOS Inc." [ref=f12e258] [cursor=pointer]:
+            - /url: https://www.ionos.ca/about/?linkId=ft.nav.company
+        - generic [ref=f12e259]:
+          - link "Privacy policy" [ref=f12e260] [cursor=pointer]:
+            - /url: https://www.ionos.ca/terms-gtc/terms-privacy?linkId=ft.nav.privacy
+          - text: "-"
+          - link "T&Cs" [ref=f12e261] [cursor=pointer]:
+            - /url: https://www.ionos.ca/terms-gtc/?linkId=ft.nav.terms
+  - button "Hey, I’m the AI Assistant of" [ref=f12e262] [cursor=pointer]:
+    - img [ref=f12e263]

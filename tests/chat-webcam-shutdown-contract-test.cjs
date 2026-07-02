@@ -11,7 +11,11 @@ const {
 } = require('../src/vision/chat-webcam-vision-service.cjs');
 
 async function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
   const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'floki-chat-webcam-stop-'));
   const paths = runtimePaths({ runtime_dir: runtimeDir });
   fs.writeFileSync(paths.pid_file, '4242\n');

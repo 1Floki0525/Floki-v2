@@ -1,0 +1,623 @@
+- generic [ref=f12e2]:
+  - navigation "Main menu":
+    - link "Skip to main content" [ref=f12e3] [cursor=pointer]:
+      - /url: "#wpbody-content"
+    - link "Skip to toolbar" [ref=f12e4] [cursor=pointer]:
+      - /url: "#wp-toolbar"
+    - list [ref=f12e7]:
+      - listitem [ref=f12e8]:
+        - link "Dashboard" [ref=f12e9] [cursor=pointer]:
+          - /url: index.php
+          - generic [ref=f12e10]: 
+          - generic [ref=f12e11]: Dashboard
+        - list [ref=f12e12]:
+          - listitem [ref=f12e13]: Dashboard
+          - listitem [ref=f12e14]:
+            - link "Home" [ref=f12e15] [cursor=pointer]:
+              - /url: index.php
+          - listitem [ref=f12e16]:
+            - link "Updates 10" [ref=f12e17] [cursor=pointer]:
+              - /url: update-core.php
+              - text: Updates
+              - generic [ref=f12e18]: "10"
+      - listitem [ref=f12e19]
+      - listitem [ref=f12e21]:
+        - link "Posts" [ref=f12e22] [cursor=pointer]:
+          - /url: edit.php
+          - generic [ref=f12e23]: 
+          - generic [ref=f12e24]: Posts
+        - list [ref=f12e25]:
+          - listitem [ref=f12e26]: Posts
+          - listitem [ref=f12e27]:
+            - link "All Posts" [ref=f12e28] [cursor=pointer]:
+              - /url: edit.php
+          - listitem [ref=f12e29]:
+            - link "Add Post" [ref=f12e30] [cursor=pointer]:
+              - /url: post-new.php
+          - listitem [ref=f12e31]:
+            - link "Categories" [ref=f12e32] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=category
+          - listitem [ref=f12e33]:
+            - link "Tags" [ref=f12e34] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=post_tag
+      - listitem [ref=f12e35]:
+        - link "Media" [ref=f12e36] [cursor=pointer]:
+          - /url: upload.php
+          - generic [ref=f12e37]: 
+          - generic [ref=f12e38]: Media
+        - list [ref=f12e39]:
+          - listitem [ref=f12e40]: Media
+          - listitem [ref=f12e41]:
+            - link "Library" [ref=f12e42] [cursor=pointer]:
+              - /url: upload.php
+          - listitem [ref=f12e43]:
+            - link "Add Media File" [ref=f12e44] [cursor=pointer]:
+              - /url: media-new.php
+      - listitem [ref=f12e45]:
+        - link "Pages" [ref=f12e46] [cursor=pointer]:
+          - /url: edit.php?post_type=page
+          - generic [ref=f12e47]: 
+          - generic [ref=f12e48]: Pages
+        - list [ref=f12e49]:
+          - listitem [ref=f12e50]: Pages
+          - listitem [ref=f12e51]:
+            - link "All Pages" [ref=f12e52] [cursor=pointer]:
+              - /url: edit.php?post_type=page
+          - listitem [ref=f12e53]:
+            - link "Add Page" [ref=f12e54] [cursor=pointer]:
+              - /url: post-new.php?post_type=page
+      - listitem [ref=f12e55]:
+        - link "Comments 1,000 Comments in moderation" [ref=f12e56] [cursor=pointer]:
+          - /url: edit-comments.php
+          - generic [ref=f12e57]: 
+          - generic [ref=f12e58]:
+            - text: Comments
+            - generic [ref=f12e59]:
+              - text: 1,000
+              - generic [ref=f12e60]: 1,000 Comments in moderation
+      - listitem [ref=f12e61]
+      - listitem [ref=f12e63]:
+        - link "Appearance" [ref=f12e64] [cursor=pointer]:
+          - /url: themes.php
+          - generic [ref=f12e65]: 
+          - generic [ref=f12e66]: Appearance
+        - list [ref=f12e67]:
+          - listitem [ref=f12e68]: Appearance
+          - listitem [ref=f12e69]:
+            - link "Themes 5" [ref=f12e70] [cursor=pointer]:
+              - /url: themes.php
+              - text: Themes
+              - generic [ref=f12e71]: "5"
+          - listitem [ref=f12e72]:
+            - link "Patterns" [ref=f12e73] [cursor=pointer]:
+              - /url: site-editor.php?p=/pattern
+          - listitem [ref=f12e74]:
+            - link "Customize" [ref=f12e75] [cursor=pointer]:
+              - /url: customize.php?return=%2Fwp-admin%2F
+          - listitem [ref=f12e76]:
+            - link "Fonts" [ref=f12e77] [cursor=pointer]:
+              - /url: font-library.php
+          - listitem [ref=f12e78]:
+            - link "Theme File Editor" [ref=f12e79] [cursor=pointer]:
+              - /url: theme-editor.php
+      - listitem [ref=f12e80]:
+        - link "Floki Access" [ref=f12e81] [cursor=pointer]:
+          - /url: admin.php?page=floki-access
+          - generic [ref=f12e82]: 
+          - generic [ref=f12e83]: Floki Access
+        - list [ref=f12e84]:
+          - listitem [ref=f12e85]: Floki Access
+          - listitem [ref=f12e86]:
+            - link "Floki Access" [ref=f12e87] [cursor=pointer]:
+              - /url: admin.php?page=floki-access
+          - listitem [ref=f12e88]:
+            - link "Applications" [ref=f12e89] [cursor=pointer]:
+              - /url: admin.php?page=floki-access-applications
+      - listitem [ref=f12e90]:
+        - link "Plugins 5" [ref=f12e91] [cursor=pointer]:
+          - /url: plugins.php
+          - generic [ref=f12e92]: 
+          - generic [ref=f12e93]:
+            - text: Plugins
+            - generic [ref=f12e94]: "5"
+        - list [ref=f12e95]:
+          - listitem [ref=f12e96]:
+            - text: Plugins
+            - generic [ref=f12e97]: "5"
+          - listitem [ref=f12e98]:
+            - link "Installed Plugins" [ref=f12e99] [cursor=pointer]:
+              - /url: plugins.php
+          - listitem [ref=f12e100]:
+            - link "Add Plugin" [ref=f12e101] [cursor=pointer]:
+              - /url: plugin-install.php
+          - listitem [ref=f12e102]:
+            - link "Plugin File Editor" [ref=f12e103] [cursor=pointer]:
+              - /url: plugin-editor.php
+      - listitem [ref=f12e104]:
+        - link "Users" [ref=f12e105] [cursor=pointer]:
+          - /url: users.php
+          - generic [ref=f12e106]: 
+          - generic [ref=f12e107]: Users
+        - list [ref=f12e108]:
+          - listitem [ref=f12e109]: Users
+          - listitem [ref=f12e110]:
+            - link "All Users" [ref=f12e111] [cursor=pointer]:
+              - /url: users.php
+          - listitem [ref=f12e112]:
+            - link "Add User" [ref=f12e113] [cursor=pointer]:
+              - /url: user-new.php
+          - listitem [ref=f12e114]:
+            - link "Profile" [ref=f12e115] [cursor=pointer]:
+              - /url: profile.php
+      - listitem [ref=f12e116]:
+        - link "Tools" [ref=f12e117] [cursor=pointer]:
+          - /url: tools.php
+          - generic [ref=f12e118]: 
+          - generic [ref=f12e119]: Tools
+        - list [ref=f12e120]:
+          - listitem [ref=f12e121]: Tools
+          - listitem [ref=f12e122]:
+            - link "Available Tools" [ref=f12e123] [cursor=pointer]:
+              - /url: tools.php
+          - listitem [ref=f12e124]:
+            - link "Import" [ref=f12e125] [cursor=pointer]:
+              - /url: import.php
+          - listitem [ref=f12e126]:
+            - link "Export" [ref=f12e127] [cursor=pointer]:
+              - /url: export.php
+          - listitem [ref=f12e128]:
+            - link "Site Health" [ref=f12e129] [cursor=pointer]:
+              - /url: site-health.php
+          - listitem [ref=f12e130]:
+            - link "Export Personal Data" [ref=f12e131] [cursor=pointer]:
+              - /url: export-personal-data.php
+          - listitem [ref=f12e132]:
+            - link "Erase Personal Data" [ref=f12e133] [cursor=pointer]:
+              - /url: erase-personal-data.php
+          - listitem [ref=f12e134]:
+            - link "WP Reset" [ref=f12e135] [cursor=pointer]:
+              - /url: tools.php?page=wp-reset
+      - listitem [ref=f12e136]:
+        - link "Settings" [ref=f12e137] [cursor=pointer]:
+          - /url: options-general.php
+          - generic [ref=f12e138]: 
+          - generic [ref=f12e139]: Settings
+        - list [ref=f12e140]:
+          - listitem [ref=f12e141]: Settings
+          - listitem [ref=f12e142]:
+            - link "General" [ref=f12e143] [cursor=pointer]:
+              - /url: options-general.php
+          - listitem [ref=f12e144]:
+            - link "Connectors" [ref=f12e145] [cursor=pointer]:
+              - /url: options-connectors.php
+          - listitem [ref=f12e146]:
+            - link "Writing" [ref=f12e147] [cursor=pointer]:
+              - /url: options-writing.php
+          - listitem [ref=f12e148]:
+            - link "Reading" [ref=f12e149] [cursor=pointer]:
+              - /url: options-reading.php
+          - listitem [ref=f12e150]:
+            - link "Discussion" [ref=f12e151] [cursor=pointer]:
+              - /url: options-discussion.php
+          - listitem [ref=f12e152]:
+            - link "Media" [ref=f12e153] [cursor=pointer]:
+              - /url: options-media.php
+          - listitem [ref=f12e154]:
+            - link "Permalinks" [ref=f12e155] [cursor=pointer]:
+              - /url: options-permalink.php
+          - listitem [ref=f12e156]:
+            - link "Privacy" [ref=f12e157] [cursor=pointer]:
+              - /url: options-privacy.php
+      - listitem [ref=f12e158]:
+        - button "Expand Main menu" [ref=f12e159] [cursor=pointer]
+  - generic [ref=f12e161]:
+    - generic [ref=f12e162]:
+      - navigation "Toolbar":
+        - menu:
+          - group [ref=f12e163]:
+            - menuitem "About WordPress" [ref=f12e164] [cursor=pointer]:
+              - generic [ref=f12e166]: About WordPress
+          - group [ref=f12e167]:
+            - menuitem "GalacticFamilyHub" [ref=f12e168] [cursor=pointer]
+          - group [ref=f12e169]:
+            - menuitem "10 updates available" [ref=f12e170] [cursor=pointer]:
+              - generic [ref=f12e172]: "10"
+              - generic [ref=f12e173]: 10 updates available
+          - group [ref=f12e174]:
+            - menuitem "Ctrl+K Open command palette" [ref=f12e175] [cursor=pointer]:
+              - generic [ref=f12e177]:
+                - text: Ctrl+K
+                - generic [ref=f12e178]: Open command palette
+          - group [ref=f12e179]:
+            - menuitem "1,000 Comments in moderation" [ref=f12e180] [cursor=pointer]:
+              - generic [ref=f12e182]: 1,000
+              - generic [ref=f12e183]: 1,000 Comments in moderation
+          - group [ref=f12e184]:
+            - menuitem "New" [ref=f12e185] [cursor=pointer]:
+              - generic [ref=f12e187]: New
+        - menu [ref=f12e188]:
+          - group [ref=f12e189]:
+            - menuitem "Howdy, Galact_Admin" [ref=f12e190] [cursor=pointer]
+    - main [ref=f12e191]:
+      - generic [ref=f12e192]:
+        - generic [ref=f12e193]:
+          - button "Screen Options" [ref=f12e195] [cursor=pointer]
+          - button "Help" [ref=f12e197] [cursor=pointer]
+        - generic [ref=f12e198]:
+          - heading "Dashboard" [level=1] [ref=f12e199]
+          - generic [ref=f12e200]:
+            - link "Dismiss the welcome panel" [ref=f12e201] [cursor=pointer]:
+              - /url: https://galactic-family-hub.com/wp-admin/?welcome=0
+              - text:  Dismiss
+            - generic [ref=f12e202]:
+              - generic [ref=f12e204]:
+                - img [ref=f12e206]
+                - heading "Welcome to WordPress!" [level=2] [ref=f12e211]
+                - paragraph [ref=f12e212]:
+                  - link "Learn more about the 7.0 version." [ref=f12e213] [cursor=pointer]:
+                    - /url: https://galactic-family-hub.com/wp-admin/about.php
+              - generic [ref=f12e214]:
+                - generic [ref=f12e216]:
+                  - heading "Author rich content with blocks and patterns" [level=3] [ref=f12e217]
+                  - paragraph [ref=f12e218]: Block patterns are pre-configured block layouts. Use them to get inspired or create new pages in a flash.
+                  - link "Add a new page" [ref=f12e219] [cursor=pointer]:
+                    - /url: https://galactic-family-hub.com/wp-admin/post-new.php?post_type=page
+                - generic [ref=f12e221]:
+                  - heading "Start Customizing" [level=3] [ref=f12e222]
+                  - paragraph [ref=f12e223]: Configure your site’s logo, header, menus, and more in the Customizer.
+                  - link "Open the Customizer" [ref=f12e224] [cursor=pointer]:
+                    - /url: https://galactic-family-hub.com/wp-admin/customize.php
+                - generic [ref=f12e226]:
+                  - heading "Discover a new way to build your site." [level=3] [ref=f12e227]
+                  - paragraph [ref=f12e228]: There is a new kind of WordPress theme, called a block theme, that lets you build the site you’ve always wanted — with blocks and styles.
+                  - link "Learn about block themes" [ref=f12e229] [cursor=pointer]:
+                    - /url: https://wordpress.org/documentation/article/block-themes/
+          - generic [ref=f12e231]:
+            - generic [ref=f12e233]:
+              - generic [ref=f12e234]:
+                - generic [ref=f12e235]:
+                  - heading "Site Health Status" [level=2] [ref=f12e236]
+                  - generic [ref=f12e237]:
+                    - button "Move up" [disabled] [ref=f12e238]:
+                      - generic [ref=f12e239]: Move up
+                    - button "Move down" [ref=f12e241] [cursor=pointer]:
+                      - generic [ref=f12e242]: Move down
+                    - 'button "Toggle panel: Site Health Status" [expanded] [ref=f12e244] [cursor=pointer]':
+                      - generic [ref=f12e245]: "Toggle panel: Site Health Status"
+                - generic [ref=f12e248]:
+                  - generic [ref=f12e249]:
+                    - img [ref=f12e251]
+                    - generic [ref=f12e254]: Good
+                  - generic [ref=f12e255]:
+                    - paragraph [ref=f12e256]: Your site’s health is looking good, but there are still some things you can do to improve its performance and security.
+                    - paragraph [ref=f12e257]:
+                      - text: Take a look at the
+                      - strong [ref=f12e258]: 6 items
+                      - text: on the
+                      - link "Site Health screen" [ref=f12e259] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/site-health.php
+                      - text: .
+              - generic [ref=f12e260]:
+                - generic [ref=f12e261]:
+                  - heading "At a Glance" [level=2] [ref=f12e262]
+                  - generic [ref=f12e263]:
+                    - button "Move up" [ref=f12e264] [cursor=pointer]:
+                      - generic [ref=f12e265]: Move up
+                    - button "Move down" [ref=f12e267] [cursor=pointer]:
+                      - generic [ref=f12e268]: Move down
+                    - 'button "Toggle panel: At a Glance" [expanded] [ref=f12e270] [cursor=pointer]':
+                      - generic [ref=f12e271]: "Toggle panel: At a Glance"
+                - generic [ref=f12e274]:
+                  - list [ref=f12e275]:
+                    - listitem [ref=f12e276]:
+                      - link "1 Published post" [ref=f12e277] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/edit.php?post_status=publish&post_type=post
+                    - listitem [ref=f12e278]:
+                      - link "1 Published page" [ref=f12e279] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/edit.php?post_status=publish&post_type=page
+                    - listitem [ref=f12e280]:
+                      - link "1 Comment" [ref=f12e281] [cursor=pointer]:
+                        - /url: edit-comments.php
+                    - listitem [ref=f12e282]:
+                      - link "1,000 Comments in moderation" [ref=f12e283] [cursor=pointer]:
+                        - /url: edit-comments.php?comment_status=moderated
+                  - paragraph [ref=f12e284]:
+                    - generic [ref=f12e285]:
+                      - text: WordPress 7.0 running
+                      - link "Floki Neural Portal" [ref=f12e286] [cursor=pointer]:
+                        - /url: themes.php
+                      - text: theme.
+              - generic [ref=f12e287]:
+                - generic [ref=f12e288]:
+                  - heading "Activity" [level=2] [ref=f12e289]
+                  - generic [ref=f12e290]:
+                    - button "Move up" [ref=f12e291] [cursor=pointer]:
+                      - generic [ref=f12e292]: Move up
+                    - button "Move down" [ref=f12e294] [cursor=pointer]:
+                      - generic [ref=f12e295]: Move down
+                    - 'button "Toggle panel: Activity" [expanded] [ref=f12e297] [cursor=pointer]':
+                      - generic [ref=f12e298]: "Toggle panel: Activity"
+                - generic [ref=f12e301]:
+                  - generic [ref=f12e302]:
+                    - heading "Recently Published" [level=3] [ref=f12e303]
+                    - list [ref=f12e304]:
+                      - listitem [ref=f12e305]:
+                        - generic [ref=f12e306]: Jan 2nd, 3:08 pm
+                        - link "Edit “Hello world!”" [ref=f12e307] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/post.php?post=1&action=edit
+                          - text: Hello world!
+                  - generic [ref=f12e308]:
+                    - heading "Recent Comments" [level=3] [ref=f12e309]
+                    - list [ref=f12e310]:
+                      - listitem [ref=f12e311]:
+                        - generic [ref=f12e312]:
+                          - paragraph [ref=f12e313]:
+                            - text: From
+                            - link "888starz_gqEl" [ref=f12e315] [cursor=pointer]:
+                              - /url: https://888starseg.com/
+                            - text: "on"
+                            - link "Hello world!" [ref=f12e316] [cursor=pointer]:
+                              - /url: https://galactic-family-hub.com/2026/01/02/hello-world/
+                            - text: "[Pending]"
+                          - blockquote [ref=f12e317]:
+                            - paragraph [ref=f12e318]: "???? ?????? ?????? ????? ???? ???? ??????? ?? ?????? ?????? ?????? ??????. ??? ?????? ????? ????? ????? ?? ???? ???…"
+                          - paragraph [ref=f12e319]:
+                            - button "Approve this comment" [ref=f12e321] [cursor=pointer]: Approve
+                            - generic [ref=f12e322]:
+                              - text: "|"
+                              - button "Reply to this comment" [ref=f12e323] [cursor=pointer]: Reply
+                            - generic [ref=f12e324]:
+                              - text: "|"
+                              - link "Edit this comment" [ref=f12e325] [cursor=pointer]:
+                                - /url: comment.php?action=editcomment&c=1001
+                                - text: Edit
+                            - generic [ref=f12e326]:
+                              - text: "|"
+                              - button "Mark this comment as spam" [ref=f12e327] [cursor=pointer]: Spam
+                            - generic [ref=f12e328]:
+                              - text: "|"
+                              - button "Move this comment to the Trash" [ref=f12e329] [cursor=pointer]: Trash
+                      - listitem [ref=f12e330]:
+                        - generic [ref=f12e331]:
+                          - paragraph [ref=f12e332]:
+                            - text: From
+                            - link "888starz_jjPl" [ref=f12e334] [cursor=pointer]:
+                              - /url: https://888starz-eg-africa.com/
+                            - text: "on"
+                            - link "Hello world!" [ref=f12e335] [cursor=pointer]:
+                              - /url: https://galactic-family-hub.com/2026/01/02/hello-world/
+                            - text: "[Pending]"
+                          - blockquote [ref=f12e336]:
+                            - paragraph [ref=f12e337]: تجمع الصفحة الرئيسية لموقع 888starz الرسمي بين عالمي الرياضة والكازينو ضمن تصميم واحد متكامل. تعرض الصفحة الرئيسية قسم الرهان الحي…
+                          - paragraph [ref=f12e338]:
+                            - button "Approve this comment" [ref=f12e340] [cursor=pointer]: Approve
+                            - generic [ref=f12e341]:
+                              - text: "|"
+                              - button "Reply to this comment" [ref=f12e342] [cursor=pointer]: Reply
+                            - generic [ref=f12e343]:
+                              - text: "|"
+                              - link "Edit this comment" [ref=f12e344] [cursor=pointer]:
+                                - /url: comment.php?action=editcomment&c=1000
+                                - text: Edit
+                            - generic [ref=f12e345]:
+                              - text: "|"
+                              - button "Mark this comment as spam" [ref=f12e346] [cursor=pointer]: Spam
+                            - generic [ref=f12e347]:
+                              - text: "|"
+                              - button "Move this comment to the Trash" [ref=f12e348] [cursor=pointer]: Trash
+                      - listitem [ref=f12e349]:
+                        - generic [ref=f12e350]:
+                          - paragraph [ref=f12e351]:
+                            - text: From
+                            - link "888starz_yton" [ref=f12e353] [cursor=pointer]:
+                              - /url: https://888star-egypt.com/
+                            - text: "on"
+                            - link "Hello world!" [ref=f12e354] [cursor=pointer]:
+                              - /url: https://galactic-family-hub.com/2026/01/02/hello-world/
+                            - text: "[Pending]"
+                          - blockquote [ref=f12e355]:
+                            - paragraph [ref=f12e356]: زوروا كازينو 888 تسجيل الدخول للمزيد من المعلومات والعروض الخاصة. تتصدر 888starz egypt قائمة المنصات في مجال الترفيه الرقمي بين…
+                          - paragraph [ref=f12e357]:
+                            - button "Approve this comment" [ref=f12e359] [cursor=pointer]: Approve
+                            - generic [ref=f12e360]:
+                              - text: "|"
+                              - button "Reply to this comment" [ref=f12e361] [cursor=pointer]: Reply
+                            - generic [ref=f12e362]:
+                              - text: "|"
+                              - link "Edit this comment" [ref=f12e363] [cursor=pointer]:
+                                - /url: comment.php?action=editcomment&c=999
+                                - text: Edit
+                            - generic [ref=f12e364]:
+                              - text: "|"
+                              - button "Mark this comment as spam" [ref=f12e365] [cursor=pointer]: Spam
+                            - generic [ref=f12e366]:
+                              - text: "|"
+                              - button "Move this comment to the Trash" [ref=f12e367] [cursor=pointer]: Trash
+                      - listitem [ref=f12e368]:
+                        - generic [ref=f12e369]:
+                          - paragraph [ref=f12e370]:
+                            - text: From 888starz_ewml on
+                            - link "Hello world!" [ref=f12e371] [cursor=pointer]:
+                              - /url: https://galactic-family-hub.com/2026/01/02/hello-world/
+                            - text: "[Pending]"
+                          - blockquote [ref=f12e372]:
+                            - paragraph [ref=f12e373]: 888starz https://sinadiccionesperu.pro/888starz-%d9%85%d8%b5%d8%b1-%d9%85%d9%86%d8%b5%d8%a9-%d8%a7%d9%84%d9%85%d8%b1%d8%a7%d9%87%d9%86%d8%a7%d8%aa-%d8%a7%d9%84%d8%b1%d9%8a%d8%a7%d8%b6%d9%8a%d8%a9-%d9%88%d8%a7%d9%84%d9%83%d8%a7%d8%b2-2/ يدعم الموقع اللغة العربية ووسائل دفع متعددة تناسب اللاعبين في مصر. يقدم القسم الرياضي مجموعة ضخمة من الأحداث…
+                          - paragraph [ref=f12e374]:
+                            - button "Approve this comment" [ref=f12e376] [cursor=pointer]: Approve
+                            - generic [ref=f12e377]:
+                              - text: "|"
+                              - button "Reply to this comment" [ref=f12e378] [cursor=pointer]: Reply
+                            - generic [ref=f12e379]:
+                              - text: "|"
+                              - link "Edit this comment" [ref=f12e380] [cursor=pointer]:
+                                - /url: comment.php?action=editcomment&c=998
+                                - text: Edit
+                            - generic [ref=f12e381]:
+                              - text: "|"
+                              - button "Mark this comment as spam" [ref=f12e382] [cursor=pointer]: Spam
+                            - generic [ref=f12e383]:
+                              - text: "|"
+                              - button "Move this comment to the Trash" [ref=f12e384] [cursor=pointer]: Trash
+                      - listitem [ref=f12e385]:
+                        - generic [ref=f12e386]:
+                          - paragraph [ref=f12e387]:
+                            - text: From
+                            - link "888starz_phor" [ref=f12e389] [cursor=pointer]:
+                              - /url: https://888star-eg.com/
+                            - text: "on"
+                            - link "Hello world!" [ref=f12e390] [cursor=pointer]:
+                              - /url: https://galactic-family-hub.com/2026/01/02/hello-world/
+                            - text: "[Pending]"
+                          - blockquote [ref=f12e391]:
+                            - paragraph [ref=f12e392]: 8 8starz ???? ????? ????? ???????? ????? ?? ???. ???? 888starz egypt ??? ????? ???????? ??? ????? ??? ?????? ???…
+                          - paragraph [ref=f12e393]:
+                            - button "Approve this comment" [ref=f12e395] [cursor=pointer]: Approve
+                            - generic [ref=f12e396]:
+                              - text: "|"
+                              - button "Reply to this comment" [ref=f12e397] [cursor=pointer]: Reply
+                            - generic [ref=f12e398]:
+                              - text: "|"
+                              - link "Edit this comment" [ref=f12e399] [cursor=pointer]:
+                                - /url: comment.php?action=editcomment&c=997
+                                - text: Edit
+                            - generic [ref=f12e400]:
+                              - text: "|"
+                              - button "Mark this comment as spam" [ref=f12e401] [cursor=pointer]: Spam
+                            - generic [ref=f12e402]:
+                              - text: "|"
+                              - button "Move this comment to the Trash" [ref=f12e403] [cursor=pointer]: Trash
+                    - heading "View more comments" [level=3] [ref=f12e404]
+                    - list [ref=f12e405]:
+                      - listitem [ref=f12e406]:
+                        - link "All (1,001)" [ref=f12e407] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/edit-comments.php?comment_status=all
+                          - text: All
+                          - generic [ref=f12e408]: (1,001)
+                        - text: "|"
+                      - listitem [ref=f12e409]:
+                        - link "Mine (0)" [ref=f12e410] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/edit-comments.php?comment_status=mine&user_id=1
+                          - text: Mine
+                          - generic [ref=f12e411]: (0)
+                        - text: "|"
+                      - listitem [ref=f12e412]:
+                        - link "Pending (1,000)" [ref=f12e413] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/edit-comments.php?comment_status=moderated
+                          - text: Pending
+                          - generic [ref=f12e414]: (1,000)
+                        - text: "|"
+                      - listitem [ref=f12e415]:
+                        - link "Approved (1)" [ref=f12e416] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/edit-comments.php?comment_status=approved
+                          - text: Approved
+                          - generic [ref=f12e417]: (1)
+                        - text: "|"
+                      - listitem [ref=f12e418]:
+                        - link "Spam (0)" [ref=f12e419] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/edit-comments.php?comment_status=spam
+                          - text: Spam
+                          - generic [ref=f12e420]: (0)
+                        - text: "|"
+                      - listitem [ref=f12e421]:
+                        - link "Trash (13)" [ref=f12e422] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/edit-comments.php?comment_status=trash
+                          - text: Trash
+                          - generic [ref=f12e423]: (13)
+            - generic [ref=f12e425]:
+              - generic [ref=f12e426]:
+                - generic [ref=f12e427]:
+                  - heading "Quick Draft" [level=2] [ref=f12e428]:
+                    - generic [ref=f12e429]: Quick Draft
+                  - generic [ref=f12e430]:
+                    - button "Move up" [ref=f12e431] [cursor=pointer]:
+                      - generic [ref=f12e432]: Move up
+                    - button "Move down" [ref=f12e434] [cursor=pointer]:
+                      - generic [ref=f12e435]: Move down
+                    - 'button "Toggle panel: Quick Draft" [expanded] [ref=f12e437] [cursor=pointer]':
+                      - generic [ref=f12e438]:
+                        - text: "Toggle panel:"
+                        - generic [ref=f12e439]: Quick Draft
+                - generic [ref=f12e442]:
+                  - generic [ref=f12e443]:
+                    - generic [ref=f12e444]: Title
+                    - textbox "Title" [ref=f12e445]
+                  - generic [ref=f12e446]:
+                    - generic [ref=f12e447]: Content
+                    - textbox "Content" [ref=f12e448]:
+                      - /placeholder: What’s on your mind?
+                  - paragraph [ref=f12e449]:
+                    - button "Save Draft" [ref=f12e450] [cursor=pointer]
+              - generic [ref=f12e451]:
+                - generic [ref=f12e452]:
+                  - heading "WordPress Events and News" [level=2] [ref=f12e453]
+                  - generic [ref=f12e454]:
+                    - button "Move up" [ref=f12e455] [cursor=pointer]:
+                      - generic [ref=f12e456]: Move up
+                    - button "Move down" [disabled] [ref=f12e458]:
+                      - generic [ref=f12e459]: Move down
+                    - 'button "Toggle panel: WordPress Events and News" [expanded] [ref=f12e461] [cursor=pointer]':
+                      - generic [ref=f12e462]: "Toggle panel: WordPress Events and News"
+                - generic [ref=f12e464]:
+                  - generic [ref=f12e465]:
+                    - paragraph [ref=f12e467]:
+                      - text: Attend an upcoming event near you.
+                      - button "Select location" [ref=f12e468] [cursor=pointer]:
+                        - generic [ref=f12e469]: 
+                        - text: Select location
+                    - list [ref=f12e470]:
+                      - listitem [ref=f12e471]:
+                        - generic [ref=f12e474]:
+                          - link "WordCamp US" [ref=f12e475] [cursor=pointer]:
+                            - /url: https://us.wordcamp.org/2026/
+                          - text: WordCamp
+                          - text: Phoenix, Arizona
+                        - generic [ref=f12e478]: August 16–19, 2026
+                      - listitem [ref=f12e479]:
+                        - text: Want more events?
+                        - link "Help organize the next one" [ref=f12e480] [cursor=pointer]:
+                          - /url: https://make.wordpress.org/community/organize-event-landing-page/
+                        - text: "!"
+                  - generic [ref=f12e481]:
+                    - list [ref=f12e483]:
+                      - listitem [ref=f12e484]:
+                        - link "The First AI Leaders Graduates" [ref=f12e485] [cursor=pointer]:
+                          - /url: https://wordpress.org/news/2026/06/ai-leaders-graduates/
+                      - listitem [ref=f12e486]:
+                        - link "Browse the New Mercantile Swag Store" [ref=f12e487] [cursor=pointer]:
+                          - /url: https://wordpress.org/news/2026/06/open-web-merch/
+                    - list [ref=f12e489]:
+                      - listitem [ref=f12e490]:
+                        - 'link "Aaron D. Campbell: Open Source Support Can’t Depend on Charity" [ref=f12e491] [cursor=pointer]':
+                          - /url: https://aarondcampbell.com/2026/06/open-source-support-cant-depend-on-charity/
+                      - listitem [ref=f12e492]:
+                        - 'link "Open Channels FM: Thoughts on the Human Side of AI Acceleration" [ref=f12e493] [cursor=pointer]':
+                          - /url: https://openchannels.fm/thoughts-on-the-human-side-of-ai-acceleration/
+                      - listitem [ref=f12e494]:
+                        - 'link "WordPress.org blog: The First AI Leaders Graduates" [ref=f12e495] [cursor=pointer]':
+                          - /url: https://wordpress.org/news/2026/06/ai-leaders-graduates/
+                  - paragraph [ref=f12e496]:
+                    - link "Meetups (opens in a new tab)" [ref=f12e497] [cursor=pointer]:
+                      - /url: https://make.wordpress.org/community/meetups-landing-page
+                      - text: Meetups
+                      - generic [ref=f12e498]: (opens in a new tab)
+                      - generic [ref=f12e499]: 
+                    - text: "|"
+                    - link "WordCamps (opens in a new tab)" [ref=f12e500] [cursor=pointer]:
+                      - /url: https://central.wordcamp.org/schedule/
+                      - text: WordCamps
+                      - generic [ref=f12e501]: (opens in a new tab)
+                      - generic [ref=f12e502]: 
+                    - text: "|"
+                    - link "News (opens in a new tab)" [ref=f12e503] [cursor=pointer]:
+                      - /url: https://wordpress.org/news/
+                      - text: News
+                      - generic [ref=f12e504]: (opens in a new tab)
+                      - generic [ref=f12e505]: 
+  - contentinfo [ref=f12e506]:
+    - paragraph [ref=f12e507]:
+      - generic [ref=f12e508]:
+        - text: Thank you for creating with
+        - link "WordPress" [ref=f12e509] [cursor=pointer]:
+          - /url: https://wordpress.org/
+        - text: .
+    - paragraph [ref=f12e510]: Version 7.0

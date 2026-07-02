@@ -520,6 +520,7 @@ async function handleChatText(core, text, options = {}) {
       registry_modules: registeredModuleNames()
     }
   }, {
+    model_config: options.model_config,
     streaming_enabled: streamingEnabled,
     timeout_ms: Number(liveChat.stream_timeout_ms || core.config.models.cognition.timeout_ms),
     num_predict: Number(liveChat.public_response_max_tokens || 220),

@@ -1,5 +1,21 @@
 #!/usr/bin/env bash
 
+
+floki_node_24_or_newer() {
+  local floki_node_version="${1:-}"
+  local floki_node_major
+  if [ -z "$floki_node_version" ]; then
+    command -v node >/dev/null 2>&1 || return 1
+    floki_node_version="$(node -v 2>/dev/null)" || return 1
+  fi
+  floki_node_version="${floki_node_version#v}"
+  floki_node_major="${floki_node_version%%.*}"
+  case "$floki_node_major" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$floki_node_major" -ge 24 ]
+}
+
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$PROJECT_DIR/apps/floki-neural-interface"
 RUNTIME_PID_FILE=""
@@ -7,6 +23,8 @@ RUNTIME_STATUS_URL=""
 WATCHDOG_POLL_SECONDS=""
 WATCHDOG_REQUEST_TIMEOUT_MS=""
 WATCHDOG_FAILURE_LIMIT=""
+ELECTRON_SHUTDOWN_GRACE_SECONDS=""
+INTENTIONAL_SHUTDOWN=0
 
 fail() {
   echo "FLOKI_V2_CHAT_LOCAL_START_FAIL: $1" >&2
@@ -17,7 +35,9 @@ load_node_24() {
   if [ -s "$HOME/.nvm/nvm.sh" ]; then
     export NVM_DIR="$HOME/.nvm"
     . "$HOME/.nvm/nvm.sh"
-    nvm use 24.17.0 >/dev/null 2>&1 || nvm use 24 >/dev/null 2>&1
+    if ! command -v node >/dev/null 2>&1 || ! floki_node_24_or_newer; then
+      nvm use 24 >/dev/null 2>&1
+    fi
   fi
 
   if ! command -v node >/dev/null 2>&1; then
@@ -25,13 +45,9 @@ load_node_24() {
   fi
 
   NODE_VERSION="$(node -v 2>/dev/null)"
-  case "$NODE_VERSION" in
-    v24.17.0)
-      ;;
-    *)
-      fail "Node v24.17.0 required, got $NODE_VERSION"
-      ;;
-  esac
+  if ! floki_node_24_or_newer "$NODE_VERSION"; then
+  fail "Node 24 or newer required, got $NODE_VERSION"
+fi
 }
 
 verify_runtime_connection() {
@@ -88,18 +104,20 @@ process.stdout.write([
   'http://' + live.runtime_host + ':' + String(live.runtime_port) + '/status',
   String(live.runtime_watchdog_poll_ms / 1000),
   String(live.runtime_watchdog_request_timeout_ms),
-  String(live.runtime_watchdog_consecutive_failure_limit)
+  String(live.runtime_watchdog_consecutive_failure_limit),
+  String(live.electron_shutdown_grace_ms / 1000)
 ].join('\n'));
 NODE
-  ) || fail "could not read runtime watchdog settings from YAML"
+) || fail "could not read runtime watchdog settings from YAML"
 
-  [ "${#MONITOR_VALUES[@]}" -eq 5 ] ||
-    fail "runtime watchdog settings were incomplete"
+[ "${#MONITOR_VALUES[@]}" -eq 6 ] ||
+  fail "runtime watchdog settings were incomplete"
   RUNTIME_PID_FILE="${MONITOR_VALUES[0]}"
   RUNTIME_STATUS_URL="${MONITOR_VALUES[1]}"
   WATCHDOG_POLL_SECONDS="${MONITOR_VALUES[2]}"
   WATCHDOG_REQUEST_TIMEOUT_MS="${MONITOR_VALUES[3]}"
   WATCHDOG_FAILURE_LIMIT="${MONITOR_VALUES[4]}"
+  ELECTRON_SHUTDOWN_GRACE_SECONDS="${MONITOR_VALUES[5]}"
   case "$WATCHDOG_FAILURE_LIMIT" in
     ''|*[!0-9]*)
       fail "runtime watchdog consecutive failure limit is invalid"
@@ -109,10 +127,14 @@ NODE
     fail "runtime watchdog consecutive failure limit must be at least 2"
 }
 
+runtime_pid_value() {
+  [ -f "$RUNTIME_PID_FILE" ] || return 1
+  cat "$RUNTIME_PID_FILE" 2>/dev/null || return 1
+}
+
 runtime_backend_alive() {
   local runtime_pid
-  [ -f "$RUNTIME_PID_FILE" ] || return 1
-  runtime_pid="$(cat "$RUNTIME_PID_FILE" 2>/dev/null || true)"
+  runtime_pid="$(runtime_pid_value || true)"
   [ -n "$runtime_pid" ] || return 1
   kill -0 "$runtime_pid" >/dev/null 2>&1 || return 1
   if [ -r "/proc/$runtime_pid/cmdline" ]; then
@@ -141,34 +163,102 @@ fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
       throw new Error('runtime is not api_ready/brain_loaded');
     }
   })
-  .catch(() => process.exit(1));
+  .catch((error) => {
+    console.error(error && error.message ? error.message : String(error));
+    process.exit(1);
+  });
 NODE
+}
+
+wait_for_electron_exit() {
+  local electron_pid="$1"
+  local waited="0"
+  while kill -0 "$electron_pid" >/dev/null 2>&1; do
+    if node - "$waited" "$ELECTRON_SHUTDOWN_GRACE_SECONDS" <<'NODE'
+'use strict';
+const waited = Number(process.argv[2]);
+const limit = Number(process.argv[3]);
+process.exit(waited >= limit ? 0 : 1);
+NODE
+    then
+      return 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 0
+}
+
+report_electron_exit() {
+  local electron_pid="$1"
+  local status="$2"
+  local code=""
+  local signal=""
+  if [ "$status" -ge 128 ]; then
+    signal="$((status - 128))"
+  else
+    code="$status"
+  fi
+  echo "FLOKI_V2_CHAT_LOCAL_ELECTRON_EXIT pid=$electron_pid code=${code:-none} signal=${signal:-none} status=$status intentional_shutdown=$INTENTIONAL_SHUTDOWN" >&2
+}
+
+request_intentional_shutdown() {
+  INTENTIONAL_SHUTDOWN=1
 }
 
 run_supervised_electron() {
   ./node_modules/.bin/electron . &
   local electron_pid="$!"
   local consecutive_failures=0
+  local last_api_error=""
+
+  trap 'request_intentional_shutdown; kill "$electron_pid" >/dev/null 2>&1 || true' INT TERM HUP
+  echo "FLOKI_V2_CHAT_LOCAL_ELECTRON_PID pid=$electron_pid" >&2
 
   while kill -0 "$electron_pid" >/dev/null 2>&1; do
     if ! runtime_backend_alive; then
-      echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_FAIL: authoritative runtime process disappeared while Electron was open" >&2
+      local missing_pid
+      missing_pid="$(runtime_pid_value || true)"
+      echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_GRACE subsystem=runtime_backend reason=pid_missing_or_not_chat_local_runtime runtime_pid=${missing_pid:-none} electron_pid=$electron_pid grace_seconds=$ELECTRON_SHUTDOWN_GRACE_SECONDS" >&2
+      if wait_for_electron_exit "$electron_pid"; then
+        wait "$electron_pid"
+        local exit_status="$?"
+        report_electron_exit "$electron_pid" "$exit_status"
+        return "$exit_status"
+      fi
+      echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_FAIL subsystem=runtime_backend reason=pid_missing_or_not_chat_local_runtime runtime_pid=${missing_pid:-none} electron_pid=$electron_pid grace_seconds=$ELECTRON_SHUTDOWN_GRACE_SECONDS" >&2
       kill "$electron_pid" >/dev/null 2>&1 || true
+      wait "$electron_pid" >/dev/null 2>&1 || true
       return 1
-    elif ! runtime_api_ready; then
+    else
+      local api_error_file
+      api_error_file="$(mktemp /tmp/floki-runtime-watchdog-api.XXXXXX)"
+      if runtime_api_ready 2>"$api_error_file"; then
+        if [ "$consecutive_failures" -gt 0 ]; then
+          echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_RECOVERED recovered_after_failures=$consecutive_failures" >&2
+        fi
+        consecutive_failures=0
+        last_api_error=""
+        rm -f "$api_error_file"
+      else
+        last_api_error="$(tr '\n' ' ' < "$api_error_file" | sed 's/[[:space:]]\\+/ /g' | cut -c1-300)"
+        rm -f "$api_error_file"
       consecutive_failures=$((consecutive_failures + 1))
-      echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_RETRY failure_count=$consecutive_failures failure_limit=$WATCHDOG_FAILURE_LIMIT" >&2
+        echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_RETRY subsystem=runtime_api failure_count=$consecutive_failures failure_limit=$WATCHDOG_FAILURE_LIMIT last_api_error=${last_api_error:-unknown}" >&2
       if [ "$consecutive_failures" -ge "$WATCHDOG_FAILURE_LIMIT" ]; then
-        echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_FAIL: authoritative runtime API failed $consecutive_failures consecutive health probes" >&2
+          echo "FLOKI_V2_CHAT_LOCAL_RUNTIME_WATCHDOG_FAIL subsystem=runtime_api reason=consecutive_health_probe_failures failures=$consecutive_failures limit=$WATCHDOG_FAILURE_LIMIT electron_pid=$electron_pid last_api_error=${last_api_error:-unknown}" >&2
         kill "$electron_pid" >/dev/null 2>&1 || true
+          wait "$electron_pid" >/dev/null 2>&1 || true
         return 1
       fi
-    else
-      consecutive_failures=0
+      fi
     fi
     sleep "$WATCHDOG_POLL_SECONDS"
   done
   wait "$electron_pid"
+  local electron_status="$?"
+  report_electron_exit "$electron_pid" "$electron_status"
+  return "$electron_status"
 }
 
 cd "$PROJECT_DIR" || fail "could not enter project directory"

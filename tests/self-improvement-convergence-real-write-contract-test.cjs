@@ -18,7 +18,8 @@ const config = {
   search_only_streak_limit: 6,
   failed_lookup_limit: 5,
   max_no_change_iterations: 6,
-  focused_verification_failure_limit: 3
+  focused_verification_failure_limit: 3,
+  focused_repair_no_progress_iteration_limit: 12
 };
 
 assert.equal(

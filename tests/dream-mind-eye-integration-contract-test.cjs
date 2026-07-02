@@ -10,7 +10,11 @@ const {
 } = require('../src/vision/dream-mind-eye-integration.cjs');
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
   const innerRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'floki-dream-eye-'));
   const status = buildDreamMindEyeIntegrationStatus({
     inner_vision_root: innerRoot,

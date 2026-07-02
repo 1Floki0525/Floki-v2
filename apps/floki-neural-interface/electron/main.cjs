@@ -25,10 +25,12 @@ const RUN_NOW_REQUEST_TIMEOUT_MS =
 const RUNTIME_URL = 'http://' + runtimeConfig.runtime_host + ':' + String(runtimeConfig.runtime_port);
 const { ensureApprovalToken } = require(path.join(PROJECT_ROOT, 'src/self-improvement/store.cjs'));
 const SELF_IMPROVEMENT_APPROVAL_TOKEN = ensureApprovalToken();
+const SHARED_RUNTIME_CLIENT = process.env.FLOKI_ELECTRON_SHARED_RUNTIME_CLIENT === '1';
 
 let mainWindow = null;
 let requestInFlight = false;
 let mjpegTransport = null;
+let rendererUnresponsiveTimer = null;
 
 const runtimeRequest = createRuntimeRequest({
   base_url: RUNTIME_URL,
@@ -39,6 +41,44 @@ function cleanupMjpeg() {
   if (!mjpegTransport) return;
   mjpegTransport.close();
   mjpegTransport = null;
+}
+
+function clearRendererUnresponsiveTimer() {
+  if (!rendererUnresponsiveTimer) return;
+  clearTimeout(rendererUnresponsiveTimer);
+  rendererUnresponsiveTimer = null;
+}
+
+function armRendererUnresponsiveTimer() {
+  clearRendererUnresponsiveTimer();
+  const graceMs = Math.max(
+    Number(runtimeConfig.runtime_watchdog_request_timeout_ms || 0),
+    Number(runtimeConfig.renderer_unresponsive_grace_ms || 15000)
+  );
+  console.error('FLOKI_V2_ELECTRON_RENDERER_UNRESPONSIVE grace_ms=' + String(graceMs));
+  rendererUnresponsiveTimer = setTimeout(() => {
+    console.error('FLOKI_V2_ELECTRON_RENDERER_CRASH reason=renderer_unresponsive_timeout grace_ms=' + String(graceMs));
+    app.exit(1);
+  }, graceMs);
+  if (typeof rendererUnresponsiveTimer.unref === 'function') rendererUnresponsiveTimer.unref();
+}
+
+function attachRendererLifecycleHandlers(window) {
+  window.on('unresponsive', () => {
+    armRendererUnresponsiveTimer();
+  });
+  window.on('responsive', () => {
+    clearRendererUnresponsiveTimer();
+    console.error('FLOKI_V2_ELECTRON_RENDERER_RECOVERED');
+  });
+  window.webContents.on('render-process-gone', (_event, details = {}) => {
+    clearRendererUnresponsiveTimer();
+    console.error('FLOKI_V2_ELECTRON_RENDERER_CRASH reason=' + String(details.reason || 'unknown') + ' exit_code=' + String(details.exitCode ?? 'unknown'));
+    app.exit(1);
+  });
+  window.webContents.on('child-process-gone', (_event, details = {}) => {
+    console.error('FLOKI_V2_ELECTRON_CHILD_PROCESS_GONE type=' + String(details.type || 'unknown') + ' reason=' + String(details.reason || 'unknown') + ' exit_code=' + String(details.exitCode ?? 'unknown'));
+  });
 }
 
 function startMjpegFileStream() {
@@ -98,8 +138,16 @@ function registerIpc() {
   ipcMain.handle('floki:run-self-improvement-now', async (_event, payload = {}) =>
     runtimeRequest('POST', '/self-improvement/run-now', {
       objective: String(payload.objective || ''),
+      kind: String(payload.kind || 'code'),
       token: SELF_IMPROVEMENT_APPROVAL_TOKEN
     }, RUN_NOW_REQUEST_TIMEOUT_MS)
+  );
+  ipcMain.handle('floki:abort-self-improvement', async (_event, payload = {}) =>
+    runtimeRequest('POST', '/self-improvement/abort', {
+      kind: String(payload.kind || 'code'),
+      reason: String(payload.reason || ''),
+      token: SELF_IMPROVEMENT_APPROVAL_TOKEN
+    })
   );
   ipcMain.handle('floki:get-self-improvement-activity', async (_event, payload = {}) => {
     const params = new URLSearchParams();
@@ -160,10 +208,24 @@ async function ensureRuntime() {
 function createWindow() {
   mainWindow = new BrowserWindow({ width: 1600, height: 1000, minWidth: 1100, minHeight: 720, backgroundColor: '#030712', title: 'Floki Neural Interface', show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } });
   mainWindow.setMenuBarVisibility(false);
+  attachRendererLifecycleHandlers(mainWindow);
   mainWindow.loadFile(DIST_INDEX);
   mainWindow.once('ready-to-show', () => { mainWindow.show(); void runtimeRequest('POST', '/client-ready', {}).catch((error) => console.error('FLOKI_V2_CLIENT_READY_SIGNAL_FAIL: ' + error.message)); });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  mainWindow.on('closed', () => { void runtimeRequest('POST', '/client-detached', {}).catch((error) => console.error('FLOKI_V2_CLIENT_DETACHED_SIGNAL_FAIL: ' + error.message)); mainWindow = null; cleanupMjpeg(); });
+  mainWindow.on('closed', () => {
+    if (!SHARED_RUNTIME_CLIENT) {
+      void runtimeRequest(
+        'POST',
+        '/client-detached',
+        {}
+      ).catch((error) => console.error(
+        'FLOKI_V2_CLIENT_DETACHED_SIGNAL_FAIL: ' +
+        error.message
+      ));
+    }
+    mainWindow = null;
+    cleanupMjpeg();
+  });
 }
 
 app.whenReady().then(async () => {
@@ -176,3 +238,6 @@ app.whenReady().then(async () => {
 }).catch((error) => { console.error('FLOKI_V2_ELECTRON_STARTUP_FAIL: ' + String(error && error.stack ? error.stack : error)); app.exit(1); });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { console.error('FLOKI_V2_ELECTRON_BEFORE_QUIT'); });
+app.on('will-quit', () => { clearRendererUnresponsiveTimer(); console.error('FLOKI_V2_ELECTRON_WILL_QUIT'); });
+app.on('quit', (_event, exitCode) => { console.error('FLOKI_V2_ELECTRON_QUIT code=' + String(exitCode)); });

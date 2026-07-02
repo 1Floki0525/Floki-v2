@@ -12,7 +12,11 @@ function read(relative) {
 }
 
 function run() {
-  assert.equal(process.version, 'v24.17.0', 'Node v24.17.0 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
 
   const start = read('bin/floki-start.sh');
   const chatStart = read('bin/floki-chat-start.sh');

@@ -111,7 +111,8 @@ function modelEndpointReady(config) {
 }
 
 async function main() {
-  assert.equal(process.version, 'v24.17.0');
+  const nodeMajor = Number(process.versions.node.split('.')[0]);
+assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or newer is required');
 
   const configured = loadSelfImprovementConfig();
   assert.equal(
@@ -277,6 +278,7 @@ async function main() {
     result = await runNow(
       token,
       'Prove immediate manual execution through the real worker.',
+      undefined,
       config
     );
 

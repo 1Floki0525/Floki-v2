@@ -37,9 +37,9 @@ function configuredRemOffsets() {
     .sort((left, right) => left - right);
 }
 
-function expectedNapCycleCount(durationMinutes, firstOffsetMinutes, intervalMinutes) {
+function expectedNapCycleCount(durationMinutes, firstOffsetMinutes, intervalMinutes, maxCycles) {
   let count = 0;
-  for (let offset = firstOffsetMinutes; offset < durationMinutes; offset += intervalMinutes) {
+  for (let offset = firstOffsetMinutes; offset < durationMinutes && count < maxCycles; offset += intervalMinutes) {
     count += 1;
   }
   return count;
@@ -148,7 +148,8 @@ async function run() {
     const expectedNapCycles = expectedNapCycleCount(
       sleepConfig.manual_nap_duration_minutes,
       sleepConfig.manual_nap_rem_offset_minutes,
-      sleepConfig.rem_interval_minutes
+      sleepConfig.rem_interval_minutes,
+      sleepConfig.manual_nap_max_rem_cycles
     );
     assert.equal(nap.duration_minutes, sleepConfig.manual_nap_duration_minutes);
     assert.equal(nap.rem_interval_minutes, sleepConfig.rem_interval_minutes);

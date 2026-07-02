@@ -101,7 +101,11 @@ function stop(child) {
 }
 
 async function main() {
-  assert.equal(process.version, 'v24.17.0');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
 
   const rsi = getSelfImprovementConfig('chat');
   const vision = getVisionConfig('chat');
@@ -109,6 +113,7 @@ async function main() {
     path.join(os.tmpdir(), 'floki-cleanup-sentinel-')
   );
   const fakeRoot = path.join(tempRoot, 'repo');
+  const foreignRoot = path.join(tempRoot, 'foreign-repo');
   const chatRuntimeRoot = path.join(tempRoot, 'chat-runtime');
   const rsiRuntimeRoot = path.join(tempRoot, 'rsi-runtime');
   const modelProxyRoot = path.join(tempRoot, 'model-proxy');
@@ -116,6 +121,7 @@ async function main() {
   const readyFile = path.join(tempRoot, 'ready');
 
   fs.mkdirSync(fakeRoot, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(foreignRoot, { recursive: true, mode: 0o700 });
   fs.mkdirSync(chatRuntimeRoot, { recursive: true, mode: 0o700 });
   fs.mkdirSync(rsiRuntimeRoot, { recursive: true, mode: 0o700 });
   fs.mkdirSync(modelProxyRoot, { recursive: true, mode: 0o700 });
@@ -160,6 +166,10 @@ async function main() {
     ], { ready_file: readyFile, argv0: 'ssh' })
   ];
   const preserved = [
+    spawnSentinel(
+      ['src/runtime/chat-local-runtime.cjs'],
+      { ready_file: readyFile, cwd: foreignRoot }
+    ),
     spawnSentinel(['serve'], { ready_file: readyFile, argv0: 'ollama' }),
     spawnSentinel(['--model', 'qwen-sentinel'], { ready_file: readyFile, argv0: 'llama-server' }),
     spawnSentinel(['unrelated-process'], { ready_file: readyFile, argv0: 'not-floki' })
@@ -225,7 +235,8 @@ async function main() {
     floki_owned_sentinels_stopped: owned.length,
     ollama_qwen_sentinels_preserved: true,
     stale_runtime_files_removed: true,
-    ssh_control_master_selected: true
+    ssh_control_master_selected: true,
+    foreign_repository_runtime_preserved: true
   }, null, 2));
 }
 

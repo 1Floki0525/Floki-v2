@@ -159,6 +159,14 @@ detection:
   object_detector_enabled: true
   yolo_model_path: .floki-tools/models/yolo/yolo11m.pt
   detection_confidence_threshold: 0.35
+  detection_min_confidence: 0.35
+  person_min_confidence: 0.15
+  face_min_confidence: 0.35
+  detection_nms_iou_threshold: 0.50
+  detection_max_boxes_per_frame: 24
+  detection_max_boxes_per_class: 6
+  detection_result_max_age_ms: 8000
+  detection_out_of_order_drop_enabled: true
   detection_interval_frames: 5
   object_consensus_min_confidence: 0.35
   object_display_min_confidence: 0.55
@@ -190,6 +198,7 @@ detection:
     prompt_10: a bottle
     prompt_11: a cup
     prompt_12: a mobile phone
+    prompt_13: a doorway
   person_verifier_enabled: true
   person_verifier_timeout_ms: 30000
   person_verifier_cache_ttl_ms: 60000
@@ -213,6 +222,59 @@ detection:
   object_temporal_confirmation_frames: 2
   # Maximum time between consecutive detections (ms) that counts toward temporal confirmation.
   object_temporal_confirmation_window_ms: 5000
+  object_class_policy:
+    default:
+      initial_min_confidence: 0.35
+      maintain_min_confidence: 0.30
+      confirmation_frames: 2
+      confirmation_window_ms: 5000
+      max_missed_frames: 1
+      max_missed_age_ms: 2500
+      min_area: 0
+      max_area: 1
+      min_aspect_ratio: 0.05
+      max_aspect_ratio: 20
+      temporal_iou_threshold: 0.25
+      max_boxes: 6
+      secondary_verification_required: false
+      render_unconfirmed: false
+    classes:
+      television:
+        aliases: "tv|television|television screen|a television screen|television screen a|person television screen|a person a television screen"
+        initial_min_confidence: 0.30
+        maintain_min_confidence: 0.27
+        confirmation_frames: 3
+        confirmation_window_ms: 7000
+        max_missed_frames: 1
+        max_missed_age_ms: 2500
+        temporal_iou_threshold: 0.25
+        max_boxes: 2
+        secondary_verification_required: false
+        render_unconfirmed: false
+      monitor:
+        aliases: "monitor|computer monitor|a computer monitor|screen|screen a computer monitor|a screen a computer monitor|television screen a computer monitor|a television screen a computer monitor"
+        initial_min_confidence: 0.65
+        maintain_min_confidence: 0.55
+        confirmation_frames: 3
+        confirmation_window_ms: 7000
+        max_missed_frames: 1
+        max_missed_age_ms: 2500
+        temporal_iou_threshold: 0.25
+        max_boxes: 2
+        secondary_verification_required: false
+        render_unconfirmed: false
+      doorway:
+        aliases: "doorway|a doorway|door frame|open doorway|hallway entrance"
+        initial_min_confidence: 0.35
+        maintain_min_confidence: 0.30
+        confirmation_frames: 2
+        confirmation_window_ms: 5000
+        max_missed_frames: 1
+        max_missed_age_ms: 2500
+        temporal_iou_threshold: 0.25
+        max_boxes: 3
+        secondary_verification_required: false
+        render_unconfirmed: false
 chat_world_vision:
   enabled: true
   source: webcam
@@ -336,8 +398,8 @@ sleep:
     cycle_46: 460
     cycle_47: 470
   manual_nap_duration_minutes: 30
-  manual_nap_rem_offset_minutes: 0
-  manual_nap_max_rem_cycles: 3
+  manual_nap_rem_offset_minutes: 10
+  manual_nap_max_rem_cycles: 2
   manual_nap_dream_max_retry_count: 3
 dream:
   temperature: 0.45
@@ -516,6 +578,8 @@ live_chat:
   runtime_port: 7700
   runtime_heartbeat_ms: 1000
   runtime_watchdog_poll_ms: 1000
+  electron_shutdown_grace_ms: 5000
+  renderer_unresponsive_grace_ms: 15000
   # Match the active config: 3000ms was too tight and tripped the watchdog during
   # sandbox CPU spikes. Genuine runtime death is caught by the pid//proc check.
   runtime_watchdog_request_timeout_ms: 8000
@@ -665,6 +729,7 @@ self_improvement:
   failed_lookup_limit: 5
   max_no_change_iterations: 6
   focused_verification_failure_limit: 4
+  focused_repair_no_progress_iteration_limit: 12
   max_command_ms: 900000
   max_changed_files: 200
   max_patch_bytes: 5242880
@@ -675,15 +740,35 @@ self_improvement:
   run_id_random_bytes: 4
   run_id_prefix: "rsi"
   prior_candidate_history_limit: 50
+  occupied_candidate_statuses: "pending_review"
+  candidate_dedup_strong_objective_similarity_min: 0.65
+  candidate_dedup_strong_hypothesis_similarity_min: 0.60
+  candidate_dedup_focused_test_objective_similarity_min: 0.65
+  candidate_dedup_focused_test_file_overlap_min: 0.50
+  candidate_dedup_focused_test_text_similarity_min: 0.45
+  candidate_dedup_moderate_objective_similarity_min: 0.50
+  candidate_dedup_moderate_hypothesis_similarity_min: 0.50
+  candidate_dedup_high_file_overlap_min: 0.80
   max_pending_review_candidates: 10
   sandbox_engine: "podman"
-  image_name: "localhost/floki-self-improvement:node24"
-  container_base_image: "node:24-bookworm"
-  container_apt_packages: "bash build-essential ca-certificates chromium clang cmake curl file git jq less make patch pkg-config python3 python3-pip ripgrep rsync shellcheck unzip wget xz-utils"
+  image_name: "localhost/floki-self-improvement:ubuntu24.04-node24"
+  container_base_image: "docker.io/library/ubuntu:24.04"
+  container_node_version: "24"
+  container_node_dist_base_url: "https://nodejs.org/dist"
+  container_browser_deb_url: "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
+  container_browser_command_path: "/usr/bin/google-chrome"
+  container_apt_packages: "bash build-essential ca-certificates clang cmake curl file git jq less make patch pkg-config python3 python3-pip ripgrep rsync shellcheck unzip wget xz-utils"
   context7_package_name: "@upstash/context7-mcp"
   context7_package_version: "3.2.2"
   container_hostname: "floki-self-improvement"
   container_name_prefix: "floki-rsi"
+  persistent_container_enabled: true
+  persistent_container_name: "floki-rsi-sandbox"
+  persistent_container_user: "0:0"
+  persistent_project_workspace_path: "/opt/floki-rsi/workspace/Floki-v2"
+  persistent_source_mirror_directory_name: "_persistent-source-mirror"
+  persistent_workspace_root_mount_path: "/opt/floki-rsi/host/workspaces"
+  persistent_container_idle_command: "exec sleep infinity"
   workspace_mount_path: "/workspace"
   outbox_mount_path: "/outbox"
   self_context_mount_path: "/self-context"
@@ -708,7 +793,7 @@ self_improvement:
   cpu_limit: 4
   memory_limit: "12g"
   pids_limit: 1024
-  container_smoke_command: "node --version && git --version && chromium --version && command -v npx"
+  container_smoke_command: 'grep -q 24.04 /etc/os-release && node_version="$(node --version)" && node_version="${node_version#v}" && node_major="${node_version%%.*}" && test "$node_major" -ge 24 && git --version && chromium --version && command -v npx'
   general_web_enabled: true
   context7_enabled: true
   research_corpus_catalog_relative_path: "config/rsi-research-corpus.json"
@@ -789,7 +874,7 @@ self_improvement:
   agent_http_user_agent: "Floki-v2-Self-Improvement/1.0"
   agent_http_accept: "text/html,application/json,text/plain;q=0.9,*/*;q=0.5"
   browser_command: "chromium"
-  browser_profile_root: "/tmp"
+  browser_profile_root: "/root/.cache/floki-chromium"
   browser_flags: "--headless|--no-sandbox|--disable-dev-shm-usage|--disable-gpu|--disable-extensions|--disable-background-networking"
   browser_virtual_time_budget_ms: 12000
   browser_timeout_ms: 45000
@@ -827,9 +912,16 @@ self_improvement:
   service_stop_attempts: 40
   service_stop_poll_seconds: 0.25
   service_stop_command_timeout_seconds: 20
-  agent_home_path: "/tmp/floki-home"
-  agent_npm_cache_path: "/tmp/npm-cache"
-  agent_pip_cache_path: "/tmp/pip-cache"
+  agent_home_path: "/root"
+  agent_npm_cache_path: "/root/.cache/npm"
+  agent_pip_cache_path: "/root/.cache/pip"
+  container_agent_path: "/opt/floki-self-improvement/agent.cjs"
+  selection_rescue_thinking_enabled: false
+  selection_rescue_temperature: 0
+  selection_rescue_max_attempts: 3
+  dependency_fingerprint_algorithm: "sha256"
+  persistent_dependency_cache_marker_file: ".floki-dependency-cache.json"
+  persistent_dependency_cache_root: "/var/lib/floki-rsi/dependency-cache"
   browser_profile_prefix: "floki-chromium-"
   github_accept: "application/vnd.github+json"
   arxiv_accept: "application/atom+xml"
@@ -867,3 +959,363 @@ self_improvement:
   model_queue_request_timeout_ms: 120000
   model_queue_per_request_cancel_enabled: true
   promote_deny_during_active_sandbox: true
+  # === RSI autonomy v2 / Stage 1: repository intelligence, skills, roles ===
+  # Codex-style persistent repository-intelligence layer and its bounded tools.
+  repo_intelligence_enabled: true
+  repo_intelligence_index_root: "state/floki/self-improvement/repo-intelligence"
+  repo_intelligence_map_file_name: "repository-map.json"
+  repo_intelligence_scan_roots: "src|apps/floki-neural-interface/src|apps/floki-neural-interface/electron|brain|bin|config|containers|tests"
+  repo_intelligence_scan_extensions: ".cjs|.js|.jsx|.mjs|.sh|.py|.json|.md|.yaml|.temp"
+  repo_intelligence_exclude_patterns: "node_modules/|dist/|state/|.git/|reports/|models/|.floki-tools/|logs/|.safetensors|.onnx|.pt|.bin"
+  repo_intelligence_max_files: 6000
+  repo_intelligence_max_file_bytes: 1048576
+  repo_intelligence_read_range_default_lines: 200
+  repo_intelligence_read_range_max_lines: 400
+  repo_intelligence_read_range_max_chars: 24000
+  repo_intelligence_symbol_result_limit: 60
+  repo_intelligence_reference_result_limit: 80
+  repo_intelligence_map_summary_max_files: 400
+  repo_intelligence_log_window_default_lines: 120
+  repo_intelligence_log_window_max_lines: 400
+  repo_intelligence_log_window_max_chars: 24000
+  repo_intelligence_git_diff_max_chars: 60000
+  repo_intelligence_protected_path_prefixes: "state/|secrets/|.git/|.floki-tools/|config/game.config.yaml|config/game.config.yaml.temp|config/chat.config.yaml"
+  repo_intelligence_generated_path_prefixes: "state/|reports/|apps/floki-neural-interface/dist/|node_modules/|logs/"
+  repo_intelligence_runtime_entry_points: "src/runtime/chat-local-runtime.cjs|bin/floki-start.sh|src/brain/floki-brain.cjs"
+  repo_intelligence_config_transport_namespace: "self_improvement"
+  repo_intelligence_config_template_file: "config/chat.config.yaml.temp"
+  repo_intelligence_config_loader_file: "src/config/floki-config.cjs"
+  repo_intelligence_candidate_history_limit: 50
+  repo_intelligence_denial_history_limit: 25
+  # Progressive, repository-local skill system (loads only relevant skills).
+  skills_enabled: true
+  skills_root: "config/rsi-skills"
+  skills_manifest_file_name: "manifest.json"
+  skills_instruction_file_name: "SKILL.md"
+  skills_max_active: 5
+  skills_match_score_threshold: 1
+  skills_instruction_max_chars: 16000
+  # Role-separated agent contexts. Tools are pipe-delimited allowlists; only the
+  # implementer role may write to the isolated source workspace (one writer).
+  role_sequence: "self_reflector|goal_selector|researcher|repo_investigator|implementer|verifier|critic|memory_curator"
+  role_self_reflector_temperature: 0.7
+  role_self_reflector_top_p: 0.9
+  role_self_reflector_context_budget_chars: 48000
+  role_self_reflector_can_write: false
+  role_self_reflector_tools: "get_recent_experiences|get_dream_summary|get_memory_failures|get_candidate_history|read_file_range"
+  role_goal_selector_temperature: 0.6
+  role_goal_selector_top_p: 0.9
+  role_goal_selector_context_budget_chars: 48000
+  role_goal_selector_can_write: false
+  role_goal_selector_tools: "get_repository_map|get_candidate_history|get_denial_requirements|compare_to_denial|find_relevant_tests"
+  role_researcher_temperature: 0.5
+  role_researcher_top_p: 0.9
+  role_researcher_context_budget_chars: 64000
+  role_researcher_can_write: false
+  role_researcher_tools: "get_repository_map|read_file_range|inspect_symbol|find_references"
+  role_repo_investigator_temperature: 0.3
+  role_repo_investigator_top_p: 0.9
+  role_repo_investigator_context_budget_chars: 64000
+  role_repo_investigator_can_write: false
+  role_repo_investigator_tools: "get_repository_map|inspect_symbol|find_references|find_callers|find_config_transport_path|find_runtime_owner|find_relevant_tests|read_file_range|read_log_window|read_git_diff"
+  role_implementer_temperature: 0.2
+  role_implementer_top_p: 0.9
+  role_implementer_context_budget_chars: 96000
+  role_implementer_can_write: true
+  role_implementer_tools: "get_repository_map|inspect_symbol|find_callers|find_config_transport_path|read_file_range|read_git_diff|compare_candidate_patch|write_file|apply_patch|run_shell"
+  role_verifier_temperature: 0.1
+  role_verifier_top_p: 0.9
+  role_verifier_context_budget_chars: 64000
+  role_verifier_can_write: false
+  role_verifier_tools: "find_relevant_tests|read_file_range|read_log_window|read_git_diff|compare_candidate_patch|run_shell"
+  role_critic_temperature: 0.2
+  role_critic_top_p: 0.9
+  role_critic_context_budget_chars: 64000
+  role_critic_can_write: false
+  role_critic_tools: "get_repository_map|read_file_range|read_git_diff|compare_candidate_patch|compare_to_denial|find_references"
+  role_memory_curator_temperature: 0.4
+  role_memory_curator_top_p: 0.9
+  role_memory_curator_context_budget_chars: 48000
+  role_memory_curator_can_write: false
+  role_memory_curator_tools: "get_candidate_history|get_denial_requirements|read_file_range"
+  # === RSI autonomy v2 / Stage 2: goal formation, memory capsules, state machine ===
+  # Engineering state machine: ordered phases and the role that owns each phase.
+  state_machine_phase_sequence: "SELF_REFLECTION|GOAL_PROPOSALS|GOAL_SELECTION|INVESTIGATION|RESEARCH|EXPERIMENT_SPECIFICATION|IMPLEMENTATION|FOCUSED_VERIFICATION|TARGETED_REPAIR|FULL_VERIFICATION|INDEPENDENT_REVIEW|CANDIDATE_FINALIZATION|MEMORY_AND_EVAL"
+  state_machine_phase_roles: "SELF_REFLECTION=self_reflector|GOAL_PROPOSALS=goal_selector|GOAL_SELECTION=goal_selector|INVESTIGATION=repo_investigator|RESEARCH=researcher|EXPERIMENT_SPECIFICATION=implementer|IMPLEMENTATION=implementer|FOCUSED_VERIFICATION=verifier|TARGETED_REPAIR=implementer|FULL_VERIFICATION=verifier|INDEPENDENT_REVIEW=critic|CANDIDATE_FINALIZATION=implementer|MEMORY_AND_EVAL=memory_curator"
+  state_machine_mandatory_phases: "FOCUSED_VERIFICATION|FULL_VERIFICATION|INDEPENDENT_REVIEW"
+  state_machine_repair_loop_phase: "TARGETED_REPAIR"
+  state_machine_repair_source_phase: "FOCUSED_VERIFICATION"
+  state_machine_max_repair_iterations: 4
+  state_machine_max_phase_transitions: 80
+  # Autonomous goal formation
+  goal_min_proposals: 3
+  goal_max_proposals: 6
+  goal_id_prefix: "goal"
+  goal_objective_max_chars: 2000
+  goal_reason_max_chars: 1200
+  # Memory capsule retrieval (compact, task-relevant; never the whole memory bank)
+  memory_capsule_personal_sources: "SOUL.md|state/floki/identity.json|state/floki/personality.json|state/floki/affect.json|state/floki/memories|state/floki/chat/memory|state/floki/dreams|brain/personality|brain/hippocampus"
+  memory_capsule_engineering_sources: "state/floki/self-improvement/candidates"
+  memory_capsule_max_items_per_section: 12
+  memory_capsule_item_max_chars: 1200
+  memory_capsule_total_max_chars: 24000
+  # Denial-to-eval conversion (every actionable denial yields a regression eval)
+  denial_eval_root: "state/floki/self-improvement/denial-evals"
+  denial_eval_id_prefix: "deval"
+  denial_eval_min_objective_overlap: 3
+  # === RSI autonomy v2 / Stage 3: run kinds, candidate types, sandbox dispatch ===
+  # Allowed run kinds for the RSI lab. "code" = normal autonomous coding sandbox
+  # (Run now); "training" = manual/automatic QLoRA training run (Run training).
+  allowed_rsi_run_kinds: "code|training"
+  default_rsi_run_kind: "code"
+  rsi_run_kind_candidate_types: "code=code_patch|training=model_adapter"
+  # The existing code-patch promoter must refuse model_adapter candidates.
+  code_patch_promoter_accepted_candidate_types: "code_patch"
+  # === RSI autonomy v2 / Stage 4: training architecture (QLoRA) ===
+  training_enabled: true
+  manual_training_enabled: true
+  nightly_training_enabled: true
+  # Immutable Hugging Face safetensors master (trainable lineage root). Portable
+  # placeholder; the host private config points this at the real checkpoint dir.
+  hf_master_path: /absolute/path/to/Qwen3.5-4B
+  hf_master_required_files: "config.json|model.safetensors.index.json|tokenizer.json|tokenizer_config.json"
+  adapter_root: "state/floki/self-improvement/adapters"
+  dataset_root: "state/floki/self-improvement/datasets"
+  training_runtime_root: "state/floki/self-improvement/training-runtime"
+  training_container_image: "localhost/floki-self-improvement-training:cuda12.6-ubuntu24.04"
+  training_base_cuda_image: "docker.io/nvidia/cuda:12.6.3-cudnn-devel-ubuntu24.04"
+  training_python_packages: "transformers peft bitsandbytes datasets accelerate safetensors sentencepiece trl"
+  training_torch_packages: "torch"
+  training_torch_index_url: "https://download.pytorch.org/whl/cu126"
+  training_venv_path: "/opt/floki-training/venv"
+  training_gpu_device_args: "--device|nvidia.com/gpu=all|--security-opt=label=disable"
+  training_exclusive_status_label: "Stopped for exclusive training"
+  training_gpu_process_query_args: "--query-compute-apps=pid,process_name,used_memory|--format=csv,noheader,nounits"
+  training_gpu_process_query_command: "nvidia-smi"
+  training_sleep_scheduler_start_script: "bin/floki-sleep-scheduler-start.sh"
+  training_sleep_scheduler_stop_script: "bin/floki-sleep-scheduler-stop.sh"
+  training_shell_command: "bash"
+  persistent_root_proof_path: "/root/.floki-rsi-persistent-root-proof"
+  training_gpu_probe_args: "-L"
+  training_gpu_probe_command: "nvidia-smi"
+  training_cdi_generate_args: "--feature-flag|no-additional-gids-for-device-nodes"
+  training_cdi_podman_spec_version: "0.6.0"
+  training_cdi_generated_spec_path: "/var/run/cdi/nvidia.yaml"
+  training_gpu_runtime_mode: "cdi"
+  training_cdi_device_name: "nvidia.com/gpu=all"
+  training_cdi_spec_path: "/etc/cdi/nvidia.yaml"
+  training_cdi_refresh_service: "nvidia-cdi-refresh.service"
+  training_cdi_refresh_path_service: "nvidia-cdi-refresh.path"
+  training_nvidia_ctk_command: "nvidia-ctk"
+  training_nvidia_toolkit_packages: "nvidia-container-toolkit|nvidia-container-toolkit-base|libnvidia-container-tools|libnvidia-container1"
+  training_nvidia_toolkit_gpg_url: "https://nvidia.github.io/libnvidia-container/gpgkey"
+  training_nvidia_toolkit_repo_list_url: "https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list"
+  training_nvidia_toolkit_keyring_path: "/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
+  training_nvidia_toolkit_repo_path: "/etc/apt/sources.list.d/nvidia-container-toolkit.list"
+  training_cdi_generation_timeout_ms: 120000
+  training_gpu_query_timeout_ms: 10000
+  training_gpu_quiesce_timeout_ms: 60000
+  training_gpu_quiesce_poll_ms: 500
+  training_expected_gpu_name: "NVIDIA GeForce RTX 3060"
+  training_expected_compute_capability_major: 8
+  training_expected_compute_capability_minor: 6
+  training_require_bf16: true
+  training_disable_tqdm: true
+  training_cpu_limit: 6
+  training_memory_limit: "24g"
+  training_pids_limit: 2048
+  training_timeout_ms: 21600000
+  training_container_name_prefix: "floki-rsi-training"
+  training_container_workdir: "/workspace"
+  training_adapter_mount_path: "/adapters"
+  training_dataset_mount_path: "/datasets"
+  training_hf_master_mount_path: "/hf-master"
+  training_config_mount_path: "/run/floki-training/training-config.json"
+  training_config_file_name: "training-config.json"
+  # QLoRA hyperparameters (RTX 3060 12GB; QLoRA only, never full fine-tune)
+  qlora_load_in_4bit: true
+  qlora_bnb_4bit_quant_type: "nf4"
+  qlora_bnb_4bit_compute_dtype: "bfloat16"
+  qlora_bnb_4bit_use_double_quant: true
+  qlora_rank: 16
+  qlora_alpha: 32
+  qlora_dropout: 0.05
+  qlora_target_modules: "q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj"
+  qlora_learning_rate: 0.0002
+  qlora_batch_size: 1
+  qlora_gradient_accumulation_steps: 16
+  qlora_max_seq_length: 2048
+  qlora_num_train_epochs: 1
+  qlora_max_steps: 0
+  qlora_warmup_ratio: 0.03
+  qlora_weight_decay: 0.0
+  qlora_lr_scheduler_type: "cosine"
+  qlora_optimizer: "paged_adamw_8bit"
+  qlora_seed: 42
+  qlora_logging_steps: 10
+  training_checkpoint_interval_steps: 50
+  # Dataset construction (bounded, attributable; manifest + SHA-256)
+  dataset_min_records: 8
+  dataset_max_records: 50000
+  dataset_min_record_chars: 40
+  dataset_max_record_chars: 8192
+  dataset_id_prefix: "ds"
+  dataset_sources: "soul=SOUL.md|engineering_candidates=state/floki/self-improvement/candidates"
+  dataset_hash_algorithm: "sha256"
+  dataset_manifest_file_name: "manifest.json"
+  dataset_records_file_name: "records.jsonl"
+  # Adapter lineage + versioning
+  adapter_version_prefix: "v"
+  adapter_id_prefix: "adapter"
+  adapter_manifest_file_name: "lineage.json"
+  # GGUF export + Ollama candidate (consumed by Stage 5 eval/promotion)
+  gguf_export_quantization: "Q4_K_M"
+  gguf_export_file_name_format: "floki-qwen-rsi-{version}.{quant}.gguf"
+  ollama_candidate_tag_format: "floki-qwen-rsi:{version}"
+  rollback_retention_count: 3
+  # === RSI autonomy v2 / Stage 5: GPU ownership + training resource mode ===
+  # Exactly one of these may own the host GPU at a time.
+  gpu_owners: "ollama_cognition|hf_training|hf_rem_inference|vision"
+  gpu_default_owner: "ollama_cognition"
+  gpu_ownership_lock_file: "state/floki/self-improvement/gpu-owner.lock"
+  gpu_ownership_acquire_timeout_ms: 60000
+  # Ollama unload: query every endpoint's loaded models and unload with keep_alive 0.
+  ollama_unload_endpoints: "http://127.0.0.1:11434"
+  ollama_ps_path: "/api/ps"
+  ollama_unload_path: "/api/generate"
+  ollama_unload_keep_alive_seconds: 0
+  ollama_unload_timeout_ms: 30000
+  ollama_reload_timeout_ms: 120000
+  nightly_ollama_reload_policy: "wake_only"
+  nightly_hf_operation_lock_poll_ms: 100
+  nightly_hf_operation_lock_timeout_ms: 300000
+  nightly_policy_runtime_root: "state/floki/self-improvement/runtime"
+  nightly_hf_operation_lock_file: "state/floki/self-improvement/runtime/nightly-hf-operation.lock"
+  nightly_code_sandbox_enabled: false
+  nightly_chat_resume_training: true
+  nightly_chat_provider: "huggingface"
+  nightly_chat_enabled: true
+  nightly_ollama_guard_poll_ms: 5000
+  # Workers suspended/kept-alive when training resource mode is active.
+  training_suspend_workers: "foreground_cognition|ollama_cognition|hearing|whisper_server|whisper_vad|speech|vision_yolo|vision_grounding_dino|vision_vlm|embodiment|knowledge_refresh|regular_rsi_sandbox"
+  training_keep_alive_workers: "electron_app|chat_api|status_transport|rsi_worker|training_supervisor|sleep_scheduler|dream_engine|hf_rem_inference"
+  runtime_transition_timeout_ms: 60000
+  wake_restoration_timeout_ms: 120000
+  # === RSI autonomy v2 / Stage 6: REM / training coordination ===
+  # Nightly REM uses Hugging Face. Manual daytime nap REM remains Ollama.
+  training_scheduler_tick_ms: 1000
+  hf_rem_response_file_name: "response.json"
+  activity_stream_min_events: 1
+  activity_stream_initial_events: 250
+  activity_stream_default_events: 200
+  rsi_terminal_summary_max_chars: 200
+  rsi_terminal_selection_error_line_max_chars: 150
+  rsi_terminal_selection_error_max_lines: 10
+  rsi_terminal_selection_error_max_chars: 2000
+  rsi_terminal_diff_max_chars: 60000
+  rsi_terminal_failure_output_max_lines: 50
+  rsi_terminal_success_output_max_lines: 40
+  rsi_terminal_output_max_chars: 12000
+  rsi_terminal_command_max_chars: 400
+  rsi_terminal_code_max_line_chars: 240
+  rsi_terminal_code_max_lines: 400
+  rsi_terminal_output_max_line_chars: 160
+  rsi_terminal_output_max_lines: 25
+  rsi_terminal_safe_string_max_chars: 200
+  rsi_terminal_incremental_activity_limit: 200
+  rsi_terminal_initial_activity_limit: 250
+  rsi_terminal_poll_ms: 2000
+  rsi_terminal_at_bottom_threshold_px: 60
+  rsi_terminal_event_limit: 3000
+  rsi_ui_candidate_render_limit: 200
+  vision_provider: "vision"
+  nightly_training_provider: "huggingface"
+  manual_training_provider: "huggingface"
+  code_improvement_provider: "ollama"
+  live_cognition_provider: "ollama"
+  hf_rem_do_sample: true
+  hf_rem_tokenizer_use_fast: true
+  hf_rem_device_map: "auto"
+  hf_rem_master_identity: "hf-master"
+  hf_rem_model_identity_prefix: "approved-lineage-"
+  hf_rem_system_prompt: "You are Floki-v2 private REM dream generation using the approved Hugging Face lineage. Return only schema-constrained JSON and never reveal private reasoning."
+  hf_rem_repetition_penalty: 1.05
+  hf_rem_max_new_tokens: 1800
+  hf_rem_top_p: 0.9
+  hf_rem_temperature: 0.8
+  hf_rem_required_adapter_files: "adapter_config.json|adapter_model.safetensors"
+  hf_rem_network_mode: "none"
+  hf_rem_inference_script_path: "/opt/floki-training/rem_inference.py"
+  hf_rem_entrypoint: "python3"
+  hf_rem_adapter_mount_path: "/approved-adapter"
+  hf_rem_id_random_bytes: 3
+  hf_rem_id_prefix: "rem"
+  hf_rem_log_file_name: "inference.log"
+  hf_rem_runtime_subdir: "hf-rem"
+  nightly_training_min_completed_steps: 1
+  nightly_training_candidate_objective: "Nightly QLoRA adapter training between REM cycles."
+  nightly_training_default_objective: "Nightly QLoRA training between REM cycles"
+  nightly_training_container_stop_timeout_floor_ms: 60000
+  nightly_training_container_stop_timeout_seconds: 30
+  nightly_training_checkpoint_request_random_bytes: 8
+  nightly_training_checkpoint_request_id_prefix: "checkpoint"
+  nightly_training_resume_policy: "latest"
+  nightly_training_mode: "nightly_segmented"
+  nightly_training_control_response_file_name: ".floki-control-response.json"
+  nightly_training_control_file_name: ".floki-control.json"
+  nightly_training_run_id_random_bytes: 3
+  nightly_training_run_id_prefix: "nightly-training"
+  qlora_dataset_text_field: "text"
+  qlora_save_strategy: "steps"
+  qlora_task_type: "CAUSAL_LM"
+  qlora_bias: "none"
+  manual_training_resume_policy: "none"
+  manual_training_segment_number: 0
+  manual_training_mode: "manual"
+  training_report_to: "none"
+  training_device_map: "auto"
+  training_tokenizer_use_fast: true
+  training_rng_state_file_name: "rng_state.pth"
+  training_lr_scheduler_state_file_name: "scheduler.pt"
+  training_optimizer_state_file_name: "optimizer.pt"
+  training_trainer_state_file_name: "trainer_state.json"
+  training_checkpoint_dir_prefix: "checkpoint-"
+  training_metrics_file_name: "metrics.json"
+  training_log_file_name: "training.log"
+  training_adapter_output_dir_name: "adapter-output"
+  training_candidate_risk_level: "high"
+  training_candidate_summary: "Real QLoRA training completed and produced a versioned adapter pending independent evaluation and Maker review."
+  training_status_objective: "QLoRA adapter training"
+  training_default_objective: "Train a versioned QLoRA adapter from approved local sources."
+  training_required_artifact_files: "adapter_config.json|adapter_model.safetensors|metrics.json"
+  training_log_tail_max_chars: 16000
+  training_run_id_random_bytes: 3
+  training_run_id_prefix: "training"
+  training_transformers_offline: "1"
+  training_hf_hub_offline: "1"
+  training_pip_no_cache_dir: "1"
+  training_debian_frontend: "noninteractive"
+  training_script_path: "/opt/floki-training/train_qlora.py"
+  training_entrypoint: "python3"
+  training_container_apt_packages: "python3 python3-pip python3-venv python3-dev build-essential git ca-certificates"
+  training_container_context_dir: "containers/self-improvement-training"
+  training_image_fingerprint_label: "org.floki.training-source-sha256"
+  training_source_fingerprint_files: "containers/self-improvement-training/Containerfile|containers/self-improvement-training/train_qlora.py|containers/self-improvement-training/rem_inference.py"
+  hf_rem_request_file_name: "request.json"
+  hf_rem_runtime_mount_path: "/run/floki-rem"
+  hf_rem_container_name_prefix: "floki-rsi-rem"
+  nightly_training_checkpoint_poll_ms: 500
+  nightly_training_checkpoint_timeout_ms: 3600000
+  nightly_training_save_total_limit: 4
+  nightly_training_max_steps: 1000000
+  nightly_training_session_file_name: "nightly-session.json"
+  # === RSI autonomy v2 / Stage 6: REM / training scheduler ===
+  # Nightly REM uses the Hugging Face checkpoint/approved lineage (never Ollama);
+  # manual daytime nap REM uses the configured Ollama model.
+  nightly_rem_provider: "huggingface"
+  manual_nap_rem_provider: "huggingface"
+  hf_rem_inference_endpoint: "container://one-shot"
+  hf_rem_inference_timeout_ms: 300000
+  training_rem_claim_file: "state/floki/self-improvement/rem-claims.json"
+  training_segment_min_seconds: 60
+  training_checkpoint_before_rem: true

@@ -148,7 +148,8 @@ class FlokiAdapter {
   async denySelfImprovement(id, reason = '') { return bridge().denySelfImprovement(id, reason); }
   async pauseSelfImprovement() { return bridge().pauseSelfImprovement(); }
   async resumeSelfImprovement() { return bridge().resumeSelfImprovement(); }
-  async runSelfImprovementNow(objective = '') { return bridge().runSelfImprovementNow(objective); }
+  async runSelfImprovementNow(objective = '', kind = 'code') { return bridge().runSelfImprovementNow(objective, kind); }
+  async abortSelfImprovement(kind = 'code', reason = '') { return bridge().abortSelfImprovement(kind, reason); }
   async getSelfImprovementActivity(params = {}) { return bridge().getSelfImprovementActivity(params); }
 }
 

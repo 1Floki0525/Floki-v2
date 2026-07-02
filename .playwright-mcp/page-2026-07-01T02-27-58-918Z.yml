@@ -1,0 +1,31 @@
+- generic [ref=e2]:
+  - heading "Floki Neural Interface" [level=1] [ref=e3]
+  - paragraph [ref=e4]: Welcome to the Floki Neural Interface portal. Please sign in or apply for access.
+  - generic [ref=e5]:
+    - heading "Sign In" [level=2] [ref=e6]
+    - generic [ref=e7]:
+      - paragraph [ref=e8]:
+        - text: Username or Email Address
+        - textbox "Username or Email Address" [ref=e9]
+      - paragraph [ref=e10]:
+        - text: Password
+        - textbox "Password" [ref=e11]
+      - paragraph [ref=e12]:
+        - button "Log In" [ref=e13]
+  - generic [ref=e14]:
+    - heading "Apply for Access" [level=2] [ref=e15]
+    - generic [ref=e16]:
+      - paragraph [ref=e17]:
+        - text: Display Name
+        - textbox "Display Name" [ref=e18]
+      - paragraph [ref=e19]:
+        - text: Requested Username
+        - textbox "Requested Username" [ref=e20]
+      - paragraph [ref=e21]:
+        - text: Email
+        - textbox "Email" [ref=e22]
+      - paragraph [ref=e23]:
+        - text: Reason for access
+        - textbox "Reason for access" [ref=e24]
+      - paragraph [ref=e25]:
+        - button "Apply for Access" [ref=e26] [cursor=pointer]

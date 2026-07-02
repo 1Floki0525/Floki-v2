@@ -1,0 +1,195 @@
+- generic [active] [ref=f17e1]:
+  - link "Skip to content" [ref=f17e2] [cursor=pointer]:
+    - /url: "#skip-to-content"
+  - main [ref=f17e3]:
+    - banner [ref=f17e4]:
+      - navigation "Primary" [ref=f17e7]:
+        - list [ref=f17e8]:
+          - menu [ref=f17e9]:
+            - link "Home" [ref=f17e10] [cursor=pointer]:
+              - /url: https://navigation.ionos.ca/2.0/navi/CA/track/click?url=https%3A%2F%2Fmy.ionos.ca%2Fproduct-overview&linkid=appswitch.logo&c=CONTROL_PANEL_HOSTING&p=domain-nameserver&ft=98d34ff0-322c-4784-b899-604733f9e33f
+              - generic [ref=f17e11]: 
+              - button "Open Menu" [ref=f17e12]: Menu
+      - menu [ref=f17e14]:
+        - menu [ref=f17e15]:
+          - generic [ref=f17e17]:
+            - generic: Search for features, domains, and help
+            - generic [ref=f17e18] [cursor=pointer]: 
+            - searchbox "Search for features, domains, and help" [ref=f17e19]
+            - button "Turn on microphone" [ref=f17e20] [cursor=pointer]: 
+      - navigation "Secondary" [ref=f17e22]:
+        - menu [ref=f17e23]:
+          - text:  
+          - menu [ref=f17e24]:
+            - link "World Cup Deals" [ref=f17e25] [cursor=pointer]:
+              - /url: https://navigation.ionos.ca/2.0/navi/CA/track/click?url=https%3A%2F%2Fmy.ionos.ca%2Fspecial-offers%3Fias.campaign%3Dworldcup-26%26campaign%3Dfiller_campaign&linkid=nav.special-offer-a&c=CONTROL_PANEL_HOSTING&p=domain-nameserver&ft=98d34ff0-322c-4784-b899-604733f9e33f
+              - img [ref=f17e27]
+              - superscript [ref=f17e32]: "%"
+          - menu [ref=f17e33]:
+            - button "Help & contact" [ref=f17e34] [cursor=pointer]:
+              - img [ref=f17e35]
+          - menu [ref=f17e41]:
+            - link "Empty cart" [ref=f17e42] [cursor=pointer]:
+              - /url: https://my.ionos.ca/add-product?utm_source=global_navigation&utm_medium=notification&utm_campaign=cart&utm_content=cp-add-product
+              - img [ref=f17e43]
+          - menu [ref=f17e48]:
+            - button "Open preview of 5 messages" [ref=f17e49] [cursor=pointer]:
+              - img [ref=f17e50]
+              - superscript [ref=f17e55]: 5+
+          - menu [ref=f17e56]:
+            - button "Open my account & logout" [ref=f17e57] [cursor=pointer]:
+              - img [ref=f17e58]
+    - generic [ref=f17e61]:
+      - link "Skip to main content" [ref=f17e62] [cursor=pointer]:
+        - /url: "#top"
+      - button
+      - generic [ref=f17e64]:
+        - navigation "Navigation" [ref=f17e65]:
+          - link "Home" [ref=f17e66] [cursor=pointer]:
+            - /url: /product-overview
+            - text:  Home
+          - link " Domains & SSL" [ref=f17e67] [cursor=pointer]:
+            - /url: /domains
+        - generic [ref=f17e68]:
+          - heading "galactic-family-hub.com" [level=1] [ref=f17e71]
+          - generic [ref=f17e73]:
+            - link "Adjust destination" [ref=f17e74] [cursor=pointer]:
+              - /url: /connect-domain/galactic-family-hub.com?linkId=ct.btn.domainlist.usedomain.mainaction
+            - link "Reset domain" [ref=f17e75] [cursor=pointer]:
+              - /url: /reset-domain/galactic-family-hub.com?linkId=ct.btn.header.reset-domain
+      - list [ref=f17e78]:
+        - listitem [ref=f17e79]:
+          - link "Details" [ref=f17e80] [cursor=pointer]:
+            - /url: /domain-details/galactic-family-hub.com?linkId=ct.tab.domainlist.details
+        - listitem [ref=f17e81]:
+          - link "Subdomains" [ref=f17e82] [cursor=pointer]:
+            - /url: /subdomains/galactic-family-hub.com?linkId=ct.tab.domainlist.subdomains
+        - listitem [ref=f17e83]:
+          - link "Contact Details" [ref=f17e84] [cursor=pointer]:
+            - /url: /domain-privacy/galactic-family-hub.com?linkId=ct.tab.domainlist.privacy
+        - listitem [ref=f17e85]:
+          - link "Renewal & Transfer" [ref=f17e86] [cursor=pointer]:
+            - /url: /domain-transfer/galactic-family-hub.com?linkId=ct.tab.domainlist.transfer
+        - listitem [ref=f17e87]:
+          - link "Name Server" [ref=f17e88]:
+            - /url: /domain-nameserver/galactic-family-hub.com?linkId=ct.tab.domainlist.nameserver&from=domain-nameserver%2Fgalactic-family-hub.com
+        - listitem [ref=f17e89]:
+          - link "DNS" [ref=f17e90] [cursor=pointer]:
+            - /url: /domain-dns-settings/galactic-family-hub.com?linkId=ct.tab.domainlist.dns&from=domain-nameserver%2Fgalactic-family-hub.com
+      - generic [ref=f17e92]:
+        - paragraph [ref=f17e94]:
+          - text: You are using the
+          - strong [ref=f17e95]: IONOS name server
+          - text: (default setting).
+        - link "Use custom name servers" [ref=f17e98] [cursor=pointer]:
+          - /url: /edit-nameserver/galactic-family-hub.com?linkId=ct.button.dns.usecustom
+        - table [ref=f17e99]:
+          - rowgroup [ref=f17e100]:
+            - row "Look up Type" [ref=f17e101]:
+              - columnheader "Look up" [ref=f17e102]:
+                - generic "Look up" [ref=f17e103]:
+                  - button "Name server" [ref=f17e104]
+              - columnheader "Type" [ref=f17e105]
+          - rowgroup [ref=f17e106]:
+            - row "ns1043.ui-dns.biz IONOS name server" [ref=f17e107]:
+              - cell "ns1043.ui-dns.biz" [ref=f17e108]
+              - cell "IONOS name server" [ref=f17e109]
+            - row "ns1052.ui-dns.org IONOS name server" [ref=f17e110]:
+              - cell "ns1052.ui-dns.org" [ref=f17e111]
+              - cell "IONOS name server" [ref=f17e112]
+            - row "ns1087.ui-dns.de IONOS name server" [ref=f17e113]:
+              - cell "ns1087.ui-dns.de" [ref=f17e114]
+              - cell "IONOS name server" [ref=f17e115]
+            - row "ns1108.ui-dns.com IONOS name server" [ref=f17e116]:
+              - cell "ns1108.ui-dns.com" [ref=f17e117]
+              - cell "IONOS name server" [ref=f17e118]
+      - generic [ref=f17e120]:
+        - list [ref=f17e121]:
+          - listitem [ref=f17e122]:
+            - button "Recommended help topics " [ref=f17e123]
+            - list [ref=f17e128]:
+              - listitem [ref=f17e129]:
+                - button " Using Your Own Name Servers for a Domain" [ref=f17e130] [cursor=pointer]
+              - listitem [ref=f17e131]:
+                - button " Configuring Glue Records for Name Servers" [ref=f17e132] [cursor=pointer]
+              - listitem [ref=f17e133]:
+                - button " Resetting Your Domain's DNS Settings" [ref=f17e134] [cursor=pointer]
+        - heading "New DNS & name server management" [level=2] [ref=f17e136]
+        - paragraph [ref=f17e137]:
+          - text: Simpler. Clearer overview. Faster. We have redesigned the DNS & name server management. Your satisfaction is important to us. Therefore we would be pleased if you would give us feedback on the new DNS & name server management.
+          - button " Submit feedback" [ref=f17e138] [cursor=pointer]
+      - generic [ref=f17e140]:
+        - heading "Creating a backup plan for secondary DNS" [level=2] [ref=f17e141]
+        - paragraph [ref=f17e142]: The secondary DNS allows you to automatically backup the zone file of your domain to a second name server. If the first group of name servers fails, it automatically sends requests to the backup copies that have a zone file identical to the master name servers. You must have DNS Pro enabled in your domain to use secondary DNS. DNSSEC and secondary DNS cannot be used on the same domain name.
+        - link " Order" [ref=f17e143] [cursor=pointer]:
+          - /url: /JumpToCPShop?product=dns-pro&domain=galactic-family-hub.com&itc=PGLYTRKN&contract=107165705
+  - contentinfo [ref=f17e144]:
+    - generic [ref=f17e145]:
+      - generic [ref=f17e146]:
+        - generic [ref=f17e148]:
+          - heading "My IONOS" [level=4] [ref=f17e149]
+          - list [ref=f17e150]:
+            - listitem [ref=f17e151]:
+              - link " Home" [ref=f17e152] [cursor=pointer]:
+                - /url: /product-overview?linkId=ft.nav.home
+            - listitem [ref=f17e153]:
+              - link " My account" [ref=f17e154] [cursor=pointer]:
+                - /url: /account-overview?linkId=ft.nav.my-account
+            - listitem [ref=f17e155]:
+              - link "Discover IONOS" [ref=f17e156] [cursor=pointer]:
+                - /url: /add-product?linkId=ft.nav.discover-ionos&itc=HDS26HW0
+                - img
+                - text: Discover IONOS
+        - generic [ref=f17e157]:
+          - heading "Customer Support" [level=4] [ref=f17e158]
+          - list [ref=f17e159]:
+            - listitem [ref=f17e160]:
+              - link "Help Center" [ref=f17e161] [cursor=pointer]:
+                - /url: /JumpToHelpCenterDirect?linkId=ft.nav.help&direct=%2F
+            - listitem [ref=f17e162]:
+              - link "Contact us / My personal consultant" [ref=f17e163] [cursor=pointer]:
+                - /url: /JumpToCPSupportContact?__sendingdata=1&linkId=ft.nav.contact
+        - generic [ref=f17e164]:
+          - link "Ionos logo" [ref=f17e165] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fabout%2F%3FlinkId%3Dft.nav.logo&__sign=9e365ba65c04367bc9e1519b902abe12&__ts=1782881185921
+            - img "Ionos logo" [ref=f17e166]
+          - link "Instagram" [ref=f17e167] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.instagram.com%2Fionos.official&__sign=272633c47c0f4e292000c690754b29b1&__ts=1782881185921
+            - img [ref=f17e168]
+          - link "Facebook" [ref=f17e170] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_FB_US&__sign=9bb9ae7ac34c9631edd730dfb58b9841&__ts=1782881185921
+            - img [ref=f17e171]
+          - link "YouTube" [ref=f17e173] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_YT_US&__sign=ac0fb9ab797b6b7640ab0d7098f65d3e&__ts=1782881185921
+            - img [ref=f17e174]
+          - link "LinkedIn" [ref=f17e176] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_IN&__sign=5f3ac0c7556c2b35ef49784934dd7c36&__ts=1782881185921
+            - img [ref=f17e177]
+          - link "TikTok" [ref=f17e179] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.tiktok.com%2F%40ionos.global&__sign=ea1dbef98a126153c4ac6d55246bfb46&__ts=1782881185921
+            - img [ref=f17e180]
+      - generic [ref=f17e182]:
+        - generic [ref=f17e184]:
+          - heading "Download the IONOS App" [level=4] [ref=f17e185]
+          - link "Ionos on Google Play" [ref=f17e186]:
+            - /url: https://play.google.com/store/apps/details?id=com.oneandone.ciso.mobile.app.android&referrer=utm_source%3Dcp%26utm_campaign%3Dfooterl
+            - img "Ionos on Google Play" [ref=f17e187]
+        - link "Ionos on the App Store" [ref=f17e189]:
+          - /url: https://apps.apple.com/app/apple-store/id1080444849?pt=119330501&ct=cp.footer&mt=8
+          - img "Ionos on the App Store" [ref=f17e190]
+      - generic [ref=f17e192]:
+        - paragraph [ref=f17e194]:
+          - link "All Systems Operational" [ref=f17e195] [cursor=pointer]:
+            - /url: https://www.ionos-status.ca/?utm_medium=footer&utm_content=none&utm_source=CONTROL_PANEL_HOSTING&utm_campaign=domain-nameserver&utm_term=no_search
+        - paragraph [ref=f17e197]:
+          - text: © 2026
+          - link "IONOS Inc." [ref=f17e198] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fabout%2F%3FlinkId%3Dft.nav.company&__sign=3c211ba492cd4acb0273a2640a324c1f&__ts=1782881185921
+        - generic [ref=f17e199]:
+          - link "Privacy policy" [ref=f17e200] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fterms-gtc%2Fterms-privacy%2F%3FlinkId%3Dft.nav.privacy&__sign=5ce75d3bb3c4f157a412d51637fbcd57&__ts=1782881185921
+          - text: "-"
+          - link "T&Cs" [ref=f17e201] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fterms-gtc%2F%3FlinkId%3Dft.nav.terms&__sign=d9682a23d1a0d3e50fb6c4b351379073&__ts=1782881185921
+  - button "Hey, I’m the AI Assistant of" [ref=f17e202] [cursor=pointer]:
+    - img [ref=f17e203]

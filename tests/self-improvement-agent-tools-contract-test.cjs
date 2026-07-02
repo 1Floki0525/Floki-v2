@@ -19,6 +19,17 @@ const worker = fs.readFileSync(
 );
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
+// Behavioral helpers: the per-phase tool-surface routing and the workspace
+// containment guard are exercised through the REAL production helpers the agent
+// uses, rather than asserting agent.cjs source-text adjacency or syntax.
+const {
+  selectActiveTools,
+  selectRepairTools
+} = require(path.join(ROOT, 'src/self-improvement/focused-repair.cjs'));
+const {
+  assertRealPathInsideRoot
+} = require(path.join(ROOT, 'src/self-improvement/workspace-guard.cjs'));
+
 for (const toolName of [
   'get_task_state',
   'update_task_state',
@@ -88,54 +99,52 @@ assert.match(agent, /Investigate.*before calling select_experiment|Investigate.*
   'agent must encourage investigation before calling select_experiment');
 assert.match(agent, /const selectExperimentTool = \{/);
 assert.match(agent, /const tools = \[\s*selectExperimentTool,/);
-const convergenceSnapshotIndex = agent.indexOf(
-  'const convergenceSnapshot = convergencePolicy.snapshot();'
-);
-const activeToolsIndex = agent.indexOf(
-  'const activeTools = convergenceSnapshot.selected_experiment',
-  convergenceSnapshotIndex
-);
-const activeToolsEndIndex = agent.indexOf('let message;', activeToolsIndex);
+// Behavioral: the per-phase tool surface is chosen by the real selectActiveTools
+// helper the agent invokes. Drive it with representative snapshots and assert the
+// routing instead of pinning agent.cjs ternary syntax or source-line adjacency.
+{
+  const selectExperimentTool = { function: { name: 'select_experiment' } };
+  const allTools = [
+    selectExperimentTool,
+    { function: { name: 'shell' } },
+    { function: { name: 'read_file' } },
+    { function: { name: 'apply_patch' } },
+    { function: { name: 'write_file' } },
+    { function: { name: 'run_focused_test' } },
+    { function: { name: 'run_verification' } },
+    { function: { name: 'finalize_candidate' } }
+  ];
+  const blocked = new Set(['apply_patch', 'write_file', 'run_focused_test', 'run_verification', 'finalize_candidate']);
+  const preSelectionTools = allTools.filter((t) => !blocked.has(t.function.name));
+  const repairTools = selectRepairTools(allTools, (t) => t.function.name);
+  const surfaces = { allTools, preSelectionTools, selectExperimentTool, repairTools };
 
-assert.ok(
-  convergenceSnapshotIndex >= 0,
-  'agent must snapshot convergence state before choosing the active tool surface'
-);
-assert.ok(
-  activeToolsIndex > convergenceSnapshotIndex,
-  'agent must derive activeTools from the captured convergence snapshot'
-);
-assert.ok(
-  activeToolsEndIndex > activeToolsIndex,
-  'agent activeTools block must terminate before the model call setup'
-);
-
-const activeToolsBlock = agent.slice(activeToolsIndex, activeToolsEndIndex);
-assert.match(
-  activeToolsBlock,
-  /selected_experiment\s*\?\s*tools/,
-  'a selected experiment must expose the full implementation tool surface'
-);
-assert.match(
-  activeToolsBlock,
-  /phase\s*===\s*'selection_required'[\s\S]*\?\s*\[selectExperimentTool\]/,
-  'selection_required must expose only select_experiment and stop further discovery churn'
-);
-assert.match(
-  activeToolsBlock,
-  /:\s*preSelectionTools\s*;/,
-  'normal pre-selection discovery must expose preSelectionTools before the deadline'
-);
-assert.ok(
-  activeToolsBlock.indexOf('? tools') <
-    activeToolsBlock.indexOf("phase === 'selection_required'"),
-  'full tools must be selected first when an experiment already exists'
-);
-assert.ok(
-  activeToolsBlock.indexOf("phase === 'selection_required'") <
-    activeToolsBlock.lastIndexOf('preSelectionTools'),
-  'discovery tools must remain the fallback only before selection becomes mandatory'
-);
+  // A selected experiment exposes the full implementation tool surface.
+  assert.equal(
+    selectActiveTools({ selected_experiment: { objective: 'x' }, phase: 'implementing' }, surfaces),
+    allTools,
+    'a selected experiment exposes the full implementation tool surface'
+  );
+  // selection_required exposes only select_experiment.
+  assert.deepEqual(
+    selectActiveTools({ selected_experiment: null, phase: 'selection_required' }, surfaces)
+      .map((t) => t.function.name),
+    ['select_experiment'],
+    'selection_required exposes only select_experiment'
+  );
+  // Normal pre-selection discovery exposes the read-only discovery surface.
+  assert.equal(
+    selectActiveTools({ selected_experiment: null, phase: 'discovery' }, surfaces),
+    preSelectionTools,
+    'pre-selection discovery exposes preSelectionTools before the deadline'
+  );
+  // Repairing exposes the bounded repair surface (no shell/verification/finalize).
+  const repairActive = selectActiveTools({ selected_experiment: { objective: 'x' }, phase: 'repairing' }, surfaces)
+    .map((t) => t.function.name);
+  for (const withheld of ['shell', 'run_verification', 'finalize_candidate']) {
+    assert.ok(!repairActive.includes(withheld), 'repair surface excludes ' + withheld);
+  }
+}
 assert.match(agent, /PRE_SELECTION_BLOCKED_NAMES/,
   'agent must define the set of tools blocked before selection');
 assert.match(agent, /preSelectionTools/,
@@ -155,15 +164,35 @@ assert.match(agent, /experiment target must be an existing source, test, config,
 assert.match(agent, /experiment target file does not exist/);
 assert.match(agent, /function validateExperimentEvidence/);
 assert.match(agent, /percentage or latency claims require measured baseline evidence/);
-assert.match(agent, /must not describe EAI_AGAIN as HTTP status code 123/);
+assert.match(agent, /must not describe runtime error codes as HTTP status codes/);
 assert.match(agent, /baseline_evidence must not contain placeholder measurements/);
 assert.match(agent, /KNOWN_RUNTIME_ERROR_CODE_PATTERN/);
-assert.match(agent, /EAI_AGAIN\|EPIPE\|ECONNRESET\|ETIMEDOUT/);
+assert.match(agent, /\\bE\[A-Z0-9_\]\{2,\}\\b/);
 assert.match(agent, /PLACEHOLDER_METRIC_TOKEN_PATTERN/);
 assert.doesNotMatch(agent, /A-Z\]\[A-Z0-9\]\*_\[A-Z0-9_\]\{2,\}/);
 assert.match(agent, /retry\/backoff claims require measured baseline evidence/);
 assert.doesNotMatch(agent, /clean\.startsWith\('\\.floki-self-improvement\/'\)/);
-assert.match(agent, /escapes workspace through symlink/);
+// Behavioral: real-path containment (extracted to workspace-guard.cjs and used
+// by the agent) rejects an escape through a symlink resolving outside the root.
+assert.match(agent, /assertRealPathInsideRoot|assertRealPathInsideWorkspace/,
+  'agent must wire the real-path workspace containment guard');
+{
+  const wsRoot = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'floki-agtools-ws-'));
+  const outside = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'floki-agtools-out-'));
+  try {
+    const wsReal = fs.realpathSync.native(wsRoot);
+    fs.writeFileSync(path.join(outside, 'secret.cjs'), 'leak');
+    fs.symlinkSync(path.join(outside, 'secret.cjs'), path.join(wsRoot, 'escape.cjs'));
+    assert.throws(
+      () => assertRealPathInsideRoot(wsReal, path.join(wsRoot, 'escape.cjs'), 'target'),
+      /escapes workspace/,
+      'symlink escape is rejected by the containment guard'
+    );
+  } finally {
+    fs.rmSync(wsRoot, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+}
 
 assert.match(policy, /result\?\.workspace_changed === true/);
 assert.match(policy, /name === 'run_focused_test'/);

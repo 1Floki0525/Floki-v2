@@ -38,6 +38,67 @@ function splitPipe(value) {
   return String(value).split('|').map((item) => item.trim()).filter(Boolean);
 }
 
+function readPriorCandidateHistory(options = {}) {
+  const config = options.config || loadSelfImprovementConfig();
+  const candidateRoot = options.candidate_root || config.candidate_root;
+  const limit = Number.isFinite(Number(options.limit))
+    ? Number(options.limit)
+    : Number(config.prior_candidate_history_limit);
+  const previousCandidates = [];
+  try {
+    for (const entry of fs.readdirSync(candidateRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const manifestFile = path.join(candidateRoot, entry.name, 'manifest.json');
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+        // The dedup-relevant fields live under manifest.experiment (the
+        // select_experiment payload); only `objective` is mirrored at the top
+        // level. Read from experiment first so candidate history actually
+        // carries hypothesis, target_files, and focused_test for deduplication.
+        const experiment = manifest.experiment && typeof manifest.experiment === 'object'
+          ? manifest.experiment
+          : {};
+        const targetFiles =
+          (Array.isArray(experiment.target_files) && experiment.target_files.length > 0)
+            ? experiment.target_files
+            : (Array.isArray(manifest.changed_files) && manifest.changed_files.length > 0)
+              ? manifest.changed_files
+              : (Array.isArray(manifest.target_files) ? manifest.target_files : []);
+        const candidateEntry = {
+          id: manifest.id,
+          status: manifest.status,
+          objective: experiment.objective || manifest.objective || null,
+          hypothesis: experiment.hypothesis || manifest.hypothesis || null,
+          target_files: targetFiles,
+          focused_test: experiment.focused_test || manifest.focused_test || null,
+          expected_benefit: manifest.expected_benefit || null,
+          denial_reason: manifest.denial_reason || null,
+          failure: manifest.failure || null,
+          candidate_type: manifest.candidate_type || manifest.kind || null,
+          created_at: manifest.created_at || null,
+          updated_at: manifest.updated_at || null,
+          experiment
+        };
+        // Include the changes.diff for denied candidates so the agent
+        // can see exactly what was tried and what to avoid repeating.
+        if (manifest.status === 'denied') {
+          try {
+            const diffFile = path.join(candidateRoot, entry.name, 'changes.diff');
+            const diffText = fs.readFileSync(diffFile, 'utf8');
+            candidateEntry.changes_diff = diffText.slice(0, 6000);
+          } catch (_) {}
+        }
+        previousCandidates.push(candidateEntry);
+      } catch (_candidateError) {}
+    }
+  } catch (_candidateRootError) {}
+  previousCandidates.sort((a, b) =>
+    String(b.updated_at || b.created_at || '')
+      .localeCompare(String(a.updated_at || a.created_at || ''))
+  );
+  return Object.freeze(previousCandidates.slice(0, Math.max(0, limit)));
+}
+
 function commandOptions(config, cwd = undefined, timeout = undefined) {
   return {
     cwd,
@@ -63,6 +124,25 @@ function writeSanitizedNpmrc(repoDir, config) {
   const file = path.join(repoDir, '.npmrc');
   fs.writeFileSync(file, lines.join('\n') + '\n', { mode: 0o600 });
   return file;
+}
+
+function productionSourceFingerprint(config) {
+  const head = run(
+    'git',
+    ['rev-parse', 'HEAD'],
+    commandOptions(config, config.project_root)
+  ).stdout.trim();
+  const status = run(
+    'git',
+    ['status', '--short', '--untracked-files=all'],
+    commandOptions(config, config.project_root)
+  ).stdout;
+  return crypto
+    .createHash('sha256')
+    .update(head)
+    .update('\0')
+    .update(status)
+    .digest('hex');
 }
 
 function safeRelativeName(value) {
@@ -273,59 +353,15 @@ function createSourceSnapshot(options = {}) {
   const config = options.config || loadSelfImprovementConfig();
   const runId = options.run_id || newRunId(config);
   const runRoot = path.join(config.workspace_root, runId);
-  const repoDir = path.join(runRoot, 'repo');
-  fs.mkdirSync(repoDir, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(runRoot, { recursive: true, mode: 0o700 });
   const selfContext = createSelfContextSnapshot(runRoot, config);
 
   const excludes = splitPipe(config.snapshot_exclude_patterns);
-  const args = ['-a', '--delete', '--prune-empty-dirs'];
-  for (const pattern of excludes) args.push('--exclude=' + pattern);
-  args.push(config.project_root + '/', repoDir + '/');
-  run('rsync', args, commandOptions(config, undefined, config.snapshot_rsync_timeout_ms));
-  removeInheritedGitMetadata(repoDir);
-  writeSanitizedNpmrc(repoDir, config);
-
   const runtimeStatusFile = path.join(config.chat_runtime_root, 'chat-local-runtime.status.json');
   let runtimeEvidence = null;
   try {
     const status = JSON.parse(fs.readFileSync(runtimeStatusFile, 'utf8'));
-    const previousCandidates = [];
-    try {
-      for (const entry of fs.readdirSync(config.candidate_root, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const manifestFile = path.join(config.candidate_root, entry.name, 'manifest.json');
-        try {
-          const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
-          const candidateEntry = {
-            id: manifest.id,
-            status: manifest.status,
-            objective: manifest.objective || null,
-            hypothesis: manifest.hypothesis || null,
-            target_files: manifest.target_files || [],
-            focused_test: manifest.focused_test || null,
-            expected_benefit: manifest.expected_benefit || null,
-            denial_reason: manifest.denial_reason || null,
-            failure: manifest.failure || null,
-            created_at: manifest.created_at || null,
-            updated_at: manifest.updated_at || null
-          };
-          // Include the changes.diff for denied candidates so the agent
-          // can see exactly what was tried and what to avoid repeating.
-          if (manifest.status === 'denied') {
-            try {
-              const diffFile = path.join(config.candidate_root, entry.name, 'changes.diff');
-              const diffText = fs.readFileSync(diffFile, 'utf8');
-              candidateEntry.changes_diff = diffText.slice(0, 6000);
-            } catch (_) {}
-          }
-          previousCandidates.push(candidateEntry);
-        } catch (_candidateError) {}
-      }
-    } catch (_candidateRootError) {}
-    previousCandidates.sort((a, b) =>
-      String(b.updated_at || b.created_at || '')
-        .localeCompare(String(a.updated_at || a.created_at || ''))
-    );
+    const previousCandidates = readPriorCandidateHistory({ config });
 
     runtimeEvidence = {
       captured_at: nowIso(),
@@ -349,7 +385,7 @@ function createSourceSnapshot(options = {}) {
     runtimeEvidence = { captured_at: nowIso(), unavailable: true };
   }
 
-  const evidenceDir = path.join(repoDir, config.snapshot_evidence_subdir);
+  const evidenceDir = path.join(runRoot, config.snapshot_evidence_subdir);
   fs.mkdirSync(evidenceDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(
     path.join(evidenceDir, config.snapshot_runtime_evidence_file_name),
@@ -357,51 +393,19 @@ function createSourceSnapshot(options = {}) {
     { mode: 0o600 }
   );
 
-  run('git', ['init', '-q'], commandOptions(config, repoDir));
-  const initializedGitPath = path.join(repoDir, '.git');
-  if (
-    !fs.existsSync(initializedGitPath) ||
-    !fs.statSync(initializedGitPath).isDirectory()
-  ) {
-    throw new Error(
-      'self-improvement snapshot did not create an isolated Git repository'
-    );
-  }
-  run(
-    'git',
-    ['config', 'user.name', config.snapshot_git_user_name],
-    commandOptions(config, repoDir)
-  );
-  run(
-    'git',
-    ['config', 'user.email', config.snapshot_git_user_email],
-    commandOptions(config, repoDir)
-  );
-  run('git', ['add', '-A', '--', '.'], commandOptions(config, repoDir));
-  run(
-    'git',
-    ['commit', '-q', '-m', config.snapshot_git_commit_message],
-    commandOptions(config, repoDir)
-  );
-  const baseCommit = run(
-    'git',
-    ['rev-parse', 'HEAD'],
-    commandOptions(config, repoDir)
-  ).stdout.trim();
-
   const metadata = {
     marker: 'FLOKI_V2_SELF_IMPROVEMENT_SNAPSHOT',
     run_id: runId,
     created_at: nowIso(),
     source_root: config.project_root,
     run_root: runRoot,
-    repo_dir: repoDir,
+    persistent_project_workspace_path: config.persistent_project_workspace_path,
     self_context_dir: selfContext.directory,
     self_context_manifest_file: selfContext.manifest_file,
     self_context_index_file: selfContext.index_file,
     self_context_source_count: selfContext.source_count,
     self_context_indexed_text_files: selfContext.indexed_text_files,
-    base_commit: baseCommit,
+    production_source_fingerprint: productionSourceFingerprint(config),
     exclusions: excludes
   };
   fs.writeFileSync(
@@ -415,6 +419,7 @@ function createSourceSnapshot(options = {}) {
 module.exports = {
   createSourceSnapshot,
   createSelfContextSnapshot,
+  readPriorCandidateHistory,
   removeInheritedGitMetadata,
   newRunId,
   writeSanitizedNpmrc,

@@ -15,7 +15,11 @@ function select(object, keys) {
 }
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
   const raw = loadYamlFile(path.join(PROJECT_ROOT, 'config', 'chat.config.yaml'));
   const audio = getAudioConfig('chat');
   const sleep = getSleepConfig('chat');

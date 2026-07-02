@@ -11,7 +11,11 @@ const {
 const { getVisionConfig } = require('../src/config/floki-config.cjs');
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
 
   const vision = getVisionConfig('chat');
   assert.equal(webcamCaptureAllowed({}), false);

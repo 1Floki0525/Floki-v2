@@ -12,7 +12,11 @@ function indexOfOrFail(source, needle) {
 }
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
   const startScript = fs.readFileSync(path.join(__dirname, '..', 'bin', 'floki-start.sh'), 'utf8');
   const chatSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'chat', 'floki-live-chat-interface.cjs'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));

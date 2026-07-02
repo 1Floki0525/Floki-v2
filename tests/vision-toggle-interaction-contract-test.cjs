@@ -22,8 +22,8 @@ assert.match(panel, /showSceneRecognition/);
 assert.match(panel, /aria-pressed=\{active\}/);
 assert.match(panel, /data-state=\{active \? ['"]on['"] : ['"]off['"]\}/);
 assert.match(panel, /data-testid=\{`detection-layer-\$\{fallbackLabel\}`\}/);
-assert.match(panel, /left:\s*`\$\{left\}%`/);
-assert.match(panel, /width:\s*`\$\{width\}%`/);
+assert.match(panel, /mapNormalizedBoxToVideoRect/);
+assert.match(panel, /clampRectToDisplay/);
 assert.doesNotMatch(panel, /const \[showObjects, setShowObjects\] = useState/);
 assert.match(settingRow, /data-testid=\{`setting-/);
 
@@ -33,6 +33,6 @@ console.log(JSON.stringify({
   live_panel_uses_shared_vision_settings: true,
   settings_page_and_panel_share_state: true,
   toggle_state_is_observable: true,
-  overlay_coordinates_are_percentage_based: true,
+  overlay_coordinates_are_video_rect_mapped: true,
   mock_toggle_helpers_used: false
 }, null, 2));

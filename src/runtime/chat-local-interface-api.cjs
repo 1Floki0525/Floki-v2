@@ -10,8 +10,8 @@ const { buildFlokiLifecycleStatus } = require('../chat/floki-lifecycle-status.cj
 const { buildDreamTimeline } = require('../chat/dream-timeline.cjs');
 const { readChatWebcamVisionStatus, readLatestPrivateObservation, runtimePaths } = require('../vision/chat-webcam-vision-service.cjs');
 const { buildVisionStatus } = require('../vision/vision-status.cjs');
-const { readLatestDetection } = require('../vision/yolo-detection-service.cjs');
-const { classifyVerifiedDetectionForDisplay } = require('../vision/person-presence-verifier.cjs');
+const { readLatestDetection, getDetectionConfig } = require('../vision/yolo-detection-service.cjs');
+const { createInitialDetectionFrameState, reduceDetectionFrameState, splitDisplayDetections } = require('../vision/detection-frame-contract.cjs');
 const { loadAffectState } = require('../../brain/emotions_base/index.cjs');
 const { loadSelfImprovementConfig } = require('../self-improvement/config.cjs');
 
@@ -187,7 +187,7 @@ function createChatLocalInterfaceApi(options = {}) {
   const startedAt = Number(options.started_at || Date.now());
   const sessionId = options.session_id || null;
   let lastRecordedAffectSignature = '';
-  const visionTracks = { objects: [], persons: [] };
+  let visionFrameState = createInitialDetectionFrameState();
   const visionConfig = getVisionConfig('chat');
   const visionPaths = runtimePaths({ runtime_dir: runtimeDir });
   const selfImprovementConfig = loadSelfImprovementConfig();
@@ -218,46 +218,6 @@ function createChatLocalInterfaceApi(options = {}) {
       }
       throw error;
     }
-  }
-
-  function detectionBox(detection) {
-    const box = detection && detection.bbox || {};
-    return { x: Number(box.x || 0), y: Number(box.y || 0), width: Number(box.width || 0), height: Number(box.height || 0) };
-  }
-
-  function detectionIou(leftDetection, rightDetection) {
-    const left = detectionBox(leftDetection);
-    const right = detectionBox(rightDetection);
-    const width = Math.max(0, Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x));
-    const height = Math.max(0, Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y));
-    const intersection = width * height;
-    const union = left.width * left.height + right.width * right.height - intersection;
-    return union > 0 ? intersection / union : 0;
-  }
-
-  function retainVisionDetections(kind, detections, now = Date.now()) {
-    const tracks = visionTracks[kind];
-    const ttlMs = Number(getInterfaceSettings('chat').vision.detectionDisplayTtlMs);
-    for (const detection of Array.isArray(detections) ? detections : []) {
-      const label = String(detection.label || detection.class || detection.name || kind).toLowerCase();
-      let bestTrack = null;
-      let bestIou = 0;
-      for (const track of tracks) {
-        if (track.label !== label) continue;
-        const overlap = detectionIou(track.detection, detection);
-        if (overlap > bestIou) { bestIou = overlap; bestTrack = track; }
-      }
-      if (bestTrack && bestIou >= 0.20) {
-        bestTrack.detection = detection;
-        bestTrack.lastSeenAt = now;
-      } else {
-        tracks.push({ label, detection, lastSeenAt: now });
-      }
-    }
-    for (let index = tracks.length - 1; index >= 0; index -= 1) {
-      if (now - tracks[index].lastSeenAt > ttlMs) tracks.splice(index, 1);
-    }
-    return tracks.map((track) => track.detection);
   }
 
   function recordAffectHistory() {
@@ -305,22 +265,15 @@ function createChatLocalInterfaceApi(options = {}) {
     const service = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
     const observation = readLatestPrivateObservation({ runtime_dir: runtimeDir });
     const latestDetection = readLatestDetection({ runtime_dir: runtimeDir });
+    const detectionConfig = getDetectionConfig();
     const frame = latestFrameState(now);
     const cameraActive = service.capture_live === true;
     const liveFrame = cameraActive && frame.available === true && frame.fresh === true;
-    const currentObjects = [];
-    const currentPersons = [];
     const rawDetections = liveFrame && latestDetection.available === true && latestDetection.fresh === true && latestDetection.detection
       ? (Array.isArray(latestDetection.detection.detections) ? latestDetection.detection.detections : [])
       : [];
-    for (const detection of rawDetections) {
-      const disposition = classifyVerifiedDetectionForDisplay(detection);
-      if (disposition.bucket === 'persons') currentPersons.push(disposition.detection);
-      if (disposition.bucket === 'objects') currentObjects.push(disposition.detection);
-    }
     if (!liveFrame) {
-      visionTracks.objects.length = 0;
-      visionTracks.persons.length = 0;
+      visionFrameState = createInitialDetectionFrameState();
     }
     const settings = getInterfaceSettings('chat').vision;
     const showObjects = settings.showObjectBoxes !== false;
@@ -330,11 +283,28 @@ function createChatLocalInterfaceApi(options = {}) {
     const showLabels = settings.showLabels !== false;
     const showConfidence = settings.showConfidence !== false;
     const showSceneRecognition = settings.showSceneRecognition !== false;
-    const rawObjects = liveFrame ? retainVisionDetections('objects', currentObjects, now) : [];
-    const rawPersons = liveFrame ? retainVisionDetections('persons', currentPersons, now) : [];
+    const display = liveFrame && latestDetection.available === true && latestDetection.fresh === true && latestDetection.detection
+      ? splitDisplayDetections(latestDetection.detection, {
+          now_ms: now,
+          max_age_ms: detectionConfig.maxAgeMs
+        })
+      : null;
+    if (display) {
+      const reduced = reduceDetectionFrameState(visionFrameState, latestDetection.detection, {
+        now_ms: now,
+        max_age_ms: detectionConfig.maxAgeMs,
+        accept_new_session: true
+      });
+      visionFrameState = reduced.state;
+    } else if (!liveFrame || latestDetection.stale === true) {
+      visionFrameState = createInitialDetectionFrameState();
+    }
+    const rawObjects = liveFrame && display ? display.objects : [];
+    const rawPersons = liveFrame && display ? display.persons : [];
+    const rawFaces = liveFrame && display ? display.faces : [];
     const objects = showObjects ? rawObjects : [];
     const persons = showPersons ? rawPersons : [];
-    const faces = showFaceBoxes ? [] : [];
+    const faces = showFaceBoxes ? rawFaces : [];
     const recognizedNames = showRecognizedNames ? [] : [];
     const sceneAvailable = Boolean(
       liveFrame &&
@@ -370,12 +340,26 @@ function createChatLocalInterfaceApi(options = {}) {
         fresh: liveFrame && latestDetection.fresh === true,
         stale: !liveFrame || latestDetection.stale === true,
         ageMs: latestDetection.age_ms,
+        maxAgeMs: detectionConfig.maxAgeMs,
+        frameId: latestDetection.detection ? latestDetection.detection.frame_id || null : null,
+        frameSequence: latestDetection.detection ? latestDetection.detection.frame_sequence ?? null : null,
+        resultSequence: latestDetection.detection ? latestDetection.detection.result_sequence ?? null : null,
+        streamSessionId: latestDetection.detection ? latestDetection.detection.stream_session_id || null : null,
+        capturedAt: latestDetection.detection ? latestDetection.detection.captured_at || null : null,
+        detectedAt: latestDetection.detection ? latestDetection.detection.detected_at || null : null,
+        dropped: latestDetection.detection ? latestDetection.detection.dropped_detections || null : null,
+        overlayDropCounts: visionFrameState.dropCounts || null,
         error: latestDetection.error || service.last_yolo_error || null,
         rawCount: rawDetections.length,
         objectCount,
         personCount
       },
-      frame,
+      frame: Object.freeze({
+        ...frame,
+        width: latestDetection.detection ? latestDetection.detection.image_width || null : null,
+        height: latestDetection.detection ? latestDetection.detection.image_height || null : null
+      }),
+      streamSessionId: latestDetection.detection ? latestDetection.detection.stream_session_id || null : null,
       timestamp: frame.mtimeMs || now,
       frameRate: liveFrame ? Number(service.measured_capture_fps || 0) : 0,
       connectionStatus: liveFrame ? 'active' : (cameraActive ? 'warming' : 'offline'),
@@ -414,7 +398,16 @@ function createChatLocalInterfaceApi(options = {}) {
     try { emotionHealthy = Boolean(loadAffectState({ persist_diagnostics: false })); } catch (_error) { emotionHealthy = false; }
     const memoryHealthy = current.memory_loaded === true && current.knowledge_ready === true && fs.existsSync(stateRoot);
     const knowledge = current.knowledge_autoload || {};
-    return Object.freeze([
+    const exclusiveTraining = ['entering', 'active', 'restoring'].includes(
+      String(current.training_resource_mode || '')
+    );
+    const exclusiveTrainingDetail =
+      selfImprovementConfig.training_exclusive_status_label;
+    const trainingControlPlaneNames = new Set([
+      'Authoritative API',
+      'Live Event Stream'
+    ]);
+    const rows = [
       { name: 'Floki Core', status: runtimeRunning && current.brain_loaded === true ? 'Running' : 'Stopped', lastHeartbeat: safeFileTime(runtimeLog), uptime: runtimeRunning ? Number(current.uptime_ms || uptimeFromFile(runtimePidFile)) : 0, latency: 0, lastError: current.last_error || null, detail: 'The authoritative chat.local runtime owns cognition, memory, hearing, sight, sleep, dreams, and interface data.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Floki Core' },
       { name: 'Cognition', status: current.brain_loaded === true ? 'Running' : 'Stopped', lastHeartbeat: now, uptime: Number(current.uptime_ms || 0), latency: 0, lastError: current.last_error || null, detail: `Configured model: ${getModelConfig('chat').cognition.model}; runtime session ${current.session_id || 'unknown'}.`, restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Cognition' },
       { name: 'Vision', status: webcam.capture_live === true ? 'Running' : (visionRunning || webcam.active === true ? 'Degraded' : 'Stopped'), lastHeartbeat: safeFileTime(visionHeartbeat), uptime: uptimeFromFile(visionPidFile), latency: 0, lastError: visionError, detail: `Eyes ${webcam.capture_live === true ? 'live' : (webcam.camera_open === true ? 'warming' : 'closed')} · ${Number(webcam.measured_capture_fps || 0).toFixed(1)} FPS · detector ${webcam.detection_live === true ? 'live' : 'stale'} · scene ${webcam.scene_live === true ? 'available' : 'refreshing'}.`, restartAvailable: true, logAvailable: true, controlAction: 'restartVision', logKey: 'Vision' },
@@ -426,7 +419,24 @@ function createChatLocalInterfaceApi(options = {}) {
       { name: 'Dream Engine', status: schedulerRunning || lifecycle.is_dreaming ? 'Running' : 'Stopped', lastHeartbeat: Number(Date.parse(lifecycle.last_transition_at || '')) || now, uptime: schedulerRunning ? uptimeFromFile(schedulerPidFile) : 0, latency: 0, lastError: null, detail: lifecycle.is_dreaming ? 'REM dream generation is active.' : 'Dream generation is scheduled by the sleep runtime.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Dream Engine' },
       { name: 'Authoritative API', status: current.api_ready === true ? 'Running' : 'Stopped', lastHeartbeat: now, uptime: Number(current.uptime_ms || 0), latency: 0, lastError: current.last_error || null, detail: 'All interface tabs use this single chat.local backend.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Authoritative API' },
       { name: 'Live Event Stream', status: current.websocket_ready === true ? 'Running' : 'Stopped', lastHeartbeat: now, uptime: Number(current.uptime_ms || 0), latency: 0, lastError: null, detail: 'Transcript, inner experience, status, sleep, and sensory updates are delivered from the authoritative runtime.', restartAvailable: false, logAvailable: false, controlAction: null, logKey: null }
-    ]);
+    ];
+    if (!exclusiveTraining) return Object.freeze(rows);
+    return Object.freeze(rows.map((row) => {
+      if (trainingControlPlaneNames.has(row.name)) {
+        return Object.freeze({
+          ...row,
+          detail: row.detail + ' Exclusive-training control plane remains online.'
+        });
+      }
+      return Object.freeze({
+        ...row,
+        status: 'Stopped',
+        lastError: null,
+        detail: exclusiveTrainingDetail,
+        restartAvailable: false,
+        controlAction: null
+      });
+    }));
   }
 
   function naturalInnerText(value) {

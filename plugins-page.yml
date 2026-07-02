@@ -1,0 +1,606 @@
+- generic [ref=f24e2]:
+  - navigation "Main menu":
+    - link "Skip to main content" [ref=f24e3] [cursor=pointer]:
+      - /url: "#wpbody-content"
+    - link "Skip to toolbar" [ref=f24e4] [cursor=pointer]:
+      - /url: "#wp-toolbar"
+    - list [ref=f24e7]:
+      - listitem [ref=f24e8]:
+        - link "Dashboard" [ref=f24e9] [cursor=pointer]:
+          - /url: index.php
+          - generic [ref=f24e10]: 
+          - generic [ref=f24e11]: Dashboard
+        - list [ref=f24e12]:
+          - listitem [ref=f24e13]:
+            - link "Home" [ref=f24e14] [cursor=pointer]:
+              - /url: index.php
+          - listitem [ref=f24e15]:
+            - link "Updates 10" [ref=f24e16] [cursor=pointer]:
+              - /url: update-core.php
+              - text: Updates
+              - generic [ref=f24e17]: "10"
+      - listitem [ref=f24e18]
+      - listitem [ref=f24e20]:
+        - link "Posts" [ref=f24e21] [cursor=pointer]:
+          - /url: edit.php
+          - generic [ref=f24e22]: 
+          - generic [ref=f24e23]: Posts
+        - list [ref=f24e24]:
+          - listitem [ref=f24e25]:
+            - link "All Posts" [ref=f24e26] [cursor=pointer]:
+              - /url: edit.php
+          - listitem [ref=f24e27]:
+            - link "Add Post" [ref=f24e28] [cursor=pointer]:
+              - /url: post-new.php
+          - listitem [ref=f24e29]:
+            - link "Categories" [ref=f24e30] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=category
+          - listitem [ref=f24e31]:
+            - link "Tags" [ref=f24e32] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=post_tag
+      - listitem [ref=f24e33]:
+        - link "Media" [ref=f24e34] [cursor=pointer]:
+          - /url: upload.php
+          - generic [ref=f24e35]: 
+          - generic [ref=f24e36]: Media
+        - list [ref=f24e37]:
+          - listitem [ref=f24e38]:
+            - link "Library" [ref=f24e39] [cursor=pointer]:
+              - /url: upload.php
+          - listitem [ref=f24e40]:
+            - link "Add Media File" [ref=f24e41] [cursor=pointer]:
+              - /url: media-new.php
+      - listitem [ref=f24e42]:
+        - link "Pages" [ref=f24e43] [cursor=pointer]:
+          - /url: edit.php?post_type=page
+          - generic [ref=f24e44]: 
+          - generic [ref=f24e45]: Pages
+        - list [ref=f24e46]:
+          - listitem [ref=f24e47]:
+            - link "All Pages" [ref=f24e48] [cursor=pointer]:
+              - /url: edit.php?post_type=page
+          - listitem [ref=f24e49]:
+            - link "Add Page" [ref=f24e50] [cursor=pointer]:
+              - /url: post-new.php?post_type=page
+      - listitem [ref=f24e51]:
+        - link "Comments 1,000 Comments in moderation" [ref=f24e52] [cursor=pointer]:
+          - /url: edit-comments.php
+          - generic [ref=f24e53]: 
+          - generic [ref=f24e54]:
+            - text: Comments
+            - generic [ref=f24e55]:
+              - text: 1,000
+              - generic [ref=f24e56]: 1,000 Comments in moderation
+      - listitem [ref=f24e57]
+      - listitem [ref=f24e59]:
+        - link "Appearance" [ref=f24e60] [cursor=pointer]:
+          - /url: themes.php
+          - generic [ref=f24e61]: 
+          - generic [ref=f24e62]: Appearance
+        - list [ref=f24e63]:
+          - listitem [ref=f24e64]:
+            - link "Themes 5" [ref=f24e65] [cursor=pointer]:
+              - /url: themes.php
+              - text: Themes
+              - generic [ref=f24e66]: "5"
+          - listitem [ref=f24e67]:
+            - link "Patterns" [ref=f24e68] [cursor=pointer]:
+              - /url: site-editor.php?p=/pattern
+          - listitem [ref=f24e69]:
+            - link "Customize" [ref=f24e70] [cursor=pointer]:
+              - /url: customize.php?return=%2Fwp-admin%2Fplugins.php
+          - listitem [ref=f24e71]:
+            - link "Fonts" [ref=f24e72] [cursor=pointer]:
+              - /url: font-library.php
+          - listitem [ref=f24e73]:
+            - link "Theme File Editor" [ref=f24e74] [cursor=pointer]:
+              - /url: theme-editor.php
+      - listitem [ref=f24e75]:
+        - link "Floki Access" [ref=f24e76] [cursor=pointer]:
+          - /url: admin.php?page=floki-access
+          - generic [ref=f24e77]: 
+          - generic [ref=f24e78]: Floki Access
+        - list [ref=f24e79]:
+          - listitem [ref=f24e80]:
+            - link "Floki Access" [ref=f24e81] [cursor=pointer]:
+              - /url: admin.php?page=floki-access
+          - listitem [ref=f24e82]:
+            - link "Applications" [ref=f24e83] [cursor=pointer]:
+              - /url: admin.php?page=floki-access-applications
+      - listitem [ref=f24e84]:
+        - link "Plugins 5" [ref=f24e85] [cursor=pointer]:
+          - /url: plugins.php
+          - generic [ref=f24e86]: 
+          - generic [ref=f24e87]:
+            - text: Plugins
+            - generic [ref=f24e88]: "5"
+        - list [ref=f24e89]:
+          - listitem [ref=f24e90]:
+            - link "Installed Plugins" [ref=f24e91] [cursor=pointer]:
+              - /url: plugins.php
+          - listitem [ref=f24e92]:
+            - link "Add Plugin" [ref=f24e93] [cursor=pointer]:
+              - /url: plugin-install.php
+          - listitem [ref=f24e94]:
+            - link "Plugin File Editor" [ref=f24e95] [cursor=pointer]:
+              - /url: plugin-editor.php
+      - listitem [ref=f24e96]:
+        - link "Users" [ref=f24e97] [cursor=pointer]:
+          - /url: users.php
+          - generic [ref=f24e98]: 
+          - generic [ref=f24e99]: Users
+        - list [ref=f24e100]:
+          - listitem [ref=f24e101]:
+            - link "All Users" [ref=f24e102] [cursor=pointer]:
+              - /url: users.php
+          - listitem [ref=f24e103]:
+            - link "Add User" [ref=f24e104] [cursor=pointer]:
+              - /url: user-new.php
+          - listitem [ref=f24e105]:
+            - link "Profile" [ref=f24e106] [cursor=pointer]:
+              - /url: profile.php
+      - listitem [ref=f24e107]:
+        - link "Tools" [ref=f24e108] [cursor=pointer]:
+          - /url: tools.php
+          - generic [ref=f24e109]: 
+          - generic [ref=f24e110]: Tools
+        - list [ref=f24e111]:
+          - listitem [ref=f24e112]:
+            - link "Available Tools" [ref=f24e113] [cursor=pointer]:
+              - /url: tools.php
+          - listitem [ref=f24e114]:
+            - link "Import" [ref=f24e115] [cursor=pointer]:
+              - /url: import.php
+          - listitem [ref=f24e116]:
+            - link "Export" [ref=f24e117] [cursor=pointer]:
+              - /url: export.php
+          - listitem [ref=f24e118]:
+            - link "Site Health" [ref=f24e119] [cursor=pointer]:
+              - /url: site-health.php
+          - listitem [ref=f24e120]:
+            - link "Export Personal Data" [ref=f24e121] [cursor=pointer]:
+              - /url: export-personal-data.php
+          - listitem [ref=f24e122]:
+            - link "Erase Personal Data" [ref=f24e123] [cursor=pointer]:
+              - /url: erase-personal-data.php
+          - listitem [ref=f24e124]:
+            - link "WP Reset" [ref=f24e125] [cursor=pointer]:
+              - /url: tools.php?page=wp-reset
+      - listitem [ref=f24e126]:
+        - link "Settings" [ref=f24e127] [cursor=pointer]:
+          - /url: options-general.php
+          - generic [ref=f24e128]: 
+          - generic [ref=f24e129]: Settings
+        - list [ref=f24e130]:
+          - listitem [ref=f24e131]:
+            - link "General" [ref=f24e132] [cursor=pointer]:
+              - /url: options-general.php
+          - listitem [ref=f24e133]:
+            - link "Connectors" [ref=f24e134] [cursor=pointer]:
+              - /url: options-connectors.php
+          - listitem [ref=f24e135]:
+            - link "Writing" [ref=f24e136] [cursor=pointer]:
+              - /url: options-writing.php
+          - listitem [ref=f24e137]:
+            - link "Reading" [ref=f24e138] [cursor=pointer]:
+              - /url: options-reading.php
+          - listitem [ref=f24e139]:
+            - link "Discussion" [ref=f24e140] [cursor=pointer]:
+              - /url: options-discussion.php
+          - listitem [ref=f24e141]:
+            - link "Media" [ref=f24e142] [cursor=pointer]:
+              - /url: options-media.php
+          - listitem [ref=f24e143]:
+            - link "Permalinks" [ref=f24e144] [cursor=pointer]:
+              - /url: options-permalink.php
+          - listitem [ref=f24e145]:
+            - link "Privacy" [ref=f24e146] [cursor=pointer]:
+              - /url: options-privacy.php
+      - listitem [ref=f24e147]:
+        - button "Collapse Main menu" [expanded] [ref=f24e148] [cursor=pointer]:
+          - generic [ref=f24e150]: Collapse Menu
+  - generic [ref=f24e151]:
+    - generic [ref=f24e152]:
+      - navigation "Toolbar":
+        - menu:
+          - group [ref=f24e153]:
+            - menuitem "About WordPress" [ref=f24e154] [cursor=pointer]:
+              - generic [ref=f24e156]: About WordPress
+          - group [ref=f24e157]:
+            - menuitem "GalacticFamilyHub" [ref=f24e158] [cursor=pointer]
+          - group [ref=f24e159]:
+            - menuitem "10 updates available" [ref=f24e160] [cursor=pointer]:
+              - generic [ref=f24e162]: "10"
+              - generic [ref=f24e163]: 10 updates available
+          - group [ref=f24e164]:
+            - menuitem "Ctrl+K Open command palette" [ref=f24e165] [cursor=pointer]:
+              - generic [ref=f24e167]:
+                - text: Ctrl+K
+                - generic [ref=f24e168]: Open command palette
+          - group [ref=f24e169]:
+            - menuitem "1,000 Comments in moderation" [ref=f24e170] [cursor=pointer]:
+              - generic [ref=f24e172]: 1,000
+              - generic [ref=f24e173]: 1,000 Comments in moderation
+          - group [ref=f24e174]:
+            - menuitem "New" [ref=f24e175] [cursor=pointer]:
+              - generic [ref=f24e177]: New
+        - menu [ref=f24e178]:
+          - group [ref=f24e179]:
+            - menuitem "Howdy, Galact_Admin" [ref=f24e180] [cursor=pointer]
+    - main [ref=f24e181]:
+      - generic [ref=f24e182]:
+        - generic [ref=f24e183]:
+          - button "Screen Options" [ref=f24e185] [cursor=pointer]
+          - button "Help" [ref=f24e187] [cursor=pointer]
+        - generic [ref=f24e188]:
+          - heading "Plugins" [level=1] [ref=f24e189]
+          - link "Add Plugin" [ref=f24e190] [cursor=pointer]:
+            - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php
+          - heading "Filter plugins list" [level=2] [ref=f24e191]
+          - list [ref=f24e192]:
+            - listitem [ref=f24e193]:
+              - link "All (9)" [ref=f24e194] [cursor=pointer]:
+                - /url: plugins.php?plugin_status=all
+              - text: "|"
+            - listitem [ref=f24e195]:
+              - link "Active (3)" [ref=f24e196] [cursor=pointer]:
+                - /url: plugins.php?plugin_status=active
+              - text: "|"
+            - listitem [ref=f24e197]:
+              - link "Inactive (6)" [ref=f24e198] [cursor=pointer]:
+                - /url: plugins.php?plugin_status=inactive
+              - text: "|"
+            - listitem [ref=f24e199]:
+              - link "Update Available (5)" [ref=f24e200] [cursor=pointer]:
+                - /url: plugins.php?plugin_status=upgrade
+              - text: "|"
+            - listitem [ref=f24e201]:
+              - link "Must-Use (1)" [ref=f24e202] [cursor=pointer]:
+                - /url: plugins.php?plugin_status=mustuse
+              - text: "|"
+            - listitem [ref=f24e203]:
+              - link "Auto-updates Disabled (9)" [ref=f24e204] [cursor=pointer]:
+                - /url: plugins.php?plugin_status=auto-update-disabled
+          - paragraph [ref=f24e205]:
+            - generic [ref=f24e206]: Search installed plugins
+            - searchbox "Search installed plugins" [ref=f24e207]
+          - generic [ref=f24e208]:
+            - generic [ref=f24e209]:
+              - generic [ref=f24e210]:
+                - generic [ref=f24e211]: Select bulk action
+                - combobox "Select bulk action" [ref=f24e212] [cursor=pointer]:
+                  - option "Bulk actions" [selected]
+                  - option "Activate"
+                  - option "Deactivate"
+                  - option "Update"
+                  - option "Delete"
+                  - option "Enable Auto-updates"
+                  - option "Disable Auto-updates"
+                - button "Apply" [ref=f24e213] [cursor=pointer]
+              - generic [ref=f24e215]: 9 items
+            - heading "Plugins list" [level=2] [ref=f24e216]
+            - table [ref=f24e217]:
+              - rowgroup [ref=f24e218]:
+                - row "Select All Plugin Description Automatic Updates" [ref=f24e219]:
+                  - cell "Select All" [ref=f24e220]:
+                    - checkbox "Select All" [ref=f24e221] [cursor=pointer]
+                    - generic [ref=f24e223]: Select All
+                  - columnheader "Plugin" [ref=f24e224]
+                  - columnheader "Description" [ref=f24e225]
+                  - columnheader "Automatic Updates" [ref=f24e226]
+              - rowgroup [ref=f24e227]:
+                - row "Select A WP Life Themes Companion A WP Life Themes Companion Activate A WP Life Themes Companion | Delete A WP Life Themes Companion A WP Life Themes Companion plugin provides awordpresslife themes extra settings for front page. Version 1.6.0 | By A WP Life | More information about A WP Life Themes Companion Enable auto-updates" [ref=f24e228]:
+                  - rowheader "Select A WP Life Themes Companion" [ref=f24e229]:
+                    - generic [ref=f24e231]: Select A WP Life Themes Companion
+                    - checkbox "Select A WP Life Themes Companion" [ref=f24e232] [cursor=pointer]
+                  - cell "A WP Life Themes Companion Activate A WP Life Themes Companion | Delete A WP Life Themes Companion" [ref=f24e233]:
+                    - strong [ref=f24e234]: A WP Life Themes Companion
+                    - generic [ref=f24e235]:
+                      - generic [ref=f24e236]:
+                        - link "Activate A WP Life Themes Companion" [ref=f24e237] [cursor=pointer]:
+                          - /url: plugins.php?action=activate&plugin=awp-companion%2Fawp-companion.php&plugin_status=all&paged=1&s&_wpnonce=3ff652cbc9
+                          - text: Activate
+                        - text: "|"
+                      - link "Delete A WP Life Themes Companion" [ref=f24e239] [cursor=pointer]:
+                        - /url: plugins.php?action=delete-selected&checked%5B0%5D=awp-companion%2Fawp-companion.php&plugin_status=all&paged=1&s&_wpnonce=dd5a90343a
+                        - text: Delete
+                  - cell "A WP Life Themes Companion plugin provides awordpresslife themes extra settings for front page. Version 1.6.0 | By A WP Life | More information about A WP Life Themes Companion" [ref=f24e240]:
+                    - paragraph [ref=f24e242]: A WP Life Themes Companion plugin provides awordpresslife themes extra settings for front page.
+                    - generic [ref=f24e243]:
+                      - text: Version 1.6.0 | By
+                      - link "A WP Life" [ref=f24e244] [cursor=pointer]:
+                        - /url: https://awplife.com/
+                      - text: "|"
+                      - link "More information about A WP Life Themes Companion" [ref=f24e245] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=awp-companion&TB_iframe=true&width=600&height=550
+                        - text: View details
+                  - cell "Enable auto-updates" [ref=f24e246]:
+                    - button "Enable auto-updates" [ref=f24e247] [cursor=pointer]:  Enable auto-updates
+                - 'row "Select Akismet Anti-spam: Spam Protection Akismet Anti-spam: Spam Protection Activate Akismet Anti-spam: Spam Protection | Delete Akismet Anti-spam: Spam Protection Used by millions, Akismet is quite possibly the best way in the world to protect your blog from spam. Akismet Anti-spam keeps your site protected even while you sleep. To get started: activate the Akismet plugin and then go to your Akismet Settings page to set up your API key. Version 5.6 | By Automattic - Anti-spam Team | More information about Akismet Anti-spam: Spam Protection Enable auto-updates" [ref=f24e248]':
+                  - 'rowheader "Select Akismet Anti-spam: Spam Protection" [ref=f24e249]':
+                    - generic [ref=f24e251]: "Select Akismet Anti-spam: Spam Protection"
+                    - 'checkbox "Select Akismet Anti-spam: Spam Protection" [ref=f24e252] [cursor=pointer]'
+                  - 'cell "Akismet Anti-spam: Spam Protection Activate Akismet Anti-spam: Spam Protection | Delete Akismet Anti-spam: Spam Protection" [ref=f24e253]':
+                    - strong [ref=f24e254]: "Akismet Anti-spam: Spam Protection"
+                    - generic [ref=f24e255]:
+                      - generic [ref=f24e256]:
+                        - 'link "Activate Akismet Anti-spam: Spam Protection" [ref=f24e257] [cursor=pointer]':
+                          - /url: plugins.php?action=activate&plugin=akismet%2Fakismet.php&plugin_status=all&paged=1&s&_wpnonce=7d924c7a4d
+                          - text: Activate
+                        - text: "|"
+                      - 'link "Delete Akismet Anti-spam: Spam Protection" [ref=f24e259] [cursor=pointer]':
+                        - /url: plugins.php?action=delete-selected&checked%5B0%5D=akismet%2Fakismet.php&plugin_status=all&paged=1&s&_wpnonce=dd5a90343a
+                        - text: Delete
+                  - 'cell "Used by millions, Akismet is quite possibly the best way in the world to protect your blog from spam. Akismet Anti-spam keeps your site protected even while you sleep. To get started: activate the Akismet plugin and then go to your Akismet Settings page to set up your API key. Version 5.6 | By Automattic - Anti-spam Team | More information about Akismet Anti-spam: Spam Protection" [ref=f24e260]':
+                    - paragraph [ref=f24e262]:
+                      - text: Used by millions, Akismet is quite possibly the best way in the world to
+                      - strong [ref=f24e263]: protect your blog from spam
+                      - text: ". Akismet Anti-spam keeps your site protected even while you sleep. To get started: activate the Akismet plugin and then go to your Akismet Settings page to set up your API key."
+                    - generic [ref=f24e264]:
+                      - text: Version 5.6 | By
+                      - link "Automattic - Anti-spam Team" [ref=f24e265] [cursor=pointer]:
+                        - /url: https://automattic.com/wordpress-plugins/
+                      - text: "|"
+                      - 'link "More information about Akismet Anti-spam: Spam Protection" [ref=f24e266] [cursor=pointer]':
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=akismet&TB_iframe=true&width=600&height=550
+                        - text: View details
+                  - cell "Enable auto-updates" [ref=f24e267]:
+                    - button "Enable auto-updates" [ref=f24e268] [cursor=pointer]:  Enable auto-updates
+                - 'row "There is a new version of Akismet Anti-spam: Spam Protection available. View Akismet Anti-spam: Spam Protection version 5.7 details or Update Akismet Anti-spam: Spam Protection now." [ref=f24e269]':
+                  - 'cell "There is a new version of Akismet Anti-spam: Spam Protection available. View Akismet Anti-spam: Spam Protection version 5.7 details or Update Akismet Anti-spam: Spam Protection now." [ref=f24e270]':
+                    - paragraph [ref=f24e272]:
+                      - text: "There is a new version of Akismet Anti-spam: Spam Protection available."
+                      - 'link "View Akismet Anti-spam: Spam Protection version 5.7 details" [ref=f24e273] [cursor=pointer]':
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=akismet&section=changelog&TB_iframe=true&width=600&height=800
+                        - text: View version 5.7 details
+                      - text: or
+                      - 'link "Update Akismet Anti-spam: Spam Protection now" [ref=f24e274] [cursor=pointer]':
+                        - /url: https://galactic-family-hub.com/wp-admin/update.php?action=upgrade-plugin&plugin=akismet%2Fakismet.php&_wpnonce=01769ae9a0
+                        - text: update now
+                      - text: .
+                - row "Select Floki Access Control Floki Access Control Deactivate Floki Access Control Provides account application, approval workflow and role-based access control for the Floki Neural Interface. Version 0.1.0 | By Floki Deployment Agent" [ref=f24e275]:
+                  - rowheader "Select Floki Access Control" [ref=f24e276]:
+                    - generic [ref=f24e278]: Select Floki Access Control
+                    - checkbox "Select Floki Access Control" [ref=f24e279] [cursor=pointer]
+                  - cell "Floki Access Control Deactivate Floki Access Control" [ref=f24e280]:
+                    - strong [ref=f24e281]: Floki Access Control
+                    - link "Deactivate Floki Access Control" [ref=f24e284] [cursor=pointer]:
+                      - /url: plugins.php?action=deactivate&plugin=floki-access-control%2Ffloki-access-control.php&plugin_status=all&paged=1&s&_wpnonce=b4059149b5
+                      - text: Deactivate
+                  - cell "Provides account application, approval workflow and role-based access control for the Floki Neural Interface. Version 0.1.0 | By Floki Deployment Agent" [ref=f24e285]:
+                    - paragraph [ref=f24e287]: Provides account application, approval workflow and role-based access control for the Floki Neural Interface.
+                    - generic [ref=f24e288]: Version 0.1.0 | By Floki Deployment Agent
+                  - cell [ref=f24e289]
+                - row "Select Floki Neural Web App Floki Neural Web App Deactivate Floki Neural Web App Invite-only Floki Neural Interface at the authenticated site root. Version 2026.07.01.024326 | By Floki" [ref=f24e290]:
+                  - rowheader "Select Floki Neural Web App" [ref=f24e291]:
+                    - generic [ref=f24e293]: Select Floki Neural Web App
+                    - checkbox "Select Floki Neural Web App" [ref=f24e294] [cursor=pointer]
+                  - cell "Floki Neural Web App Deactivate Floki Neural Web App" [ref=f24e295]:
+                    - strong [ref=f24e296]: Floki Neural Web App
+                    - link "Deactivate Floki Neural Web App" [ref=f24e299] [cursor=pointer]:
+                      - /url: plugins.php?action=deactivate&plugin=floki-neural-web-app%2Ffloki-neural-web-app.php&plugin_status=all&paged=1&s&_wpnonce=9a30169943
+                      - text: Deactivate
+                  - cell "Invite-only Floki Neural Interface at the authenticated site root. Version 2026.07.01.024326 | By Floki" [ref=f24e300]:
+                    - paragraph [ref=f24e302]: Invite-only Floki Neural Interface at the authenticated site root.
+                    - generic [ref=f24e303]: Version 2026.07.01.024326 | By Floki
+                  - cell [ref=f24e304]
+                - 'row "Select Hello Dolly Hello Dolly Activate Hello Dolly | Delete Hello Dolly This is not just a plugin, it symbolizes the hope and enthusiasm of an entire generation summed up in two words sung most famously by Louis Armstrong: Hello, Dolly. When activated you will randomly see a lyric from Hello, Dolly in the upper right of your admin screen on every page. Version 1.7.2 | By Matt Mullenweg | More information about Hello Dolly Enable auto-updates" [ref=f24e305]':
+                  - rowheader "Select Hello Dolly" [ref=f24e306]:
+                    - generic [ref=f24e308]: Select Hello Dolly
+                    - checkbox "Select Hello Dolly" [ref=f24e309] [cursor=pointer]
+                  - cell "Hello Dolly Activate Hello Dolly | Delete Hello Dolly" [ref=f24e310]:
+                    - strong [ref=f24e311]: Hello Dolly
+                    - generic [ref=f24e312]:
+                      - generic [ref=f24e313]:
+                        - link "Activate Hello Dolly" [ref=f24e314] [cursor=pointer]:
+                          - /url: plugins.php?action=activate&plugin=hello.php&plugin_status=all&paged=1&s&_wpnonce=a14bc5821d
+                          - text: Activate
+                        - text: "|"
+                      - link "Delete Hello Dolly" [ref=f24e316] [cursor=pointer]:
+                        - /url: plugins.php?action=delete-selected&checked%5B0%5D=hello.php&plugin_status=all&paged=1&s&_wpnonce=dd5a90343a
+                        - text: Delete
+                  - 'cell "This is not just a plugin, it symbolizes the hope and enthusiasm of an entire generation summed up in two words sung most famously by Louis Armstrong: Hello, Dolly. When activated you will randomly see a lyric from Hello, Dolly in the upper right of your admin screen on every page. Version 1.7.2 | By Matt Mullenweg | More information about Hello Dolly" [ref=f24e317]':
+                    - paragraph [ref=f24e319]: "This is not just a plugin, it symbolizes the hope and enthusiasm of an entire generation summed up in two words sung most famously by Louis Armstrong: Hello, Dolly. When activated you will randomly see a lyric from Hello, Dolly in the upper right of your admin screen on every page."
+                    - generic [ref=f24e320]:
+                      - text: Version 1.7.2 | By
+                      - link "Matt Mullenweg" [ref=f24e321] [cursor=pointer]:
+                        - /url: http://ma.tt/
+                      - text: "|"
+                      - link "More information about Hello Dolly" [ref=f24e322] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=hello-dolly&TB_iframe=true&width=600&height=550
+                        - text: View details
+                  - cell "Enable auto-updates" [ref=f24e323]:
+                    - button "Enable auto-updates" [ref=f24e324] [cursor=pointer]:  Enable auto-updates
+                - row "Select One Click Demo Import One Click Demo Import Activate One Click Demo Import | Delete One Click Demo Import Import your content, widgets and theme settings with one click. Theme authors! Enable simple demo import for your theme demo data. Version 3.4.0 | By OCDI | More information about One Click Demo Import Enable auto-updates" [ref=f24e325]:
+                  - rowheader "Select One Click Demo Import" [ref=f24e326]:
+                    - generic [ref=f24e328]: Select One Click Demo Import
+                    - checkbox "Select One Click Demo Import" [ref=f24e329] [cursor=pointer]
+                  - cell "One Click Demo Import Activate One Click Demo Import | Delete One Click Demo Import" [ref=f24e330]:
+                    - strong [ref=f24e331]: One Click Demo Import
+                    - generic [ref=f24e332]:
+                      - generic [ref=f24e333]:
+                        - link "Activate One Click Demo Import" [ref=f24e334] [cursor=pointer]:
+                          - /url: plugins.php?action=activate&plugin=one-click-demo-import%2Fone-click-demo-import.php&plugin_status=all&paged=1&s&_wpnonce=d61368da70
+                          - text: Activate
+                        - text: "|"
+                      - link "Delete One Click Demo Import" [ref=f24e336] [cursor=pointer]:
+                        - /url: plugins.php?action=delete-selected&checked%5B0%5D=one-click-demo-import%2Fone-click-demo-import.php&plugin_status=all&paged=1&s&_wpnonce=dd5a90343a
+                        - text: Delete
+                  - cell "Import your content, widgets and theme settings with one click. Theme authors! Enable simple demo import for your theme demo data. Version 3.4.0 | By OCDI | More information about One Click Demo Import" [ref=f24e337]:
+                    - paragraph [ref=f24e339]: Import your content, widgets and theme settings with one click. Theme authors! Enable simple demo import for your theme demo data.
+                    - generic [ref=f24e340]:
+                      - text: Version 3.4.0 | By
+                      - link "OCDI" [ref=f24e341] [cursor=pointer]:
+                        - /url: https://ocdi.com
+                      - text: "|"
+                      - link "More information about One Click Demo Import" [ref=f24e342] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=one-click-demo-import&TB_iframe=true&width=600&height=550
+                        - text: View details
+                  - cell "Enable auto-updates" [ref=f24e343]:
+                    - button "Enable auto-updates" [ref=f24e344] [cursor=pointer]:  Enable auto-updates
+                - row "There is a new version of One Click Demo Import available. View One Click Demo Import version 3.4.1 details or Update One Click Demo Import now." [ref=f24e345]:
+                  - cell "There is a new version of One Click Demo Import available. View One Click Demo Import version 3.4.1 details or Update One Click Demo Import now." [ref=f24e346]:
+                    - paragraph [ref=f24e348]:
+                      - text: There is a new version of One Click Demo Import available.
+                      - link "View One Click Demo Import version 3.4.1 details" [ref=f24e349] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=one-click-demo-import&section=changelog&TB_iframe=true&width=600&height=800
+                        - text: View version 3.4.1 details
+                      - text: or
+                      - link "Update One Click Demo Import now" [ref=f24e350] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/update.php?action=upgrade-plugin&plugin=one-click-demo-import%2Fone-click-demo-import.php&_wpnonce=6d08eb5789
+                        - text: update now
+                      - text: .
+                - row "Select rtMedia for WordPress, BuddyPress and bbPress rtMedia for WordPress, BuddyPress and bbPress Activate rtMedia for WordPress, BuddyPress and bbPress | Delete rtMedia for WordPress, BuddyPress and bbPress This plugin adds missing media rich features like photos, videos and audio uploading to BuddyPress which are essential if you are building social network, seriously! Version 4.7.7 | By rtCamp | More information about rtMedia for WordPress, BuddyPress and bbPress Enable auto-updates" [ref=f24e351]:
+                  - rowheader "Select rtMedia for WordPress, BuddyPress and bbPress" [ref=f24e352]:
+                    - generic [ref=f24e354]: Select rtMedia for WordPress, BuddyPress and bbPress
+                    - checkbox "Select rtMedia for WordPress, BuddyPress and bbPress" [ref=f24e355] [cursor=pointer]
+                  - cell "rtMedia for WordPress, BuddyPress and bbPress Activate rtMedia for WordPress, BuddyPress and bbPress | Delete rtMedia for WordPress, BuddyPress and bbPress" [ref=f24e356]:
+                    - strong [ref=f24e357]: rtMedia for WordPress, BuddyPress and bbPress
+                    - generic [ref=f24e358]:
+                      - generic [ref=f24e359]:
+                        - link "Activate rtMedia for WordPress, BuddyPress and bbPress" [ref=f24e360] [cursor=pointer]:
+                          - /url: plugins.php?action=activate&plugin=buddypress-media%2Findex.php&plugin_status=all&paged=1&s&_wpnonce=cbdf84de39
+                          - text: Activate
+                        - text: "|"
+                      - link "Delete rtMedia for WordPress, BuddyPress and bbPress" [ref=f24e362] [cursor=pointer]:
+                        - /url: plugins.php?action=delete-selected&checked%5B0%5D=buddypress-media%2Findex.php&plugin_status=all&paged=1&s&_wpnonce=dd5a90343a
+                        - text: Delete
+                  - cell "This plugin adds missing media rich features like photos, videos and audio uploading to BuddyPress which are essential if you are building social network, seriously! Version 4.7.7 | By rtCamp | More information about rtMedia for WordPress, BuddyPress and bbPress" [ref=f24e363]:
+                    - paragraph [ref=f24e365]: This plugin adds missing media rich features like photos, videos and audio uploading to BuddyPress which are essential if you are building social network, seriously!
+                    - generic [ref=f24e366]:
+                      - text: Version 4.7.7 | By
+                      - link "rtCamp" [ref=f24e367] [cursor=pointer]:
+                        - /url: http://rtcamp.com/?utm_source=dashboard&utm_medium=plugin&utm_campaign=buddypress-media
+                      - text: "|"
+                      - link "More information about rtMedia for WordPress, BuddyPress and bbPress" [ref=f24e368] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=buddypress-media&TB_iframe=true&width=600&height=550
+                        - text: View details
+                  - cell "Enable auto-updates" [ref=f24e369]:
+                    - button "Enable auto-updates" [ref=f24e370] [cursor=pointer]:  Enable auto-updates
+                - row "There is a new version of rtMedia for WordPress, BuddyPress and bbPress available. View rtMedia for WordPress, BuddyPress and bbPress version 4.7.10 details or Update rtMedia for WordPress, BuddyPress and bbPress now." [ref=f24e371]:
+                  - cell "There is a new version of rtMedia for WordPress, BuddyPress and bbPress available. View rtMedia for WordPress, BuddyPress and bbPress version 4.7.10 details or Update rtMedia for WordPress, BuddyPress and bbPress now." [ref=f24e372]:
+                    - paragraph [ref=f24e374]:
+                      - text: There is a new version of rtMedia for WordPress, BuddyPress and bbPress available.
+                      - link "View rtMedia for WordPress, BuddyPress and bbPress version 4.7.10 details" [ref=f24e375] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=buddypress-media&section=changelog&TB_iframe=true&width=600&height=800
+                        - text: View version 4.7.10 details
+                      - text: or
+                      - link "Update rtMedia for WordPress, BuddyPress and bbPress now" [ref=f24e376] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/update.php?action=upgrade-plugin&plugin=buddypress-media%2Findex.php&_wpnonce=ece2d5fbad
+                        - text: update now
+                      - text: .
+                - row "Select WooCommerce WooCommerce Activate WooCommerce | Delete WooCommerce An ecommerce toolkit that helps you sell anything. Beautifully. Version 10.4.4 | By Automattic | More information about WooCommerce Enable auto-updates" [ref=f24e377]:
+                  - rowheader "Select WooCommerce" [ref=f24e378]:
+                    - generic [ref=f24e380]: Select WooCommerce
+                    - checkbox "Select WooCommerce" [ref=f24e381] [cursor=pointer]
+                  - cell "WooCommerce Activate WooCommerce | Delete WooCommerce" [ref=f24e382]:
+                    - strong [ref=f24e383]: WooCommerce
+                    - generic [ref=f24e384]:
+                      - generic [ref=f24e385]:
+                        - link "Activate WooCommerce" [ref=f24e386] [cursor=pointer]:
+                          - /url: plugins.php?action=activate&plugin=woocommerce%2Fwoocommerce.php&plugin_status=all&paged=1&s&_wpnonce=55b7265e4f
+                          - text: Activate
+                        - text: "|"
+                      - link "Delete WooCommerce" [ref=f24e388] [cursor=pointer]:
+                        - /url: plugins.php?action=delete-selected&checked%5B0%5D=woocommerce%2Fwoocommerce.php&plugin_status=all&paged=1&s&_wpnonce=dd5a90343a
+                        - text: Delete
+                  - cell "An ecommerce toolkit that helps you sell anything. Beautifully. Version 10.4.4 | By Automattic | More information about WooCommerce" [ref=f24e389]:
+                    - paragraph [ref=f24e391]: An ecommerce toolkit that helps you sell anything. Beautifully.
+                    - generic [ref=f24e392]:
+                      - text: Version 10.4.4 | By
+                      - link "Automattic" [ref=f24e393] [cursor=pointer]:
+                        - /url: https://woocommerce.com
+                      - text: "|"
+                      - link "More information about WooCommerce" [ref=f24e394] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=woocommerce&TB_iframe=true&width=600&height=550
+                        - text: View details
+                  - cell "Enable auto-updates" [ref=f24e395]:
+                    - button "Enable auto-updates" [ref=f24e396] [cursor=pointer]:  Enable auto-updates
+                - row "There is a new version of WooCommerce available. View WooCommerce version 10.9.1 details or Update WooCommerce now." [ref=f24e397]:
+                  - cell "There is a new version of WooCommerce available. View WooCommerce version 10.9.1 details or Update WooCommerce now." [ref=f24e398]:
+                    - paragraph [ref=f24e400]:
+                      - text: There is a new version of WooCommerce available.
+                      - link "View WooCommerce version 10.9.1 details" [ref=f24e401] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=woocommerce&section=changelog&TB_iframe=true&width=600&height=800
+                        - text: View version 10.9.1 details
+                      - text: or
+                      - link "Update WooCommerce now" [ref=f24e402] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/update.php?action=upgrade-plugin&plugin=woocommerce%2Fwoocommerce.php&_wpnonce=b21ef8de07
+                        - text: update now
+                      - text: .
+                - row "Select WP Reset WP Reset Open WP Reset Tools | Deactivate WP Reset Reset the entire site or just selected parts while reserving the option to undo by using snapshots. Version 2.06 | By WebFactory Ltd | More information about WP Reset | Support | Plugin Homepage | Rate the plugin ★★★★★ Enable auto-updates" [ref=f24e403]:
+                  - rowheader "Select WP Reset" [ref=f24e404]:
+                    - generic [ref=f24e406]: Select WP Reset
+                    - checkbox "Select WP Reset" [ref=f24e407] [cursor=pointer]
+                  - cell "WP Reset Open WP Reset Tools | Deactivate WP Reset" [ref=f24e408]:
+                    - strong [ref=f24e409]: WP Reset
+                    - generic [ref=f24e410]:
+                      - generic [ref=f24e411]:
+                        - link "Open WP Reset Tools" [ref=f24e412] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/tools.php?page=wp-reset
+                        - text: "|"
+                      - link "Deactivate WP Reset" [ref=f24e414] [cursor=pointer]:
+                        - /url: plugins.php?action=deactivate&plugin=wp-reset%2Fwp-reset.php&plugin_status=all&paged=1&s&_wpnonce=9146857b84
+                        - text: Deactivate
+                  - cell "Reset the entire site or just selected parts while reserving the option to undo by using snapshots. Version 2.06 | By WebFactory Ltd | More information about WP Reset | Support | Plugin Homepage | Rate the plugin ★★★★★" [ref=f24e415]:
+                    - paragraph [ref=f24e417]: Reset the entire site or just selected parts while reserving the option to undo by using snapshots.
+                    - generic [ref=f24e418]:
+                      - text: Version 2.06 | By
+                      - link "WebFactory Ltd" [ref=f24e419] [cursor=pointer]:
+                        - /url: https://www.webfactoryltd.com/
+                      - text: "|"
+                      - link "More information about WP Reset" [ref=f24e420] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wp-reset&TB_iframe=true&width=600&height=550
+                        - text: View details
+                      - text: "|"
+                      - link "Support" [ref=f24e421] [cursor=pointer]:
+                        - /url: https://wordpress.org/support/plugin/wp-reset
+                      - text: "|"
+                      - link "Plugin Homepage" [ref=f24e422] [cursor=pointer]:
+                        - /url: https://wpreset.com/?ref=wp-reset-free-plugins-table-right
+                      - text: "|"
+                      - link "Rate the plugin ★★★★★" [ref=f24e423] [cursor=pointer]:
+                        - /url: https://wordpress.org/support/plugin/wp-reset/reviews/#new-post
+                  - cell "Enable auto-updates" [ref=f24e424]:
+                    - button "Enable auto-updates" [ref=f24e425] [cursor=pointer]:  Enable auto-updates
+                - row "There is a new version of WP Reset available. View WP Reset version 2.07 details or Update WP Reset now." [ref=f24e426]:
+                  - cell "There is a new version of WP Reset available. View WP Reset version 2.07 details or Update WP Reset now." [ref=f24e427]:
+                    - paragraph [ref=f24e429]:
+                      - text: There is a new version of WP Reset available.
+                      - link "View WP Reset version 2.07 details" [ref=f24e430] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wp-reset&section=changelog&TB_iframe=true&width=600&height=800
+                        - text: View version 2.07 details
+                      - text: or
+                      - link "Update WP Reset now" [ref=f24e431] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/update.php?action=upgrade-plugin&plugin=wp-reset%2Fwp-reset.php&_wpnonce=c44288c65b
+                        - text: update now
+                      - text: .
+              - rowgroup [ref=f24e432]:
+                - row "Select All Plugin Description Automatic Updates" [ref=f24e433]:
+                  - cell "Select All" [ref=f24e434]:
+                    - checkbox "Select All" [ref=f24e435] [cursor=pointer]
+                    - generic [ref=f24e437]: Select All
+                  - columnheader "Plugin" [ref=f24e438]
+                  - columnheader "Description" [ref=f24e439]
+                  - columnheader "Automatic Updates" [ref=f24e440]
+            - generic [ref=f24e441]:
+              - generic [ref=f24e442]:
+                - generic [ref=f24e443]: Select bulk action
+                - combobox "Select bulk action" [ref=f24e444] [cursor=pointer]:
+                  - option "Bulk actions" [selected]
+                  - option "Activate"
+                  - option "Deactivate"
+                  - option "Update"
+                  - option "Delete"
+                  - option "Enable Auto-updates"
+                  - option "Disable Auto-updates"
+                - button "Apply" [ref=f24e445] [cursor=pointer]
+              - generic [ref=f24e447]: 9 items
+  - contentinfo [ref=f24e448]:
+    - paragraph [ref=f24e449]:
+      - generic [ref=f24e450]:
+        - text: Thank you for creating with
+        - link "WordPress" [ref=f24e451] [cursor=pointer]:
+          - /url: https://wordpress.org/
+        - text: .
+    - paragraph [ref=f24e452]: Version 7.0

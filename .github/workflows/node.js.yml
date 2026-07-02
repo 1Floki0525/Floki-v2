@@ -1,6 +1,7 @@
 name: Floki-v2 Node 24 CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -40,6 +41,7 @@ jobs:
           test -f bin/floki-prepare-ci-config.cjs
           test -x bin/floki-node24-run.sh
           test -x bin/floki-build.sh
+          test -x bin/floki-production-verify.sh
 
       - name: Prepare runner-portable configuration
         shell: bash
@@ -51,6 +53,15 @@ jobs:
           bash bin/floki-node24-run.sh node --version
           bash bin/floki-node24-run.sh npm --version
 
+      - name: Verify RSI training Python compiles
+        shell: bash
+        run: |
+          export PYTHONPYCACHEPREFIX="$RUNNER_TEMP/floki-pycache"
+          python3 -m py_compile \
+            containers/self-improvement-training/train_qlora.py \
+            containers/self-improvement-training/rem_inference.py
+          echo FLOKI_V2_TRAINING_PY_COMPILE_OK
+
       - name: Install root dependencies
         run: npm ci --no-audit --no-fund
 
@@ -59,6 +70,9 @@ jobs:
 
       - name: Build neural interface
         run: npm run build
+
+      - name: Run neural-interface integration contracts
+        run: npm run test:integration --prefix apps/floki-neural-interface
 
       - name: Run contract tests
         shell: bash

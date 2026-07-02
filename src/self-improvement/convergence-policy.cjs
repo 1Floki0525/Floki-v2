@@ -113,6 +113,10 @@ function createConvergencePolicy(config, emit = () => {}) {
     focusedVerificationFailureLimit: requiredPositiveInteger(
       config,
       'focused_verification_failure_limit'
+    ),
+    focusedRepairNoProgressLimit: requiredPositiveInteger(
+      config,
+      'focused_repair_no_progress_iteration_limit'
     )
   });
 
@@ -163,6 +167,7 @@ function createConvergencePolicy(config, emit = () => {}) {
     verificationRuns: 0,
     focusedVerificationFailures: 0,
     lastFocusedFailureIteration: null,
+    focusedRepairGuidanceIssuedAtIteration: null,
     noWriteGuidanceIssuedAtIteration: null,
     postWriteGuidanceIssuedAtIteration: null,
     blockedCalls: 0,
@@ -215,6 +220,10 @@ function createConvergencePolicy(config, emit = () => {}) {
       verification_runs: state.verificationRuns,
       focused_verification_failures: state.focusedVerificationFailures,
       last_focused_failure_iteration: state.lastFocusedFailureIteration,
+      focused_repair_no_progress_iteration_limit:
+        limits.focusedRepairNoProgressLimit,
+      focused_repair_guidance_issued_at_iteration:
+        state.focusedRepairGuidanceIssuedAtIteration,
       no_write_guidance_issued_at_iteration:
         state.noWriteGuidanceIssuedAtIteration,
       post_write_guidance_issued_at_iteration:
@@ -507,6 +516,14 @@ function createConvergencePolicy(config, emit = () => {}) {
       baseline_evidence: baselineEvidence,
       focused_test: focusedTest,
       focused_test_description: typeof args.focused_test_description === 'string' ? args.focused_test_description.trim() : null,
+      denial_revision_plan:
+        args.denial_revision_plan && typeof args.denial_revision_plan === 'object'
+          ? Object.freeze({ ...args.denial_revision_plan })
+          : null,
+      revision_constraint:
+        args.revision_constraint && typeof args.revision_constraint === 'object'
+          ? Object.freeze({ ...args.revision_constraint })
+          : null,
       expected_follow_on_value: expectedFollowOnValue,
       target_files: Object.freeze(targetFiles)
     });
@@ -612,7 +629,11 @@ function createConvergencePolicy(config, emit = () => {}) {
       state.noWriteGuidanceIssuedAtIteration = null;
       state.postWriteGuidanceIssuedAtIteration = null;
       state.searchOnlyStreak = 0;
-      transition('implementing', 'workspace_mutation');
+      if (state.focusedVerificationFailures > 0) {
+        transition('repairing', 'focused_repair_workspace_mutation');
+      } else {
+        transition('implementing', 'workspace_mutation');
+      }
     }
 
     if (kinds.verification) {
@@ -629,10 +650,12 @@ function createConvergencePolicy(config, emit = () => {}) {
         if (failed) {
           state.focusedVerificationFailures += 1;
           state.lastFocusedFailureIteration = state.iteration;
+          state.focusedRepairGuidanceIssuedAtIteration = null;
           transition('repairing', 'focused_verification_failed');
         } else {
           state.focusedVerificationFailures = 0;
           state.lastFocusedFailureIteration = null;
+          state.focusedRepairGuidanceIssuedAtIteration = null;
           transition('focused_verified', 'focused_verification_passed');
         }
       } else if (failed) {
@@ -713,6 +736,46 @@ function createConvergencePolicy(config, emit = () => {}) {
       return 'focused_verification_failed_repeatedly';
     }
     if (state.implementationStarted &&
+        state.phase === 'repairing' &&
+        state.focusedVerificationFailures > 0 &&
+        state.lastFocusedFailureIteration !== null) {
+      const latestRepairProgressIteration = Math.max(
+        state.lastFocusedFailureIteration,
+        state.lastWriteIteration === null ? -1 : state.lastWriteIteration
+      );
+      const repairIdleIterations =
+        state.iteration - latestRepairProgressIteration;
+      if (repairIdleIterations >= limits.focusedRepairNoProgressLimit) {
+        advise('focused_repair_progress_stalled', 'end_iteration', {
+          focused_verification_failures: state.focusedVerificationFailures,
+          focused_repair_idle_iterations: repairIdleIterations,
+          focused_repair_no_progress_iteration_limit:
+            limits.focusedRepairNoProgressLimit,
+          last_focused_failure_iteration:
+            state.lastFocusedFailureIteration,
+          last_write_iteration: state.lastWriteIteration
+        });
+        return 'focused_repair_progress_stalled';
+      }
+      if (
+        state.focusedRepairGuidanceIssuedAtIteration === null ||
+        state.focusedRepairGuidanceIssuedAtIteration !== state.iteration
+      ) {
+        state.focusedRepairGuidanceIssuedAtIteration = state.iteration;
+        advise('focused_repair_must_fix_then_rerun', 'end_iteration', {
+          focused_verification_failures: state.focusedVerificationFailures,
+          focused_repair_idle_iterations: repairIdleIterations,
+          focused_repair_no_progress_iteration_limit:
+            limits.focusedRepairNoProgressLimit
+        });
+      }
+      // A failing focused test owns the convergence path until it passes, the
+      // configured failure budget is exhausted, or the dedicated repair
+      // no-progress limit is reached. Do not let the generic post-write stall
+      // terminate a legitimate test-repair cycle.
+      return null;
+    }
+    if (state.implementationStarted &&
         state.lastWriteIteration !== null &&
         state.phase !== 'verified' &&
         state.phase !== 'focused_verified' &&
@@ -755,25 +818,39 @@ function createConvergencePolicy(config, emit = () => {}) {
         'count as structured implementation progress.'
       );
     }
+    if (state.phase === 'repairing' &&
+        state.focusedVerificationFailures > 0) {
+      const repairedAfterLatestFailure =
+        state.lastWriteIteration !== null &&
+        state.lastFocusedFailureIteration !== null &&
+        state.lastWriteIteration > state.lastFocusedFailureIteration;
+      if (!repairedAfterLatestFailure) {
+        return (
+          'The focused test failed. First use read_file to re-read the failing ' +
+          'test and the production source it exercises, then use apply_patch or ' +
+          'write_file for the smallest correct repair. The generated test may be ' +
+          'wrong; do not assume production is wrong, and do not rerun the same ' +
+          'unchanged failing test.'
+        );
+      }
+      return (
+        'A structured repair was made after the latest focused-test failure. ' +
+        'Call run_focused_test now with no arguments. Do not use shell. If it ' +
+        'passes, call run_verification; if it fails, repair the exact new failure.'
+      );
+    }
+    if (state.phase === 'focused_verified') {
+      return (
+        'The focused test passed. Call run_verification now. Do not edit the ' +
+        'workspace again unless full verification reports a concrete failure.'
+      );
+    }
     if (state.phase !== 'verified') {
       const ft = state.selectedExperiment?.focused_test
         ? ' Your focused test is: ' +
           state.selectedExperiment.focused_test +
           '. Call run_focused_test with no arguments — it runs that command automatically.'
         : ' Call run_focused_test with no arguments.';
-      if (state.focusedVerificationFailures > 0) {
-        const failCount = state.focusedVerificationFailures;
-        const rereadHint = failCount >= 2
-          ? ' IMPORTANT: Use read_file to re-read the CURRENT state of each target file before making any further edits — your last change may have introduced a conflict. Make ONLY the minimum targeted edit that the test failure indicates; do NOT rewrite the whole file.'
-          : '';
-        return (
-          'Call run_focused_test now to re-run the focused test and verify your repair. ' +
-          'Do NOT call select_experiment — the experiment is already selected. ' +
-          'Fix the implementation based on the focused-test failure output; do not ' +
-          'rewrite the experiment or invent new metrics. ' +
-          'After run_focused_test passes, call run_verification.' + ft + rereadHint
-        );
-      }
       return (
         'Run the focused test now using the run_focused_test tool — never via ' +
         'shell, pipelines, or head/tail wrappers; shell test ' +
@@ -813,6 +890,10 @@ function createConvergencePolicy(config, emit = () => {}) {
       return prefix + guidance();
     }
     if (state.implementationStarted && state.writeCount === 0) {
+      return prefix + guidance();
+    }
+    if (state.implementationStarted &&
+        (state.phase === 'repairing' || state.phase === 'focused_verified')) {
       return prefix + guidance();
     }
     if (state.implementationStarted &&

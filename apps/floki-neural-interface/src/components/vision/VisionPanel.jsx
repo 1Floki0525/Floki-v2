@@ -3,6 +3,12 @@ import NeonPanel from '@/components/shared/NeonPanel';
 import flokiAdapter from '@/integrations/floki/adapter';
 import useSettings from '@/hooks/useSettings';
 import { cn } from '@/lib/utils';
+import {
+  clampRectToDisplay,
+  emptyOverlayState,
+  mapNormalizedBoxToVideoRect,
+  reduceOverlayFrameState
+} from '@/lib/visionOverlayGeometry';
 import { Activity, Camera, Eye, EyeOff, Snowflake } from 'lucide-react';
 
 const TOGGLE_STYLES = {
@@ -28,13 +34,16 @@ function ToggleBtn({ label, active, onClick }) {
   );
 }
 
-function clampPercent(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return 0;
-  return Math.max(0, Math.min(100, number * 100));
+function detectionKey(frameKey, fallbackLabel, detection, index) {
+  return [
+    frameKey || 'frame',
+    fallbackLabel,
+    detection.id || detection.label || detection.class || detection.name || 'detection',
+    index
+  ].join(':');
 }
 
-function DetectionLayer({ detections, stroke, fallbackLabel, showLabels, showConf }) {
+function DetectionLayer({ detections, stroke, fallbackLabel, showLabels, showConf, frame, display, frameKey }) {
   if (!Array.isArray(detections) || detections.length === 0) return null;
   return (
     <div
@@ -43,24 +52,32 @@ function DetectionLayer({ detections, stroke, fallbackLabel, showLabels, showCon
       data-detection-count={detections.length}
     >
       {detections.map((detection, index) => {
-        const box = detection.bbox || {};
-        const left = clampPercent(box.x);
-        const top = clampPercent(box.y);
-        const width = Math.max(0, Math.min(100 - left, clampPercent(box.width)));
-        const height = Math.max(0, Math.min(100 - top, clampPercent(box.height)));
+        const rect = clampRectToDisplay(
+          mapNormalizedBoxToVideoRect(detection.bbox || {}, {
+            sourceWidth: frame.width,
+            sourceHeight: frame.height,
+            displayWidth: display.width,
+            displayHeight: display.height,
+            objectFit: 'cover',
+            mirrored: false,
+          }),
+          display.width,
+          display.height
+        );
+        if (!rect) return null;
         const confidence = Number(detection.confidence);
         const confidenceText = showConf && Number.isFinite(confidence)
           ? ` ${(confidence * 100).toFixed(0)}%`
           : '';
         return (
           <div
-            key={detection.id || `${fallbackLabel}-${index}`}
+            key={detectionKey(frameKey, fallbackLabel, detection, index)}
             className="absolute border-2"
             style={{
-              left: `${left}%`,
-              top: `${top}%`,
-              width: `${width}%`,
-              height: `${height}%`,
+              left: `${rect.left}px`,
+              top: `${rect.top}px`,
+              width: `${rect.width}px`,
+              height: `${rect.height}px`,
               borderColor: stroke,
               borderStyle: detection.certainty === 'uncertain' ? 'dashed' : 'solid',
               opacity: detection.certainty === 'uncertain' ? 0.55 : 1,
@@ -85,6 +102,8 @@ function DetectionLayer({ detections, stroke, fallbackLabel, showLabels, showCon
 export default function VisionPanel() {
   const [mjpegUrl, setMjpegUrl] = useState(null);
   const [frameMeta, setFrameMeta] = useState({ frameRate: 0, connectionStatus: 'offline', timestamp: 0 });
+  const [overlayFrame, setOverlayFrame] = useState(() => emptyOverlayState());
+  const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
   const [frozen, setFrozen] = useState(false);
   const [frozenFrame, setFrozenFrame] = useState(null);
   const [blackout, setBlackout] = useState(false);
@@ -94,8 +113,13 @@ export default function VisionPanel() {
   const showLabels = visionSettings.showLabels !== false;
   const showConf = visionSettings.showConfidence !== false;
   const showScene = visionSettings.showSceneRecognition !== false;
-  const [objects, setObjects] = useState([]);
-  const [persons, setPersons] = useState([]);
+  const objects = overlayFrame.objects;
+  const persons = overlayFrame.persons;
+  const faces = overlayFrame.faces;
+  const overlayFrameKey = [
+    overlayFrame.streamSessionId || 'session',
+    overlayFrame.resultSequence ?? overlayFrame.frameSequence ?? 'frame'
+  ].join(':');
   const [sceneLabel, setSceneLabel] = useState('');
   const [sceneConf, setSceneConf] = useState(null);
   const [detectionState, setDetectionState] = useState('warming');
@@ -103,6 +127,7 @@ export default function VisionPanel() {
   const [streamError, setStreamError] = useState(false);
   const [streamLoaded, setStreamLoaded] = useState(false);
   const reconnectTimer = useRef(null);
+  const videoBoxRef = useRef(null);
 
   const refreshMeta = useCallback(async () => {
     try {
@@ -114,8 +139,10 @@ export default function VisionPanel() {
         connectionStatus: live ? 'active' : connectionStatus,
         timestamp: vision.timestamp || Date.now(),
       });
-      setObjects(live && Array.isArray(vision.objects) ? vision.objects : []);
-      setPersons(live && Array.isArray(vision.persons) ? vision.persons : []);
+      setOverlayFrame((previous) => reduceOverlayFrameState(previous, vision, {
+        maxAgeMs: Number(vision.detection?.maxAgeMs || vision.detection?.max_age_ms || 8000),
+        blackout,
+      }));
       const detectionFresh = live && vision.detection?.fresh === true && vision.detection?.stale !== true;
       setDetectionState(!live ? 'offline' : detectionFresh ? 'live' : vision.detection?.available ? 'stale' : 'warming');
       setSceneLabel(live && vision.scene?.available === true ? String(vision.scene.label || '') : '');
@@ -130,15 +157,14 @@ export default function VisionPanel() {
     } catch (error) {
       console.error(error);
       setFrameMeta({ frameRate: 0, connectionStatus: 'offline', timestamp: Date.now() });
-      setObjects([]);
-      setPersons([]);
+      setOverlayFrame(emptyOverlayState());
       setSceneLabel('');
       setSceneConf(null);
       setDetectionState('offline');
       setStreamLoaded(false);
       setStreamError(true);
     }
-  }, []);
+  }, [blackout]);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,8 +188,7 @@ export default function VisionPanel() {
   const handleStreamError = useCallback(() => {
     setStreamLoaded(false);
     setStreamError(true);
-    setObjects([]);
-    setPersons([]);
+    setOverlayFrame(emptyOverlayState());
     setSceneLabel('');
     setDetectionState('offline');
     clearTimeout(reconnectTimer.current);
@@ -190,6 +215,26 @@ export default function VisionPanel() {
   useEffect(() => () => clearTimeout(reconnectTimer.current), []);
 
   useEffect(() => {
+    if (blackout) setOverlayFrame(emptyOverlayState());
+  }, [blackout]);
+
+  useEffect(() => {
+    const element = videoBoxRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return undefined;
+    const update = () => {
+      const rect = element.getBoundingClientRect();
+      setOverlaySize({
+        width: Math.max(0, rect.width),
+        height: Math.max(0, rect.height),
+      });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     refreshMeta();
     const interval = setInterval(refreshMeta, 1000);
     return () => clearInterval(interval);
@@ -213,7 +258,7 @@ export default function VisionPanel() {
 
   return (
     <NeonPanel title="Live Vision" badge={active ? 'LIVE' : 'OFFLINE'}>
-      <div className="relative aspect-video rounded border border-border/40 bg-black/60 overflow-hidden group">
+      <div ref={videoBoxRef} className="relative aspect-video rounded border border-border/40 bg-black/60 overflow-hidden group">
         {displayUrl ? (
           <>
             <img
@@ -233,6 +278,9 @@ export default function VisionPanel() {
                 fallbackLabel="object"
                 showLabels={showLabels}
                 showConf={showConf}
+                frame={overlayFrame.frame}
+                display={overlaySize}
+                frameKey={overlayFrameKey}
               />
             )}
             {active && !blackout && showPersons && (
@@ -242,6 +290,21 @@ export default function VisionPanel() {
                 fallbackLabel="person"
                 showLabels={showLabels}
                 showConf={showConf}
+                frame={overlayFrame.frame}
+                display={overlaySize}
+                frameKey={overlayFrameKey}
+              />
+            )}
+            {active && !blackout && showPersons && (
+              <DetectionLayer
+                detections={faces}
+                stroke="#f472b6"
+                fallbackLabel="face"
+                showLabels={showLabels}
+                showConf={showConf}
+                frame={overlayFrame.frame}
+                display={overlaySize}
+                frameKey={overlayFrameKey}
               />
             )}
             {active && !blackout && (
