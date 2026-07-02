@@ -107,6 +107,8 @@ export default function VisionPanel() {
   const [frozen, setFrozen] = useState(false);
   const [frozenFrame, setFrozenFrame] = useState(null);
   const [blackout, setBlackout] = useState(false);
+  const [jpgUrl, setJpgUrl] = useState(null);
+  const [jpgFrameUrl, setJpgFrameUrl] = useState(null);
   const [visionSettings, updateVisionSettings] = useSettings('vision');
   const showObjects = visionSettings.showObjectBoxes !== false;
   const showPersons = visionSettings.showPersonBoxes !== false;
@@ -128,6 +130,7 @@ export default function VisionPanel() {
   const [streamLoaded, setStreamLoaded] = useState(false);
   const reconnectTimer = useRef(null);
   const videoBoxRef = useRef(null);
+  const jpgFrameUrlRef = useRef(null);
 
   const refreshMeta = useCallback(async () => {
     try {
@@ -170,22 +173,33 @@ export default function VisionPanel() {
     let cancelled = false;
     (async () => {
       let url = null;
+      let fallbackUrl = null;
       try {
         url = await flokiAdapter.getMjpegUrl();
+        if (!url) fallbackUrl = await flokiAdapter.getVisionFrameUrl();
       } catch (error) {
         console.error(error);
-        setStreamError(true);
+        try { fallbackUrl = await flokiAdapter.getVisionFrameUrl(); } catch (_e) {}
+        setStreamError(!fallbackUrl);
       }
       if (cancelled) return;
       if (url) {
         setMjpegUrl(url);
         setStreamKey((key) => key + 1);
+      } else if (fallbackUrl) {
+        setMjpegUrl(null);
+        setJpgUrl(fallbackUrl);
       }
     })();
     return () => { cancelled = true; };
   }, []);
 
   const handleStreamError = useCallback(() => {
+    if (!mjpegUrl && jpgUrl) {
+      setStreamLoaded(false);
+      setStreamError(true);
+      return;
+    }
     setStreamLoaded(false);
     setStreamError(true);
     setOverlayFrame(emptyOverlayState());
@@ -210,7 +224,7 @@ export default function VisionPanel() {
       reconnectTimer.current = setTimeout(retry, 2000);
     };
     reconnectTimer.current = setTimeout(retry, 2000);
-  }, []);
+  }, [jpgUrl, mjpegUrl]);
 
   useEffect(() => () => clearTimeout(reconnectTimer.current), []);
 
@@ -240,6 +254,68 @@ export default function VisionPanel() {
     return () => clearInterval(interval);
   }, [refreshMeta]);
 
+  useEffect(() => {
+    if (mjpegUrl || !jpgUrl) return undefined;
+    let cancelled = false;
+    let inFlight = false;
+    let timer = null;
+    let controller = null;
+
+    const clearCurrentFrameUrl = () => {
+      if (jpgFrameUrlRef.current) {
+        URL.revokeObjectURL(jpgFrameUrlRef.current);
+        jpgFrameUrlRef.current = null;
+      }
+    };
+
+    const poll = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      controller = new AbortController();
+      try {
+        const frame = await flokiAdapter.getVisionFrameBlob({
+          signal: controller.signal
+        });
+        const nextUrl = URL.createObjectURL(frame.blob);
+        if (cancelled) {
+          URL.revokeObjectURL(nextUrl);
+          return;
+        }
+        clearCurrentFrameUrl();
+        jpgFrameUrlRef.current = nextUrl;
+        setJpgFrameUrl(nextUrl);
+        setStreamLoaded(true);
+        setStreamError(false);
+        if (frame.timestamp) {
+          setFrameMeta((previous) => ({
+            ...previous,
+            connectionStatus: 'active',
+            timestamp: Date.parse(frame.timestamp) || Date.now()
+          }));
+        }
+      } catch (error) {
+        if (!cancelled && error?.name !== 'AbortError') {
+          console.error(error);
+          setStreamLoaded(false);
+          setStreamError(true);
+        }
+      } finally {
+        inFlight = false;
+        controller = null;
+        if (!cancelled) timer = setTimeout(poll, 330);
+      }
+    };
+
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      if (controller) controller.abort();
+      clearCurrentFrameUrl();
+      setJpgFrameUrl(null);
+    };
+  }, [mjpegUrl, jpgUrl]);
+
   const handleFreeze = useCallback(async () => {
     if (frozen) {
       setFrozen(false);
@@ -253,7 +329,7 @@ export default function VisionPanel() {
     }
   }, [frozen]);
 
-  const displayUrl = frozen ? frozenFrame : mjpegUrl;
+  const displayUrl = frozen ? frozenFrame : (mjpegUrl || jpgFrameUrl);
   const active = frameMeta.connectionStatus === 'active' && streamLoaded && streamError === false;
 
   return (
@@ -262,7 +338,7 @@ export default function VisionPanel() {
         {displayUrl ? (
           <>
             <img
-              key={frozen ? 'frozen-frame' : streamKey}
+              key={frozen ? 'frozen-frame' : (mjpegUrl ? streamKey : displayUrl)}
               src={displayUrl}
               alt="Live webcam feed"
               data-testid="vision-feed"

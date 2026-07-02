@@ -5,6 +5,14 @@ import SystemControls from '@/components/system/SystemControls'
 import { FlaskConical, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 
+function normalizeServiceRow(service) {
+  if (service?.key !== 'rsi' || service.logKey) return service
+  return {
+    ...service,
+    logKey: 'Self-Improvement Worker'
+  }
+}
+
 export default function SystemDashboard({ onNavigate }) {
   const [services, setServices] = useState([])
   const [busyAction, setBusyAction] = useState(null)
@@ -20,7 +28,7 @@ export default function SystemDashboard({ onNavigate }) {
       throw new Error('self_improvement.ui_poll_ms is invalid')
     }
     return {
-      rows: Array.isArray(next) ? next : [],
+      rows: Array.isArray(next) ? next.map(normalizeServiceRow) : [],
       pollMs
     }
   }, [])
