@@ -19,15 +19,20 @@ function config() {
 }
 
 function httpJson(calls) {
+  let loaded = true;
   return async ({ method, url, body }) => {
     calls.push(method + ':' + url + ':' + String(body && body.keep_alive));
     if (url.endsWith('/api/ps')) {
       return {
         ok: true,
         status: 200,
-        json: { models: [{ name: 'configured-model' }] }
+        json: {
+          models: loaded ? [{ name: 'configured-model' }] : []
+        }
       };
     }
+    if (body && body.keep_alive === 0) loaded = false;
+    if (body && body.keep_alive === -1) loaded = true;
     return { ok: true, status: 200, json: { done: true } };
   };
 }

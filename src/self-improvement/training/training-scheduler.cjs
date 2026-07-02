@@ -7,7 +7,7 @@ const {
   loadFreshSelfImprovementConfig,
   loadSelfImprovementConfig
 } = require('../config.cjs');
-const { appendAudit, nowIso, updateStatus } = require('../store.cjs');
+const { appendAudit, nowIso, readStatus, updateStatus } = require('../store.cjs');
 const gpuOwnership = require('./gpu-ownership.cjs');
 const { enterTrainingResource, exitTrainingResource } = require('./runtime-client.cjs');
 const {
@@ -337,7 +337,8 @@ function createNightlyTrainingCoordinator(options = {}) {
     runHfGeneration: options.run_hf_generation || runHfRemGeneration,
     loadConfig: options.load_config || loadFreshSelfImprovementConfig,
     audit: options.audit || ((type, detail) => appendAudit(type, detail, config)),
-    status: options.status || ((patch) => updateStatus(patch, config))
+    status: options.status || ((patch) => updateStatus(patch, config)),
+    readStatus: options.read_status || (() => readStatus(config))
   };
 
   async function ensureResource(session, reason) {
@@ -423,6 +424,13 @@ function createNightlyTrainingCoordinator(options = {}) {
     }
 
     if (decision.restore_for_wake) {
+      // Restoration work only happens when this pass actually has something
+      // to restore: an unfinalized session with a container, or a session
+      // still holding the training resource.
+      const performedRestorationWork = Boolean(session && (
+        session.resource_entered === true ||
+        (session.finalized !== true && session.current_container)
+      ));
       if (session && session.finalized !== true) {
         try {
           if (session.current_container) {
@@ -442,14 +450,28 @@ function createNightlyTrainingCoordinator(options = {}) {
       } else if (session && session.resource_entered === true) {
         session = await restoreResource(session, 'nightly_wake_restoration');
       }
-      deps.status({
-        phase: 'nightly_wake_restored',
-        current_run_id: null,
-        current_container: null,
-        training_resource_mode: 'idle',
-        gpu_owner: null,
-        wake_restoration_error: null
-      });
+      if (performedRestorationWork) {
+        // Record the transition once and settle into the truthful daytime
+        // phase; 'nightly_wake_restored' is history, not the current state.
+        deps.status({
+          phase: 'daytime_idle',
+          last_transition: 'nightly_wake_restored',
+          last_transition_at: nowIso(),
+          current_run_id: null,
+          current_container: null,
+          training_resource_mode: 'idle',
+          gpu_owner: null,
+          wake_restoration_error: null
+        });
+      } else {
+        // Idempotent daytime tick: only correct a stale persisted
+        // 'nightly_wake_restored' phase. Never clobber an active daytime
+        // phase (e.g. 'experimenting') with a wake-restoration write.
+        const persisted = deps.readStatus(config);
+        if (persisted && persisted.phase === 'nightly_wake_restored') {
+          deps.status({ phase: 'daytime_idle' });
+        }
+      }
       return Object.freeze({ ok: true, action: decision.action, session });
     }
 

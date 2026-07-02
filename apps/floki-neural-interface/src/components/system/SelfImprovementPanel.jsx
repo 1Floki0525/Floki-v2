@@ -230,18 +230,29 @@ export default function SelfImprovementPanel() {
     )
   }, [act, makerObjective])
 
-  const abortActive = useCallback(() => {
-    const kind = status?.current_run_kind || status?.active_run_kind || 'code'
+  const abortSandbox = useCallback(() => {
     act(
-      kind === 'training' ? 'Abort training' : 'Stop sandbox',
-      () => flokiAdapter.abortSelfImprovement(kind),
+      'Abort sandbox',
+      () => flokiAdapter.abortSelfImprovement('code'),
       (_next, result) => (
         result?.ok === true &&
         result?.verified === true &&
         result?.stopped === true
       )
     )
-  }, [act, status])
+  }, [act])
+
+  const abortTraining = useCallback(() => {
+    act(
+      'Abort training',
+      () => flokiAdapter.abortSelfImprovement('training'),
+      (_next, result) => (
+        result?.ok === true &&
+        result?.verified === true &&
+        result?.stopped === true
+      )
+    )
+  }, [act])
 
   const requestApprove = useCallback(() => {
     if (!detail || detail.status !== 'pending_review') return
@@ -284,6 +295,9 @@ export default function SelfImprovementPanel() {
   const canAbortTraining = status?.controls?.can_abort_training === true
   const codeSandboxActive = canStopCode || (
     canAbort && status?.current_run_kind === 'code'
+  )
+  const trainingAbortActive = canAbortTraining || (
+    canAbort && status?.current_run_kind === 'training'
   )
   const makerCycleQueued = status?.phase === 'maker_requested_cycle'
   const progress = status?.training_progress || {}
@@ -337,10 +351,14 @@ export default function SelfImprovementPanel() {
               {status?.paused ? <CirclePlay className="w-3.5 h-3.5" /> : <CirclePause className="w-3.5 h-3.5" />}
               {status?.paused ? 'Resume' : 'Pause'}
             </button>
-            {(canStopCode || canAbortTraining || canAbort) && (
-              <button type="button" onClick={abortActive} disabled={Boolean(busy)} className="px-2.5 py-1.5 text-xs rounded border border-red-500/40 bg-red-500/10 text-red-200 disabled:opacity-40 flex items-center gap-1.5">
-                <Square className="w-3.5 h-3.5" />
-                {status?.current_run_kind === 'training' ? 'Abort training' : 'Stop sandbox'}
+            {codeSandboxActive && (
+              <button type="button" onClick={abortSandbox} disabled={Boolean(busy)} className="px-2.5 py-1.5 text-xs rounded border border-red-500/40 bg-red-500/10 text-red-200 disabled:opacity-40 flex items-center gap-1.5">
+                <Square className="w-3.5 h-3.5" /> Abort sandbox
+              </button>
+            )}
+            {trainingAbortActive && (
+              <button type="button" onClick={abortTraining} disabled={Boolean(busy)} className="px-2.5 py-1.5 text-xs rounded border border-red-500/40 bg-red-500/10 text-red-200 disabled:opacity-40 flex items-center gap-1.5">
+                <Square className="w-3.5 h-3.5" /> Abort training
               </button>
             )}
             <button type="button" onClick={() => act('Refresh status', refresh)} disabled={Boolean(busy)} className="p-1.5 rounded border border-border hover:border-neon-cyan/40 disabled:opacity-40" aria-label="Refresh RSI status">
@@ -367,9 +385,8 @@ export default function SelfImprovementPanel() {
               <button type="button" onClick={runCode} disabled={Boolean(busy) || makerCycleQueued || !canRunCode} className="px-3 py-2 text-xs rounded border border-neon-cyan/30 bg-neon-cyan/10 disabled:opacity-40 flex items-center gap-2">
                 <Code2 className="w-4 h-4" /> Run now
               </button>
-              <button type="button" onClick={runTraining} disabled={Boolean(busy) || !canRunTraining} className="px-3 py-2 text-xs rounded border border-violet-500/30 bg-violet-500/10 text-violet-200 disabled:opacity-40 flex items-center gap-2">
-                <Cpu className="w-4 h-4" />
-                {codeSandboxActive ? 'Stop sandbox & train' : 'Run training'}
+              <button type="button" onClick={runTraining} disabled={Boolean(busy) || makerCycleQueued || !canRunTraining} className="px-3 py-2 text-xs rounded border border-violet-500/30 bg-violet-500/10 text-violet-200 disabled:opacity-40 flex items-center gap-2">
+                <Cpu className="w-4 h-4" /> Run training
               </button>
             </div>
           </div>

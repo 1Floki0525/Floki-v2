@@ -194,14 +194,11 @@ async function main() {
       ),
       'utf8'
     );
-    assert.match(panelSource, /Stop sandbox/);
+    assert.match(panelSource, /Abort sandbox/);
+    assert.match(panelSource, /Abort training/);
     assert.match(
       panelSource,
-      /Stop sandbox & train/
-    );
-    assert.doesNotMatch(
-      panelSource,
-      /onClick=\{runTraining\} disabled=\{Boolean\(busy\) \|\| makerCycleQueued/
+      /onClick=\{runTraining\} disabled=\{Boolean\(busy\) \|\| makerCycleQueued \|\| !canRunTraining\}/
     );
 
     console.log(JSON.stringify({

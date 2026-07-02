@@ -836,29 +836,29 @@ function nightlyCandidateCompletionGate(
   );
   const epoch = Number(metrics && metrics.epoch || 0);
   const globalStep = Number(metrics && metrics.global_step || 0);
+  const minCompletedSteps = Number(
+    config && config.nightly_training_min_completed_steps
+  );
   const completedEpochs = Number.isFinite(epoch)
     ? Math.floor(epoch + 1e-9)
     : 0;
   const completedRemCycles = completedRemClaimCount(session, config);
   const requiredRemCycles = Math.max(0, completedEpochs - 1);
+  const contractMet =
+    completedEpochs >= 1 &&
+    Number.isFinite(minCompletedSteps) &&
+    Number.isFinite(globalStep) &&
+    globalStep >= minCompletedSteps &&
+    completedRemCycles >= requiredRemCycles;
   return Object.freeze({
-    ok:
-      completedEpochs >= 1 &&
-      Number.isFinite(globalStep) &&
-      globalStep >= 1 &&
-      completedRemCycles >= requiredRemCycles,
+    ok: contractMet,
     epoch,
     global_step: globalStep,
+    min_completed_steps: minCompletedSteps,
     completed_epochs: completedEpochs,
     completed_rem_cycles: completedRemCycles,
     required_rem_cycles: requiredRemCycles,
-    reason:
-      completedEpochs >= 1 &&
-      Number.isFinite(globalStep) &&
-      globalStep >= 1 &&
-      completedRemCycles >= requiredRemCycles
-        ? null
-        : 'nightly_completion_contract_not_met'
+    reason: contractMet ? null : 'nightly_completion_contract_not_met'
   });
 }
 

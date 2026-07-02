@@ -204,12 +204,70 @@ function buildSelfImprovementUiStatus(options = {}) {
   const trainingRunActive =
     activeRun && activeKind === 'training';
 
+  // Truthful cycle attribution: mirror the objective_source values written by
+  // the sandbox/worker pipeline ('maker_requested' | 'floki_selected'). Never
+  // claim a Floki-selected cycle while idle.
+  const activeCycleType = activeRun
+    ? (
+        base.objective_source === 'maker_requested' ||
+        base.objective_source === 'maker'
+          ? 'maker_requested'
+          : 'floki_selected'
+      )
+    : null;
+
+  // Truthful operational phase: a persisted 'nightly_wake_restored' (or any
+  // stale nightly_wake_* phase) describes a past transition, not the current
+  // daytime state.
+  const basePhase = base.phase == null ? '' : String(base.phase);
+  const currentPhase = activeRun
+    ? (base.phase || null)
+    : (!basePhase || basePhase.startsWith('nightly_wake'))
+      ? 'daytime_idle'
+      : basePhase;
+
+  const loadedModels = loadedModelsForOwner(owner, config, session, lineage);
+
+  // GPU truth model: the RTX card is the DEVICE. Ownership is either an
+  // explicit exclusive ledger owner or the honest shared daytime allocation.
+  const gpuWorkloads = owner
+    ? Object.freeze(loadedModels.map((model) => Object.freeze({
+        workload: model.purpose,
+        provider: model.provider
+      })))
+    : Object.freeze([
+        Object.freeze({
+          workload: 'live_cognition',
+          provider: config.live_cognition_provider
+        }),
+        Object.freeze({
+          workload: 'live_vision',
+          provider: config.vision_provider
+        })
+      ]);
+
   return Object.freeze({
     ...base,
     nightly_hf_cycle: nightlyPolicy,
-    active_run_kind: base.current_run_kind || config.default_rsi_run_kind,
-    active_role: base.current_role || base.role || null,
-    active_tool: base.current_tool || base.current_command || null,
+    active_run: Boolean(activeRun),
+    active_run_kind: activeRun ? activeKind : null,
+    next_run_kind: config.default_rsi_run_kind,
+    active_goal: activeRun ? (base.current_objective || null) : null,
+    next_goal: config.default_objective,
+    active_cycle_type: activeCycleType,
+    active_role: activeRun ? (base.current_role || base.role || null) : null,
+    active_tool: activeRun
+      ? (base.current_tool || base.current_command || null)
+      : null,
+    current_phase: currentPhase,
+    last_transition: Object.freeze({
+      phase: base.last_transition || null,
+      at: base.last_transition_at || null
+    }),
+    gpu_device: config.training_expected_gpu_name,
+    gpu_workload_owner: owner || 'daytime_shared_cognition',
+    gpu_workloads: gpuWorkloads,
+    exclusive_ownership_lock: owner,
     resource_mode: base.training_resource_mode || (
       owner === 'ollama_cognition' ? 'live_cognition' :
       owner === 'hf_training' ? 'training' :
@@ -217,7 +275,7 @@ function buildSelfImprovementUiStatus(options = {}) {
       owner === 'vision' ? 'vision' : 'idle'
     ),
     gpu_owner: owner,
-    loaded_models: loadedModelsForOwner(owner, config, session, lineage),
+    loaded_models: loadedModels,
     providers: Object.freeze({
       live_cognition: config.live_cognition_provider,
       code_improvement: config.code_improvement_provider,

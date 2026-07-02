@@ -15,7 +15,7 @@ const sourceAdapter = path.join(runtimeRoot, 'run-1', 'adapter-output');
 fs.mkdirSync(sourceAdapter, { recursive: true });
 fs.writeFileSync(
   path.join(sourceAdapter, 'metrics.json'),
-  JSON.stringify({ global_step: 3, train_loss: 1.2 }) + '\n'
+  JSON.stringify({ epoch: 1, global_step: 3, train_loss: 1.2 }) + '\n'
 );
 fs.writeFileSync(path.join(sourceAdapter, 'adapter_config.json'), '{}\n');
 fs.writeFileSync(path.join(sourceAdapter, 'adapter_model.safetensors'), 'adapter\n');

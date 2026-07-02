@@ -322,6 +322,7 @@ async function handleTypedText(runtime, text, options = {}) {
     persistent_chat_memory: livingTurn.persistent_chat_memory,
     emotional_reinforcement: livingTurn.emotional_reinforcement,
     soul_context: livingTurn.soul_context,
+    model_config: options.model_config,
     signal: options.signal,
     latency_trace: trace,
     streaming_enabled: options.streaming_enabled,
