@@ -10,6 +10,7 @@ import com.floki.neural.data.ServerProfile
 import com.floki.neural.data.booleanOrNull
 import com.floki.neural.data.intOrNull
 import com.floki.neural.data.longOrNull
+import com.floki.neural.data.normalizeFlokiSessionCredential
 import com.floki.neural.data.stringOrNull
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -23,6 +24,7 @@ import okhttp3.WebSocket
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 data class ChatMessage(
@@ -148,6 +150,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     private var voiceJob: Job? = null
     private var transportGeneration = 0
     private val mobileClientId = profileStore.loadOrCreateMobileClientId()
+    private val mobileSessionId = "mobile-session-${UUID.randomUUID()}"
     private var normalMobileTransportEnabled = true
     private var observedMobileGeneration: Long? = null
 
@@ -180,6 +183,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             .trimEnd('/')
         val port = portText.toIntOrNull()
         val poll = pollText.toLongOrNull()
+        val cleanCredential = normalizeFlokiSessionCredential(sessionCredential)
 
         when {
             cleanHost.isBlank() -> setError("Server host cannot be empty")
@@ -191,12 +195,15 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             poll == null || poll !in 1_000L..60_000L -> setError(
                 "Poll interval must be between 1000 and 60000 ms"
             )
+            !developerMode && cleanCredential.isBlank() -> setError(
+                "Public gateway profiles require an approved-user session credential"
+            )
             else -> {
                 profile = ServerProfile(
                     host = cleanHost,
                     port = port,
                     pollIntervalMs = poll,
-                    sessionCredential = sessionCredential.trim(),
+                    sessionCredential = cleanCredential,
                     useTls = useTls,
                     developerMode = developerMode
                 )
@@ -675,7 +682,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             JSONObject()
                 .put("app_key", MOBILE_APP_KEY)
                 .put("client_id", mobileClientId)
-                .put("session_id", mobileClientId)
+                .put("session_id", mobileSessionId)
                 .put("transport_type", "android-http")
                 .put("healthy", true)
         )

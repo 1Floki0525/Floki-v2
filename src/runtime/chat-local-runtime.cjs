@@ -229,15 +229,33 @@ function validateRemoteVoiceUpload(buffer, contentType, audioConfig) {
   return metadata;
 }
 
+function corsHeadersFor(req) {
+  const origin = req && req.headers ? String(req.headers.origin || '') : '';
+  const allowedOrigins = new Set([
+    'http://127.0.0.1',
+    'http://localhost',
+    'https://galactic-family-hub.com'
+  ]);
+  const allowOrigin = allowedOrigins.has(origin) ||
+    /^http:\/\/127\.0\.0\.1:\d+$/.test(origin) ||
+    /^http:\/\/localhost:\d+$/.test(origin)
+    ? origin
+    : 'http://127.0.0.1';
+  return Object.freeze({
+    'access-control-allow-origin': allowOrigin,
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type'
+  });
+}
+
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(body),
     'cache-control': 'no-store',
-    'access-control-allow-origin': 'http://127.0.0.1',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
-    'access-control-allow-headers': 'content-type'
+    ...corsHeadersFor(res.req)
   });
   res.end(body);
 }
@@ -2699,9 +2717,7 @@ function createChatLocalRuntime(options = {}) {
   async function route(req, res) {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
-        'access-control-allow-origin': 'http://127.0.0.1',
-        'access-control-allow-methods': 'GET,POST,OPTIONS',
-        'access-control-allow-headers': 'content-type'
+        ...corsHeadersFor(req)
       });
       res.end();
       return;

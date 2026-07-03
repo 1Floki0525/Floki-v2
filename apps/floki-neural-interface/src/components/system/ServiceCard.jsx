@@ -18,6 +18,7 @@ const statusStyles = {
 
 export default function ServiceCard({ service, onStart, onStop, onRestart, onViewLogs }) {
   const style = statusStyles[service.status] || statusStyles[ServiceStatus.STOPPED]
+  const actionClass = 'flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono bg-secondary/50 text-foreground hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neon-cyan transition-colors border border-border/40'
   return (
     <div className="glass-panel rounded-lg p-4 hover:neon-glow transition-all duration-300" data-testid={`service-${service.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}>
       <div className="flex items-start justify-between mb-3">
@@ -38,17 +39,17 @@ export default function ServiceCard({ service, onStart, onStop, onRestart, onVie
       </div>
       <div className="flex items-center gap-1.5 min-h-7">
         {service.startAvailable && (
-          <button type="button" onClick={() => onStart(service)} className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors border border-border/30">
+          <button type="button" aria-label={`Start ${service.name}`} onClick={() => onStart(service)} className={actionClass}>
             <Play className="w-3 h-3" /> Start
           </button>
         )}
         {service.stopAvailable && (
-          <button type="button" onClick={() => onStop(service)} className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors border border-border/30">
+          <button type="button" aria-label={`Stop ${service.name}`} onClick={() => onStop(service)} className={actionClass}>
             <Square className="w-3 h-3" /> Stop
           </button>
         )}
         {service.restartAvailable && (
-          <button type="button" onClick={() => onRestart(service)} className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors border border-border/30">
+          <button type="button" aria-label={`Restart ${service.name}`} onClick={() => onRestart(service)} className={actionClass}>
             <RotateCw className="w-3 h-3" /> Restart
           </button>
         )}

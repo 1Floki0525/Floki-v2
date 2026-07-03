@@ -53,6 +53,8 @@ function run() {
   assert.match(chatStart, /nohup node src\/runtime\/chat-local-runtime\.cjs/, 'backend must be started with nohup');
   assert.match(chatStart, /<\/dev\/null/, 'backend stdin must be detached from the launcher');
   assert.match(chatStart, /disown "\$STARTED_PID"/, 'backend must be disowned from the launcher shell');
+  assert.match(chatStart, /ensure_sleep_scheduler/, 'backend launcher must repair the scheduler before reporting success');
+  assert.match(chatStart, /mktemp \/tmp\/floki-chat-scheduler-start\.XXXXXX/, 'backend launcher scheduler startup must use a temp file');
 
   // 2. Cleanup trap must run when the Electron app exits normally.
   assert.match(start, /CHAT_LOCAL_HANDED_OFF=1/, 'launcher must mark the hand-off before starting Electron');
@@ -73,6 +75,8 @@ function run() {
   // 3. Exactly one backend process may own the runtime port.
   assert.match(chatStart, /if runtime_active "\$EXISTING_PID"/, 'launcher must check for an existing backend PID');
   assert.match(chatStart, /already_active/, 'launcher must report reuse when the existing backend is healthy');
+  assert.match(chatStart, /wait_for_runtime_api "\$EXISTING_PID"[\s\S]*ensure_sleep_scheduler/, 'existing backend reuse must still verify the scheduler');
+  assert.match(chatStart, /wait_for_runtime_api "\$DISCOVERED_PID"[\s\S]*ensure_sleep_scheduler/, 'orphan backend reuse must still verify the scheduler');
   assert.match(chatStart, /runtime_pids_for_project/, 'launcher must enumerate orphaned project runtimes');
   assert.match(chatStart, /port_in_use/, 'launcher must verify the runtime port is free before binding');
   assert.match(chatStart, /runtime port .* is already in use/, 'launcher must fail with a clear error when the port is occupied');

@@ -168,6 +168,39 @@ function run() {
     }
   }), 'degraded');
 
+  const hearingStatusSource = getModuleConfig('hearing').status_source;
+  assert.equal(hearingStatusSource({
+    currentStatus: {
+      hearing_enabled: true,
+      lifecycle: { is_awake: true },
+      hearing_ready: true,
+      hearing: { service_state: 'listening' }
+    },
+    hearingError: null
+  }), 'running');
+  assert.equal(hearingStatusSource({
+    currentStatus: {
+      hearing_enabled: true,
+      lifecycle: { is_awake: true },
+      hearing_ready: false,
+      hearing: { service_state: 'starting' }
+    },
+    hearingError: null
+  }), 'degraded');
+  assert.equal(hearingStatusSource({
+    currentStatus: {
+      hearing_enabled: true,
+      lifecycle: { is_awake: false },
+      hearing_ready: true,
+      hearing: { service_state: 'listening' }
+    },
+    hearingError: null
+  }), 'stopped');
+
+  const schedulerStatusSource = getModuleConfig('sleep_scheduler').status_source;
+  assert.equal(schedulerStatusSource({ schedulerPid: process.pid }), 'running');
+  assert.equal(schedulerStatusSource({ schedulerPid: null }), 'stopped');
+
   // 4. No module accepts shell/executable/path/argument/env input from clients.
   for (const key of MODULE_KEYS) {
     const config = getModuleConfig(key);

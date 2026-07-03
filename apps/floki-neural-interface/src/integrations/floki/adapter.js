@@ -40,8 +40,10 @@ const RUNTIME_WS_URL = (() => {
 })();
 
 const WEB_CLIENT_ID_KEY = 'floki_web_client_id_v1';
+const WEB_SESSION_ID_KEY = 'floki_web_session_id_v1';
 const WEB_APP_KEY = 'web_app';
 let webClientId = null;
+let webSessionId = null;
 let normalWebTransportEnabled = true;
 let observedWebGeneration = null;
 
@@ -60,6 +62,24 @@ function stableWebClientId() {
   } catch (_error) {
     webClientId = fallback().slice(0, 128);
     return webClientId;
+  }
+}
+
+function stableWebSessionId() {
+  if (webSessionId) return webSessionId;
+  const fallback = () => 'web-session-' + Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
+  try {
+    const existing = window.sessionStorage.getItem(WEB_SESSION_ID_KEY);
+    if (existing && /^[A-Za-z0-9_.:-]{8,128}$/.test(existing)) {
+      webSessionId = existing;
+      return webSessionId;
+    }
+    webSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID ? 'web-session-' + crypto.randomUUID() : fallback()).slice(0, 128);
+    window.sessionStorage.setItem(WEB_SESSION_ID_KEY, webSessionId);
+    return webSessionId;
+  } catch (_error) {
+    webSessionId = fallback().slice(0, 128);
+    return webSessionId;
   }
 }
 
@@ -130,13 +150,13 @@ function base64ToBlob(base64, contentType = 'audio/wav') {
 class FlokiAdapter {
   constructor() {
     this.webHeartbeatTimer = null;
-    if (!hasBridge() && typeof window !== 'undefined') this.startWebHeartbeat();
+    if (typeof window !== 'undefined') this.startWebHeartbeat();
   }
 
   startWebHeartbeat() {
     if (this.webHeartbeatTimer) return;
     const send = () => {
-      this.clientAppHeartbeat(WEB_APP_KEY, { transportType: 'http-web' }).catch(() => undefined);
+      this.clientAppHeartbeat(WEB_APP_KEY, { transportType: hasBridge() ? 'electron-bridge' : 'http-web' }).catch(() => undefined);
     };
     send();
     this.webHeartbeatTimer = window.setInterval(send, 5000);
@@ -146,13 +166,14 @@ class FlokiAdapter {
     const payload = {
       app_key: String(appKey || WEB_APP_KEY),
       client_id: stableWebClientId(),
-      session_id: stableWebClientId(),
+      session_id: stableWebSessionId(),
       transport_type: String(options.transportType || 'http-web'),
       healthy: options.healthy !== false,
       error: options.error || null
     };
-    if (hasBridge()) return bridge().clientAppHeartbeat(payload);
-    const result = await runtimeHttpRequest('POST', '/interface/client-app/heartbeat', payload);
+    const result = hasBridge()
+      ? await bridge().clientAppHeartbeat(payload)
+      : await runtimeHttpRequest('POST', '/interface/client-app/heartbeat', payload);
     if (payload.app_key === WEB_APP_KEY && result?.app) {
       updateWebAppGateFromServices([{ key: WEB_APP_KEY, ...result.app, lifecycleState: result.app.status, enabled: result.app.enabled, controlGeneration: result.app.control_generation }]);
     }
@@ -259,11 +280,15 @@ class FlokiAdapter {
   async controlModule(moduleKey, action) {
     const key = encodeURIComponent(String(moduleKey || ''));
     const op = action === 'restart' ? 'reset' : String(action || '');
-    if (hasBridge()) return bridge().controlModule(moduleKey, op);
-    const result = await runtimeHttpRequest('POST', '/control/modules/' + key + '/' + encodeURIComponent(op), {});
+    const result = hasBridge()
+      ? await bridge().controlModule(moduleKey, op)
+      : await runtimeHttpRequest('POST', '/control/modules/' + key + '/' + encodeURIComponent(op), {});
+    if (moduleKey === WEB_APP_KEY && op === 'stop') {
+      normalWebTransportEnabled = false;
+    }
     if (moduleKey === WEB_APP_KEY && (op === 'start' || op === 'reset')) {
       normalWebTransportEnabled = true;
-      await this.clientAppHeartbeat(WEB_APP_KEY, { transportType: 'http-web' }).catch(() => undefined);
+      await this.clientAppHeartbeat(WEB_APP_KEY, { transportType: hasBridge() ? 'electron-bridge' : 'http-web' }).catch(() => undefined);
     }
     return result;
   }

@@ -60,6 +60,17 @@ data class ServerProfile(
     }
 }
 
+fun normalizeFlokiSessionCredential(value: String): String {
+    var normalized = value.trim().trim('"', '\'')
+    if (normalized.startsWith("Authorization:", ignoreCase = true)) {
+        normalized = normalized.substringAfter(':').trim()
+    }
+    while (normalized.startsWith("Bearer ", ignoreCase = true)) {
+        normalized = normalized.substringAfter(' ').trim()
+    }
+    return normalized.trim().trim('"', '\'')
+}
+
 private class AndroidKeystoreCredentialCipher {
     private val keyStore: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply {
         load(null)
@@ -194,7 +205,7 @@ class ProfileStore(context: Context) {
     fun save(profile: ServerProfile) {
         val normalizedProfile = normalizeProfile(profile)
         val encryptedCredential = credentialCipher.encrypt(
-            normalizedProfile.sessionCredential.trim()
+            normalizedProfile.sessionCredential
         )
         val normalizedHost = normalizedProfile.host.trim()
         val normalizedPollInterval = profile.pollIntervalMs.coerceIn(
@@ -244,12 +255,14 @@ class ProfileStore(context: Context) {
 
     private fun normalizeProfile(profile: ServerProfile): ServerProfile {
         val host = profile.host.trim().ifBlank { DEFAULT_HOST }
+        val sessionCredential = normalizeFlokiSessionCredential(profile.sessionCredential)
         if (!isLegacyLocalEndpoint(host, profile.port, profile.useTls, profile.developerMode)) {
-            return profile.copy(host = host)
+            return profile.copy(host = host, sessionCredential = sessionCredential)
         }
         return profile.copy(
             host = DEFAULT_HOST,
             port = DEFAULT_PORT,
+            sessionCredential = sessionCredential,
             useTls = DEFAULT_USE_TLS,
             developerMode = false
         )
@@ -292,7 +305,7 @@ class FlokiHttpException(message: String) : IOException(message)
 class FlokiBackend(profile: ServerProfile) {
     private val baseUrl = profile.baseUrl
     private val webSocketUrl = profile.webSocketUrl
-    private val sessionCredential = profile.sessionCredential.trim()
+    private val sessionCredential = normalizeFlokiSessionCredential(profile.sessionCredential)
 
     /**
      * Authenticated client that attaches the approved-user Bearer session.
@@ -380,6 +393,12 @@ class FlokiBackend(profile: ServerProfile) {
             val text = response.body.string()
             if (!response.isSuccessful) {
                 val detail = runCatching { JSONObject(text).optString("error") }.getOrNull()
+                if (response.code == 401 && detail.equals("invalid token", ignoreCase = true)) {
+                    throw FlokiHttpException(
+                        "Unauthorized: missing, expired, or invalid approved-user session credential. " +
+                            "Open Settings and paste the raw gateway token without the word Bearer."
+                    )
+                }
                 throw FlokiHttpException(
                     detail?.takeIf { it.isNotBlank() }
                         ?: "HTTP ${response.code} ${response.message}"

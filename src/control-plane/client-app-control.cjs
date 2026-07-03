@@ -126,19 +126,16 @@ function summarizeAppState(key, appState, options = {}) {
     client.healthy === true &&
     !client.last_reported_error
   ));
+  const unhealthyFreshClient = freshClients.some((client) => (
+    client.healthy !== true ||
+    Boolean(client.last_reported_error)
+  ));
   const lastClient = currentClients
     .slice()
     .sort((a, b) => Date.parse(String(b.last_heartbeat_at || '')) - Date.parse(String(a.last_heartbeat_at || '')))[0] || null;
-  const staleOrErrored = currentClients.some((client) => {
-    const seenAt = Date.parse(String(client.last_heartbeat_at || ''));
-    return !Number.isFinite(seenAt) ||
-      nowMs - seenAt > freshMs ||
-      client.healthy !== true ||
-      Boolean(client.last_reported_error);
-  });
   const status = appState.enabled === false
     ? 'stopped'
-    : healthyClients.length > 0 && !staleOrErrored
+    : healthyClients.length > 0 && !unhealthyFreshClient
       ? 'running'
       : 'degraded';
   const connectedSince = healthyClients
@@ -213,7 +210,9 @@ function recordClientAppHeartbeat(payload = {}, options = {}) {
         generation,
         healthy: payload.healthy !== false && !payload.error,
         last_heartbeat_at: at,
-        connected_since: previous.connected_since && Number(previous.generation) === generation
+        connected_since: previous.connected_since &&
+          Number(previous.generation) === generation &&
+          previous.session_id === sessionId
           ? previous.connected_since
           : at,
         transport_type: transportType,

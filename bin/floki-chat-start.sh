@@ -52,6 +52,35 @@ NODE
   LOG_FILE="$RUNTIME_DIR/chat-local-runtime.log"
 }
 
+start_sleep_scheduler() {
+  local output_file
+  output_file="$(mktemp /tmp/floki-chat-scheduler-start.XXXXXX)"
+  bash bin/floki-sleep-scheduler-start.sh > "$output_file" 2>&1
+  SCHEDULER_STATUS=$?
+  SCHEDULER_OUTPUT="$(cat "$output_file" 2>/dev/null || true)"
+  rm -f "$output_file"
+
+  if [ "$SCHEDULER_STATUS" -ne 0 ]; then
+    echo "$SCHEDULER_OUTPUT" >&2
+    fail "sleep-cycle scheduler did not start"
+  fi
+}
+
+verify_sleep_scheduler() {
+  SCHEDULER_STATUS_OUTPUT="$(bash bin/floki-sleep-scheduler-status.sh 2>&1)"
+  SCHEDULER_STATUS_CODE="$?"
+
+  if [ "$SCHEDULER_STATUS_CODE" -ne 0 ]; then
+    echo "$SCHEDULER_STATUS_OUTPUT" >&2
+    fail "sleep-cycle scheduler status check failed"
+  fi
+}
+
+ensure_sleep_scheduler() {
+  start_sleep_scheduler
+  verify_sleep_scheduler
+}
+
 runtime_active() {
   CHECK_PID="$1"
   [ -n "$CHECK_PID" ] || return 1
@@ -251,6 +280,7 @@ EXISTING_PID=""
 
 if runtime_active "$EXISTING_PID"; then
   if wait_for_runtime_api "$EXISTING_PID"; then
+    ensure_sleep_scheduler
     echo "$EXISTING_PID" > "$PID_FILE"
     echo "$EXISTING_PID" > "$COMPAT_PID_FILE"
     echo "{\"ok\":true,\"marker\":\"FLOKI_V2_CHAT_START_SCRIPT_PASS\",\"already_active\":true,\"shared_runtime_preserved\":true,\"pid\":$EXISTING_PID,\"pid_file\":\"$PID_FILE\",\"chat_mode_only\":true}"
@@ -272,6 +302,7 @@ fi
 if [ "${#PROJECT_RUNTIME_PIDS[@]}" -eq 1 ]; then
   DISCOVERED_PID="${PROJECT_RUNTIME_PIDS[0]}"
   if wait_for_runtime_api "$DISCOVERED_PID"; then
+    ensure_sleep_scheduler
     echo "$DISCOVERED_PID" > "$PID_FILE"
     echo "$DISCOVERED_PID" > "$COMPAT_PID_FILE"
     echo "{\"ok\":true,\"marker\":\"FLOKI_V2_CHAT_START_SCRIPT_PASS\",\"already_active\":true,\"shared_runtime_preserved\":true,\"pid_recovered\":true,\"pid\":$DISCOVERED_PID,\"pid_file\":\"$PID_FILE\",\"chat_mode_only\":true}"
@@ -288,6 +319,8 @@ if port_in_use "$RUNTIME_HOST" "$RUNTIME_PORT"; then
 fi
 
 STARTUP_LOG_FILE="$RUNTIME_DIR/chat-local-runtime.startup.log"
+
+ensure_sleep_scheduler
 
 rm -f \
   "$PID_FILE" \
