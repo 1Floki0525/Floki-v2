@@ -157,6 +157,12 @@ function registerIpc() {
     if (payload.limit != null) params.set('limit', String(payload.limit));
     return runtimeRequest('GET', '/self-improvement/activity?' + params.toString());
   });
+  ipcMain.handle('floki:get-self-improvement-terminal', async (_event, payload = {}) => {
+    const params = new URLSearchParams();
+    if (payload.cursor != null) params.set('cursor', String(payload.cursor));
+    if (payload.max_bytes != null) params.set('max_bytes', String(payload.max_bytes));
+    return runtimeRequest('GET', '/self-improvement/terminal?' + params.toString());
+  });
   ipcMain.handle('floki:get-initial-status', () => runtimeRequest('GET', '/interface/status'));
   ipcMain.handle('floki:get-system-status', () => runtimeRequest('GET', '/interface/services'));
   ipcMain.handle('floki:get-transcript', (_event, payload = {}) => runtimeRequest('GET', '/interface/transcript?limit=' + encodeURIComponent(String(payload.limit || 200))));
@@ -168,6 +174,30 @@ function registerIpc() {
     requestInFlight = true;
     try { return await runtimeRequest('POST', '/chat', { text }); }
     finally { requestInFlight = false; }
+  });
+  ipcMain.handle('floki:send-voice-utterance', async (_event, payload = {}) => {
+    const base64 = String(payload.base64 || '');
+    if (!base64) throw new Error('voice audio payload is required');
+    if (requestInFlight) throw new Error('Floki is already responding');
+    requestInFlight = true;
+    try {
+      const bytes = Buffer.from(base64, 'base64');
+      const response = await fetch(RUNTIME_URL + '/audio/remote-utterance', {
+        method: 'POST',
+        headers: {
+          'content-type': String(payload.contentType || 'audio/wav'),
+          connection: 'close'
+        },
+        body: bytes,
+        signal: AbortSignal.timeout(Number(runtimeConfig.stream_timeout_ms))
+      });
+      const raw = await response.text();
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (!response.ok) throw new Error(parsed.error || 'runtime HTTP ' + String(response.status));
+      return parsed;
+    } finally {
+      requestInFlight = false;
+    }
   });
   ipcMain.handle('floki:interrupt', () => runtimeRequest('POST', '/interrupt', {}));
   ipcMain.handle('floki:get-vision-frame', () => runtimeRequest('GET', '/interface/vision/frame'));
@@ -186,6 +216,21 @@ function registerIpc() {
   ipcMain.handle('floki:import-settings', (_event, payload = {}) => runtimeRequest('POST', '/interface/settings/import', { settings: payload.settings || {} }));
   ipcMain.handle('floki:push-to-talk', (_event, payload = {}) => runtimeRequest('POST', '/audio/push-to-talk', { active: payload.active === true }));
   ipcMain.handle('floki:control', (_event, payload = {}) => runtimeRequest('POST', '/interface/control/' + encodeURIComponent(String(payload.action || '')), { argument: payload.argument }));
+  ipcMain.handle('floki:control-module', (_event, payload = {}) => {
+    const moduleKey = encodeURIComponent(String(payload.moduleKey || ''));
+    const action = String(payload.action || '') === 'restart' ? 'reset' : String(payload.action || '');
+    return runtimeRequest('POST', '/control/modules/' + moduleKey + '/' + encodeURIComponent(action), {});
+  });
+  ipcMain.handle('floki:client-app-heartbeat', (_event, payload = {}) =>
+    runtimeRequest('POST', '/interface/client-app/heartbeat', {
+      app_key: String(payload.app_key || ''),
+      client_id: String(payload.client_id || ''),
+      session_id: String(payload.session_id || payload.client_id || ''),
+      transport_type: String(payload.transport_type || 'electron-bridge'),
+      healthy: payload.healthy !== false,
+      error: payload.error || null
+    })
+  );
   ipcMain.handle('floki:open-log', async (_event, payload = {}) => {
     const result = await runtimeRequest('GET', '/interface/log/' + encodeURIComponent(String(payload.service || '')));
     if (!result.exists || !result.path) throw new Error('The selected backend log is not available.');

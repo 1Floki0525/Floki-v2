@@ -210,6 +210,7 @@ assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or n
     poll_ms: Math.max(10000, configured.poll_ms),
     cooldown_seconds: Math.max(3600, configured.cooldown_seconds),
     minimum_available_memory_mb: 0,
+    nightly_training_enabled: false,
     workspace_root: path.join(root, 'workspaces'),
     candidate_root: path.join(root, 'candidates'),
     outbox_root: path.join(root, 'outbox'),

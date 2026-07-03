@@ -19,14 +19,13 @@ export default function SystemDashboard({ onNavigate }) {
   const pollMsRef = React.useRef(null)
 
   const loadServices = useCallback(async () => {
-    const [next, rsiStatus] = await Promise.all([
-      flokiAdapter.getSystemStatus(),
-      flokiAdapter.getSelfImprovementStatus()
-    ])
-    const pollMs = Number(rsiStatus?.ui_poll_ms)
-    if (!Number.isFinite(pollMs) || pollMs <= 0) {
-      throw new Error('self_improvement.ui_poll_ms is invalid')
-    }
+    const next = await flokiAdapter.getSystemStatus()
+    const webStopped = Array.isArray(next) && next.some((service) => service?.key === 'web_app' && service?.enabled === false)
+    const rsiStatus = await flokiAdapter.getSelfImprovementStatus().catch((error) => {
+      if (webStopped) return null
+      throw error
+    })
+    const pollMs = Number(rsiStatus?.ui_poll_ms || pollMsRef.current || 3000)
     return {
       rows: Array.isArray(next) ? next.map(normalizeServiceRow) : [],
       pollMs
@@ -79,9 +78,34 @@ export default function SystemDashboard({ onNavigate }) {
     }
   }, [busyAction, refresh])
 
+  const executeModule = useCallback(async (service, action) => {
+    if (!service?.key || !action || busyAction) return
+    const label = `${action === 'reset' ? 'Restart' : action[0].toUpperCase() + action.slice(1)} ${service.name}`
+    const busyKey = `${service.key}:${action}`
+    setBusyAction(busyKey)
+    try {
+      const result = await flokiAdapter.controlModule(service.key, action)
+      if (result?.ok === true) toast.success(result.message || `${label} accepted`)
+      else toast.error(`${label} failed${result?.error ? `: ${result.error}` : ''}`)
+      await refresh()
+    } catch (error) {
+      toast.error(`${label} failed: ${error.message}`)
+    } finally {
+      setBusyAction(null)
+    }
+  }, [busyAction, refresh])
+
+  const handleStart = useCallback((service) => {
+    executeModule(service, 'start')
+  }, [executeModule])
+
+  const handleStop = useCallback((service) => {
+    executeModule(service, 'stop')
+  }, [executeModule])
+
   const handleRestart = useCallback((service) => {
-    execute(service.controlAction, `Restart ${service.name}`)
-  }, [execute])
+    executeModule(service, 'reset')
+  }, [executeModule])
 
   const handleViewLogs = useCallback(async (service) => {
     try {
@@ -102,6 +126,8 @@ export default function SystemDashboard({ onNavigate }) {
             <ServiceCard
               key={service.name}
               service={service}
+              onStart={handleStart}
+              onStop={handleStop}
               onRestart={handleRestart}
               onViewLogs={handleViewLogs}
             />

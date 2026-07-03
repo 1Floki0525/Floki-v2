@@ -95,7 +95,7 @@ const INTERFACE_TAB_CONTRACT = Object.freeze({
   dreams: Object.freeze({ reads: Object.freeze(['dreamTimeline', 'sleep']), writes: Object.freeze(['requestSleep', 'wake']), live_events: Object.freeze(['status.update', 'inner-stream.entry']) }),
   neural: Object.freeze({ reads: Object.freeze(['neuralEvents']), writes: Object.freeze([]), live_events: Object.freeze(['inner-stream.entry']) }),
   rsi_lab: Object.freeze({ reads: Object.freeze(['selfImprovementStatus', 'selfImprovementCandidates', 'selfImprovementActivity']), writes: Object.freeze(['runSelfImprovementNow', 'pauseSelfImprovement', 'resumeSelfImprovement', 'approveSelfImprovement', 'denySelfImprovement']), live_events: Object.freeze(['status.update']) }),
-  system: Object.freeze({ reads: Object.freeze(['services', 'visionFrame', 'visionObservation', 'emotion', 'affectHistory', 'sleep', 'logPath']), writes: Object.freeze(['startChat', 'stopChat', 'restartChat', 'wake', 'requestSleep', 'pauseSleep', 'resumeSleep', 'restartVision', 'restartHearing', 'restartSpeech', 'interrupt', 'pushToTalk']), live_events: Object.freeze(['status.update']) }),
+  system: Object.freeze({ reads: Object.freeze(['services', 'visionFrame', 'visionObservation', 'emotion', 'affectHistory', 'sleep', 'logPath']), writes: Object.freeze(['startChat', 'stopChat', 'restartChat', 'wake', 'requestSleep', 'pauseSleep', 'resumeSleep', 'restartVision', 'restartHearing', 'restartSpeech', 'controlModule', 'interrupt', 'pushToTalk']), live_events: Object.freeze(['status.update']) }),
   settings: Object.freeze({ reads: Object.freeze(['settings']), writes: Object.freeze(['updateSettings', 'resetSettings', 'importSettings']), live_events: Object.freeze(['status.update']) })
 });
 
@@ -394,8 +394,11 @@ function createChatLocalInterfaceApi(options = {}) {
 
     const modules = getAllModuleConfigs();
     const rows = modules.map((module) => {
-      const heartbeat = module.heartbeat_file ? safeFileTime(module.heartbeat_file) : Date.now();
-      const uptime = module.uptime_file ? uptimeFromFile(module.uptime_file) : 0;
+      const app = module.client_app_status || null;
+      const heartbeat = app && app.last_heartbeat_at
+        ? Date.parse(app.last_heartbeat_at)
+        : module.heartbeat_file ? safeFileTime(module.heartbeat_file) : Date.now();
+      const uptime = app ? app.session_uptime_ms : module.uptime_file ? uptimeFromFile(module.uptime_file) : 0;
       const detail = buildModuleDetail(module.key, current, lifecycle, module);
       const dependencyWarning = buildDependencyWarning(module.key, modules, module.status);
 
@@ -407,7 +410,8 @@ function createChatLocalInterfaceApi(options = {}) {
         startAvailable: true,
         stopAvailable: true,
         resetAvailable: true,
-        logAvailable: true,
+        restartAvailable: true,
+        logAvailable: module.log_available === true,
         logKey: module.log_key,
         requiresConfirmation: module.requires_confirmation,
         dependencyWarning,
@@ -415,7 +419,15 @@ function createChatLocalInterfaceApi(options = {}) {
         uptime,
         latency: 0,
         detail,
-        lastError: null
+        lastError: app ? app.last_reported_error : null,
+        clientApp: module.client_app === true,
+        enabled: app ? app.enabled : module.status !== 'stopped',
+        connectedClientCount: app ? app.connected_client_count : null,
+        healthyClientCount: app ? app.healthy_client_count : null,
+        connectedSince: app ? app.connected_since : null,
+        transportType: app ? app.transport_type : null,
+        controlGeneration: app ? app.control_generation : null,
+        staleClientCount: app ? app.stale_client_count : null
       });
     });
 
@@ -485,6 +497,16 @@ function createChatLocalInterfaceApi(options = {}) {
         return 'All interface tabs use this single chat.local backend.';
       case 'live_event_stream':
         return 'Transcript, inner experience, status, sleep, and sensory updates are delivered from the authoritative runtime.';
+      case 'web_app':
+      case 'mobile_app': {
+        const app = module.client_app_status || {};
+        const connected = Number(app.connected_client_count || 0);
+        const healthy = Number(app.healthy_client_count || 0);
+        const transport = app.transport_type || 'none';
+        const generation = Number(app.control_generation || 1);
+        const enabled = app.enabled === true ? 'enabled' : 'disabled';
+        return `${module.name} connection service is ${enabled}; ${healthy}/${connected} healthy clients over ${transport}; generation ${generation}.`;
+      }
       case 'rsi':
         return 'Recursive self-improvement worker and sandbox lifecycle.';
       default:
@@ -601,6 +623,8 @@ function createChatLocalInterfaceApi(options = {}) {
       dream_engine: path.join(runtimeDir, 'sleep-cycle-scheduler.log'),
       authoritative_api: path.join(runtimeDir, 'chat-local-runtime.log'),
       live_event_stream: path.join(runtimeDir, 'chat-local-runtime.log'),
+      web_app: null,
+      mobile_app: null,
       rsi: selfImprovementWorkerLog() || selfImprovementSandboxLog()
     };
     const displayMap = Object.fromEntries(

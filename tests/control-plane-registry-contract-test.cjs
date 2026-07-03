@@ -17,6 +17,7 @@ const {
   DEPENDENCIES,
   SUPERVISED_MODULES,
   IN_PROCESS_MODULES,
+  classifyRsiModuleStatus,
   getModuleConfig,
   isKnownModule,
   getRegistryMetadata
@@ -24,7 +25,7 @@ const {
 const { createChatLocalInterfaceApi } = require('../src/runtime/chat-local-interface-api.cjs');
 
 function run() {
-  // 1. Keys are exactly the 12 visible modules.
+  // 1. Keys are exactly the 14 visible modules.
   assert.deepEqual(MODULE_KEYS, [
     'floki_core',
     'cognition',
@@ -37,6 +38,8 @@ function run() {
     'dream_engine',
     'authoritative_api',
     'live_event_stream',
+    'web_app',
+    'mobile_app',
     'rsi'
   ]);
 
@@ -52,8 +55,16 @@ function run() {
     assert.equal(typeof config.health, 'object');
     assert.ok(Array.isArray(config.dependencies));
     assert.equal(typeof config.log_source, 'object');
-    assert.equal(typeof config.log_key, 'string');
-    assert.ok(config.log_key.length > 0, 'logKey must be non-empty');
+    assert.equal(typeof config.client_app, 'boolean');
+    assert.equal(typeof config.log_available, 'boolean');
+    if (config.client_app) {
+      assert.equal(config.log_key, null);
+      assert.equal(config.log_available, false);
+    } else {
+      assert.equal(typeof config.log_key, 'string');
+      assert.ok(config.log_key.length > 0, 'logKey must be non-empty');
+      assert.equal(config.log_available, true);
+    }
     assert.equal(typeof config.timeout_ms, 'number');
     assert.equal(typeof config.requires_confirmation, 'boolean');
     assert.equal(typeof config.preserve_runtime_pid, 'boolean');
@@ -64,7 +75,7 @@ function run() {
   // 3. All cards returned by buildServices satisfy the new public contract.
   const interfaceApi = createChatLocalInterfaceApi({ runtime_dir: undefined });
   const cards = interfaceApi.buildServices();
-  assert.equal(cards.length, 12);
+  assert.equal(cards.length, 14);
   for (const card of cards) {
     assert.equal(typeof card.key, 'string');
     assert.equal(typeof card.name, 'string');
@@ -73,8 +84,18 @@ function run() {
     assert.equal(card.startAvailable, true);
     assert.equal(card.stopAvailable, true);
     assert.equal(card.resetAvailable, true);
-    assert.equal(card.logAvailable, true);
-    assert.ok(card.logKey.length > 0, 'logKey must be non-empty');
+    assert.equal(typeof card.clientApp, 'boolean');
+    if (card.clientApp) {
+      assert.equal(card.logAvailable, false);
+      assert.equal(card.logKey, null);
+      assert.equal(typeof card.enabled, 'boolean');
+      assert.equal(typeof card.connectedClientCount, 'number');
+      assert.equal(typeof card.healthyClientCount, 'number');
+      assert.equal(typeof card.controlGeneration, 'number');
+    } else {
+      assert.equal(card.logAvailable, true);
+      assert.ok(card.logKey.length > 0, 'logKey must be non-empty');
+    }
     assert.equal(typeof card.requiresConfirmation, 'boolean');
     assert.equal(typeof card.dependencyWarning, 'string');
     assert.equal(typeof card.lastHeartbeat, 'number');
@@ -83,6 +104,69 @@ function run() {
     assert.equal(typeof card.detail, 'string');
     assert.equal(typeof card.lastError, 'object');
   }
+
+  const now = Date.parse('2026-07-02T18:00:00.000Z');
+  const rsiConfig = { worker_heartbeat_stale_ms: 30000 };
+  const rsiStatusSource = getModuleConfig('rsi').status_source;
+  const liveIdleWorker = {
+    rsiConfig,
+    now,
+    rsiPidAlive: true,
+    rsiStatus: {
+      enabled: true,
+      worker_running: true,
+      worker_pid: 1234,
+      worker_alive_at: '2026-07-02T17:59:50.000Z',
+      current_run_id: null,
+      current_container: null,
+      state: 'waiting_for_idle',
+      last_error: null
+    }
+  };
+  assert.equal(classifyRsiModuleStatus(liveIdleWorker), 'running');
+  assert.equal(rsiStatusSource(liveIdleWorker), 'running');
+  assert.equal(rsiStatusSource({
+    ...liveIdleWorker,
+    rsiStatus: {
+      ...liveIdleWorker.rsiStatus,
+      current_run_id: 'rsi-test',
+      current_container: 'floki-rsi-sandbox',
+      state: 'experimenting'
+    }
+  }), 'running');
+  assert.equal(rsiStatusSource({
+    rsiConfig,
+    now,
+    rsiPidAlive: false,
+    rsiStatus: {
+      enabled: true,
+      worker_running: false,
+      state: 'waiting_for_idle',
+      current_run_id: null,
+      current_container: null,
+      last_error: null
+    }
+  }), 'degraded');
+  assert.equal(rsiStatusSource({
+    rsiConfig,
+    now,
+    rsiPidAlive: false,
+    rsiStatus: { enabled: false, worker_running: false, state: 'disabled' }
+  }), 'stopped');
+  assert.equal(rsiStatusSource({
+    ...liveIdleWorker,
+    rsiStatus: {
+      ...liveIdleWorker.rsiStatus,
+      worker_alive_at: '2026-07-02T17:00:00.000Z'
+    }
+  }), 'degraded');
+  assert.equal(rsiStatusSource({
+    ...liveIdleWorker,
+    rsiStatus: {
+      ...liveIdleWorker.rsiStatus,
+      last_error: 'worker heartbeat unreadable'
+    }
+  }), 'degraded');
 
   // 4. No module accepts shell/executable/path/argument/env input from clients.
   for (const key of MODULE_KEYS) {
@@ -114,6 +198,10 @@ function run() {
   const logKeys = new Set();
   for (const key of MODULE_KEYS) {
     const logKey = LOG_KEYS[key];
+    if (key === 'web_app' || key === 'mobile_app') {
+      assert.equal(logKey, null);
+      continue;
+    }
     assert.ok(logKey, 'log key missing for ' + key);
     assert.equal(logKeys.has(logKey), false, 'duplicate log key: ' + logKey);
     logKeys.add(logKey);
@@ -126,7 +214,7 @@ function run() {
     assert.equal(config.requires_confirmation, expected, key + ' confirmation requirement mismatch');
   }
 
-  // 8. Supervised / in-process partition covers all 12 modules without overlap.
+  // 8. Supervised / in-process partition covers all 14 modules without overlap.
   for (const key of MODULE_KEYS) {
     const config = getModuleConfig(key);
     assert.equal(config.supervised || config.in_process, true, key + ' must be supervised or in-process');
@@ -146,20 +234,28 @@ function run() {
     'hearing',
     'live_event_stream',
     'memory',
-    'speech'
+    'mobile_app',
+    'speech',
+    'web_app'
   ]);
+  assert.equal(getModuleConfig('web_app').client_app, true);
+  assert.equal(getModuleConfig('mobile_app').client_app, true);
+  for (const key of MODULE_KEYS) {
+    if (key === 'web_app' || key === 'mobile_app') continue;
+    assert.equal(getModuleConfig(key).client_app, false, key + ' must not be a client-app module');
+  }
 
   // 9. Registry metadata is immutable-ish (frozen) and complete.
   const meta = getRegistryMetadata();
   assert.equal(meta.schema_version, 'floki-v2-module-registry-v1');
-  assert.equal(meta.keys.length, 12);
-  assert.equal(meta.modules.length, 12);
+  assert.equal(meta.keys.length, 14);
+  assert.equal(meta.modules.length, 14);
   assert.equal(meta.actions.allowed_actions.length, 3);
   assert.equal(meta.supervisor_host, '127.0.0.1');
   assert.equal(typeof meta.supervisor_port, 'number');
   assert.equal(typeof meta.supervisor_public_key_path, 'string');
 
-  // 10. isKnownModule allowlists only the 12 keys.
+  // 10. isKnownModule allowlists only the 14 keys.
   for (const key of MODULE_KEYS) {
     assert.equal(isKnownModule(key), true);
   }

@@ -181,8 +181,15 @@ async function run() {
     });
   });
 
+  const awakeLifecycle = () => Object.freeze({
+    state: 'awake',
+    is_awake: true,
+    is_asleep: false,
+    is_dreaming: false,
+    sleep_cycle_scheduler_note: 'test lifecycle provider is awake'
+  });
   const { createChatLocalRuntime } = require('../src/runtime/chat-local-runtime.cjs');
-  const runtime = createChatLocalRuntime({ port: runtimePort });
+  const runtime = createChatLocalRuntime({ port: runtimePort, lifecycle_status_provider: awakeLifecycle });
   await runtime.start();
 
   try {
@@ -191,15 +198,15 @@ async function run() {
     assert.equal(registry.status, 200);
     assert.equal(registry.json.ok, true);
     assert.ok(registry.json.registry);
-    assert.equal(registry.json.registry.keys.length, 12);
-    assert.equal(registry.json.registry.modules.length, 12);
+    assert.equal(registry.json.registry.keys.length, 14);
+    assert.equal(registry.json.registry.modules.length, 14);
     assert.equal(registry.json.registry.actions.allowed_actions.length, 3);
 
     const services = await httpRequest(runtimePort, '/interface/services');
     assert.equal(services.status, 200);
     assert.equal(Array.isArray(services.json), true);
-    assert.equal(services.json.length, 12);
-    assert.equal(registry.json.cards.length, 12);
+    assert.equal(services.json.length, 14);
+    assert.equal(registry.json.cards.length, 14);
     const controlCards = new Map(registry.json.cards.map((card) => [card.key, card]));
     for (const service of services.json) {
       const controlCard = controlCards.get(service.key);
@@ -215,6 +222,21 @@ async function run() {
       assert.equal(controlCard.status, service.status);
       assert.equal(controlCard.lifecycleState, service.lifecycleState);
       assert.equal(controlCard.logKey, service.logKey);
+    }
+    for (const key of ['web_app', 'mobile_app']) {
+      const card = controlCards.get(key);
+      assert.ok(card, key + ' card must exist');
+      assert.equal(card.clientApp, true);
+      assert.equal(card.startAvailable, true);
+      assert.equal(card.stopAvailable, true);
+      assert.equal(card.resetAvailable, true);
+      assert.equal(card.logAvailable, false);
+      assert.equal(card.logKey, null);
+    }
+    for (const [key, card] of controlCards) {
+      if (key === 'web_app' || key === 'mobile_app') continue;
+      assert.equal(card.clientApp, false, key + ' must not be a client-app card');
+      assert.equal(card.logAvailable, true, key + ' must keep backend logs');
     }
 
     // 2. Cognition has a real in-process Stop -> blocked chat -> Start -> Reset lifecycle.
@@ -270,7 +292,7 @@ async function run() {
     assert.equal(cognitionReset.json.health.runtime_pid_preserved, true);
     assert.equal(cognitionReset.json.health.cognition_enabled, true);
 
-    // 2b. Hearing controls the real live-audio gate without bypassing client/sleep gates.
+    // 2b. Hearing controls the real live-audio gate while client presence remains telemetry-only.
     const hearingStop = await httpRequest(runtimePort, '/control/modules/hearing/stop', {
       method: 'POST',
       body: JSON.stringify({ reason: 'test' })
@@ -294,9 +316,11 @@ async function run() {
     assert.equal(hearingStart.json.action, 'start');
     assert.equal(hearingStart.json.health.runtime_pid_preserved, true);
     assert.equal(hearingStart.json.health.hearing_enabled, true);
-    assert.equal(hearingStart.json.health.activation_required, false);
-    assert.equal(hearingStart.json.health.microphone_open, false);
-    assert.equal(hearingStart.json.status, 'stopped');
+    assert.equal(hearingStart.json.health.client_ready, false);
+    assert.equal(hearingStart.json.health.client_presence_is_telemetry_only, true);
+    assert.equal(hearingStart.json.health.activation_required, true);
+    assert.equal(hearingStart.json.health.microphone_open, true);
+    assert.equal(hearingStart.json.status, 'running');
 
     const hearingReset = await httpRequest(runtimePort, '/control/modules/hearing/reset', {
       method: 'POST',
@@ -309,9 +333,11 @@ async function run() {
     assert.equal(hearingReset.json.changed, true);
     assert.equal(hearingReset.json.health.runtime_pid_preserved, true);
     assert.equal(hearingReset.json.health.hearing_enabled, true);
-    assert.equal(hearingReset.json.health.activation_required, false);
-    assert.equal(hearingReset.json.health.microphone_open, false);
-    assert.equal(hearingReset.json.status, 'stopped');
+    assert.equal(hearingReset.json.health.client_ready, false);
+    assert.equal(hearingReset.json.health.client_presence_is_telemetry_only, true);
+    assert.equal(hearingReset.json.health.activation_required, true);
+    assert.equal(hearingReset.json.health.microphone_open, true);
+    assert.equal(hearingReset.json.status, 'running');
 
     // 3. Supervised module lifecycle delegates to the mock supervisor.
     const visionStop = await httpRequest(runtimePort, '/control/modules/vision/stop', {
@@ -572,6 +598,98 @@ async function run() {
     assert.equal(dreamReset.json.health.control_persisted, true);
     assert.equal(dreamReset.json.status, 'running');
     assert.ok(dreamReset.json.generation > dreamStart.json.generation);
+
+    // 7f. Client-app modules control backend-owned connection service state.
+    const webHeartbeat = await httpRequest(runtimePort, '/interface/client-app/heartbeat', {
+      method: 'POST',
+      body: JSON.stringify({
+        app_key: 'web_app',
+        client_id: 'web-app-lifecycle-1',
+        session_id: 'web-app-session-1',
+        transport_type: 'http-web',
+        healthy: true
+      })
+    });
+    assert.equal(webHeartbeat.status, 200);
+    assert.equal(webHeartbeat.json.status, 'running');
+
+    const mobileHeartbeat = await httpRequest(runtimePort, '/interface/client-app/heartbeat', {
+      method: 'POST',
+      body: JSON.stringify({
+        app_key: 'mobile_app',
+        client_id: 'mobile-app-lifecycle-1',
+        session_id: 'mobile-app-session-1',
+        transport_type: 'android-http',
+        healthy: true
+      })
+    });
+    assert.equal(mobileHeartbeat.status, 200);
+    assert.equal(mobileHeartbeat.json.status, 'running');
+
+    const webStop = await httpRequest(runtimePort, '/control/modules/web_app/stop', {
+      method: 'POST',
+      body: JSON.stringify({ reason: 'test' })
+    });
+    assert.equal(webStop.status, 200);
+    assert.equal(webStop.json.ok, true);
+    assert.equal(webStop.json.module, 'web_app');
+    assert.equal(webStop.json.action, 'stop');
+    assert.equal(webStop.json.health.runtime_pid_preserved, true);
+    assert.equal(webStop.json.health.client_app, true);
+    assert.equal(webStop.json.health.enabled, false);
+    assert.equal(webStop.json.health.recovery_heartbeat_path_available, true);
+    assert.equal(webStop.json.status, 'stopped');
+
+    const webRecoveryHeartbeat = await httpRequest(runtimePort, '/interface/client-app/heartbeat', {
+      method: 'POST',
+      body: JSON.stringify({
+        app_key: 'web_app',
+        client_id: 'web-app-lifecycle-1',
+        session_id: 'web-app-session-1',
+        transport_type: 'http-web',
+        healthy: true
+      })
+    });
+    assert.equal(webRecoveryHeartbeat.status, 200);
+    assert.equal(webRecoveryHeartbeat.json.status, 'stopped');
+
+    const webStart = await httpRequest(runtimePort, '/control/modules/web_app/start', {
+      method: 'POST',
+      body: JSON.stringify({ reason: 'test' })
+    });
+    assert.equal(webStart.status, 200);
+    assert.equal(webStart.json.ok, true);
+    assert.equal(webStart.json.status, 'running');
+    assert.equal(webStart.json.health.enabled, true);
+    assert.equal(webStart.json.health.healthy_client_count, 1);
+
+    const beforeMobile = (await httpRequest(runtimePort, '/interface/services')).json.find((card) => card.key === 'mobile_app');
+    const mobileReset = await httpRequest(runtimePort, '/control/modules/mobile_app/reset', {
+      method: 'POST',
+      body: JSON.stringify({ reason: 'test' })
+    });
+    assert.equal(mobileReset.status, 200);
+    assert.equal(mobileReset.json.ok, true);
+    assert.equal(mobileReset.json.module, 'mobile_app');
+    assert.equal(mobileReset.json.action, 'reset');
+    assert.equal(mobileReset.json.health.runtime_pid_preserved, true);
+    assert.equal(mobileReset.json.health.enabled, true);
+    assert.equal(mobileReset.json.health.healthy_client_count, 0);
+    assert.equal(mobileReset.json.status, 'degraded');
+    assert.ok(mobileReset.json.generation > beforeMobile.controlGeneration);
+
+    const freshMobileHeartbeat = await httpRequest(runtimePort, '/interface/client-app/heartbeat', {
+      method: 'POST',
+      body: JSON.stringify({
+        app_key: 'mobile_app',
+        client_id: 'mobile-app-lifecycle-2',
+        session_id: 'mobile-app-session-2',
+        transport_type: 'android-http',
+        healthy: true
+      })
+    });
+    assert.equal(freshMobileHeartbeat.status, 200);
+    assert.equal(freshMobileHeartbeat.json.status, 'running');
 
     // 8. The response shape for supervisor delegation matches the in-process shape.
     assert.equal(typeof visionStop.json.changed, 'boolean');

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.floki.neural.data.FlokiBackend
+import com.floki.neural.data.FlokiAudioRecorder
 import com.floki.neural.data.ProfileStore
 import com.floki.neural.data.ServerProfile
 import com.floki.neural.data.booleanOrNull
@@ -23,8 +24,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
-
-private const val RSI_ACTIVITY_LIMIT = 3_000
 
 data class ChatMessage(
     val id: String,
@@ -50,10 +49,21 @@ data class NeuralItem(
 )
 
 data class ServiceItem(
+    val key: String,
     val name: String,
     val status: String,
+    val lifecycleState: String,
     val detail: String,
-    val lastError: String?
+    val lastError: String?,
+    val clientApp: Boolean = false,
+    val enabled: Boolean = true,
+    val startAvailable: Boolean = false,
+    val stopAvailable: Boolean = false,
+    val resetAvailable: Boolean = false,
+    val connectedClientCount: Int? = null,
+    val healthyClientCount: Int? = null,
+    val transportType: String? = null,
+    val controlGeneration: Long? = null
 )
 
 data class CandidateItem(
@@ -63,14 +73,6 @@ data class CandidateItem(
     val riskLevel: String,
     val summary: String,
     val createdAt: Long
-)
-
-data class RsiActivityItem(
-    val id: String,
-    val source: String,
-    val type: String,
-    val text: String,
-    val timestamp: Long
 )
 
 data class RuntimeSnapshot(
@@ -120,31 +122,40 @@ data class FlokiUiState(
     val neural: List<NeuralItem> = emptyList(),
     val services: List<ServiceItem> = emptyList(),
     val candidates: List<CandidateItem> = emptyList(),
-    val rsiActivity: List<RsiActivityItem> = emptyList(),
+    val rsiTerminalText: String = "",
+    val rsiTerminalGeneration: Long = 0,
+    val rsiTerminalActive: Boolean = false,
     val rsiTerminalError: String? = null,
     val visionFrameBytes: ByteArray? = null,
     val visionFrameGeneration: Int = 0,
+    val recording: Boolean = false,
+    val hasAudioPermission: Boolean = false,
     val message: String? = null,
     val error: String? = null
 )
 
 class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     private val profileStore = ProfileStore(application.applicationContext)
+    private val audioRecorder = FlokiAudioRecorder()
     private var profile = profileStore.load()
     private var backend = FlokiBackend(profile)
     private var socket: WebSocket? = null
     private var pollingJob: Job? = null
-    private var activityPollingJob: Job? = null
+    private var heartbeatJob: Job? = null
+    private var terminalPollingJob: Job? = null
     private var visionPollingJob: Job? = null
     private var reconnectJob: Job? = null
+    private var voiceJob: Job? = null
     private var transportGeneration = 0
+    private val mobileClientId = profileStore.loadOrCreateMobileClientId()
+    private var normalMobileTransportEnabled = true
+    private var observedMobileGeneration: Long? = null
 
-    private var auditCursor = 0L
-    private var sandboxCursor = 0L
-    private var sandboxLogFile: String? = null
+    private var terminalCursor = 0L
+    private var terminalGeneration = 0L
 
     private val refreshInProgress = AtomicBoolean(false)
-    private val activityRefreshInProgress = AtomicBoolean(false)
+    private val terminalRefreshInProgress = AtomicBoolean(false)
 
     private val _state = MutableStateFlow(FlokiUiState(profile = profile))
     val state: StateFlow<FlokiUiState> = _state.asStateFlow()
@@ -152,15 +163,16 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     init {
         restartTransport()
         refresh()
-        refreshRsiActivity(reset = true)
+        refreshRsiTerminal(reset = true)
     }
 
     fun saveProfile(
         host: String,
         portText: String,
         pollText: String,
-        token: String,
-        useTls: Boolean
+        sessionCredential: String,
+        useTls: Boolean,
+        developerMode: Boolean
     ) {
         val cleanHost = host.trim()
             .removePrefix("https://")
@@ -172,6 +184,9 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         when {
             cleanHost.isBlank() -> setError("Server host cannot be empty")
             cleanHost.contains('/') -> setError("Server host must not include a path")
+            !developerMode && cleanHost.isLoopbackHost() -> setError(
+                "Loopback profiles require Developer local profile"
+            )
             port == null || port !in 1..65535 -> setError("Port must be between 1 and 65535")
             poll == null || poll !in 1_000L..60_000L -> setError(
                 "Poll interval must be between 1000 and 60000 ms"
@@ -181,10 +196,12 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
                     host = cleanHost,
                     port = port,
                     pollIntervalMs = poll,
-                    rsiApprovalToken = token.trim(),
-                    useTls = useTls
+                    sessionCredential = sessionCredential.trim(),
+                    useTls = useTls,
+                    developerMode = developerMode
                 )
                 profileStore.save(profile)
+                profile = profileStore.load()
                 _state.update {
                     it.copy(
                         profile = profile,
@@ -194,7 +211,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 restartTransport()
                 refresh()
-                refreshRsiActivity(reset = true)
+                refreshRsiTerminal(reset = true)
             }
         }
     }
@@ -206,25 +223,33 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val status = backend.getObject("/interface/status")
                 val servicesResult = runCatching { backend.getArray("/interface/services") }
+                val services = servicesResult.getOrNull()?.let(::parseServices)
+                services?.firstOrNull { it.key == MOBILE_APP_KEY }?.let(::applyMobileServiceControl)
+                val normalTraffic = normalMobileTransportEnabled
                 val transcriptResult = runCatching {
-                    backend.getArray("/interface/transcript?limit=200")
+                    if (normalTraffic) backend.getArray("/interface/transcript?limit=200") else JSONArray()
                 }
-                val dreamsResult = runCatching { backend.getObject("/interface/dreams") }
+                val dreamsResult = runCatching {
+                    if (normalTraffic) backend.getObject("/interface/dreams") else JSONObject()
+                }
                 val neuralResult = runCatching {
-                    backend.getArray("/interface/neural?limit=250")
+                    if (normalTraffic) backend.getArray("/interface/neural?limit=250") else JSONArray()
                 }
-                val sleepResult = runCatching { backend.getObject("/interface/sleep") }
-                val rsiResult = runCatching { backend.getObject("/self-improvement/status") }
+                val sleepResult = runCatching {
+                    if (normalTraffic) backend.getObject("/interface/sleep") else JSONObject()
+                }
+                val rsiResult = runCatching {
+                    if (normalTraffic) backend.getObject("/self-improvement/status") else JSONObject()
+                }
                 val candidatesResult = runCatching {
-                    backend.getObject("/self-improvement/candidates")
+                    if (normalTraffic) backend.getObject("/self-improvement/candidates") else JSONObject()
                 }
 
                 _state.update { current ->
                     current.copy(
                         connected = true,
                         runtime = parseRuntime(status),
-                        services = servicesResult.getOrNull()?.let(::parseServices)
-                            ?: current.services,
+                        services = services ?: current.services,
                         chat = transcriptResult.getOrNull()?.let(::parseChat)
                             ?: current.chat,
                         dreams = dreamsResult.getOrNull()?.let(::parseDreams)
@@ -255,48 +280,53 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun refreshRsiActivity(reset: Boolean = false) {
+    fun refreshRsiTerminal(reset: Boolean = false) {
+        if (!normalMobileTransportEnabled) return
         if (reset) {
-            auditCursor = 0L
-            sandboxCursor = 0L
-            sandboxLogFile = null
-            _state.update { it.copy(rsiActivity = emptyList(), rsiTerminalError = null) }
+            terminalCursor = 0L
+            terminalGeneration = 0L
+            _state.update { it.copy(rsiTerminalText = "", rsiTerminalError = null) }
         }
-        if (!activityRefreshInProgress.compareAndSet(false, true)) return
+        if (!terminalRefreshInProgress.compareAndSet(false, true)) return
 
         viewModelScope.launch {
             try {
                 val result = backend.getObject(
-                    "/self-improvement/activity" +
-                        "?audit_cursor=$auditCursor" +
-                        "&sandbox_cursor=$sandboxCursor" +
-                        "&limit=200"
+                    "/self-improvement/terminal" +
+                        "?cursor=$terminalCursor" +
+                        "&max_bytes=65536"
                 )
                 if (result.booleanOrNull("ok") == false) {
                     throw IllegalStateException(
-                        result.stringOrNull("error") ?: "RSI activity request failed"
+                        result.stringOrNull("error") ?: "RSI terminal request failed"
                     )
                 }
 
-                val nextSandboxFile = result.stringOrNull("sandbox_log_file")
-                val newRunStarted = sandboxLogFile != null &&
-                    nextSandboxFile != null &&
-                    nextSandboxFile != sandboxLogFile
+                val nextGeneration = result.longOrNull("generation") ?: 0L
+                val nextCursor = result.longOrNull("next_cursor") ?: terminalCursor
+                val incoming = result.stringOrNull("text") ?: ""
 
-                sandboxLogFile = nextSandboxFile
-                auditCursor = result.longOrNull("next_audit_cursor") ?: auditCursor
-                sandboxCursor = result.longOrNull("next_sandbox_cursor") ?: sandboxCursor
-
-                val incoming = parseRsiActivity(result.optJSONArray("events") ?: JSONArray())
                 _state.update { current ->
-                    val base = if (newRunStarted) emptyList() else current.rsiActivity
-                    val merged = (base + incoming)
-                        .distinctBy { it.id }
-                        .takeLast(RSI_ACTIVITY_LIMIT)
-                    current.copy(
-                        rsiActivity = merged,
-                        rsiTerminalError = null
-                    )
+                    if (nextGeneration != terminalGeneration && terminalGeneration != 0L) {
+                        // New run or file generation; reset
+                        terminalCursor = nextCursor
+                        terminalGeneration = nextGeneration
+                        current.copy(
+                            rsiTerminalText = incoming,
+                            rsiTerminalGeneration = nextGeneration,
+                            rsiTerminalActive = result.booleanOrNull("active") == true,
+                            rsiTerminalError = null
+                        )
+                    } else {
+                        terminalCursor = nextCursor
+                        terminalGeneration = nextGeneration
+                        current.copy(
+                            rsiTerminalText = current.rsiTerminalText + incoming,
+                            rsiTerminalGeneration = nextGeneration,
+                            rsiTerminalActive = result.booleanOrNull("active") == true,
+                            rsiTerminalError = null
+                        )
+                    }
                 }
             } catch (error: Exception) {
                 _state.update {
@@ -305,7 +335,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             } finally {
-                activityRefreshInProgress.set(false)
+                terminalRefreshInProgress.set(false)
             }
         }
     }
@@ -315,6 +345,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshVisionFrame() {
+        if (!normalMobileTransportEnabled) return
         viewModelScope.launch {
             try {
                 val bytes = backend.getBytes("/interface/vision/frame/latest.jpg")
@@ -330,11 +361,118 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendChat(text: String) {
+        if (!normalMobileTransportEnabled) {
+            setError("Mobile App service is stopped; start it from System to resume chat.")
+            return
+        }
         val value = text.trim()
         if (value.isBlank()) return
         runAction("chat") {
             backend.post("/chat", JSONObject().put("text", value))
             "Message sent"
+        }
+    }
+
+    fun updateAudioPermission(granted: Boolean) {
+        _state.update { it.copy(hasAudioPermission = granted) }
+    }
+
+    fun sendVoice() {
+        if (!normalMobileTransportEnabled) {
+            setError("Mobile App service is stopped; start it from System to resume voice.")
+            return
+        }
+        if (!_state.value.hasAudioPermission) {
+            setError("Microphone permission is required for voice input")
+            return
+        }
+        if (voiceJob?.isActive == true) return
+
+        voiceJob = viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    recording = true,
+                    busyAction = "voice",
+                    message = null,
+                    error = null
+                )
+            }
+            try {
+                val wavBytes = audioRecorder.recordWav()
+                val response = backend.postAudio("/audio/remote-utterance", wavBytes)
+                if (response.booleanOrNull("ok") == false) {
+                    throw IllegalStateException(
+                        response.stringOrNull("error") ?: "Remote voice request failed"
+                    )
+                }
+
+                val transcription = response.optJSONObject("transcription")
+                    ?.stringOrNull("text")
+                    .orEmpty()
+                val reply = response.stringOrNull("reply").orEmpty()
+                val replyAudioBase64 = response.optJSONObject("reply_audio")
+                    ?.stringOrNull("base64")
+                    .orEmpty()
+
+                if (replyAudioBase64.isNotBlank()) {
+                    val replyAudio = android.util.Base64.decode(
+                        replyAudioBase64,
+                        android.util.Base64.DEFAULT
+                    )
+                    audioRecorder.playWav(replyAudio)
+                }
+
+                val completionMessage = when {
+                    reply.isNotBlank() && transcription.isNotBlank() ->
+                        "Heard: " + transcription + " | Floki: " + reply
+                    reply.isNotBlank() -> reply
+                    transcription.isNotBlank() -> "Heard: " + transcription
+                    else -> "Voice request completed"
+                }
+
+                _state.update {
+                    it.copy(
+                        recording = false,
+                        busyAction = null,
+                        message = completionMessage,
+                        error = null
+                    )
+                }
+                refresh()
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                _state.update {
+                    it.copy(
+                        recording = false,
+                        busyAction = null,
+                        message = "Voice recording cancelled"
+                    )
+                }
+                throw error
+            } catch (error: Exception) {
+                _state.update {
+                    it.copy(
+                        recording = false,
+                        busyAction = null,
+                        error = error.message ?: "Voice request failed"
+                    )
+                }
+            } finally {
+                voiceJob = null
+            }
+        }
+    }
+
+    fun startVoiceRecording() = sendVoice()
+
+    fun stopVoiceRecording() {
+        voiceJob?.cancel()
+        voiceJob = null
+        _state.update {
+            it.copy(
+                recording = false,
+                busyAction = null,
+                message = "Voice recording cancelled"
+            )
         }
     }
 
@@ -345,22 +483,42 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun controlModule(moduleKey: String, action: String) {
+        val cleanModule = moduleKey.trim()
+        val cleanAction = if (action == "restart") "reset" else action.trim()
+        if (!MODULE_ACTIONS.contains(cleanAction)) {
+            setError("Unknown module action")
+            return
+        }
+        if (cleanModule.isBlank()) {
+            setError("Unknown module")
+            return
+        }
+        runAction("$cleanModule:$cleanAction") {
+            val response = backend.post("/control/modules/$cleanModule/$cleanAction")
+            if (cleanModule == MOBILE_APP_KEY && cleanAction in setOf("start", "reset")) {
+                normalMobileTransportEnabled = true
+                sendMobileHeartbeat()
+                restartTransport()
+            }
+            response.stringOrNull("message") ?: "$cleanModule $cleanAction accepted"
+        }
+    }
+
     fun requestNap() = control("requestSleep")
     fun wake() = control("wake")
 
     fun approveCandidate(id: String) {
-        val token = requireRsiToken() ?: return
         runAction("approve") {
             val response = backend.post(
                 "/self-improvement/approve",
-                JSONObject().put("id", id).put("token", token)
+                JSONObject().put("id", id)
             )
             response.stringOrNull("message") ?: "Candidate approval accepted"
         }
     }
 
     fun denyCandidate(id: String, reason: String) {
-        val token = requireRsiToken() ?: return
         val cleanReason = reason.trim()
         if (cleanReason.isBlank()) {
             setError("A denial reason is required")
@@ -371,19 +529,17 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
                 "/self-improvement/deny",
                 JSONObject()
                     .put("id", id)
-                    .put("token", token)
                     .put("reason", cleanReason)
             )
             response.stringOrNull("message") ?: "Candidate denied"
         }
     }
 
-    fun pauseRsi() = tokenAction("pause", "/self-improvement/pause")
-    fun resumeRsi() = tokenAction("resume", "/self-improvement/resume")
+    fun pauseRsi() = authenticatedAction("pause", "/self-improvement/pause")
+    fun resumeRsi() = authenticatedAction("resume", "/self-improvement/resume")
 
     fun runRsi(objective: String) {
-        val token = requireRsiToken() ?: return
-        val body = JSONObject().put("token", token)
+        val body = JSONObject()
         val cleanObjective = objective.trim()
         if (cleanObjective.isNotBlank()) body.put("objective", cleanObjective)
 
@@ -402,23 +558,25 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(message = null, error = null) }
     }
 
-    private fun tokenAction(label: String, path: String) {
-        val token = requireRsiToken() ?: return
+    private fun authenticatedAction(label: String, path: String) {
         runAction(label) {
-            val response = backend.post(path, JSONObject().put("token", token))
+            val response = backend.post(path)
             response.stringOrNull("message") ?: "$label accepted"
         }
     }
 
-    private fun requireRsiToken(): String? {
-        val token = profile.rsiApprovalToken.trim()
-        if (token.isBlank()) {
-            setError(
-                "Add the RSI approval token in Settings before using privileged RSI controls"
+    fun logout() {
+        profile = profile.copy(sessionCredential = "")
+        profileStore.save(profile)
+        profile = profileStore.load()
+        _state.update {
+            it.copy(
+                profile = profile,
+                message = "Session credential cleared",
+                error = null
             )
-            return null
         }
-        return token
+        restartTransport()
     }
 
     private fun runAction(name: String, block: suspend () -> String) {
@@ -430,7 +588,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
                 val message = block()
                 _state.update { it.copy(busyAction = null, message = message) }
                 refresh()
-                refreshRsiActivity()
+                refreshRsiTerminal()
             } catch (error: Exception) {
                 _state.update {
                     it.copy(
@@ -446,32 +604,37 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(error = message, message = null) }
     }
 
+    private fun String.isLoopbackHost(): Boolean =
+        equals("127.0.0.1", ignoreCase = true) ||
+            equals("localhost", ignoreCase = true)
+
     private fun restartTransport() {
         transportGeneration += 1
         val generation = transportGeneration
 
         reconnectJob?.cancel()
         pollingJob?.cancel()
-        activityPollingJob?.cancel()
+        heartbeatJob?.cancel()
+        terminalPollingJob?.cancel()
         visionPollingJob?.cancel()
         socket?.close(1000, "profile changed")
         backend.close()
 
         backend = FlokiBackend(profile)
-        auditCursor = 0L
-        sandboxCursor = 0L
-        sandboxLogFile = null
+        terminalCursor = 0L
+        terminalGeneration = 0L
         _state.update {
             it.copy(
                 profile = profile,
                 connected = false,
                 websocketConnected = false,
-                rsiActivity = emptyList(),
+                rsiTerminalText = "",
                 rsiTerminalError = null
             )
         }
 
-        connectSocket(generation)
+        startMobileHeartbeat(generation)
+        if (normalMobileTransportEnabled) connectSocket(generation)
 
         pollingJob = viewModelScope.launch {
             while (isActive && generation == transportGeneration) {
@@ -480,18 +643,76 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        activityPollingJob = viewModelScope.launch {
-            while (isActive && generation == transportGeneration) {
-                delay(2_000L)
-                refreshRsiActivity()
+        if (normalMobileTransportEnabled) {
+            terminalPollingJob = viewModelScope.launch {
+                while (isActive && generation == transportGeneration) {
+                    delay(2_000L)
+                    refreshRsiTerminal()
+                }
+            }
+
+            visionPollingJob = viewModelScope.launch {
+                while (isActive && generation == transportGeneration) {
+                    delay(500L)
+                    refreshVisionFrame()
+                }
             }
         }
+    }
 
-        visionPollingJob = viewModelScope.launch {
+    private fun startMobileHeartbeat(generation: Int) {
+        heartbeatJob = viewModelScope.launch {
             while (isActive && generation == transportGeneration) {
-                delay(500L)
-                refreshVisionFrame()
+                runCatching { sendMobileHeartbeat() }
+                delay(5_000L)
             }
+        }
+    }
+
+    private suspend fun sendMobileHeartbeat() {
+        backend.post(
+            "/interface/client-app/heartbeat",
+            JSONObject()
+                .put("app_key", MOBILE_APP_KEY)
+                .put("client_id", mobileClientId)
+                .put("session_id", mobileClientId)
+                .put("transport_type", "android-http")
+                .put("healthy", true)
+        )
+    }
+
+    private fun stopNormalMobileTraffic() {
+        reconnectJob?.cancel()
+        terminalPollingJob?.cancel()
+        visionPollingJob?.cancel()
+        voiceJob?.cancel()
+        socket?.close(1000, "mobile_app stopped")
+        socket = null
+        _state.update {
+            it.copy(
+                websocketConnected = false,
+                recording = false,
+                busyAction = null
+            )
+        }
+    }
+
+    private fun applyMobileServiceControl(service: ServiceItem) {
+        val nextGeneration = service.controlGeneration
+        val generationChanged = nextGeneration != null &&
+            observedMobileGeneration != null &&
+            nextGeneration != observedMobileGeneration
+        if (nextGeneration != null) observedMobileGeneration = nextGeneration
+        if (!service.enabled || service.lifecycleState.lowercase() == "stopped") {
+            if (normalMobileTransportEnabled) {
+                normalMobileTransportEnabled = false
+                stopNormalMobileTraffic()
+            }
+            return
+        }
+        if (!normalMobileTransportEnabled || generationChanged) {
+            normalMobileTransportEnabled = true
+            restartTransport()
         }
     }
 
@@ -508,7 +729,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             onMessage = {
                 if (generation == transportGeneration) {
                     refresh()
-                    refreshRsiActivity()
+                    refreshRsiTerminal()
                 }
             },
             onFailure = { message ->
@@ -546,8 +767,10 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         reconnectJob?.cancel()
         pollingJob?.cancel()
-        activityPollingJob?.cancel()
+        heartbeatJob?.cancel()
+        terminalPollingJob?.cancel()
         visionPollingJob?.cancel()
+        voiceJob?.cancel()
         socket?.close(1000, "app closing")
         backend.close()
     }
@@ -568,13 +791,24 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index) ?: continue
             add(
-                ServiceItem(
-                    name = item.stringOrNull("name") ?: "Unknown service",
-                    status = item.stringOrNull("status") ?: "Unknown",
-                    detail = item.stringOrNull("detail") ?: "",
-                    lastError = item.stringOrNull("lastError")
+                    ServiceItem(
+                        key = item.stringOrNull("key") ?: item.stringOrNull("name") ?: "unknown",
+                        name = item.stringOrNull("name") ?: "Unknown service",
+                        status = item.stringOrNull("status") ?: "Unknown",
+                        lifecycleState = item.stringOrNull("lifecycleState") ?: "unknown",
+                        detail = item.stringOrNull("detail") ?: "",
+                        lastError = item.stringOrNull("lastError"),
+                        clientApp = item.booleanOrNull("clientApp") == true,
+                        enabled = item.booleanOrNull("enabled") != false,
+                        startAvailable = item.booleanOrNull("startAvailable") == true,
+                        stopAvailable = item.booleanOrNull("stopAvailable") == true,
+                        resetAvailable = item.booleanOrNull("resetAvailable") == true,
+                        connectedClientCount = item.intOrNull("connectedClientCount"),
+                        healthyClientCount = item.intOrNull("healthyClientCount"),
+                        transportType = item.stringOrNull("transportType"),
+                        controlGeneration = item.longOrNull("controlGeneration")
+                    )
                 )
-            )
         }
     }
 
@@ -686,81 +920,13 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun parseRsiActivity(array: JSONArray): List<RsiActivityItem> = buildList {
-        for (index in 0 until array.length()) {
-            val item = array.optJSONObject(index) ?: continue
-            val source = item.stringOrNull("source") ?: "activity"
-            val offset = item.longOrNull("index") ?: index.toLong()
-            val record = item.optJSONObject("record") ?: continue
-            val type = record.stringOrNull("type") ?: "event"
-            val detail = record.optJSONObject("detail") ?: JSONObject()
-            val timestamp = parseTimestamp(record.stringOrNull("created_at"))
-            add(
-                RsiActivityItem(
-                    id = "$source-$offset",
-                    source = source,
-                    type = type,
-                    text = activityText(type, detail, record),
-                    timestamp = timestamp
-                )
-            )
-        }
-    }
-
-    private fun activityText(
-        type: String,
-        detail: JSONObject,
-        record: JSONObject
-    ): String = when (type) {
-        "shell_end" -> {
-            val command = detail.stringOrNull("command")
-                ?: detail.stringOrNull("identity")
-                ?: "shell command"
-            val status = detail.intOrNull("status")
-            val output = detail.stringOrNull("stderr")
-                ?: detail.stringOrNull("stdout")
-                ?: ""
-            buildString {
-                append("$ ")
-                append(command)
-                if (status != null) append(" → exit $status")
-                if (output.isNotBlank()) {
-                    append('\n')
-                    append(output.take(4_000))
-                }
-            }
-        }
-        "shell_progress" -> {
-            val command = detail.stringOrNull("command")
-                ?: detail.stringOrNull("identity")
-                ?: "shell command"
-            "$ $command …"
-        }
-        "write_file" -> "write ${detail.stringOrNull("path") ?: "file"}"
-        "apply_patch" -> "patch ${detail.stringOrNull("path") ?: "workspace"}"
-        "experiment_selected" -> detail.optJSONObject("experiment")
-            ?.stringOrNull("objective")
-            ?.let { "selected: $it" }
-            ?: "experiment selected"
-        "candidate_finalized",
-        "candidate_auto_finalized_after_verification" ->
-            "candidate ready: ${detail.stringOrNull("objective") ?: "review required"}"
-        "candidate_denied_by_maker" ->
-            "denied: ${detail.stringOrNull("reason") ?: "no reason recorded"}"
-        "candidate_approved_by_maker" ->
-            "approved: ${detail.stringOrNull("candidate_id") ?: "candidate"}"
-        "cycle_failed", "fatal" ->
-            detail.stringOrNull("error") ?: detail.stringOrNull("reason") ?: type
-        else -> {
-            val summary = detail.stringOrNull("summary")
-                ?: detail.stringOrNull("reason")
-                ?: detail.stringOrNull("objective")
-            summary?.let { "$type: $it" } ?: record.toString().take(4_000)
-        }
-    }
-
     private fun parseTimestamp(value: String?): Long {
         if (value.isNullOrBlank()) return 0L
         return runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
+    }
+
+    private companion object {
+        const val MOBILE_APP_KEY = "mobile_app"
+        val MODULE_ACTIONS = setOf("start", "stop", "reset")
     }
 }

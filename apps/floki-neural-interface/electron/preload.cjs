@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('floki', Object.freeze({
   getTranscript: (limit = 200) => invoke('floki:get-transcript', { limit }),
   clearTranscript: () => invoke('floki:clear-transcript'),
   sendMessage: (text) => invoke('floki:send-message', { text }),
+  sendVoiceUtterance: (payload = {}) => invoke('floki:send-voice-utterance', payload),
   interrupt: () => invoke('floki:interrupt'),
   getVisionFrame: () => invoke('floki:get-vision-frame'),
   getLatestFrame: () => invoke('floki:get-latest-frame'),
@@ -21,6 +22,8 @@ contextBridge.exposeInMainWorld('floki', Object.freeze({
   getNeuralEvents: (limit = 250) => invoke('floki:get-neural-events', { limit }),
   getDreamTimeline: () => invoke('floki:get-dream-timeline'),
   control: (action, argument = null) => invoke('floki:control', { action, argument }),
+  controlModule: (moduleKey, action) => invoke('floki:control-module', { moduleKey, action }),
+  clientAppHeartbeat: (payload = {}) => invoke('floki:client-app-heartbeat', payload),
   openLog: (service) => invoke('floki:open-log', { service }),
   getSettings: () => invoke('floki:get-settings'),
   updateSettings: (section, values) => invoke('floki:update-settings', { section, values }),
@@ -39,4 +42,5 @@ contextBridge.exposeInMainWorld('floki', Object.freeze({
   runSelfImprovementNow: (objective = '', kind = 'code') => invoke('floki:run-self-improvement-now', { objective, kind }),
   abortSelfImprovement: (kind = 'code', reason = '') => invoke('floki:abort-self-improvement', { kind, reason }),
   getSelfImprovementActivity: (params = {}) => invoke('floki:get-self-improvement-activity', params),
+  getSelfImprovementTerminal: (params = {}) => invoke('floki:get-self-improvement-terminal', params),
 }));

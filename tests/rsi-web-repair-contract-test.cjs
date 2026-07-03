@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const os = require('node:os');
 
 const root = path.resolve(__dirname, '..');
@@ -18,7 +19,9 @@ assert.ok(rsi.uptime_file.endsWith('worker.pid'), 'RSI uptime must use dedicated
 assert.ok(!rsi.heartbeat_file.includes('chat-local-runtime'), 'RSI must not use main runtime heartbeat');
 
 const allCards = getAllModuleConfigs();
-assert.equal(allCards.length, 12, 'Exactly 12 module cards');
+assert.equal(allCards.length, 14, 'Exactly 14 module cards after Web App and Mobile App registration');
+assert.equal(allCards.filter((m) => m.key === 'web_app').length, 1, 'Web App card must exist exactly once');
+assert.equal(allCards.filter((m) => m.key === 'mobile_app').length, 1, 'Mobile App card must exist exactly once');
 const rsiCard = allCards.find((m) => m.key === 'rsi');
 assert.ok(rsiCard, 'RSI card must exist in module registry');
 
@@ -124,7 +127,22 @@ assert.ok(fs.existsSync(path.join(androidDir, 'app/build.gradle.kts')), 'App bui
 assert.ok(fs.existsSync(path.join(androidDir, 'app/src/main/AndroidManifest.xml')), 'Manifest must exist');
 assert.ok(fs.existsSync(path.join(androidDir, 'install-apk.sh')), 'APK install script must exist');
 assert.ok(!fs.existsSync(path.join(androidDir, '.git')), 'No nested .git');
-assert.ok(!fs.existsSync(path.join(androidDir, 'local.properties')), 'No local.properties staged');
+const trackedAndroidFiles = execFileSync(
+  'git',
+  ['ls-files', '--', 'apps/Floki-mobile-app'],
+  { cwd: root, encoding: 'utf8' }
+).split(/\r?\n/).filter(Boolean);
+assert.equal(
+  trackedAndroidFiles.includes('apps/Floki-mobile-app/local.properties'),
+  false,
+  'Android local.properties must never be tracked'
+);
+const androidGitignore = fs.readFileSync(path.join(androidDir, '.gitignore'), 'utf8');
+assert.match(
+  androidGitignore,
+  /(?:^|\n)local\.properties(?:\n|$)/,
+  'Android local.properties must remain gitignored'
+);
 
 const neuralDir = path.join(root, 'apps/floki-neural-interface');
 assert.ok(fs.existsSync(neuralDir), 'apps/floki-neural-interface must remain present');

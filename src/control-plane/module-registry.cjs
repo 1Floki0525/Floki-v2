@@ -16,6 +16,8 @@ const { buildFlokiLifecycleStatus } = require('../chat/floki-lifecycle-status.cj
 const { readDreamEngineControl } = require('../chat/dream-engine-control.cjs');
 const { readChatWebcamVisionStatus } = require('../vision/chat-webcam-vision-service.cjs');
 const { readStatus: readRsiStatus } = require('../self-improvement/store.cjs');
+const { loadSelfImprovementConfig } = require('../self-improvement/config.cjs');
+const { controlFile: clientAppControlFile, readAllClientAppStatuses } = require('./client-app-control.cjs');
 
 const MODULE_KEYS = Object.freeze([
   'floki_core',
@@ -29,6 +31,8 @@ const MODULE_KEYS = Object.freeze([
   'dream_engine',
   'authoritative_api',
   'live_event_stream',
+  'web_app',
+  'mobile_app',
   'rsi'
 ]);
 
@@ -67,6 +71,42 @@ function uptimeFromFile(filePath) {
   }
 }
 
+function timestampAgeMs(value, now = Date.now()) {
+  const parsed = Date.parse(String(value || ''));
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Number(now) - parsed);
+}
+
+function classifyRsiModuleStatus(ctx = {}) {
+  const s = ctx.rsiStatus || {};
+  if (s.enabled === false) return 'stopped';
+  if (s.read_error || ctx.rsiReadError) return 'degraded';
+
+  const workerPid = s.worker_pid || ctx.rsiPid || null;
+  const workerAlive =
+    s.worker_running === true ||
+    ctx.rsiPidAlive === true ||
+    (workerPid ? processAlive(workerPid) : false);
+
+  if (s.last_error) return 'degraded';
+  if (String(s.state || '') === 'stopped' && !workerAlive) return 'stopped';
+
+  if (!workerAlive) return 'degraded';
+
+  const heartbeatAt = s.worker_alive_at || s.last_heartbeat_at || null;
+  const staleMs = Number(
+    ctx.rsiConfig?.worker_heartbeat_stale_ms ||
+    ctx.rsiConfig?.sandbox_heartbeat_stale_ms ||
+    0
+  );
+  const heartbeatAge = timestampAgeMs(heartbeatAt, ctx.now || Date.now());
+  if (!heartbeatAt || (staleMs > 0 && heartbeatAge !== null && heartbeatAge > staleMs)) {
+    return 'degraded';
+  }
+
+  return 'running';
+}
+
 function runtimeContext(runtimeDir) {
   const fs = require('node:fs');
   const currentStatus = (() => {
@@ -83,15 +123,18 @@ function runtimeContext(runtimeDir) {
   const runtimePid = readPidFile(path.join(runtimeDir, 'chat-local-runtime.pid'));
   const schedulerPid = readPidFile(path.join(runtimeDir, 'sleep-cycle-scheduler.pid'));
   const visionPid = readPidFile(path.join(runtimeDir, 'chat-webcam-vision.pid'));
-  const rsiStatus = (() => {
-    try { return readRsiStatus(); } catch (_error) { return {}; }
+  const rsiConfig = (() => {
+    try { return loadSelfImprovementConfig(); } catch (_error) { return null; }
   })();
-  const rsiPid = readPidFile(path.join(
-    PROJECT_ROOT,
-    getPathConfig('chat').state_root || 'state/floki',
-    'self-improvement', 'runtime', 'worker.pid'
-  ));
+  const rsiStatus = (() => {
+    try { return readRsiStatus(rsiConfig || undefined); } catch (error) { return { read_error: error.message }; }
+  })();
+  const rsiRuntimeDir = rsiConfig
+    ? rsiConfig.runtime_root
+    : path.join(PROJECT_ROOT, getPathConfig('chat').state_root || 'state/floki', 'self-improvement', 'runtime');
+  const rsiPid = readPidFile(path.join(rsiRuntimeDir, 'worker.pid'));
   const now = Date.now();
+  const clientApps = readAllClientAppStatuses({ runtime_dir: runtimeDir, now_ms: now });
 
   const hearingError = (currentStatus.hearing && (currentStatus.hearing.last_error || currentStatus.hearing.last_wake_gate_error)) || currentStatus.hearing_start_error || null;
   const visionError = webcam.last_fatal_error || webcam.last_yolo_error || webcam.last_vlm_error || currentStatus.vision_start_error || null;
@@ -105,7 +148,10 @@ function runtimeContext(runtimeDir) {
     schedulerPid,
     visionPid,
     rsiStatus,
+    rsiConfig,
     rsiPid: rsiStatus.worker_pid || rsiPid,
+    rsiPidAlive: processAlive(rsiStatus.worker_pid || rsiPid),
+    clientApps,
     now,
     hearingError,
     visionError
@@ -124,7 +170,10 @@ const STATUS_SOURCES = Object.freeze({
   hearing: (ctx) => {
     if (ctx.currentStatus.hearing_enabled === false) return 'stopped';
     const sleeping = ctx.currentStatus.lifecycle && ctx.currentStatus.lifecycle.is_awake === false;
-    if (sleeping || ctx.currentStatus.client_ready !== true) return 'stopped';
+    if (sleeping) return 'stopped';
+    const hearingSvc = ctx.currentStatus.hearing || {};
+    if (hearingSvc.service_state === 'stopping' && !ctx.hearingError) return 'stopped';
+    if (hearingSvc.service_state === 'stopped' && !ctx.hearingError) return 'stopped';
     return ctx.currentStatus.hearing_ready === true && !ctx.hearingError ? 'running' : 'degraded';
   },
   speech: (ctx) => {
@@ -153,15 +202,10 @@ const STATUS_SOURCES = Object.freeze({
       ? 'running'
       : 'stopped'
   ),
+  web_app: (ctx) => ctx.clientApps.web_app.status,
+  mobile_app: (ctx) => ctx.clientApps.mobile_app.status,
   rsi: (ctx) => {
-    const s = ctx.rsiStatus || {};
-    if (s.enabled === false) return 'stopped';
-    if (s.worker_running === true) return 'running';
-    if (s.current_run_id || s.current_container) return 'running';
-    const activeStates = ['starting', 'queued', 'researching', 'experimenting', 'verifying', 'training'];
-    if (activeStates.includes(String(s.state || ''))) return 'running';
-    if (s.last_error) return 'degraded';
-    return 'stopped';
+    return classifyRsiModuleStatus(ctx);
   }
 });
 
@@ -177,6 +221,8 @@ const DEPENDENCIES = Object.freeze({
   dream_engine: Object.freeze(['floki_core', 'sleep_scheduler']),
   authoritative_api: Object.freeze(['floki_core']),
   live_event_stream: Object.freeze(['floki_core', 'authoritative_api']),
+  web_app: Object.freeze(['authoritative_api']),
+  mobile_app: Object.freeze(['authoritative_api']),
   rsi: Object.freeze(['floki_core', 'authoritative_api'])
 });
 
@@ -192,6 +238,8 @@ const DISPLAY_NAMES = Object.freeze({
   dream_engine: 'Dream Engine',
   authoritative_api: 'Authoritative API',
   live_event_stream: 'Live Event Stream',
+  web_app: 'Web App',
+  mobile_app: 'Mobile App',
   rsi: 'RSI'
 });
 
@@ -207,6 +255,8 @@ const LOG_KEYS = Object.freeze({
   dream_engine: 'dream_engine',
   authoritative_api: 'authoritative_api',
   live_event_stream: 'live_event_stream',
+  web_app: null,
+  mobile_app: null,
   rsi: 'rsi'
 });
 
@@ -225,7 +275,14 @@ const IN_PROCESS_MODULES = Object.freeze(new Set([
   'memory',
   'emotion',
   'live_event_stream',
+  'web_app',
+  'mobile_app',
   'dream_engine'
+]));
+
+const CLIENT_APP_MODULES = Object.freeze(new Set([
+  'web_app',
+  'mobile_app'
 ]));
 
 function getRuntimeDir() {
@@ -242,12 +299,14 @@ function getModuleConfig(key) {
   const statusFn = STATUS_SOURCES[key] || (() => 'unknown');
   const status = statusFn(ctx);
 
-  const rsiRuntimeDir = path.resolve(PROJECT_ROOT, paths.state_root || 'state/floki', 'self-improvement', 'runtime');
+  const rsiRuntimeDir = ctx.rsiConfig?.runtime_root ||
+    path.resolve(PROJECT_ROOT, paths.state_root || 'state/floki', 'self-improvement', 'runtime');
 
   const heartbeatFile = (() => {
     if (key === 'sleep_scheduler') return path.join(runtimeDir, 'sleep-cycle-scheduler.heartbeat.json');
     if (key === 'vision') return path.join(runtimeDir, 'chat-webcam-vision.heartbeat.json');
     if (key === 'rsi') return path.join(rsiRuntimeDir, 'worker.heartbeat.json');
+    if (CLIENT_APP_MODULES.has(key)) return clientAppControlFile(runtimeDir);
     return path.join(runtimeDir, 'chat-local-runtime.heartbeat.json');
   })();
 
@@ -262,6 +321,8 @@ function getModuleConfig(key) {
   const requiresConfirmation = (key === 'floki_core' || key === 'authoritative_api');
   const preserveRuntimePid = key !== 'floki_core';
   const supervised = SUPERVISED_MODULES.has(key);
+  const clientApp = CLIENT_APP_MODULES.has(key);
+  const clientAppStatus = clientApp ? ctx.clientApps[key] : null;
 
   return freezeRecord({
     key,
@@ -276,6 +337,9 @@ function getModuleConfig(key) {
     dependencies: DEPENDENCIES[key],
     log_source: Object.freeze({ runtime_dir: runtimeDir, state_root: stateRoot }),
     log_key: LOG_KEYS[key],
+    log_available: !clientApp,
+    client_app: clientApp,
+    client_app_status: clientAppStatus,
     timeout_ms: Number(config.supervisor_operation_timeout_ms || 360000),
     lifecycle_verify_timeout_ms: Number(config.lifecycle_verify_timeout_ms || 30000),
     requires_confirmation: requiresConfirmation,
@@ -316,7 +380,8 @@ function getRegistryMetadata() {
       requires_confirmation: module.requires_confirmation,
       preserve_runtime_pid: module.preserve_runtime_pid,
       supervised: module.supervised,
-      in_process: module.in_process
+      in_process: module.in_process,
+      client_app: module.client_app
     })),
     actions: getLifecycleActionShape(),
     runtime_root: getRuntimeDir(),
@@ -334,10 +399,12 @@ module.exports = {
   DEPENDENCIES,
   SUPERVISED_MODULES,
   IN_PROCESS_MODULES,
+  CLIENT_APP_MODULES,
   getModuleConfig,
   getAllModuleConfigs,
   isKnownModule,
   getRegistryMetadata,
   getLifecycleActionShape,
-  getRuntimeDir
+  getRuntimeDir,
+  classifyRsiModuleStatus
 };

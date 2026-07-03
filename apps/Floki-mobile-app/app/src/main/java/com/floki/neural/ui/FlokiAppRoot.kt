@@ -1,5 +1,7 @@
 package com.floki.neural.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -64,12 +66,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -78,6 +83,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.content.ContextCompat
 import com.floki.neural.ui.theme.FlokiBackground
 import com.floki.neural.ui.theme.FlokiBorder
 import com.floki.neural.ui.theme.FlokiSurface
@@ -250,6 +256,13 @@ private fun MessageBanner(state: FlokiUiState, onClear: () -> Unit) {
 @Composable
 private fun ChatScreen(state: FlokiUiState, vm: FlokiViewModel) {
     var message by rememberSaveable { mutableStateOf("") }
+    val context = LocalContext.current
+    val microphonePermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        vm.updateAudioPermission(granted)
+        if (granted) vm.startVoiceRecording()
+    }
     Column(Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier
@@ -296,6 +309,31 @@ private fun ChatScreen(state: FlokiUiState, vm: FlokiViewModel) {
             }
         }
 
+        if (state.recording) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(NeonViolet.copy(alpha = 0.12f))
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                StatusDot(NeonRed)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "RECORDING VOICE…",
+                    color = NeonViolet,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
+                )
+                Spacer(Modifier.width(12.dp))
+                TextButton(onClick = vm::stopVoiceRecording) {
+                    Text("CANCEL", color = NeonRed, fontSize = 11.sp)
+                }
+            }
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -314,10 +352,32 @@ private fun ChatScreen(state: FlokiUiState, vm: FlokiViewModel) {
             Spacer(Modifier.width(8.dp))
             IconButton(
                 onClick = {
+                    val granted = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                    vm.updateAudioPermission(granted)
+                    if (granted) {
+                        vm.startVoiceRecording()
+                    } else {
+                        microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                enabled = state.busyAction == null && !state.recording
+            ) {
+                Icon(
+                    Icons.Filled.RecordVoiceOver,
+                    contentDescription = "Record voice message",
+                    tint = if (state.recording) NeonRed else NeonViolet
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            IconButton(
+                onClick = {
                     vm.sendChat(message)
                     message = ""
                 },
-                enabled = message.isNotBlank() && state.busyAction == null
+                enabled = message.isNotBlank() && state.busyAction == null && !state.recording
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.Send,
@@ -479,7 +539,7 @@ private fun SystemScreen(state: FlokiUiState, vm: FlokiViewModel) {
                 }
             }
         }
-        items(state.services, key = { it.name }) { service ->
+        items(state.services, key = { it.key }) { service ->
             val color = when (service.status.lowercase()) {
                 "running" -> NeonGreen
                 "degraded" -> NeonAmber
@@ -500,6 +560,16 @@ private fun SystemScreen(state: FlokiUiState, vm: FlokiViewModel) {
                     Spacer(Modifier.height(6.dp))
                     Text(service.detail, color = FlokiTextDim, fontSize = 11.sp)
                 }
+                if (service.clientApp) {
+                    Spacer(Modifier.height(6.dp))
+                    KeyValue("Enabled", yesNo(service.enabled))
+                    KeyValue(
+                        "Clients",
+                        "${service.healthyClientCount ?: 0}/${service.connectedClientCount ?: 0}"
+                    )
+                    KeyValue("Transport", service.transportType ?: "none")
+                    KeyValue("Generation", service.controlGeneration?.toString() ?: "—")
+                }
                 service.lastError?.let {
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -508,6 +578,36 @@ private fun SystemScreen(state: FlokiUiState, vm: FlokiViewModel) {
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp
                     )
+                }
+                if (service.startAvailable || service.stopAvailable || service.resetAvailable) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (service.startAvailable) {
+                            ActionButton(
+                                "Start",
+                                Icons.Filled.PlayArrow,
+                                NeonGreen,
+                                state.busyAction == null
+                            ) { vm.controlModule(service.key, "start") }
+                        }
+                        if (service.stopAvailable) {
+                            ActionButton(
+                                "Stop",
+                                Icons.Filled.Stop,
+                                NeonRed,
+                                state.busyAction == null
+                            ) { vm.controlModule(service.key, "stop") }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (service.resetAvailable) {
+                        ActionButton(
+                            "Restart",
+                            Icons.Filled.Refresh,
+                            NeonCyan,
+                            state.busyAction == null
+                        ) { vm.controlModule(service.key, "reset") }
+                    }
                 }
             }
         }
@@ -720,13 +820,13 @@ private fun RsiTerminalScreen(state: FlokiUiState, vm: FlokiViewModel) {
                     fontSize = 11.sp
                 )
                 Text(
-                    "${state.rsiActivity.size} lines · ${state.rsi.phase.replace('_', ' ')}",
+                    "gen #${state.rsiTerminalGeneration} · ${if (state.rsiTerminalActive) "ACTIVE" else "IDLE"}",
                     color = FlokiTextDim,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 9.sp
                 )
             }
-            IconButton(onClick = { vm.refreshRsiActivity(reset = true) }) {
+            IconButton(onClick = { vm.refreshRsiTerminal(reset = true) }) {
                 Icon(Icons.Filled.Refresh, contentDescription = "Reload RSI terminal", tint = NeonCyan)
             }
         }
@@ -744,48 +844,22 @@ private fun RsiTerminalScreen(state: FlokiUiState, vm: FlokiViewModel) {
             )
         }
 
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.38f)),
-            contentPadding = PaddingValues(10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .background(Color.Black.copy(alpha = 0.38f))
+                .padding(10.dp)
         ) {
-            if (state.rsiActivity.isEmpty() && state.rsiTerminalError == null) {
-                item {
-                    Text(
-                        "No activity yet — waiting for the RSI sandbox…",
-                        color = FlokiTextDim,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp
-                    )
-                }
-            }
-            items(state.rsiActivity, key = { it.id }) { line ->
-                Row(Modifier.fillMaxWidth()) {
-                    Text(
-                        if (line.timestamp > 0L) formatClock(line.timestamp) else "--:--:--",
-                        color = FlokiTextDim,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 8.sp,
-                        modifier = Modifier.width(58.dp)
-                    )
-                    Text(
-                        if (line.source == "controller") "CTRL" else "SBOX",
-                        color = if (line.source == "controller") NeonCyan else NeonViolet,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 8.sp,
-                        modifier = Modifier.width(36.dp)
-                    )
-                    Text(
-                        line.text,
-                        color = terminalColor(line.type),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 9.sp,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
+            val scrollState = rememberScrollState()
+            Text(
+                text = state.rsiTerminalText.ifBlank { "Waiting for RSI terminal output…" },
+                color = if (state.rsiTerminalText.isBlank()) FlokiTextDim else FlokiText,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+            )
         }
     }
 }
@@ -874,10 +948,13 @@ private fun SettingsScreen(state: FlokiUiState, vm: FlokiViewModel) {
     var poll by remember(state.profile.pollIntervalMs) {
         mutableStateOf(state.profile.pollIntervalMs.toString())
     }
-    var token by remember(state.profile.rsiApprovalToken) {
-        mutableStateOf(state.profile.rsiApprovalToken)
+    var sessionCredential by remember(state.profile.sessionCredential) {
+        mutableStateOf(state.profile.sessionCredential)
     }
     var useTls by remember(state.profile.useTls) { mutableStateOf(state.profile.useTls) }
+    var developerMode by remember(state.profile.developerMode) {
+        mutableStateOf(state.profile.developerMode)
+    }
 
     Column(
         modifier = Modifier
@@ -914,7 +991,7 @@ private fun SettingsScreen(state: FlokiUiState, vm: FlokiViewModel) {
                 Column(Modifier.weight(1f)) {
                     Text("Secure remote connection", color = FlokiText, fontSize = 12.sp)
                     Text(
-                        "HTTPS + WSS for the Omen Tailscale gateway",
+                        "HTTPS + WSS for the public Floki gateway",
                         color = FlokiTextDim,
                         fontSize = 10.sp
                     )
@@ -939,17 +1016,45 @@ private fun SettingsScreen(state: FlokiUiState, vm: FlokiViewModel) {
             )
             Spacer(Modifier.height(6.dp))
             OutlinedTextField(
-                value = token,
-                onValueChange = { token = it },
-                label = { Text("RSI approval token") },
+                value = sessionCredential,
+                onValueChange = { sessionCredential = it },
+                label = { Text("Approved-user session credential") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
                 colors = fieldColors()
             )
             Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Developer local profile", color = FlokiText, fontSize = 12.sp)
+                    Text(
+                        "Allows loopback HTTP only for explicit USB debugging",
+                        color = FlokiTextDim,
+                        fontSize = 10.sp
+                    )
+                }
+                Switch(
+                    checked = developerMode,
+                    onCheckedChange = { developerMode = it }
+                )
+            }
+            Spacer(Modifier.height(10.dp))
             Button(
-                onClick = { vm.saveProfile(host, port, poll, token, useTls) },
+                onClick = {
+                    vm.saveProfile(
+                        host,
+                        port,
+                        poll,
+                        sessionCredential,
+                        useTls,
+                        developerMode
+                    )
+                },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = NeonCyan,
                     contentColor = FlokiBackground
@@ -961,17 +1066,21 @@ private fun SettingsScreen(state: FlokiUiState, vm: FlokiViewModel) {
                     fontWeight = FontWeight.Bold
                 )
             }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = vm::logout) {
+                Text("CLEAR SESSION", fontFamily = FontFamily.Monospace)
+            }
         }
 
         Panel("CONNECTION PROFILES") {
             Text(
-                "USB development: 127.0.0.1 · port 7700 · secure off",
+                "USB development: enable developer local profile first",
                 color = FlokiTextDim,
                 fontSize = 11.sp
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "Remote access: Omen Tailscale DNS name · port 443 · secure on",
+                "Production: api.galactic-family-hub.com · port 443 · secure on",
                 color = FlokiTextDim,
                 fontSize = 11.sp
             )
@@ -1106,15 +1215,6 @@ private fun fieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedLabelColor = FlokiTextDim
 )
 
-private fun terminalColor(type: String): Color = when {
-    type.contains("failed") || type == "fatal" -> NeonRed
-    type.contains("denied") -> NeonRed
-    type.contains("approved") || type.contains("finalized") -> NeonGreen
-    type.contains("shell") -> FlokiText
-    type.contains("patch") || type.contains("write") -> NeonCyan
-    else -> FlokiTextDim
-}
-
 private fun yesNo(value: Boolean): String = if (value) "yes" else "no"
 
 private fun remProgress(snapshot: SleepSnapshot): String {
@@ -1142,9 +1242,4 @@ private fun formatTime(timestamp: Long): String {
         DateFormat.SHORT,
         DateFormat.SHORT
     ).format(Date(timestamp))
-}
-
-private fun formatClock(timestamp: Long): String {
-    if (timestamp <= 0L) return "--:--:--"
-    return DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(timestamp))
 }

@@ -59,6 +59,7 @@ const { assertApprovalToken } = require('../self-improvement/store.cjs');
 const { enterTrainingRuntimeResourceMode, exitTrainingRuntimeResourceMode } = require('../self-improvement/training/runtime-resource-controller.cjs');
 const { getModuleConfig, getRegistryMetadata, isKnownModule, IN_PROCESS_MODULES, SUPERVISED_MODULES } = require('../control-plane/module-registry.cjs');
 const { buildAuthorizationHeader, parseAuthHeader, verifySignature } = require('../control-plane/sign-request.cjs');
+const { controlClientApp, recordClientAppHeartbeat } = require('../control-plane/client-app-control.cjs');
 
 const DEFAULT_HOST = getLiveChatConfig('chat').runtime_host;
 const DEFAULT_PORT = getLiveChatConfig('chat').runtime_port;
@@ -117,6 +118,115 @@ function bodyJson(req, maxBytes = 1024 * 1024) {
     });
     req.on('error', reject);
   });
+}
+
+function bodyBuffer(req, maxBytes) {
+  const limit = Math.max(1, Number(maxBytes || 0));
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    let settled = false;
+    req.on('data', (chunk) => {
+      if (settled) return;
+      total += chunk.length;
+      if (total > limit) {
+        settled = true;
+        const error = new Error('request body too large');
+        error.httpStatus = 413;
+        reject(error);
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+  });
+}
+
+function parseWavMetadata(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 44) {
+    throw new Error('remote voice upload must be a WAV file');
+  }
+  if (
+    buffer.subarray(0, 4).toString('ascii') !== 'RIFF' ||
+    buffer.subarray(8, 12).toString('ascii') !== 'WAVE'
+  ) {
+    throw new Error('remote voice upload must be RIFF/WAVE audio');
+  }
+
+  let offset = 12;
+  let format = null;
+  let dataBytes = 0;
+  while (offset + 8 <= buffer.length) {
+    const chunkId = buffer.subarray(offset, offset + 4).toString('ascii');
+    const chunkSize = buffer.readUInt32LE(offset + 4);
+    const chunkStart = offset + 8;
+    const chunkEnd = chunkStart + chunkSize;
+    if (chunkEnd > buffer.length) {
+      throw new Error('remote voice WAV chunk exceeds uploaded bytes');
+    }
+    if (chunkId === 'fmt ' && chunkSize >= 16) {
+      format = {
+        audio_format: buffer.readUInt16LE(chunkStart),
+        channels: buffer.readUInt16LE(chunkStart + 2),
+        sample_rate: buffer.readUInt32LE(chunkStart + 4),
+        byte_rate: buffer.readUInt32LE(chunkStart + 8),
+        bits_per_sample: buffer.readUInt16LE(chunkStart + 14)
+      };
+    }
+    if (chunkId === 'data') dataBytes = chunkSize;
+    offset = chunkEnd + (chunkSize % 2);
+  }
+
+  if (!format) throw new Error('remote voice WAV is missing a fmt chunk');
+  if (format.audio_format !== 1) {
+    throw new Error('remote voice WAV must use PCM audio');
+  }
+  if (format.channels < 1 || format.channels > 2) {
+    throw new Error('remote voice WAV channel count is outside the supported bound');
+  }
+  if (format.byte_rate <= 0 || dataBytes <= 0) {
+    throw new Error('remote voice WAV is missing audio samples');
+  }
+  const durationMs = Math.round(dataBytes / format.byte_rate * 1000);
+  return Object.freeze({
+    ...format,
+    data_bytes: dataBytes,
+    duration_ms: durationMs
+  });
+}
+
+function validateRemoteVoiceUpload(buffer, contentType, audioConfig) {
+  const expected = String(audioConfig.remote_voice_content_type || 'audio/wav').toLowerCase();
+  const actual = String(contentType || '').split(';')[0].trim().toLowerCase();
+  if (![expected, 'audio/x-wav', 'application/octet-stream'].includes(actual)) {
+    const error = new Error('remote voice upload must use ' + expected);
+    error.httpStatus = 415;
+    throw error;
+  }
+  const metadata = parseWavMetadata(buffer);
+  const minMs = Number(audioConfig.remote_voice_min_duration_ms);
+  const maxMs = Number(audioConfig.remote_voice_max_duration_ms);
+  if (metadata.duration_ms < minMs) {
+    const error = new Error('remote voice upload is shorter than the configured minimum duration');
+    error.httpStatus = 422;
+    throw error;
+  }
+  if (metadata.duration_ms > maxMs) {
+    const error = new Error('remote voice upload exceeds the configured duration limit');
+    error.httpStatus = 413;
+    throw error;
+  }
+  return metadata;
 }
 
 function sendJson(res, statusCode, payload) {
@@ -268,6 +378,18 @@ function filterActivityEventsForRun(events, currentRunId) {
     const eventRunId = event?.record?.detail?.run_id;
     return !eventRunId || String(eventRunId) === runId;
   });
+}
+
+function rsiRunIdFromLogFile(filePath, rsiConfig) {
+  if (!filePath || !rsiConfig?.workspace_root) return null;
+  const workspaceRoot = path.resolve(rsiConfig.workspace_root);
+  const resolved = path.resolve(filePath);
+  const relative = path.relative(workspaceRoot, resolved);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  const parts = relative.split(path.sep).filter(Boolean);
+  return parts.length >= 2 ? parts[0] : null;
 }
 
 async function safeExistingFileWithin(root, candidate) {
@@ -516,13 +638,15 @@ function createChatLocalRuntime(options = {}) {
     loadSelfImprovementConfig();
   const nightlyHfPostJson =
     createNightlyHfChatPostJson();
+  const readLifecycleStatus =
+    options.lifecycle_status_provider || buildFlokiLifecycleStatus;
 
   let server = null;
   let websocketClients = new Set();
   let stopping = false;
   let activeAbortController = null;
   let turnQueue = Promise.resolve();
-  let lifecycle = buildFlokiLifecycleStatus();
+  let lifecycle = readLifecycleStatus();
   let lifecycleTimer = null;
   let heartbeatTimer = null;
   let visionManagedSleeping = false;
@@ -663,7 +787,7 @@ function createChatLocalRuntime(options = {}) {
   function status(extra = {}) {
     const audio = liveAudio.status();
     const vision = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
-    lifecycle = buildFlokiLifecycleStatus();
+    lifecycle = readLifecycleStatus();
     const statusNightPolicy = evaluateNightlyPolicy(
       selfImprovementConfig,
       new Date()
@@ -677,7 +801,7 @@ function createChatLocalRuntime(options = {}) {
         : model;
     const sleeping = lifecycle && lifecycle.is_awake === false;
     const awaitingClient = state.client_ready !== true;
-    const sensesAllowed = !sleeping && !awaitingClient;
+    const sensesAllowed = !sleeping;
     const hearingReady = Boolean(
       sensesAllowed &&
       state.hearing_enabled === true &&
@@ -707,7 +831,7 @@ function createChatLocalRuntime(options = {}) {
     if (sensesAllowed && state.hearing_enabled === true && !hearingReady && degradedReasons.length === 0) degradedReasons.push('hearing_not_ready');
     if (sensesAllowed && !visionReady && degradedReasons.length === 0) degradedReasons.push('vision_not_ready');
     const hearingSatisfied = state.hearing_enabled !== true || hearingReady;
-    const sensoryReady = awaitingClient || sleeping || (hearingSatisfied && visionReady);
+    const sensoryReady = sleeping || (hearingSatisfied && visionReady);
     const ready = Boolean(
       state.api_ready &&
       state.brain_loaded &&
@@ -725,9 +849,9 @@ function createChatLocalRuntime(options = {}) {
       senses_allowed: sensesAllowed,
       hearing_ready: hearingReady,
       vision_ready: visionReady,
-      hearing_intentionally_suspended: sleeping || awaitingClient,
-      vision_intentionally_suspended: sleeping || awaitingClient,
-      sensory_suspension_reason: sleeping ? 'sleeping' : awaitingClient ? 'interface_not_ready' : null,
+      hearing_intentionally_suspended: sleeping,
+      vision_intentionally_suspended: sleeping,
+      sensory_suspension_reason: sleeping ? 'sleeping' : null,
       degraded_reasons: degradedReasons,
       marker: state.marker,
       pid: process.pid,
@@ -999,6 +1123,149 @@ function createChatLocalRuntime(options = {}) {
     }
   });
 
+  async function handleRemoteVoiceUtterance(req, res) {
+    const voiceConfig = getAudioConfig('chat');
+    if (voiceConfig.remote_voice_enabled !== true) {
+      sendJson(res, 403, {
+        ok: false,
+        error: 'remote voice input is disabled by chat YAML',
+        reason: 'remote_voice_disabled'
+      });
+      return;
+    }
+    const currentLifecycle = readLifecycleStatus();
+    if (!currentLifecycle || currentLifecycle.is_awake !== true) {
+      sendJson(res, 409, {
+        ok: false,
+        error: 'hearing is intentionally suspended while Floki is asleep',
+        reason: 'sleeping'
+      });
+      return;
+    }
+
+    let upload;
+    let wav;
+    try {
+      upload = await bodyBuffer(req, voiceConfig.remote_voice_max_bytes);
+      wav = validateRemoteVoiceUpload(
+        upload,
+        req.headers['content-type'],
+        voiceConfig
+      );
+    } catch (error) {
+      sendJson(res, Number(error.httpStatus || 400), {
+        ok: false,
+        error: error.message,
+        reason: error.httpStatus === 413
+          ? 'remote_voice_upload_too_large'
+          : 'remote_voice_upload_invalid'
+      });
+      return;
+    }
+
+    const utteranceId = newId('remotevoice');
+    const tempDir = path.join(runtimeDir, 'audio-tmp', 'remote-voice');
+    const inputFile = path.join(tempDir, utteranceId + '.wav');
+    let replyAudioFile = null;
+    try {
+      fs.mkdirSync(tempDir, { recursive: true, mode: 0o700 });
+      await fs.promises.writeFile(inputFile, upload, { mode: 0o600 });
+      const parsed = await liveAudio.transcribeFile(inputFile, {
+        source: 'remote_audio',
+        utterance_id: utteranceId
+      });
+      const transcript = String(parsed.speech_text || '').trim();
+      if (!transcript) {
+        sendJson(res, 422, {
+          ok: false,
+          error: 'Whisper did not produce speech text from remote audio',
+          reason: 'remote_voice_no_transcript',
+          input_audio: wav
+        });
+        return;
+      }
+      if (transcript.length > Number(voiceConfig.remote_voice_transcript_max_chars)) {
+        sendJson(res, 413, {
+          ok: false,
+          error: 'remote voice transcript exceeds the configured character limit',
+          reason: 'remote_voice_transcript_too_large',
+          transcript_length: transcript.length
+        });
+        return;
+      }
+
+      const result = await enqueueTurn({
+        cognition_text: transcript,
+        transcript_user_text: transcript,
+        input_modality: 'spoken',
+        output_modality: 'spoken',
+        spoken_aloud: false,
+        source: 'remote_audio'
+      });
+      if (!result || result.ok !== true) {
+        sendJson(res, Number(result && result.httpStatus || 500), {
+          ok: false,
+          error: result && result.error || 'remote voice cognition failed',
+          reason: 'remote_voice_cognition_failed',
+          transcription: { text: transcript }
+        });
+        return;
+      }
+
+      const reply = String(result.reply || '').trim();
+      let replyAudio = null;
+      if (reply && voiceConfig.remote_voice_play_reply_audio === true) {
+        if (!liveAudio || typeof liveAudio.synthesizeSpeech !== 'function') {
+          throw new Error('Piper synthesis bridge is unavailable for remote voice');
+        }
+        const synthesis = await liveAudio.synthesizeSpeech(reply, {
+          source: 'remote_audio',
+          utterance_id: utteranceId,
+          text_hash: 'remote_voice_' + String(reply.length)
+        });
+        replyAudioFile = synthesis.output_file;
+        const audioBytes = await fs.promises.readFile(replyAudioFile);
+        replyAudio = {
+          content_type: 'audio/wav',
+          base64: audioBytes.toString('base64'),
+          size_bytes: audioBytes.length,
+          voice_size: synthesis.voice_size || null,
+          voice_name: synthesis.voice_name || null,
+          playback_target: 'remote_client'
+        };
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        marker: 'FLOKI_V2_REMOTE_VOICE_TO_WHISPER_PIPER_PASS',
+        utterance_id: utteranceId,
+        input_audio: wav,
+        transcription: {
+          text: transcript,
+          raw_text: parsed.raw_text || '',
+          source: 'host_whisper'
+        },
+        reply,
+        reply_audio: replyAudio,
+        cognition: {
+          source: 'chat_local_runtime',
+          latency_events: result.latency_events || []
+        }
+      });
+    } catch (error) {
+      sendJson(res, 500, {
+        ok: false,
+        error: error.message,
+        reason: 'remote_voice_runtime_failure'
+      });
+    } finally {
+      await fs.promises.rm(inputFile, { force: true }).catch(() => undefined);
+      if (replyAudioFile) {
+        await fs.promises.rm(replyAudioFile, { force: true }).catch(() => undefined);
+      }
+    }
+  }
+
   const knowledgeBootstrap = options.knowledge_bootstrap || createKnowledgeRuntimeBootstrap({ runtime_dir: runtimeDir });
   const preRemMemoryPreparation = options.pre_rem_memory_preparation_runner || runPreRemMemoryPreparation;
 
@@ -1013,10 +1280,12 @@ function createChatLocalRuntime(options = {}) {
     // The reconciler owns duplicate-start suppression. This gate must not turn
     // desired vision off while an awake start is already in flight.
     const noActiveStart = true;
-    const desiredGates = String(vision.desired_state_gates_required_for_start || '').split('|').map((s) => s.trim()).filter(Boolean);
+    const desiredGates = String(vision.desired_state_gates_required_for_start || '')
+      .split('|')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((gate) => gate !== 'client_ready' && gate !== 'window_visible');
     const gates = {
-      client_ready: state.client_ready === true,
-      window_visible: state.window_visible === true,
       awake: awake,
       inside_awake_window: awake || next.is_asleep !== true,
       external_eyes_enabled: externalEyesEnabled,
@@ -1025,10 +1294,10 @@ function createChatLocalRuntime(options = {}) {
       no_active_start: noActiveStart
     };
     const allGatesPass = desiredGates.length === 0
-      ? gates.client_ready && gates.awake
+      ? gates.awake
       : desiredGates.every((gate) => gates[gate] === true);
-    const hearingEnabled = state.hearing_enabled === true && awake && state.client_ready === true && voice.microphoneEnabled === true && (voice.pushToTalk === true ? state.push_to_talk_active === true : voice.handsFreeListening === true);
-    const visionEnabled = awake && state.client_ready === true && allGatesPass;
+    const hearingEnabled = state.hearing_enabled === true && awake && voice.microphoneEnabled === true && (voice.pushToTalk === true ? state.push_to_talk_active === true : voice.handsFreeListening === true);
+    const visionEnabled = awake && allGatesPass;
     state.senses_enabled = hearingEnabled || visionEnabled;
 
     try {
@@ -1053,9 +1322,7 @@ function createChatLocalRuntime(options = {}) {
     const audioStatus = liveAudio.status();
     state.state = !awake
       ? 'sleeping'
-      : state.client_ready !== true
-        ? 'awaiting_client'
-        : (state.hearing_start_error || state.vision_start_error || audioStatus.last_error || audioStatus.last_wake_gate_error)
+      : (state.hearing_start_error || state.vision_start_error || audioStatus.last_error || audioStatus.last_wake_gate_error)
           ? 'degraded'
           : state.active_turn
             ? 'thinking'
@@ -1133,7 +1400,7 @@ function createChatLocalRuntime(options = {}) {
       replace_active: true
     });
     lastManualNapActive = true;
-    await applyLifecycle(buildFlokiLifecycleStatus());
+    await applyLifecycle(readLifecycleStatus());
     await processManualNap();
     const snapshot = status();
     const verified = snapshot.lifecycle.manual_nap_active === true &&
@@ -1171,7 +1438,7 @@ function createChatLocalRuntime(options = {}) {
         appendLog('nightly sleep interrupt failed: ' + error.message);
       }
     }
-    const nap = wakeManualNap('manual_wake'); lastManualNapActive = false; await applyLifecycle(buildFlokiLifecycleStatus());
+    const nap = wakeManualNap('manual_wake'); lastManualNapActive = false; await applyLifecycle(readLifecycleStatus());
     return Object.freeze({
       ok: true,
       verified: true,
@@ -1183,7 +1450,7 @@ function createChatLocalRuntime(options = {}) {
   }
   async function processManualNap() {
     const nap = readManualNapState();
-    if (!nap || nap.active !== true) { if (lastManualNapActive) { lastManualNapActive = false; await applyLifecycle(buildFlokiLifecycleStatus()); } return; }
+    if (!nap || nap.active !== true) { if (lastManualNapActive) { lastManualNapActive = false; await applyLifecycle(readLifecycleStatus()); } return; }
     lastManualNapActive = true;
     if (manualNapDreamTask) return;
     const dreamControl = readDreamEngineControl({
@@ -1210,7 +1477,7 @@ function createChatLocalRuntime(options = {}) {
       } else {
         appendLog('manual nap REM architecture error: ' + message);
       }
-    }).finally(async () => { manualNapDreamTask = null; await applyLifecycle(buildFlokiLifecycleStatus()); });
+    }).finally(async () => { manualNapDreamTask = null; await applyLifecycle(readLifecycleStatus()); });
   }
 
 
@@ -1300,7 +1567,7 @@ function createChatLocalRuntime(options = {}) {
         knowledgeBootstrap,
         restartKnowledge: restartKnowledgeAfterTraining,
         applyLifecycle,
-        buildLifecycle: buildFlokiLifecycleStatus
+        buildLifecycle: readLifecycleStatus
       });
       state.training_resource_mode = 'active';
       state.training_resource_entered_at = result.entered_at;
@@ -1331,7 +1598,7 @@ function createChatLocalRuntime(options = {}) {
       restartKnowledge: restartKnowledgeAfterTraining,
       restart_scheduler: state.training_scheduler_restart_required === true,
       applyLifecycle,
-      buildLifecycle: buildFlokiLifecycleStatus
+      buildLifecycle: readLifecycleStatus
     });
     state.training_resource_mode = result.ok ? 'idle' : 'failed';
     state.training_resource_error = result.ok ? null : JSON.stringify(result.failures);
@@ -1443,9 +1710,7 @@ function createChatLocalRuntime(options = {}) {
   function cognitionIdleRuntimeState() {
     return lifecycle && lifecycle.is_awake === false
       ? 'sleeping'
-      : state.client_ready === true
-        ? 'listening'
-        : 'awaiting_client';
+      : 'listening';
   }
 
   async function cognitionLifecycleResult(action) {
@@ -1528,7 +1793,6 @@ function createChatLocalRuntime(options = {}) {
     return Boolean(
       state.hearing_enabled === true &&
       awake &&
-      state.client_ready === true &&
       voice.microphoneEnabled === true &&
       (
         voice.pushToTalk === true
@@ -1566,7 +1830,7 @@ function createChatLocalRuntime(options = {}) {
       state.hearing_enabled = false;
       state.hearing_start_error = null;
       await liveAudio.setAwake(false);
-      await applyLifecycle(buildFlokiLifecycleStatus());
+      await applyLifecycle(readLifecycleStatus());
       message = changed
         ? 'Hearing stopped through the authoritative live-audio service.'
         : 'Hearing is already stopped.';
@@ -1574,21 +1838,21 @@ function createChatLocalRuntime(options = {}) {
       changed = !previousEnabled;
       state.hearing_enabled = true;
       state.hearing_start_error = null;
-      await applyLifecycle(buildFlokiLifecycleStatus());
+      await applyLifecycle(readLifecycleStatus());
       message = hearingActivationRequired()
         ? 'Hearing started through the authoritative live-audio service.'
-        : 'Hearing is enabled and waiting for the existing awake, client-ready, and voice-setting gates.';
+        : 'Hearing is enabled and waiting for the existing awake and voice-setting gates.';
     } else if (action === 'reset') {
       state.hearing_enabled = false;
       state.hearing_start_error = null;
       await liveAudio.setAwake(false);
-      await applyLifecycle(buildFlokiLifecycleStatus());
+      await applyLifecycle(readLifecycleStatus());
       state.hearing_enabled = true;
-      await applyLifecycle(buildFlokiLifecycleStatus());
+      await applyLifecycle(readLifecycleStatus());
       changed = true;
       message = hearingActivationRequired()
         ? 'Hearing reset completed through the authoritative live-audio service.'
-        : 'Hearing reset completed and remains gated until the existing activation conditions are satisfied.';
+        : 'Hearing reset completed and remains gated until the existing awake and voice-setting conditions are satisfied.';
     } else {
       return unsupportedInProcessLifecycleResult('hearing', action);
     }
@@ -1630,6 +1894,7 @@ function createChatLocalRuntime(options = {}) {
         hearing_enabled: state.hearing_enabled === true,
         activation_required: activationRequired,
         client_ready: state.client_ready === true,
+        client_presence_is_telemetry_only: true,
         awake: lifecycle && lifecycle.is_awake === true,
         microphone_open: audioStatus.microphone_open === true,
         vad_ready: audioStatus.vad_ready === true,
@@ -2220,6 +2485,70 @@ function createChatLocalRuntime(options = {}) {
     });
   }
 
+  async function clientAppLifecycleResult(moduleKey, action) {
+    let controlled;
+    try {
+      controlled = controlClientApp(moduleKey, action, { runtime_dir: runtimeDir });
+    } catch (error) {
+      return Object.freeze({
+        ok: false,
+        module: moduleKey,
+        action,
+        error: error.message,
+        safeError: String(error.message || error).slice(0, 500),
+        httpStatus: error.httpStatus || 400
+      });
+    }
+
+    if (action === 'stop' || action === 'reset') {
+      closeLiveEventStreamClients('client-app ' + moduleKey + ' ' + action);
+    }
+
+    const app = controlled.current;
+    appendLog(
+      'control-plane ' + moduleKey + ' ' + action +
+      ' previous=' + controlled.previousStatus +
+      ' current=' + app.status +
+      ' enabled=' + String(app.enabled === true) +
+      ' generation=' + String(app.control_generation) +
+      ' clients=' + String(app.connected_client_count) +
+      ' changed=' + String(controlled.changed)
+    );
+    publish();
+
+    return Object.freeze({
+      ok: true,
+      module: moduleKey,
+      action,
+      changed: controlled.changed,
+      previousStatus: controlled.previousStatus,
+      status: app.status,
+      lifecycleState: app.status,
+      health: Object.freeze({
+        ok: true,
+        pid: process.pid,
+        runtime_pid_preserved: true,
+        client_app: true,
+        enabled: app.enabled === true,
+        connected_client_count: app.connected_client_count,
+        healthy_client_count: app.healthy_client_count,
+        last_heartbeat_at: app.last_heartbeat_at,
+        connected_since: app.connected_since,
+        session_uptime_ms: app.session_uptime_ms,
+        transport_type: app.transport_type,
+        last_reported_error: app.last_reported_error,
+        control_generation: app.control_generation,
+        recovery_heartbeat_path_available: true
+      }),
+      message: moduleKey + ' ' + action + ' accepted by the authoritative client-app control service.',
+      error: null,
+      safeError: null,
+      httpStatus: 200,
+      operationId: newId('op'),
+      generation: app.control_generation
+    });
+  }
+
   function unsupportedInProcessLifecycleResult(moduleKey, action) {
     const module = getModuleConfig(moduleKey);
     const currentStatus = module.status;
@@ -2301,6 +2630,10 @@ function createChatLocalRuntime(options = {}) {
       return dreamEngineLifecycleResult(action);
     }
 
+    if (moduleKey === 'web_app' || moduleKey === 'mobile_app') {
+      return clientAppLifecycleResult(moduleKey, action);
+    }
+
     if (IN_PROCESS_MODULES.has(moduleKey)) {
       return unsupportedInProcessLifecycleResult(moduleKey, action);
     }
@@ -2316,7 +2649,7 @@ function createChatLocalRuntime(options = {}) {
   }
 
   async function restartLiveAudio(label) {
-    const awake = lifecycle && lifecycle.is_awake === true && state.client_ready === true;
+    const awake = lifecycle && lifecycle.is_awake === true;
     await liveAudio.stop();
     await liveAudio.start();
     await liveAudio.setAwake(awake);
@@ -2325,7 +2658,7 @@ function createChatLocalRuntime(options = {}) {
       ? audioStatus.microphone_open === true && audioStatus.service_state === 'listening'
       : audioStatus.microphone_open === false;
     if (!verified) throw new Error(label + ' restart did not restore the expected microphone lifecycle');
-    await applyLifecycle(buildFlokiLifecycleStatus());
+    await applyLifecycle(readLifecycleStatus());
     return { ok: true, verified: true, message: label + ' restarted through the authoritative chat.local runtime.', status: audioStatus };
   }
 
@@ -2420,9 +2753,19 @@ function createChatLocalRuntime(options = {}) {
       sendJson(res, safeStatus, result);
       return;
     }
-    if (req.method === 'POST' && url.pathname === '/interface/settings/update') { const body = await bodyJson(req); const settings = interfaceApi.updateSettings(String(body.section || ''), body.values || {}); await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, settings); return; }
-    if (req.method === 'POST' && url.pathname === '/interface/settings/reset') { const body = await bodyJson(req); const settings = interfaceApi.resetSettings(body.section == null ? null : String(body.section)); await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, settings); return; }
-    if (req.method === 'POST' && url.pathname === '/interface/settings/import') { const body = await bodyJson(req); const settings = interfaceApi.importSettings(body.settings || {}); await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, settings); return; }
+    if (req.method === 'POST' && url.pathname === '/interface/client-app/heartbeat') {
+      const body = await bodyJson(req, 64 * 1024);
+      try {
+        const app = recordClientAppHeartbeat(body, { runtime_dir: runtimeDir });
+        sendJson(res, 200, { ok: true, app, status: app.status, generation: app.control_generation });
+      } catch (error) {
+        sendJson(res, error.httpStatus || 400, { ok: false, error: error.message });
+      }
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/interface/settings/update') { const body = await bodyJson(req); const settings = interfaceApi.updateSettings(String(body.section || ''), body.values || {}); await applyLifecycle(readLifecycleStatus()); sendJson(res, 200, settings); return; }
+    if (req.method === 'POST' && url.pathname === '/interface/settings/reset') { const body = await bodyJson(req); const settings = interfaceApi.resetSettings(body.section == null ? null : String(body.section)); await applyLifecycle(readLifecycleStatus()); sendJson(res, 200, settings); return; }
+    if (req.method === 'POST' && url.pathname === '/interface/settings/import') { const body = await bodyJson(req); const settings = interfaceApi.importSettings(body.settings || {}); await applyLifecycle(readLifecycleStatus()); sendJson(res, 200, settings); return; }
     if (req.method === 'POST' && url.pathname.startsWith('/interface/control/')) { const action = decodeURIComponent(url.pathname.slice('/interface/control/'.length)); const body = await bodyJson(req); sendJson(res, 200, await controlAction(action, body)); return; }
     if (req.method === 'POST' && url.pathname === '/client-ready') {
       state.client_ready = true;
@@ -2430,7 +2773,7 @@ function createChatLocalRuntime(options = {}) {
       state.client_ready_at = nowIso();
       state.client_detached_at = null;
       appendLog('interface ready; reconciling awake sensory services');
-      await applyLifecycle(buildFlokiLifecycleStatus());
+      await applyLifecycle(readLifecycleStatus());
       sendJson(res, 200, { ok: true, marker: 'FLOKI_V2_CHAT_LOCAL_CLIENT_READY_PASS', status: status() });
       return;
     }
@@ -2439,7 +2782,7 @@ function createChatLocalRuntime(options = {}) {
       state.window_visible = false;
       state.client_detached_at = nowIso();
       appendLog('interface detached; suspending external senses');
-      await applyLifecycle(buildFlokiLifecycleStatus());
+      await applyLifecycle(readLifecycleStatus());
       sendJson(res, 200, { ok: true, marker: 'FLOKI_V2_CHAT_LOCAL_CLIENT_DETACHED_PASS', status: status() });
       return;
     }
@@ -2472,9 +2815,10 @@ function createChatLocalRuntime(options = {}) {
     if (req.method === 'POST' && url.pathname === '/interrupt') { sendJson(res, 200, await controlAction('interrupt')); return; }
     if (req.method === 'POST' && url.pathname === '/nap/request') { sendJson(res, 200, await requestManualNap()); return; }
     if (req.method === 'POST' && url.pathname === '/nap/wake') { sendJson(res, 200, await wakeFromManualNap()); return; }
-    if (req.method === 'GET' && url.pathname === '/nap/status') { sendJson(res, 200, { ok: true, nap: readManualNapState(), lifecycle: buildFlokiLifecycleStatus() }); return; }
-    if (req.method === 'POST' && url.pathname === '/settings/reload') { await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, { ok: true, verified: true, settings: getInterfaceSettings('chat'), status: status() }); return; }
-    if (req.method === 'POST' && url.pathname === '/audio/push-to-talk') { const body = await bodyJson(req); state.push_to_talk_active = body.active === true; await applyLifecycle(buildFlokiLifecycleStatus()); sendJson(res, 200, { ok: true, verified: true, active: state.push_to_talk_active, status: status() }); return; }
+    if (req.method === 'GET' && url.pathname === '/nap/status') { sendJson(res, 200, { ok: true, nap: readManualNapState(), lifecycle: readLifecycleStatus() }); return; }
+	    if (req.method === 'POST' && url.pathname === '/settings/reload') { await applyLifecycle(readLifecycleStatus()); sendJson(res, 200, { ok: true, verified: true, settings: getInterfaceSettings('chat'), status: status() }); return; }
+	    if (req.method === 'POST' && url.pathname === '/audio/remote-utterance') { await handleRemoteVoiceUtterance(req, res); return; }
+	    if (req.method === 'POST' && url.pathname === '/audio/push-to-talk') { const body = await bodyJson(req); state.push_to_talk_active = body.active === true; await applyLifecycle(readLifecycleStatus()); sendJson(res, 200, { ok: true, verified: true, active: state.push_to_talk_active, status: status() }); return; }
     if (req.method === 'POST' && url.pathname === '/self-improvement/training-resource/enter') {
       const body = await bodyJson(req);
       sendJson(res, 200, await enterTrainingResource(body));
@@ -2557,7 +2901,9 @@ function createChatLocalRuntime(options = {}) {
         const sandboxLogFile = currentRunId
           ? lastSandboxLogFile
           : lastSandboxLogFile;
-        const displayRunId = currentRunId || null;
+        const displayRunId =
+          currentRunId ||
+          rsiRunIdFromLogFile(lastSandboxLogFile, rsiConfig);
         const parseActivityQueryInteger = (name, fallback) => {
           const raw = url.searchParams.get(name);
           if (raw == null || raw === '') return fallback;
@@ -2666,6 +3012,80 @@ function createChatLocalRuntime(options = {}) {
           ok: false,
           error: error.message
         });
+      }
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/self-improvement/terminal') {
+      try {
+        const rsiConfig = loadSelfImprovementConfig();
+        const rsiStatus = selfImprovementApi.status();
+        const currentRunId = rsiStatus?.current_run_id || null;
+        const lastSandboxLogFile = rsiStatus?.last_sandbox_log_file || null;
+        const terminalFile = currentRunId ? lastSandboxLogFile : lastSandboxLogFile;
+        const displayRunId =
+          currentRunId ||
+          rsiRunIdFromLogFile(lastSandboxLogFile, rsiConfig);
+        const terminal = terminalFile
+          ? await statExistingFileWithin(
+              rsiConfig.workspace_root,
+              terminalFile
+            )
+          : null;
+        if (!terminal) {
+          sendJson(res, 200, {
+            ok: true,
+            run_id: displayRunId,
+            terminal_file: null,
+            cursor: 0,
+            next_cursor: 0,
+            file_size: 0,
+            text: '',
+            generation: rsiStatus?.generation || 0,
+            active: false,
+            completed: !currentRunId && !!lastSandboxLogFile
+          });
+          return;
+        }
+        const cursor = (() => {
+          const raw = url.searchParams.get('cursor');
+          if (raw == null || raw === '' || !/^\d+$/.test(raw)) return 0;
+          const v = Number(raw);
+          return Number.isSafeInteger(v) && v >= 0 ? v : 0;
+        })();
+        const maxBytes = (() => {
+          const raw = url.searchParams.get('max_bytes');
+          if (raw == null || raw === '' || !/^\d+$/.test(raw)) return 65536;
+          return Math.min(262144, Math.max(4096, Number(raw)));
+        })();
+        const fileSize = terminal.stat.size;
+        const readLength = Math.min(maxBytes, Math.max(0, fileSize - cursor));
+        let text = '';
+        let nextCursor = cursor;
+        if (readLength > 0) {
+          const handle = await fs.promises.open(terminal.filePath, 'r');
+          try {
+            const buffer = Buffer.allocUnsafe(readLength);
+            const { bytesRead } = await handle.read(buffer, 0, readLength, cursor);
+            text = buffer.subarray(0, bytesRead).toString('utf8');
+            nextCursor = cursor + bytesRead;
+          } finally {
+            await handle.close();
+          }
+        }
+        sendJson(res, 200, {
+          ok: true,
+          run_id: displayRunId,
+          terminal_file: path.basename(terminal.filePath),
+          cursor,
+          next_cursor: nextCursor,
+          file_size: fileSize,
+          text,
+          generation: rsiStatus?.generation || 0,
+          active: !!currentRunId,
+          completed: !currentRunId && !!lastSandboxLogFile
+        });
+      } catch (error) {
+        sendJson(res, 500, { ok: false, error: error.message });
       }
       return;
     }
@@ -2781,7 +3201,7 @@ function createChatLocalRuntime(options = {}) {
       ' already_indexed=' + String(archive.already_indexed) +
       ' malformed=' + String(archive.malformed));
 
-    lifecycle = buildFlokiLifecycleStatus();
+    lifecycle = readLifecycleStatus();
     try {
       await liveAudio.start();
       state.hearing_start_error = null;
@@ -2877,16 +3297,14 @@ function createChatLocalRuntime(options = {}) {
     const startupAudio = liveAudio.status();
     state.state = lifecycle.is_awake !== true
       ? 'sleeping'
-      : state.client_ready !== true
-        ? 'awaiting_client'
-        : (state.hearing_start_error || state.vision_start_error || startupAudio.last_error || startupAudio.last_wake_gate_error)
+      : (state.hearing_start_error || state.vision_start_error || startupAudio.last_error || startupAudio.last_wake_gate_error)
           ? 'degraded'
           : 'listening';
     publish();
     heartbeatTimer = setInterval(() => publish(), heartbeatMs);
     lifecycleTimer = setInterval(() => {
       void processManualNap().catch((error) => appendLog('manual nap processing failed: ' + error.message));
-      const next = buildFlokiLifecycleStatus();
+      const next = readLifecycleStatus();
       void applyLifecycle(next).catch((error) => {
         state.last_error = 'lifecycle reconciliation failed: ' + error.message;
         appendLog(state.last_error);
