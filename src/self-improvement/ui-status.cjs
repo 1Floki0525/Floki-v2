@@ -495,6 +495,9 @@ function buildSelfImprovementUiStatus(options = {}) {
     ui_limits: Object.freeze({
       candidate_render_limit: config.rsi_ui_candidate_render_limit,
       terminal_event_limit: config.rsi_terminal_event_limit,
+      terminal_chunk_bytes: config.rsi_terminal_chunk_bytes,
+      terminal_window_bytes: config.rsi_terminal_window_bytes,
+      terminal_bootstrap_poll_ms: config.rsi_terminal_bootstrap_poll_ms,
       terminal_at_bottom_threshold_px: config.rsi_terminal_at_bottom_threshold_px,
       terminal_poll_ms: config.rsi_terminal_poll_ms,
       terminal_initial_activity_limit: config.rsi_terminal_initial_activity_limit,

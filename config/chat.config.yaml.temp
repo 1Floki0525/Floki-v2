@@ -1238,6 +1238,9 @@ self_improvement:
   rsi_terminal_poll_ms: 2000
   rsi_terminal_at_bottom_threshold_px: 60
   rsi_terminal_event_limit: 3000
+  rsi_terminal_chunk_bytes: 65536
+  rsi_terminal_window_bytes: 2097152
+  rsi_terminal_bootstrap_poll_ms: 1000
   rsi_ui_candidate_render_limit: 200
   vision_provider: "vision"
   nightly_training_provider: "huggingface"

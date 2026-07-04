@@ -3,15 +3,45 @@ import { ChevronDown, FlaskConical, Terminal, AlertTriangle } from 'lucide-react
 import SelfImprovementPanel from '@/components/system/SelfImprovementPanel'
 import flokiAdapter from '@/integrations/floki/adapter'
 
-const TERMINAL_CHUNK_BYTES = 64 * 1024
-const TERMINAL_WINDOW_BYTES = 2 * 1024 * 1024
-const TERMINAL_BOOTSTRAP_POLL_MS = 1000
+// Seed values used only until the first status response delivers the
+// YAML-authoritative ui_limits (rsi_terminal_* keys in chat.config.yaml).
+const TERMINAL_BOOTSTRAP_LIMITS = Object.freeze({
+  chunk_bytes: 64 * 1024,
+  window_bytes: 2 * 1024 * 1024,
+  poll_ms: 1000
+})
+
+function terminalLimit(uiLimits, key, bootstrap) {
+  const configured = Number(uiLimits?.[key])
+  return Number.isFinite(configured) && configured > 0 ? configured : bootstrap
+}
 
 function terminalPollMs(uiLimits) {
-  const configured = Number(uiLimits?.terminal_poll_ms)
-  return Number.isFinite(configured) && configured > 0
-    ? configured
-    : TERMINAL_BOOTSTRAP_POLL_MS
+  return terminalLimit(
+    uiLimits,
+    'terminal_poll_ms',
+    terminalLimit(
+      uiLimits,
+      'terminal_bootstrap_poll_ms',
+      TERMINAL_BOOTSTRAP_LIMITS.poll_ms
+    )
+  )
+}
+
+function terminalChunkBytes(uiLimits) {
+  return terminalLimit(
+    uiLimits,
+    'terminal_chunk_bytes',
+    TERMINAL_BOOTSTRAP_LIMITS.chunk_bytes
+  )
+}
+
+function terminalWindowBytes(uiLimits) {
+  return terminalLimit(
+    uiLimits,
+    'terminal_window_bytes',
+    TERMINAL_BOOTSTRAP_LIMITS.window_bytes
+  )
 }
 
 // Retained terminal history is bounded by the YAML-authoritative
@@ -96,7 +126,7 @@ function RSITerminal() {
       const lineLimit = uiLimitsRef.current?.terminal_event_limit;
       if (sourceChanged || !current.sourceId) {
         const initial = capLinesStart(
-          trimUtf8Start(String(payload.text || ''), TERMINAL_WINDOW_BYTES),
+          trimUtf8Start(String(payload.text || ''), terminalWindowBytes(uiLimitsRef.current)),
           lineLimit
         );
         return {
@@ -114,7 +144,7 @@ function RSITerminal() {
       if (mode === 'older') {
         const combined = String(payload.text || '') + current.text;
         const trimmed = capLinesEnd(
-          trimUtf8End(combined, TERMINAL_WINDOW_BYTES),
+          trimUtf8End(combined, terminalWindowBytes(uiLimitsRef.current)),
           lineLimit
         );
         return {
@@ -132,7 +162,7 @@ function RSITerminal() {
       }
       const combined = current.text + String(payload.text || '');
       const trimmed = capLinesStart(
-        trimUtf8Start(combined, TERMINAL_WINDOW_BYTES),
+        trimUtf8Start(combined, terminalWindowBytes(uiLimitsRef.current)),
         lineLimit
       );
       return {
@@ -158,7 +188,7 @@ function RSITerminal() {
         let [payload, nextStatus] = await Promise.all([
           flokiAdapter.getSelfImprovementTerminal({
             cursor: current.endCursor,
-            max_bytes: TERMINAL_CHUNK_BYTES
+            max_bytes: terminalChunkBytes(uiLimitsRef.current)
           }),
           flokiAdapter.getSelfImprovementStatus()
         ]);
@@ -170,7 +200,7 @@ function RSITerminal() {
         ) {
           payload = await flokiAdapter.getSelfImprovementTerminal({
             cursor: 0,
-            max_bytes: TERMINAL_CHUNK_BYTES
+            max_bytes: terminalChunkBytes(uiLimitsRef.current)
           });
           if (stopped) return;
         }
@@ -198,7 +228,7 @@ function RSITerminal() {
       const current = terminalRef.current;
       const payload = await flokiAdapter.getSelfImprovementTerminal({
         before_cursor: current.startCursor,
-        max_bytes: TERMINAL_CHUNK_BYTES,
+        max_bytes: terminalChunkBytes(uiLimitsRef.current),
         source_id: current.sourceId
       });
       applyChunk(payload, 'older');
