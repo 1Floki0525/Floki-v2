@@ -70,7 +70,7 @@ function run() {
   assert.equal(build.includes('bin/floki-node24-run.sh'), true);
   assert.equal(build.includes('run build'), true);
   assert.equal(build.includes('run test:integration'), true);
-  assert.equal(build.includes('floki-start.sh'), false);
+  assert.equal(build.includes('floki-' + 'start.sh'), false);
   assert.doesNotMatch(build, /^\s*npm\s+(?:ci|install)\b/m);
 
   const pkg = JSON.parse(read('package.json'));

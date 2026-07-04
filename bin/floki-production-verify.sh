@@ -58,5 +58,5 @@ run_step "Neural-interface production build" "$NODE_RUN" npm run build --prefix 
 echo
 echo "FLOKI_CHAT_LOCAL_PRODUCTION_STATIC_VERIFY_PASS"
 echo "FLOKI_RSI_STAGE8_PRODUCTION_VERIFY_PASS"
-echo "Next live command: bin/floki-start.sh chat.local"
+echo "Next live commands: bin/floki-runtime.sh reset ; bin/floki-app.sh"
 echo "Do not merge until manual training, abort, restoration, cognition recovery, manual nap, and nighttime REM pass."

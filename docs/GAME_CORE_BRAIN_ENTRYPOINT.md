@@ -32,8 +32,8 @@ npm run proof:game-entrypoint
 
 This proves:
 
-- bin/floki-start.sh game-smoke works
-- bin/floki-start.sh status works
+- `bin/floki-node24-run.sh node src/game/floki-game.cjs --smoke` works
+- `bin/floki-node24-run.sh node src/game/floki-game.cjs --status` works
 - game mode loads config/game.config.yaml
 - core_brain is active
 - Minecraft is still disabled

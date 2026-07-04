@@ -173,8 +173,8 @@ async function run() {
     assert.equal(SCHEDULER_HEARTBEAT_REFRESH_MS, sleepConfig.scheduler_heartbeat_refresh_ms);
     assert.equal(SCHEDULER_HEARTBEAT_STALE_MS, sleepConfig.scheduler_heartbeat_stale_ms);
 
-    const start = fs.readFileSync(
-      path.join(__dirname, '../bin/floki-start.sh'),
+    const runtimeCommand = fs.readFileSync(
+      path.join(__dirname, '../bin/floki-runtime.sh'),
       'utf8'
     );
     const timeline = fs.readFileSync(
@@ -186,8 +186,15 @@ async function run() {
       'utf8'
     );
 
-    assert.match(start, /chat\.local\)[\s\S]*start_sleep_scheduler/);
-    assert.match(start, /verify_sleep_scheduler/);
+    const runtimeStart = runtimeCommand.slice(
+      runtimeCommand.indexOf('  start)'),
+      runtimeCommand.indexOf('  stop)')
+    );
+    assert.match(
+      runtimeStart,
+      /floki-sleep-scheduler-start\.sh/
+    );
+    assert.match(runtimeStart, /run_helper_if_present/);
     assert.match(timeline, /nextRemCountdownMs/);
     assert.match(timeline, /nextRemCycleNumber/);
     assert.match(dashboard, /COUNTDOWN_INTERVAL_MS = 1000/);

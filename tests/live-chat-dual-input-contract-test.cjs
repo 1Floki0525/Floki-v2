@@ -31,14 +31,30 @@ function run() {
   assert.equal(publicText.includes('I am here, listening'), true);
   assert.equal(publicText.includes('I noticed trust'), false);
   assert.equal(privateText.includes('I noticed trust'), true);
-  const startScript = fs.readFileSync(path.join(ROOT, 'bin', 'floki-start.sh'), 'utf8');
-  assert.equal(startScript.includes('src/chat/floki-live-chat-interface.cjs'), true);
-  assert.equal(startScript.includes('text-chat'), true);
+  const runtimeScript = fs.readFileSync(
+    path.join(ROOT, 'bin', 'floki-runtime.sh'),
+    'utf8'
+  );
+  const appScript = fs.readFileSync(
+    path.join(ROOT, 'bin', 'floki-app.sh'),
+    'utf8'
+  );
+  assert.equal(runtimeScript.includes('start_runtime_owner'), true);
+  assert.equal(
+    runtimeScript.includes('run_helper_if_present "floki-chat-start.sh"'),
+    true
+  );
+  assert.equal(appScript.includes('runtime_autostart=false'), true);
+  const retiredLauncherName = 'floki-' + 'start.sh';
+  assert.equal(
+    fs.existsSync(path.join(ROOT, 'bin', retiredLauncherName)),
+    false
+  );
   const spokenSource = fs.readFileSync(path.join(ROOT, 'src', 'senses', 'spoken-reply-once.cjs'), 'utf8');
   assert.equal(spokenSource.includes('appendSpokenReplyTranscript'), true);
   assert.equal(spokenSource.includes('assertPublicTranscriptText'), true);
   assert.equal(spokenSource.includes('appendPrivateThoughtRecord'), true);
-  console.log(JSON.stringify({ ok: true, marker: 'FLOKI_V2_LIVE_CHAT_DUAL_INPUT_CONTRACT_PASS', text_input_supported: true, spoken_wake_input_supported: true, spoken_replies_recorded_to_public_chat_transcript: true, private_thoughts_blocked_from_public_transcript_and_speech: true, private_thoughts_recorded_to_private_review_memory: true, floki_start_chat_launches_live_interface: true, old_text_chat_preserved_as_text_chat: true, transcript_jsonl_file: paths.transcript_jsonl_file, private_thought_jsonl_file: paths.private_thought_jsonl_file, chat_mode_only: true, game_mode_started: false }, null, 2));
+  console.log(JSON.stringify({ ok: true, marker: 'FLOKI_V2_LIVE_CHAT_DUAL_INPUT_CONTRACT_PASS', text_input_supported: true, spoken_wake_input_supported: true, spoken_replies_recorded_to_public_chat_transcript: true, private_thoughts_blocked_from_public_transcript_and_speech: true, private_thoughts_recorded_to_private_review_memory: true, shared_runtime_owns_chat: true, floki_app_is_client_only: true, transcript_jsonl_file: paths.transcript_jsonl_file, private_thought_jsonl_file: paths.private_thought_jsonl_file, chat_mode_only: true, game_mode_started: false }, null, 2));
 }
 
 try { run(); } catch (error) { console.error(JSON.stringify({ ok: false, marker: 'FLOKI_V2_LIVE_CHAT_DUAL_INPUT_CONTRACT_FAIL', error: error.message, chat_mode_only: true, game_mode_started: false }, null, 2)); process.exit(1); }

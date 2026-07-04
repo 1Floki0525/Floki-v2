@@ -285,7 +285,7 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function restartChatLocal(config) {
+async function restartFlokiRuntime(config) {
   await delay(config.promotion_restart_delay_seconds * 1000);
   const restartLog = path.join(config.runtime_root, config.restart_log_name);
   const log = fs.openSync(restartLog, 'a', 0o600);
@@ -457,7 +457,7 @@ async function promote(candidateId, config = loadSelfImprovementConfig()) {
     }, config);
     appendAudit('candidate_promoted_live', { candidate_id: id }, config);
     writePromotionResults(id, resultRecord, config);
-    await restartChatLocal(config);
+    await restartFlokiRuntime(config);
     return resultRecord;
   } catch (error) {
     resultRecord.error = error.stack || error.message;
@@ -493,7 +493,7 @@ async function promote(candidateId, config = loadSelfImprovementConfig()) {
     }
 
     if (runtimeStopped) {
-      await restartChatLocal(config);
+      await restartFlokiRuntime(config);
     }
     throw error;
   } finally {

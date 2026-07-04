@@ -63,13 +63,13 @@ function assertGameGuard(json, gameConfig) {
 
 function run() {
   const gameConfig = loadCoreBrainConfig('game');
-  const smoke = runCommand(['bash', 'bin/floki-start.sh', 'game-smoke'], 'game-smoke');
+  const smoke = runCommand([process.execPath, 'src/game/floki-game.cjs', '--smoke'], 'game-smoke');
   assert.equal(smoke.marker, 'FLOKI_V2_GAME_ENTRYPOINT_CONTRACT_PASS');
   assert.equal(smoke.game_command_exists, true);
   assert.equal(smoke.game_mode_guarded_now, true);
   assertGameGuard(smoke, gameConfig);
 
-  const status = runCommand(['bash', 'bin/floki-start.sh', 'status'], 'game-status');
+  const status = runCommand([process.execPath, 'src/game/floki-game.cjs', '--status'], 'game-status');
   assert.equal(status.marker, 'FLOKI_V2_GAME_MODE_CORE_BRAIN_GUARDED');
   assert.equal(status.mode, 'game');
   assert.equal(status.allowed_now, false);

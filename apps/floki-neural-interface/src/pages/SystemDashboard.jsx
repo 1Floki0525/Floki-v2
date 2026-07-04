@@ -121,7 +121,7 @@ export default function SystemDashboard({ onNavigate }) {
     <div className="h-full overflow-y-auto">
       <div className="p-6 max-w-6xl mx-auto space-y-6">
         <h2 className="text-xs font-semibold tracking-[0.2em] uppercase text-neon-cyan/90 font-mono">System Status</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid auto-rows-fr grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {services.map((service) => (
             <ServiceCard
               key={service.name}

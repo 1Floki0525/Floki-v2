@@ -1,18 +1,24 @@
 # Floki Neural Interface
 
-The Floki Neural Interface is the native Electron/React desktop client for Floki-v2 `chat.local` companion mode.
+The Floki Neural Interface is the native Electron/React client named
+`floki.app`.
 
-It is a client of the single authoritative Floki backend runtime. It does not create a second brain, second personality, second memory store, or separate spoken-chat identity.
+It connects to the single authoritative shared Floki runtime. It does not
+create a second brain, personality, memory store, sensory lifecycle, sleep
+system, or RSI process.
 
 ## Launch
 
 From the Floki-v2 repository root:
 
 ```bash
-bin/floki-start.sh chat.local
+bin/floki-runtime.sh start
+bin/floki-app.sh
 ```
 
-Startup validates Node 24, the shared brain, and the sleep scheduler, then starts the backend with external eyes and ears suspended. The camera and microphone are released only after the Electron window is ready and visible and only when Floki is awake.
+The runtime must already be ready. `floki.app` does not autostart or own the
+runtime. Camera and microphone access remain controlled by the shared runtime,
+Floki's awake/sleep state, and the existing YAML settings.
 
 ## Connected features
 
@@ -24,11 +30,16 @@ Startup validates Node 24, the shared brain, and the sleep scheduler, then start
 - cognition latency information;
 - persistent affect and emotion state;
 - awake, sleep, REM, and dream status;
-- safe diagnostics and service controls.
+- safe diagnostics and real service controls.
 
 ## Authority boundaries
 
+- `bin/floki-runtime.sh` exclusively owns start, stop, reset, restart, and
+  status for the complete Floki system.
 - Floki-v2 YAML owns adjustable runtime configuration and model identity.
-- The backend runtime owns the brain, hearing, vision, memory, sleep lifecycle, and transcript files.
-- Electron owns presentation and user interaction only.
-- Clearing the visible chat transcript does not clear Floki's memories, personality, emotions, beliefs, relationships, private thoughts, or dreams.
+- The shared runtime owns the brain, hearing, vision, memory, sleep lifecycle,
+  transcript files, and RSI resource handoffs.
+- `floki.app`, the website, and the APK own presentation and user interaction
+  only.
+- Clearing the visible chat transcript does not clear Floki's memories,
+  personality, emotions, beliefs, relationships, private thoughts, or dreams.

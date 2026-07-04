@@ -1,45 +1,22 @@
-'use strict';
+"use strict";
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const service = fs.readFileSync(
-  path.join(root, 'src/vision/chat-webcam-vision-service.cjs'),
-  'utf8'
+const read = (relative) =>
+  fs.readFileSync(path.join(root, relative), 'utf8');
+
+const service = read('src/vision/chat-webcam-vision-service.cjs');
+const runtimeCommand = read('bin/floki-runtime.sh');
+const visionStart = read('bin/floki-chat-vision-start.sh');
+const cleanup = read('bin/floki-chat-local-cleanup.sh');
+const localStart = read('bin/floki-chat-local-start.sh');
+const electronMain = read(
+  'apps/floki-neural-interface/electron/main.cjs'
 );
-const mainStart = fs.readFileSync(
-  path.join(root, 'bin/floki-start.sh'),
-  'utf8'
-);
-const visionStart = fs.readFileSync(
-  path.join(root, 'bin/floki-chat-vision-start.sh'),
-  'utf8'
-);
-const cleanup = fs.readFileSync(
-  path.join(root, 'bin/floki-chat-local-cleanup.sh'),
-  'utf8'
-);
-const cleanupOwnership = fs.readFileSync(
-  path.join(root, 'src/runtime/chat-local-cleanup-ownership.cjs'),
-  'utf8'
-);
-const localStart = fs.readFileSync(
-  path.join(root, 'bin/floki-chat-local-start.sh'),
-  'utf8'
-);
-const electronMain = fs.readFileSync(
-  path.join(
-    root,
-    'apps/floki-neural-interface/electron/main.cjs'
-  ),
-  'utf8'
-);
-const yoloService = fs.readFileSync(
-  path.join(root, 'src/vision/yolo-detection-service.cjs'),
-  'utf8'
-);
+const yoloService = read('src/vision/yolo-detection-service.cjs');
 
 assert.match(service, /function readyTimeoutMs\(/);
 assert.match(service, /getTimeoutConfig\('chat'\)/);
@@ -51,70 +28,69 @@ const readyFunction = service.match(
   /function statusReadyForChat\(status\) \{[\s\S]*?\n\}/
 );
 assert.ok(readyFunction, 'statusReadyForChat must exist');
-assert.match(
-  readyFunction[0],
-  /first_vlm_observation_succeeded/
+assert.match(readyFunction[0], /first_vlm_observation_succeeded/);
+
+const retiredLauncherName = 'floki-' + 'start.sh';
+assert.equal(
+  fs.existsSync(path.join(root, 'bin', retiredLauncherName)),
+  false
+);
+assert.equal(
+  fs.existsSync(
+    path.join(root, 'src/runtime/chat-local-supervisor-lease.cjs')
+  ),
+  false
 );
 
-assert.equal(
-  (mainStart.match(/FLOKI_CHAT_LOCAL_LIFECYCLE_HELPERS_BEGIN/g) || []).length,
-  1
+const stopBlock = runtimeCommand.slice(
+  runtimeCommand.indexOf('  stop)'),
+  runtimeCommand.indexOf('  restart|reset)')
 );
-assert.equal(
-  (mainStart.match(/^  chat\.local\)$/gm) || []).length,
-  1
-);
-assert.match(mainStart, /trap cleanup_chat_local EXIT/);
-assert.match(mainStart, /trap interrupt_chat_local INT TERM HUP/);
-assert.match(mainStart, /bin\/floki-chat-local-cleanup\.sh/);
-assert.doesNotMatch(
-  mainStart,
-  /CHAT_LOCAL_HANDED_OFF[^\n]*last_exit[^\n]*-eq 0/,
-  'normal Electron exit must not skip cleanup'
-);
+const requiredStopOrder = [
+  'stop_app',
+  'floki-chat-stop.sh',
+  'floki-self-improvement-stop.sh',
+  'floki-sleep-scheduler-stop.sh',
+  'floki-chat-vision-stop.sh',
+  'stop_managed_units',
+  'stop_project_processes',
+  'stop_configured_model_containers',
+  'unload_configured_models',
+  'release_gpu_owner',
+  'verify_shutdown_quiescence'
+];
+let previous = -1;
+for (const label of requiredStopOrder) {
+  const index = stopBlock.indexOf(label);
+  assert.notEqual(index, -1, 'missing stop stage: ' + label);
+  assert.ok(index > previous, 'stop stage out of order: ' + label);
+  previous = index;
+}
+assert.match(stopBlock, /chat-local-supervisor-session\.json/);
+assert.match(stopBlock, /chat-local-supervisor\.lock/);
+
+assert.match(cleanup, /FLOKI_CHAT_LOCAL_CLEANUP_DELEGATED/);
+assert.match(cleanup, /exec bash "\$ROOT\/bin\/floki-runtime\.sh" stop/);
+assert.doesNotMatch(cleanup, /chat-local-cleanup-ownership\.cjs/);
+assert.doesNotMatch(cleanup, /chat-local-supervisor-lease\.cjs/);
 
 assert.match(visionStart, /--kill-after=5s 45s/);
 assert.match(visionStart, /handle_interrupt/);
 assert.match(visionStart, /floki-chat-local-cleanup\.sh/);
 
-assert.match(cleanup, /chat-local-cleanup-ownership\.cjs/);
-assert.match(cleanup, /ssh -S "\$VISION_SSH_TUNNEL_SOCKET" -O exit "\$VISION_SSH_TUNNEL_TARGET"/);
-assert.match(cleanupOwnership, /grounding-dino-worker\.py/);
-assert.match(cleanupOwnership, /yolo-worker\.py/);
-assert.match(cleanupOwnership, /src\/chat\/sleep-cycle-scheduler\.cjs/);
-assert.match(cleanupOwnership, /apps\/floki-neural-interface\/node_modules\/\.bin\/electron/);
-assert.match(cleanupOwnership, /node_modules\/electron\/dist\/electron/);
-assert.match(cleanupOwnership, /src\/self-improvement\/worker\.cjs/);
-assert.match(cleanupOwnership, /sshControlMasterOwned/);
-assert.match(cleanup, /container_name_prefix/);
-assert.match(cleanup, /ollama_preserved=true/);
-
-assert.match(mainStart, /startup_stage "1\/7"/);
-assert.match(mainStart, /startup_stage "2\/7"/);
-assert.match(mainStart, /preflight_core_brain/);
-assert.match(mainStart, /src\/brain\/core-brain-status\.cjs chat/);
-assert.match(mainStart, /startup_stage "4\/7"/);
 assert.match(localStart, /\[FLOKI STARTUP 6\/7\]/);
 assert.match(localStart, /\[FLOKI STARTUP 7\/7\]/);
 
 const ensureRuntimeIndex = electronMain.indexOf('ensureRuntime();');
 const createWindowIndex = electronMain.indexOf('createWindow();');
-assert.ok(ensureRuntimeIndex >= 0, 'Electron must initialize the core brain runtime');
-assert.ok(createWindowIndex > ensureRuntimeIndex, 'core brain runtime must initialize before the window opens');
+assert.ok(ensureRuntimeIndex >= 0);
+assert.ok(createWindowIndex > ensureRuntimeIndex);
 
 assert.match(yoloService, /worker\.stdin\.on\('error'/);
 assert.match(yoloService, /error\.code\s*!==\s*'EPIPE'/);
 assert.match(yoloService, /stdin\.destroyed/);
 assert.match(yoloService, /stdin\.writableEnded/);
 assert.match(yoloService, /settlePendingYoloFailure/);
-
-assert.match(mainStart, /startup_stage "5\/7"/);
-assert.match(mainStart, /start_chat_hearing/);
-assert.match(mainStart, /bin\/floki-chat-start\.sh/);
-assert.match(cleanup, /bin\/floki-chat-stop\.sh/);
-assert.match(cleanup, /chat-mode-loop\.pid/);
-assert.match(cleanupOwnership, /src\/senses\/chat-mode-loop\.cjs/);
-
 
 const statusReadyForChat = Function(
   '"use strict"; return (' + readyFunction[0] + ');'
@@ -140,14 +116,11 @@ assert.equal(statusReadyForChat({
 console.log(JSON.stringify({
   ok: true,
   marker: 'FLOKI_CHAT_LOCAL_LIFECYCLE_V2_CONTRACT_PASS',
-  partial_previous_patch_recovered: true,
-  gui_waits_for_camera_frame_only: false,
+  sole_runtime_authority: 'bin/floki-runtime.sh',
+  complete_stop_order_verified: true,
+  compatibility_cleanup_delegates_only: true,
+  retired_launcher_absent: true,
+  retired_supervisor_lease_absent: true,
   gui_waits_for_qwen_scene: true,
-  ctrl_c_exact_cleanup: true,
-  normal_close_exact_cleanup: true,
-  grounding_dino_cleanup: true,
-  yolo_cleanup: true,
-  ffmpeg_descendant_cleanup: true,
-  scheduler_cleanup: true,
   live_services_started_by_test: false
 }, null, 2));

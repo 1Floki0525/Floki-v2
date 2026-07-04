@@ -5,7 +5,7 @@
  *
  * Removes temporary patch/backups from git and strengthens .gitignore.
  * Keeps real runtime/proof scripts:
- * - bin/floki-start.sh
+ * - bin/floki-runtime.sh
  * - bin/floki-runtime-proof.sh
  */
 

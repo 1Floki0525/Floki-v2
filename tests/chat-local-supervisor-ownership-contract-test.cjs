@@ -1,9 +1,9 @@
-'use strict';
+"use strict";
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 assert.equal(
   Number(process.versions.node.split('.')[0]) >= 24,
@@ -12,195 +12,168 @@ assert.equal(
 );
 
 const ROOT = path.resolve(__dirname, '..');
-const {
-  atomicWriteJson,
-  authorizeCleanup,
-  isChatLocalLauncherActive,
-  readSession,
-  releaseSession
-} = require('../src/runtime/chat-local-supervisor-lease.cjs');
+const read = (relative) =>
+  fs.readFileSync(path.join(ROOT, relative), 'utf8');
 
-function createFakeLauncher(procRoot, pid, projectRoot) {
-  const base = path.join(procRoot, String(pid));
-  fs.mkdirSync(base, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(
-    path.join(base, 'cmdline'),
-    Buffer.from(
-      'bash\0' +
-      path.join(projectRoot, 'bin/floki-start.sh') +
-      '\0chat.local\0'
-    )
-  );
-  fs.symlinkSync(projectRoot, path.join(base, 'cwd'));
-}
-
-const tempRoot = fs.mkdtempSync(
-  path.join(os.tmpdir(), 'floki-chat-supervisor-ownership-')
-);
-const projectRoot = path.join(tempRoot, 'repo');
-const procRoot = path.join(tempRoot, 'proc');
-const sessionFile = path.join(
-  tempRoot,
-  'runtime',
-  'chat-local-supervisor-session.json'
+const retiredLauncherName = 'floki-' + 'start.sh';
+const retiredLauncherPath = path.join(ROOT, 'bin', retiredLauncherName);
+const retiredLeasePath = path.join(
+  ROOT,
+  'src/runtime/chat-local-supervisor-lease.cjs'
 );
 
-try {
-  fs.mkdirSync(projectRoot, { recursive: true, mode: 0o700 });
-  fs.mkdirSync(procRoot, { recursive: true, mode: 0o700 });
+assert.equal(
+  fs.existsSync(retiredLauncherPath),
+  false,
+  'the retired multi-mode launcher must not exist'
+);
+assert.equal(
+  fs.existsSync(retiredLeasePath),
+  false,
+  'the retired launcher-owned supervisor lease must not exist'
+);
 
-  const activePid = 4242;
-  createFakeLauncher(procRoot, activePid, projectRoot);
-  atomicWriteJson(sessionFile, {
-    marker: 'FLOKI_V2_CHAT_LOCAL_SUPERVISOR_SESSION',
-    session_id: 'new-session',
-    launcher_pid: activePid,
-    runtime_pid: 5252,
-    project_root: projectRoot,
-    started_at: new Date().toISOString()
-  });
+const runtime = read('bin/floki-runtime.sh');
+const app = read('bin/floki-app.sh');
+const cleanup = read('bin/floki-chat-local-cleanup.sh');
+const template = read('config/chat.config.yaml.temp');
+const promoter = read('src/self-improvement/promoter.cjs');
 
-  const activeSession = readSession(sessionFile);
-  assert.equal(
-    isChatLocalLauncherActive(activeSession, procRoot),
-    true,
-    'fixture must represent an active chat.local supervisor'
-  );
+assert.match(runtime, /ACTION="\$\{1:-status\}"/);
+assert.match(runtime, /  start\)/);
+assert.match(runtime, /  stop\)/);
+assert.match(runtime, /  restart\|reset\)/);
+assert.match(runtime, /  status\)/);
+assert.match(
+  runtime,
+  /usage: floki-runtime\.sh start\|stop\|reset\|restart\|status/
+);
 
-  const staleOwner = authorizeCleanup({
-    session_file: sessionFile,
-    requested_session_id: 'old-session',
-    proc_root: procRoot
-  });
-  assert.equal(staleOwner.authorized, false);
-  assert.equal(
-    staleOwner.reason,
-    'supervisor_session_ownership_mismatch',
-    'an older supervisor must not clean up a newer session'
-  );
+const resetBlock = runtime.match(
+  /  restart\|reset\)[\s\S]*?\n    ;;/m
+);
+assert.ok(resetBlock, 'reset/restart action block must exist');
+assert.ok(
+  resetBlock[0].indexOf('"$0" stop') <
+    resetBlock[0].indexOf('"$0" start'),
+  'reset must complete stop before start'
+);
+assert.match(resetBlock[0], /FLOKI_RUNTIME_RESET_PASS/);
+assert.match(resetBlock[0], /runtime_authority=bin\/floki-runtime\.sh/);
 
-  const ownerlessCleanup = authorizeCleanup({
-    session_file: sessionFile,
-    requested_session_id: '',
-    proc_root: procRoot
-  });
-  assert.equal(ownerlessCleanup.authorized, false);
-  assert.equal(
-    ownerlessCleanup.reason,
-    'active_supervisor_requires_owner_session',
-    'manual or legacy cleanup must not kill an active owned session'
-  );
-
-  const correctOwner = authorizeCleanup({
-    session_file: sessionFile,
-    requested_session_id: 'new-session',
-    proc_root: procRoot
-  });
-  assert.equal(correctOwner.authorized, true);
-  assert.equal(
-    correctOwner.reason,
-    'supervisor_session_owner_match'
-  );
-
-  const wrongRelease = releaseSession({
-    session_file: sessionFile,
-    requested_session_id: 'old-session',
-    proc_root: procRoot
-  });
-  assert.equal(wrongRelease.removed, false);
-  assert.equal(fs.existsSync(sessionFile), true);
-
-  const correctRelease = releaseSession({
-    session_file: sessionFile,
-    requested_session_id: 'new-session',
-    proc_root: procRoot
-  });
-  assert.equal(correctRelease.removed, true);
-  assert.equal(fs.existsSync(sessionFile), false);
-
-  atomicWriteJson(sessionFile, {
-    marker: 'FLOKI_V2_CHAT_LOCAL_SUPERVISOR_SESSION',
-    session_id: 'stale-session',
-    launcher_pid: 9999,
-    runtime_pid: 9998,
-    project_root: projectRoot,
-    started_at: new Date().toISOString()
-  });
-
-  const staleAuthorization = authorizeCleanup({
-    session_file: sessionFile,
-    requested_session_id: '',
-    proc_root: procRoot
-  });
-  assert.equal(staleAuthorization.authorized, true);
-  assert.equal(staleAuthorization.reason, 'stale_supervisor_session');
-
-  const start = fs.readFileSync(
-    path.join(ROOT, 'bin/floki-start.sh'),
-    'utf8'
-  );
-  const cleanup = fs.readFileSync(
-    path.join(ROOT, 'bin/floki-chat-local-cleanup.sh'),
-    'utf8'
-  );
-
-  const acquireIndex = start.indexOf(
-    'acquire_chat_local_supervisor_lease'
-  );
-  const stageOneIndex = start.indexOf(
-    'startup_stage "1/7"'
-  );
-  assert.ok(acquireIndex >= 0);
-  assert.ok(stageOneIndex > acquireIndex);
-  assert.match(
-    start,
-    /flock -n 9/,
-    'chat.local must hold an exclusive nonblocking supervisor lock'
-  );
-  assert.match(
-    start,
-    /chat-local-supervisor-lease\.cjs\s+claim/,
-    'chat.local must claim a unique supervisor session'
-  );
-  assert.match(
-    start,
-    /chat-local-supervisor-lease\.cjs\s+set-runtime/,
-    'chat.local must record the runtime PID it owns'
-  );
-
-  const authorizationMatch = cleanup.match(
-    /chat-local-supervisor-lease\.cjs\s+authorize-cleanup/
-  );
-  const authorizationIndex = authorizationMatch
-    ? authorizationMatch.index
-    : -1;
-  const stopIndex = cleanup.indexOf(
-    'bash bin/floki-chat-stop.sh'
-  );
-  assert.ok(
-    authorizationIndex >= 0,
-    'cleanup must invoke the ownership authorization command'
-  );
-  assert.ok(
-    stopIndex > authorizationIndex,
-    'cleanup ownership must be authorized before any runtime stop'
-  );
-  assert.match(
-    cleanup,
-    /FLOKI_V2_CHAT_LOCAL_CLEANUP_SKIPPED/,
-    'stale cleanup must exit successfully without touching the new runtime'
-  );
-
-  console.log(JSON.stringify({
-    ok: true,
-    marker: 'FLOKI_V2_CHAT_LOCAL_SUPERVISOR_OWNERSHIP_CONTRACT_PASS',
-    stale_supervisor_cleanup_blocked: true,
-    ownerless_active_cleanup_blocked: true,
-    matching_owner_cleanup_allowed: true,
-    stale_session_cleanup_allowed: true,
-    exclusive_supervisor_lock_required: true,
-    runtime_pid_ownership_recorded: true
-  }, null, 2));
-} finally {
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+const startBlock = runtime.slice(
+  runtime.indexOf('  start)'),
+  runtime.indexOf('  stop)')
+);
+for (const required of [
+  'start_runtime_owner',
+  'floki-sleep-scheduler-start.sh',
+  'floki-self-improvement-start.sh',
+  'runtime_ready'
+]) {
+  assert.ok(startBlock.includes(required), 'missing runtime start stage: ' + required);
 }
+
+const stopBlock = runtime.slice(
+  runtime.indexOf('  stop)'),
+  runtime.indexOf('  restart|reset)')
+);
+for (const required of [
+  'stop_app',
+  'floki-chat-stop.sh',
+  'floki-self-improvement-stop.sh',
+  'floki-sleep-scheduler-stop.sh',
+  'floki-chat-vision-stop.sh',
+  'stop_project_processes',
+  'stop_configured_model_containers',
+  'unload_configured_models',
+  'release_gpu_owner',
+  'verify_shutdown_quiescence'
+]) {
+  assert.ok(stopBlock.includes(required), 'missing runtime stop stage: ' + required);
+}
+assert.match(stopBlock, /chat-local-supervisor-session\.json/);
+assert.match(stopBlock, /chat-local-supervisor\.lock/);
+
+assert.match(app, /runtime_autostart=false/);
+assert.match(app, /runtime_ready \|\| fail/);
+assert.match(app, /runtime_autostart=false/);
+assert.doesNotMatch(
+  app,
+  /^\s*(?:exec\s+)?(?:bash\s+)?(?:"?\$ROOT\/bin\/floki-runtime\.sh"?|(?:\.\/)?bin\/floki-runtime\.sh)\s+start\b/m,
+  'floki.app must not execute the shared runtime start command'
+);
+
+assert.match(cleanup, /FLOKI_CHAT_LOCAL_CLEANUP_DELEGATED/);
+assert.match(cleanup, /exec bash "\$ROOT\/bin\/floki-runtime\.sh" stop/);
+assert.doesNotMatch(cleanup, /chat-local-supervisor-lease/);
+
+assert.match(
+  template,
+  /promotion_cleanup_command: "bash bin\/floki-runtime\.sh stop"/
+);
+assert.match(
+  template,
+  /promotion_restart_command: "bash bin\/floki-runtime\.sh start"/
+);
+assert.doesNotMatch(template, /floki-start\.sh/);
+
+assert.match(promoter, /async function restartFlokiRuntime\(config\)/);
+assert.doesNotMatch(promoter, /restartChatLocal/);
+
+const tracked = spawnSync('git', ['ls-files', '-z'], {
+  cwd: ROOT,
+  encoding: 'utf8'
+});
+assert.equal(tracked.status, 0, tracked.stderr || 'git ls-files failed');
+const forbiddenReferences = [];
+for (const relative of tracked.stdout.split('\0').filter(Boolean)) {
+  if (relative.endsWith('.txt')) continue;
+  let source;
+  try {
+    source = fs.readFileSync(path.join(ROOT, relative), 'utf8');
+  } catch (_error) {
+    continue;
+  }
+  if (source.includes(retiredLauncherName)) {
+    forbiddenReferences.push(relative);
+  }
+}
+assert.deepEqual(
+  forbiddenReferences,
+  [],
+  'tracked operational references to the retired launcher remain'
+);
+
+const dryRun = spawnSync(
+  'bash',
+  ['bin/floki-runtime.sh', 'reset'],
+  {
+    cwd: ROOT,
+    env: { ...process.env, FLOKI_COMMANDS_DRY_RUN: '1' },
+    encoding: 'utf8',
+    timeout: 30000
+  }
+);
+assert.equal(
+  dryRun.status,
+  0,
+  dryRun.stdout + '\n' + dryRun.stderr
+);
+const dryOutput = String(dryRun.stdout || '') + String(dryRun.stderr || '');
+assert.match(dryOutput, /FLOKI_RUNTIME_STOP_DRY_RUN/);
+assert.match(dryOutput, /FLOKI_RUNTIME_START_DRY_RUN/);
+assert.match(dryOutput, /FLOKI_RUNTIME_RESET_PASS/);
+
+console.log(JSON.stringify({
+  ok: true,
+  marker: 'FLOKI_RUNTIME_SINGLE_AUTHORITY_CONTRACT_PASS',
+  sole_runtime_authority: 'bin/floki-runtime.sh',
+  reset_command_verified: true,
+  reset_order: 'stop_then_start',
+  floki_app_client_only: true,
+  retired_launcher_absent: true,
+  retired_lease_absent: true,
+  promotion_uses_runtime_authority: true,
+  live_runtime_started_by_test: false
+}, null, 2));

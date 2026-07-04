@@ -22,10 +22,18 @@ function run() {
   assert.equal(liveSource.includes('lifecycle_transition_notifications_enabled'), true);
   assert.equal(liveSource.includes('lifecycle_status_poll_ms'), true);
 
-  const startScript = fs.readFileSync(path.join(ROOT, 'bin', 'floki-start.sh'), 'utf8');
-  assert.equal(startScript.includes('life-status'), true);
-  assert.equal(startScript.includes('src/chat/floki-lifecycle-status.cjs'), true);
-  assert.equal(startScript.includes('nvm use 24'), true);
+  const runtimeScript = fs.readFileSync(
+    path.join(ROOT, 'bin', 'floki-runtime.sh'),
+    'utf8'
+  );
+  assert.equal(runtimeScript.includes('  status)'), true);
+  assert.equal(runtimeScript.includes('print_status'), true);
+  assert.equal(runtimeScript.includes('  restart|reset)'), true);
+  const retiredLauncherName = 'floki-' + 'start.sh';
+  assert.equal(
+    fs.existsSync(path.join(ROOT, 'bin', retiredLauncherName)),
+    false
+  );
 
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   assert.equal(pkg.engines.node, '>=24');

@@ -21,9 +21,9 @@ game mode
 ## Commands
 
 ```bash
-bin/floki-start.sh senses
-bin/floki-start.sh senses-smoke
-bin/floki-start.sh senses-status
+bin/floki-node24-run.sh node src/senses/offline-senses.cjs
+bin/floki-node24-run.sh node src/senses/offline-senses.cjs --smoke
+bin/floki-node24-run.sh node src/senses/offline-senses.cjs --status
 ```
 
 ## Current behavior

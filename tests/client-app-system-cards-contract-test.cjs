@@ -140,6 +140,24 @@ async function run() {
     const initialServices = await httpRequest(runtimePort, '/interface/services');
     assert.equal(initialServices.status, 200);
     assert.equal(initialServices.json.length, 14);
+    for (const card of initialServices.json) {
+      assert.equal(
+        card.startAvailable,
+        true,
+        card.key + ' must expose a working Start action'
+      );
+      assert.equal(
+        card.stopAvailable,
+        true,
+        card.key + ' must expose a working Stop action'
+      );
+      assert.equal(
+        card.resetAvailable,
+        true,
+        card.key + ' must expose a working Restart action'
+      );
+    }
+
     for (const key of ['web_app', 'mobile_app']) {
       const card = cardByKey(initialServices.json, key);
       assert.equal(card.clientApp, true);
@@ -302,6 +320,35 @@ async function run() {
     assert.match(serviceCard, /aria-label=\{`Start \$\{service\.name\}`\}/);
     assert.match(serviceCard, /aria-label=\{`Stop \$\{service\.name\}`\}/);
     assert.match(serviceCard, /aria-label=\{`Restart \$\{service\.name\}`\}/);
+    assert.match(serviceCard, /aria-label=\{`Logs \$\{service\.name\}`\}/);
+    assert.match(
+      serviceCard,
+      /min-w-0 overflow-hidden flex h-full flex-col/,
+      'each service card must contain its controls'
+    );
+    assert.match(
+      serviceCard,
+      /grid w-full min-w-0 grid-cols-2 gap-1\.5/,
+      'service controls must use a contained two-column grid'
+    );
+    assert.match(
+      serviceCard,
+      /inline-flex w-full min-w-0 items-center justify-center/,
+      'every action button must fit its grid cell'
+    );
+    assert.doesNotMatch(
+      serviceCard,
+      /flex items-center gap-1\.5 min-h-7/,
+      'the old non-wrapping action row must not return'
+    );
+    const systemDashboard = read(
+      'apps/floki-neural-interface/src/pages/SystemDashboard.jsx'
+    );
+    assert.match(
+      systemDashboard,
+      /grid auto-rows-fr grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4/,
+      'dashboard rows must preserve equal card heights after controls wrap'
+    );
     assert.doesNotMatch(serviceCard, /onStart\(service\)[\s\S]{0,260}text-muted-foreground/);
     assert.doesNotMatch(serviceCard, /onStop\(service\)[\s\S]{0,260}text-muted-foreground/);
     assert.doesNotMatch(serviceCard, /onRestart\(service\)[\s\S]{0,260}text-muted-foreground/);

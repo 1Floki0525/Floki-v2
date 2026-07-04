@@ -425,7 +425,7 @@ async function runLiveChatInterface(options = {}) {
   const knowledgeAutoloadStatus = startKnowledgeAutoload();
   const chatWebcamVisionStatus = readChatWebcamVisionStatus();
   if (chatWebcamVisionStatus.ready_for_chat !== true) {
-    throw new Error('chat webcam vision is not ready; start chat through bin/floki-start.sh chat');
+    throw new Error('chat webcam vision is not ready; start chat through bin/floki-runtime.sh start');
   }
   const startStatus = startSpeechLoop({ no_speech: noSpeech });
   const paths = getTranscriptPaths();

@@ -217,13 +217,22 @@ async function main() {
       assert.equal(fs.existsSync(file), false, 'stale file survived cleanup: ' + file);
     }
 
-    const cleanupSource = fs.readFileSync(
+    const runtimeSource = fs.readFileSync(
+      path.join(ROOT, 'bin/floki-runtime.sh'),
+      'utf8'
+    );
+    const cleanupWrapper = fs.readFileSync(
       path.join(ROOT, 'bin/floki-chat-local-cleanup.sh'),
       'utf8'
     );
-    assert.match(cleanupSource, /ssh -S "\$VISION_SSH_TUNNEL_SOCKET" -O exit "\$VISION_SSH_TUNNEL_TARGET"/);
-    assert.match(cleanupSource, /chat-local-cleanup-ownership\.cjs/);
-    assert.match(cleanupSource, /removeStaleRuntimeFiles/);
+    assert.match(runtimeSource, /project_process_control\(\)/);
+    assert.match(runtimeSource, /stop_project_processes\(\)/);
+    assert.match(runtimeSource, /verify_shutdown_quiescence\(\)/);
+    assert.match(runtimeSource, /chat-vision-ssh-tunnel\.sock/);
+    assert.match(
+      cleanupWrapper,
+      /exec bash "\$ROOT\/bin\/floki-runtime\.sh" stop/
+    );
   } finally {
     for (const child of [...owned, ...preserved]) stop(child);
     fs.rmSync(tempRoot, { recursive: true, force: true });

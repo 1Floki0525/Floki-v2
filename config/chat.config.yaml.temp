@@ -856,9 +856,9 @@ self_improvement:
   promotion_stage_exclude_patterns: ".git/|node_modules/|apps/floki-neural-interface/node_modules/|apps/floki-neural-interface/dist/|state/|secrets/|.floki-tools/models/|.floki-tools/repos/|.floki-tools/input/|.floki-tools/output/|.floki-tools/venv*/"
   promotion_rsync_timeout_ms: 900000
   promotion_git_apply_timeout_ms: 300000
-  promotion_cleanup_command: "bash bin/floki-chat-local-cleanup.sh"
+  promotion_cleanup_command: "bash bin/floki-runtime.sh stop"
   promotion_cleanup_timeout_ms: 120000
-  promotion_restart_command: "bash bin/floki-start.sh chat.local"
+  promotion_restart_command: "bash bin/floki-runtime.sh start"
   promotion_restart_delay_seconds: 5
   dependency_install_locked_command: "npm ci --no-audit --no-fund"
   dependency_install_unlocked_command: "npm install --no-audit --no-fund"
@@ -992,7 +992,7 @@ self_improvement:
   repo_intelligence_git_diff_max_chars: 60000
   repo_intelligence_protected_path_prefixes: "state/|secrets/|.git/|.floki-tools/|config/game.config.yaml|config/game.config.yaml.temp|config/chat.config.yaml"
   repo_intelligence_generated_path_prefixes: "state/|reports/|apps/floki-neural-interface/dist/|node_modules/|logs/"
-  repo_intelligence_runtime_entry_points: "src/runtime/chat-local-runtime.cjs|bin/floki-start.sh|src/brain/floki-brain.cjs"
+  repo_intelligence_runtime_entry_points: "src/runtime/chat-local-runtime.cjs|bin/floki-runtime.sh|src/brain/floki-brain.cjs"
   repo_intelligence_config_transport_namespace: "self_improvement"
   repo_intelligence_config_template_file: "config/chat.config.yaml.temp"
   repo_intelligence_config_loader_file: "src/config/floki-config.cjs"

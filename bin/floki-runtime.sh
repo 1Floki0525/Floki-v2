@@ -728,6 +728,9 @@ case "$ACTION" in
     run_stop_helper "floki-chat-vision-stop.sh"
     stop_managed_units
     stop_project_processes || STOP_HELPER_FAILURES+=("stop_project_processes")
+    rm -f \
+      "$RUNTIME_ROOT/chat-local-supervisor-session.json" \
+      "$RUNTIME_ROOT/chat-local-supervisor.lock"
     stop_configured_model_containers
     if ! unload_configured_models; then
       printf '%s\n' "FLOKI_RUNTIME_STOP_FAIL" "runtime_stopped=false" "reason=ollama_models_still_loaded"
@@ -751,14 +754,26 @@ case "$ACTION" in
     post_stop_report
     printf '%s\n' "FLOKI_RUNTIME_STOP_PASS" "runtime_stopped=true" "hf_containers_stopped=true" "ollama_models_unloaded=true" "gpu_owner_released=true"
     ;;
-  restart)
+  restart|reset)
     "$0" stop
     "$0" start
+    if [ "$ACTION" = "reset" ]; then
+      printf '%s\n' \
+        "FLOKI_RUNTIME_RESET_PASS" \
+        "runtime_reset=true" \
+        "runtime_authority=bin/floki-runtime.sh" \
+        "local_app_command=bin/floki-app.sh"
+    else
+      printf '%s\n' \
+        "FLOKI_RUNTIME_RESTART_PASS" \
+        "runtime_restarted=true" \
+        "runtime_authority=bin/floki-runtime.sh"
+    fi
     ;;
   status)
     print_status
     ;;
   *)
-    fail "usage: floki-runtime.sh start|stop|restart|status"
+    fail "usage: floki-runtime.sh start|stop|reset|restart|status"
     ;;
 esac
