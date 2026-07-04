@@ -267,9 +267,7 @@ async function restoreRuntimeResources(options = {}) {
   const shouldRestartKnowledge =
     restorePolicy.restore_daytime_services &&
     options.restart_knowledge === true;
-  const shouldRestartScheduler =
-    restorePolicy.restore_daytime_services &&
-    options.restart_scheduler === true;
+  const shouldRestartScheduler = false;
   const shouldRestoreLifecycle =
     restorePolicy.restore_daytime_services &&
     options.restore_lifecycle !== false;
@@ -299,8 +297,8 @@ async function restoreRuntimeResources(options = {}) {
 
   try {
     const owner = gpu.currentOwner(config);
-    if (owner === 'hf_training') {
-      gpu.release('hf_training', config);
+    if (owner === 'hf_training' || owner === 'hf_rem_inference') {
+      gpu.release(owner, config);
       result.released_gpu = true;
     } else if (owner === null) {
       result.released_gpu = true;
@@ -424,6 +422,7 @@ async function enterTrainingRuntimeResourceMode(options = {}) {
     run_id: options.run_id || null,
     scheduler_suspended: false,
     scheduler_restart_required: false,
+    scheduler_preserved: true,
     hearing_suspended: false,
     hearing_stop_mode: null,
     vision_suspended: false,
@@ -437,23 +436,13 @@ async function enterTrainingRuntimeResourceMode(options = {}) {
   };
 
   try {
-    if (typeof options.stopSleepScheduler === 'function') {
-      const schedulerStop = await options.stopSleepScheduler();
-      result.scheduler_suspended = true;
-      result.scheduler_stop = schedulerStop || null;
-      result.scheduler_restart_required = true;
-    } else if (config.training_sleep_scheduler_stop_script) {
-      const schedulerStop = runConfiguredScript(
-        config,
-        'training_sleep_scheduler_stop_script',
-        options
-      );
-      result.scheduler_suspended = true;
-      result.scheduler_stop = schedulerStop;
-      result.scheduler_restart_required = Boolean(
-        schedulerStop.record && schedulerStop.record.stopped === true
-      );
-    }
+    // The sleep-cycle scheduler is the coordinator for the nightly
+    // epoch/REM state machine. Entering HF resource mode must never stop the
+    // process that owns subsequent epoch boundaries, REM handoffs, wake
+    // finalization, failure recovery, or abort processing.
+    result.scheduler_suspended = false;
+    result.scheduler_restart_required = false;
+    result.scheduler_preserved = true;
 
     result.hearing_stop_mode = await stopLiveAudio(liveAudio);
     result.hearing_suspended = true;
@@ -511,7 +500,7 @@ async function enterTrainingRuntimeResourceMode(options = {}) {
       reload_ollama: result.ollama_unload_attempted,
       restart_knowledge: result.knowledge_suspended,
       restart_audio: result.hearing_suspended,
-      restart_scheduler: result.scheduler_restart_required,
+      restart_scheduler: false,
       restore_lifecycle: result.hearing_suspended || result.vision_suspended,
       allow_non_training_owner: true
     });
@@ -550,8 +539,7 @@ async function exitTrainingRuntimeResourceMode(options = {}) {
         typeof options.restartKnowledge === 'function'
       ),
     restart_audio: restoreDaytime && options.restart_audio !== false,
-    restart_scheduler:
-      restoreDaytime && options.restart_scheduler === true,
+    restart_scheduler: false,
     restore_lifecycle:
       restoreDaytime && options.restore_lifecycle !== false,
     allow_non_training_owner: false

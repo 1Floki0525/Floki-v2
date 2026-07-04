@@ -1564,7 +1564,9 @@ async function main() {
     return;
   }
   if (process.argv.includes('--stop')) {
-    console.log(JSON.stringify(await stopChatWebcamVisionService(), null, 2));
+    const result = await stopChatWebcamVisionService();
+    console.log(JSON.stringify(result, null, 2));
+    if (result.ok !== true) process.exitCode = 1;
     return;
   }
   console.log(JSON.stringify(readChatWebcamVisionStatus(), null, 2));

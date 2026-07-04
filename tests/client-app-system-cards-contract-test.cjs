@@ -84,7 +84,46 @@ async function run() {
   assert.equal(getModuleConfig('mobile_app').in_process, true);
 
   const { createChatLocalRuntime } = require('../src/runtime/chat-local-runtime.cjs');
-  const runtime = createChatLocalRuntime({ port: runtimePort });
+
+  // This contract starts a temporary runtime. Never let that temporary
+  // runtime reconcile or control the workstation's production Vision service.
+  const isolatedVisionCalls = [];
+  const isolatedVisionReconciler = Object.freeze({
+    async reconcile(active, context = {}) {
+      isolatedVisionCalls.push({
+        active: active === true,
+        awake: context.awake === true
+      });
+      return Object.freeze({
+        ok: true,
+        active: active === true,
+        transition: 'test-isolated-noop'
+      });
+    },
+    readStatus() {
+      return Object.freeze({
+        active: false,
+        ready_for_chat: false,
+        service_process_alive: false,
+        camera_open: false,
+        first_frame_received: false
+      });
+    },
+    getState() {
+      return Object.freeze({
+        desired_active: false,
+        desired_generation: 0,
+        in_flight_op: null,
+        generation: 0,
+        last_completed_generation: 0
+      });
+    }
+  });
+
+  const runtime = createChatLocalRuntime({
+    port: runtimePort,
+    vision_reconciler: isolatedVisionReconciler
+  });
   await runtime.start();
 
   try {
@@ -104,8 +143,8 @@ async function run() {
     for (const key of ['web_app', 'mobile_app']) {
       const card = cardByKey(initialServices.json, key);
       assert.equal(card.clientApp, true);
-      assert.equal(card.logAvailable, false);
-      assert.equal(card.logKey, null);
+      assert.equal(card.logAvailable, true);
+      assert.equal(card.logKey, key);
       assert.equal(card.startAvailable, true);
       assert.equal(card.stopAvailable, true);
       assert.equal(card.resetAvailable, true);
@@ -283,9 +322,15 @@ async function run() {
     assert.match(mobileViewModel, /fun controlModule\(/);
     assert.match(read('apps/Floki-mobile-app/app/src/main/java/com/floki/neural/ui/FlokiAppRoot.kt'), /controlModule\(service\.key,\s*"start"\)[\s\S]*controlModule\(service\.key,\s*"stop"\)[\s\S]*controlModule\(service\.key,\s*"reset"\)/);
 
+    assert.ok(
+      isolatedVisionCalls.length > 0,
+      'temporary runtime must exercise only the isolated Vision reconciler'
+    );
+
     console.log(JSON.stringify({
       ok: true,
       marker: 'FLOKI_V2_CLIENT_APP_SYSTEM_CARDS_CONTRACT_PASS',
+      production_vision_isolated: true,
       cards: 14,
       runtime_pid_preserved: true
     }, null, 2));

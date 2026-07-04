@@ -204,6 +204,9 @@ function isWithinSleepWindow(date, options = {}) {
 }
 
 function buildRemSchedule(sleepWindow, options = {}) {
+  if (options.nightly_epoch_triggered_rem === true) {
+    return Object.freeze([]);
+  }
   const startMs = new Date(sleepWindow.start_at).getTime();
   const endMs = new Date(sleepWindow.end_at).getTime();
   const explicitOffsets = Array.isArray(options.rem_offsets_minutes)
@@ -311,7 +314,8 @@ function reconcileRemSchedule(state, sleepWindow, options = {}) {
     timezone: sleepWindow.timezone,
     sleep_window_start: sleepWindow.start_at,
     sleep_window_end: sleepWindow.end_at,
-    rem_interval_minutes: intervalMinutes,
+    rem_interval_minutes: options.nightly_epoch_triggered_rem === true ? null : intervalMinutes,
+    rem_trigger: options.nightly_epoch_triggered_rem === true ? 'completed_training_epoch' : 'fixed_schedule',
     rem_cycles: merged,
     rem_schedule_reconciled_at: nowDate(options).toISOString()
   });
@@ -379,7 +383,8 @@ function createSleepCycleState(options = {}) {
     last_user_activity_at: null,
     last_transition_at: createdAt,
     idle_resume_seconds: schedule.idle_resume_seconds,
-    rem_interval_minutes: schedule.rem_interval_minutes,
+    rem_interval_minutes: options.nightly_epoch_triggered_rem === true ? null : schedule.rem_interval_minutes,
+    rem_trigger: options.nightly_epoch_triggered_rem === true ? 'completed_training_epoch' : 'fixed_schedule',
     rem_cycles: buildRemSchedule(window, options),
     resumed_after_interruption_count: 0,
     chat_mode_only: true,

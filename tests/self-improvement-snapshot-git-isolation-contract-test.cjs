@@ -65,24 +65,52 @@ try {
     'the RSI agent must capture the sandbox environment check and fail closed on a non-zero status'
   );
 
-  const environmentCheckIndex = agentSource.indexOf(
+  const mainIndex = agentSource.indexOf('async function main()');
+  assert.ok(mainIndex >= 0, 'the RSI agent main function must exist');
+
+  const mainSource = agentSource.slice(mainIndex);
+  const environmentCheckIndex = mainSource.indexOf(
     'const environmentCheckResult = await shell('
   );
-  const rootInstallIndex = agentSource.indexOf('const rootInstall =');
-  const modelLoopIndex = agentSource.indexOf(
-    'for (let iteration = 0; iteration < MAX_ITERATIONS'
-  );
+  const rootInstallIndex = mainSource.indexOf('const rootInstall =');
+
   assert.ok(
     environmentCheckIndex >= 0,
-    'the environment check result assignment must exist'
+    'the environment check result assignment must exist inside main'
   );
   assert.ok(
     rootInstallIndex > environmentCheckIndex,
     'the sandbox environment check must complete before dependency installation'
   );
+
+  const beforeEnvironmentCheck = mainSource.slice(0, environmentCheckIndex);
+  const modelIterationSignals = [
+    'OLLAMA_CHAT_PATH',
+    'convergencePolicy.beginIteration(',
+    'selectionAnchorMessage()',
+    'const iterationStartedAt = Date.now()',
+    'const messages = ['
+  ];
+
+  for (const signal of modelIterationSignals) {
+    assert.equal(
+      beforeEnvironmentCheck.includes(signal),
+      false,
+      `model-iteration signal must not occur before the sandbox environment check: ${signal}`
+    );
+  }
+
+  const modelIterationStartIndexes = modelIterationSignals
+    .map((signal) => mainSource.indexOf(signal))
+    .filter((index) => index >= 0);
+
   assert.ok(
-    modelLoopIndex > environmentCheckIndex,
-    'the sandbox environment check must complete before any model iteration starts'
+    modelIterationStartIndexes.length > 0,
+    'the RSI agent must expose at least one model-iteration control-flow signal inside main'
+  );
+  assert.ok(
+    Math.min(...modelIterationStartIndexes) > environmentCheckIndex,
+    'the sandbox environment check must complete before model-iteration setup or execution starts'
   );
 
   for (const file of [

@@ -30,8 +30,11 @@ const {
     active: true,
     finalized: false,
     resource_entered: true,
-    training_failed: false,
-    current_container: 'failed-training-container'
+    training_failed: true,
+    current_container: null,
+    completed_epochs: 1,
+    rem_cycles_completed: 0,
+    latest_checkpoint: '/tmp/checkpoint-epoch-1'
   };
 
   const coordinator = createNightlyTrainingCoordinator({
@@ -52,16 +55,10 @@ const {
         owner = null;
       }
     },
+    enter_resource: async () => ({ ok: true }),
+    exit_resource: async () => ({ ok: true, result: { lifecycle_restored: true } }),
     read_session: () => session,
     refresh_session: (value) => value,
-    checkpoint_session: async () => {
-      calls.push('checkpoint-failed');
-      throw new Error('fixture checkpoint failure');
-    },
-    force_container: (name) => {
-      calls.push('force-remove:' + name);
-      return { ok: true, removed: true };
-    },
     write_session: (value) => {
       session = value;
       return value;
@@ -91,24 +88,21 @@ const {
   });
 
   const result = await coordinator.runNightlyRem({
-    now: new Date('2026-06-28T04:10:00.000Z'),
-    rem_cycle_number: 8
+    now: new Date('2026-06-28T04:10:00.000Z')
   });
 
   assert.equal(result.ok, true);
-  assert.match(result.checkpoint_error, /fixture checkpoint failure/);
+  assert.equal(result.checkpoint_error, null,
+    'epoch-triggered REM has no running container to checkpoint');
   assert.equal(session.training_failed, true);
   assert.equal(owner, null, 'failed training must not resume after successful REM');
   assert.deepEqual(calls, [
-    'checkpoint-failed',
-    'force-remove:failed-training-container',
-    'training-error:fixture checkpoint failure',
     'gpu:hf_training->hf_rem_inference',
     'hf-rem-generation',
     'gpu:release:hf_rem_inference'
   ]);
   assert.equal(
-    readRemClaims(config).claims['2026-06-27:cycle-8'].status,
+    readRemClaims(config).claims['2026-06-27:cycle-1'].status,
     'complete'
   );
 
@@ -118,6 +112,8 @@ const {
     marker: 'FLOKI_RSI_TRAINING_FAILURE_REM_CONTINUITY_PASS',
     training_failure_did_not_skip_rem: true,
     failed_training_not_resumed: true,
+    epoch_triggered_rem: true,
+    no_checkpoint_needed: true,
     rem_claim_completed: true
   }, null, 2));
 })().catch((error) => {

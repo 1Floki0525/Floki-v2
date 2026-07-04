@@ -199,7 +199,8 @@ async function runSchedulerIteration(options = {}) {
       env,
       runtime_dir: paths.runtime_dir,
       dream_engine_control: dreamControl,
-      write_report: options.write_report !== false
+      write_report: options.write_report !== false,
+      nightly_epoch_triggered_rem: Boolean(trainingCoordinator)
     };
     if (trainingCoordinator) {
       tickOptions.dream_runner = (dreamOptions) =>

@@ -18,7 +18,8 @@ function run() {
   assert.match(runtime, /input_modality: 'text'/);
   assert.match(runtime, /on_ambient_observation: rememberAmbient/);
   assert.match(runtime, /await liveAudio\.setAwake\(hearingEnabled\)/);
-  assert.match(runtime, /const visionEnabled = awake && state\.client_ready === true/);
+  assert.match(runtime, /const visionEnabled = awake && allGatesPass/);
+  assert.match(runtime, /filter\(\(gate\) => gate !== 'client_ready' && gate !== 'window_visible'\)/);
   assert.match(runtime, /createVisionReconciler\(/);
   assert.match(runtime, /visionReconciler\.reconcile\(visionEnabled/);
   assert.match(runtime, /stopChatWebcamVisionService/);
@@ -33,7 +34,7 @@ function run() {
   assert.match(start, /src\/runtime\/chat-local-runtime\.cjs/);
   assert.match(localStart, /authoritative live runtime/);
 
-  console.log(JSON.stringify({ ok: true, marker: 'FLOKI_V2_CHAT_LOCAL_SINGLE_RUNTIME_CONTRACT_PASS', one_backend_brain_owner: true, typed_and_spoken_share_queue: true, electron_is_client_only: true, sleep_gates_hearing_and_vision: true, fresh_vision_request_supported: true, chat_mode_only: true }, null, 2));
+  console.log(JSON.stringify({ ok: true, marker: 'FLOKI_V2_CHAT_LOCAL_SINGLE_RUNTIME_CONTRACT_PASS', one_backend_brain_owner: true, typed_and_spoken_share_queue: true, electron_is_client_only: true, client_presence_is_telemetry_only: true, sleep_gates_hearing_and_vision: true, fresh_vision_request_supported: true, chat_mode_only: true }, null, 2));
 }
 
 try { run(); } catch (error) { console.error(JSON.stringify({ ok: false, marker: 'FLOKI_V2_CHAT_LOCAL_SINGLE_RUNTIME_CONTRACT_FAIL', error: error.message }, null, 2)); process.exit(1); }

@@ -85,10 +85,16 @@ assert.ok(runtimeSource.includes('displayRunId'),
 console.log('PASS: Defect 4B — Stable last-run log identity');
 
 // --- Defect 4 Cause C: Stale polling response rejection ---
-
-assert.ok(rsiLab.includes('let generation = 0'), 'Generation counter must exist for stale response guard');
-assert.ok(rsiLab.includes('lastAppliedGeneration'), 'Last applied generation must be tracked');
-assert.ok(rsiLab.includes('thisGeneration <= lastAppliedGeneration'), 'Stale responses must be rejected');
+// Contract updated 2026-07-04: the raw-terminal RSILab rejects stale
+// responses by construction — polls run strictly sequentially (the next poll
+// is scheduled only after the previous settles) and every await is guarded by
+// the effect-scoped stopped flag, so an unmounted or superseded poll can
+// never apply its payload. The generation counter is gone with the old
+// dual-loop design.
+assert.ok(rsiLab.includes('if (stopped) return;'), 'Stale responses must be dropped after unmount/supersession');
+assert.ok(rsiLab.includes('stopped = true;'), 'Effect cleanup must invalidate in-flight polls');
+assert.ok(/finally\s*\{\s*if \(!stopped\) timer = setTimeout\(poll, terminalPollMs\(uiLimitsRef\.current\)\);/.test(rsiLab),
+  'Polls must be strictly sequential so responses cannot arrive out of order');
 
 console.log('PASS: Defect 4C — Stale polling response rejection');
 

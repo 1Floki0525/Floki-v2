@@ -250,7 +250,8 @@ for (const token of [
   'compactConversation',
   'convergencePolicy.feedback',
   'validateExperimentTargetFiles',
-  'think: MODEL_THINKING_ENABLED',
+  'think: thinkingEnabled',
+  'MODEL_THINKING_ENABLED',
   'selectionAnchorMessage',
   'selection_anchor_reminder'
 ]) {

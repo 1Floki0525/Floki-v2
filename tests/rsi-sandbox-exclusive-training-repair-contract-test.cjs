@@ -154,7 +154,14 @@ const acquire = controller.indexOf('acquireTrainingGpu(config, options)');
 assert.ok(stopAudio >= 0 && stopAudio < unload);
 assert.ok(unload >= 0 && unload < quiesce);
 assert.ok(quiesce >= 0 && quiesce < acquire);
-assert.match(controller, /training_sleep_scheduler_stop_script/);
+// Contract updated 2026-07-04: the sleep-cycle scheduler owns the nightly
+// epoch → REM state machine, so entering HF training resource mode must
+// preserve it instead of stopping it through the configured stop script.
+assert.doesNotMatch(
+  controller,
+  /runConfiguredScript\(\s*config,\s*'training_sleep_scheduler_stop_script'/
+);
+assert.match(controller, /scheduler_preserved = true/);
 assert.match(controller, /training_sleep_scheduler_start_script/);
 assert.match(controller, /config\.training_gpu_process_query_command/);
 assert.match(controller, /config\.training_gpu_process_query_args/);

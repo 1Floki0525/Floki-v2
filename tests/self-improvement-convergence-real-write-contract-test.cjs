@@ -118,10 +118,29 @@ assert.equal(
   preWritePolicy.snapshot().no_write_guidance_issued_at_iteration,
   7
 );
+// Contract updated 2026-07-04: a no-write implementation is no longer ended by
+// an iteration-count exit from the convergence policy — the nightly training
+// terminal-authority contract forbids that exit. It stays recoverable here,
+// and boundedness is owned by the agent's YAML wall-clock write deadline.
 preWritePolicy.beginIteration(8);
 assert.equal(
   preWritePolicy.endIteration(),
-  'implementation_has_no_workspace_change'
+  null,
+  'no-write implementation remains recoverable at the policy level'
+);
+const agentDeadlineSource = require('node:fs').readFileSync(
+  path.join(root, 'containers/self-improvement/agent.cjs'),
+  'utf8'
+);
+assert.match(
+  agentDeadlineSource,
+  /implementation_write_deadline_exceeded/,
+  'the agent wall-clock write deadline must bound a no-write implementation'
+);
+assert.match(
+  agentDeadlineSource,
+  /createProgressDeadlines/,
+  'the agent must own progress deadlines for no-write implementations'
 );
 
 policy.selectExperiment({

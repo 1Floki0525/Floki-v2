@@ -87,6 +87,17 @@ function discoverySnapshot() {
 }
 function selectionRequiredSnapshot() {
   const policy = createConvergencePolicy(config);
+  // Contract updated 2026-07-04: selection is forced only after the
+  // controller-owned evidence readiness categories are satisfied — a bare
+  // iteration deadline no longer collapses discovery.
+  policy.record('get_task_state', {}, { ok: true });
+  policy.record('get_self_context', {}, { ok: true });
+  policy.record('search_source', { query: 'selection' }, { ok: true });
+  policy.record(
+    'read_file',
+    { path: 'src/self-improvement/model-proxy.cjs' },
+    { ok: true, content: 'module.exports = {};' }
+  );
   for (let i = 1; i <= config.objective_selection_deadline_iteration; i += 1) {
     policy.beginIteration(i);
   }

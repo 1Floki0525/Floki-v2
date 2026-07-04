@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const { loadSelfImprovementConfig } = require('../config.cjs');
 const { atomicJson, nowIso } = require('../store.cjs');
@@ -11,6 +11,10 @@ const { assertHfMasterReady } = require('./master-preflight.cjs');
 const { listAdapters } = require('./lineage.cjs');
 const { ensureTrainingImage } = require('./training-runner.cjs');
 const { splitPipeList } = require('./gpu-ownership.cjs');
+
+function hfRemActiveFile(config = loadSelfImprovementConfig()) {
+  return path.join(config.training_runtime_root, 'hf-rem-active.json');
+}
 
 function readResponseJson(file) {
   try {
@@ -124,7 +128,7 @@ function forceRemove(containerName, config, options = {}) {
   return Object.freeze({ ok: true, removed: true, reason: null });
 }
 
-function runHfRemGeneration(options = {}) {
+async function runHfRemGeneration(options = {}) {
   const config = options.config || loadSelfImprovementConfig();
   if (config.hf_rem_inference_endpoint !== 'container://one-shot') {
     throw new Error('hf_rem_inference_endpoint must be container://one-shot');
@@ -140,16 +144,14 @@ function runHfRemGeneration(options = {}) {
   const responseFile = path.join(runtimeDir, config.hf_rem_response_file_name);
   const logFile = path.join(runtimeDir, config.hf_rem_log_file_name);
   const containerName = config.hf_rem_container_name_prefix + '-' + remId;
+  const activeFile = hfRemActiveFile(config);
   fs.mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
 
   const numericOption = (value, fallback) => {
     const number = Number(value);
     return Number.isFinite(number) ? number : Number(fallback);
   };
-  const provider = String(
-    options.provider || config.nightly_rem_provider
-  );
-
+  const provider = String(options.provider || config.nightly_rem_provider);
   const request = {
     marker: 'FLOKI_V2_HF_REM_REQUEST',
     created_at: nowIso(),
@@ -183,28 +185,45 @@ function runHfRemGeneration(options = {}) {
     runtime_dir: runtimeDir,
     source
   }, config);
+  atomicJson(activeFile, {
+    marker: 'FLOKI_V2_HF_REM_ACTIVE',
+    rem_id: remId,
+    container: containerName,
+    log_file: logFile,
+    runtime_dir: runtimeDir,
+    started_at: nowIso()
+  }, config);
 
-  let result;
+  let descriptor = null;
   let primaryError = null;
   try {
-    result = spawnSync(config.sandbox_engine, args, {
-      cwd: config.project_root,
-      encoding: 'utf8',
-      timeout: numericOption(options.timeout_ms, config.hf_rem_inference_timeout_ms),
-      maxBuffer: config.podman_output_buffer_bytes
+    descriptor = fs.openSync(logFile, 'a', 0o600);
+    const result = await new Promise((resolve, reject) => {
+      const child = spawn(config.sandbox_engine, args, {
+        cwd: config.project_root,
+        env: process.env,
+        stdio: ['ignore', descriptor, descriptor]
+      });
+      child.once('error', reject);
+      child.once('close', (status, signal) => resolve({ status, signal }));
     });
-    fs.writeFileSync(
-      logFile,
-      String(result.stdout || '') + String(result.stderr || ''),
-      { mode: 0o600 }
-    );
-    if (result.error) {
-      throw result.error;
-    }
-    if (result.status !== 0) {
+    if (Number(result.status) !== 0) {
+      const stat = fs.existsSync(logFile) ? fs.statSync(logFile) : null;
+      let tail = '';
+      if (stat && stat.size > 0) {
+        const length = Math.min(stat.size, 65536);
+        const fd = fs.openSync(logFile, 'r');
+        try {
+          const buffer = Buffer.allocUnsafe(length);
+          fs.readSync(fd, buffer, 0, length, stat.size - length);
+          tail = buffer.toString('utf8');
+        } finally {
+          fs.closeSync(fd);
+        }
+      }
       throw new Error(
-        'FLOKI_HF_REM_CONTAINER_FAILED: status=' + String(result.status) + '\n' +
-        String(result.stdout || '') + '\n' + String(result.stderr || '')
+        'FLOKI_HF_REM_CONTAINER_FAILED: status=' + String(result.status) +
+        ' signal=' + String(result.signal || '') + '\n' + tail
       );
     }
 
@@ -216,7 +235,6 @@ function runHfRemGeneration(options = {}) {
     ) {
       throw new Error('FLOKI_HF_REM_RESPONSE_INVALID: ' + responseFile);
     }
-
     return Object.freeze({
       model: response.model || source.model_identity,
       response_json: response.response_json,
@@ -235,14 +253,16 @@ function runHfRemGeneration(options = {}) {
     primaryError = error;
     throw error;
   } finally {
+    if (descriptor !== null) {
+      try { fs.closeSync(descriptor); } catch (_error) { /* best effort */ }
+    }
     try {
       forceRemove(containerName, config);
     } catch (cleanupError) {
-      if (primaryError) {
-        primaryError.message += '\n' + cleanupError.message;
-      } else {
-        throw cleanupError;
-      }
+      if (primaryError) primaryError.message += '\n' + cleanupError.message;
+      else throw cleanupError;
+    } finally {
+      fs.rmSync(activeFile, { force: true });
     }
   }
 }
@@ -251,6 +271,7 @@ module.exports = {
   buildRemContainerArgs,
   containerAbsent,
   forceRemove,
+  hfRemActiveFile,
   resolveApprovedInferenceSource,
   readResponseJson,
   runHfRemGeneration

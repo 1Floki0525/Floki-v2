@@ -524,22 +524,15 @@ async function abortActiveRun(
   const read = options.read_status || readStatus;
   const update = options.update_status || updateStatus;
   const audit = options.append_audit || appendAudit;
-  const stop =
-    options.stop_current_container || stopCurrentContainer;
-  const removeFile =
-    options.remove_file ||
-    ((file) => fs.rmSync(file, { force: true }));
+  const stop = options.stop_current_container || stopCurrentContainer;
+  const removeFile = options.remove_file || ((file) => fs.rmSync(file, { force: true }));
 
   const current = read(config);
   const runKind = normalizeRunKind(
-    kind ||
-      current.current_run_kind ||
-      config.default_rsi_run_kind,
+    kind || current.current_run_kind || config.default_rsi_run_kind,
     config
   );
-  const abortReason = String(
-    reason || ('maker_stop_' + runKind)
-  );
+  const abortReason = String(reason || ('maker_stop_' + runKind));
 
   let pendingRequestCancelled = false;
   if (fs.existsSync(p.runRequestFile)) {
@@ -547,29 +540,78 @@ async function abortActiveRun(
     pendingRequestCancelled = true;
   }
 
+  if (runKind === 'training') {
+    const {
+      abortNightlyTrainingSession,
+      readNightlySession
+    } = require('./training/nightly-training-session.cjs');
+    const gpu = require('./training/gpu-ownership.cjs');
+    const session = readNightlySession(config);
+    const aborted = abortNightlyTrainingSession(session, {
+      config,
+      reason: abortReason,
+      spawnSync: options.spawnSync
+    });
+    const owner = gpu.currentOwner(config);
+    let releasedGpu = false;
+    if (owner === 'hf_training' || owner === 'hf_rem_inference') {
+      gpu.release(owner, config);
+      releasedGpu = true;
+    }
+    update({
+      state: 'aborted',
+      phase: 'nightly_training_aborted',
+      current_run_id: null,
+      current_container: null,
+      current_run_kind: null,
+      current_candidate_type: null,
+      manual_run_pending: false,
+      manual_run_request_id: null,
+      manual_run_acknowledged_at: null,
+      training_resource_mode: 'aborted',
+      gpu_owner: null,
+      last_error: aborted.verified ? null : JSON.stringify(aborted.failures || [])
+    }, config);
+    const cleared = read(config);
+    const verified = aborted.verified === true &&
+      !cleared.current_container &&
+      !cleared.current_run_id;
+    audit('maker_training_aborted', {
+      reason: abortReason,
+      pending_request_cancelled: pendingRequestCancelled,
+      released_gpu: releasedGpu,
+      verified_workload_gone: aborted.verified_workload_gone === true,
+      verified
+    }, config);
+    return Object.freeze({
+      ok: verified,
+      verified,
+      marker: verified
+        ? 'FLOKI_V2_SELF_IMPROVEMENT_TRAINING_ABORT_VERIFIED'
+        : 'FLOKI_V2_SELF_IMPROVEMENT_TRAINING_ABORT_FAILED',
+      stopped: verified,
+      aborted: true,
+      run_kind: runKind,
+      reason: abortReason,
+      pending_request_cancelled: pendingRequestCancelled,
+      released_gpu: releasedGpu,
+      workload: aborted,
+      status: cleared
+    });
+  }
+
   const wasActive = hasActiveCycle(current);
   const stopRequested = stop(abortReason, config);
-
   let cleared = current;
-  if (
-    wasActive &&
-    (current.current_run_id || current.current_container)
-  ) {
-    cleared = await waitForCycleClear(
-      current,
-      config,
-      {
-        ...options,
-        reason: abortReason
-      }
-    );
+  if (wasActive && (current.current_run_id || current.current_container)) {
+    cleared = await waitForCycleClear(current, config, {
+      ...options,
+      reason: abortReason
+    });
   } else {
     update({
       state: 'waiting_for_idle',
-      phase:
-        runKind === 'training'
-          ? 'training_aborted'
-          : 'code_sandbox_stopped',
+      phase: 'code_sandbox_stopped',
       current_run_id: null,
       current_container: null,
       current_run_kind: null,
@@ -582,32 +624,23 @@ async function abortActiveRun(
     cleared = read(config);
   }
 
-  audit(
-    'maker_active_run_stopped',
-    {
-      run_kind: runKind,
-      reason: abortReason,
-      run_id: current.current_run_id || null,
-      container: current.current_container || null,
-      stop_requested: stopRequested === true,
-      pending_request_cancelled:
-        pendingRequestCancelled
-    },
-    config
-  );
+  audit('maker_active_run_stopped', {
+    run_kind: runKind,
+    reason: abortReason,
+    run_id: current.current_run_id || null,
+    container: current.current_container || null,
+    stop_requested: stopRequested === true,
+    pending_request_cancelled: pendingRequestCancelled
+  }, config);
 
   return Object.freeze({
     ok: true,
     verified: true,
     marker: 'FLOKI_V2_SELF_IMPROVEMENT_STOPPED',
     stopped: true,
-    abort_requested:
-      stopRequested === true ||
-      pendingRequestCancelled ||
-      wasActive,
+    abort_requested: stopRequested === true || pendingRequestCancelled || wasActive,
     stop_requested: stopRequested === true,
-    pending_request_cancelled:
-      pendingRequestCancelled,
+    pending_request_cancelled: pendingRequestCancelled,
     run_kind: runKind,
     reason: abortReason,
     status: cleared

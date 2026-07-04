@@ -16,6 +16,10 @@ const { loadAffectState } = require('../../brain/emotions_base/index.cjs');
 const { loadSelfImprovementConfig } = require('../self-improvement/config.cjs');
 const { getAllModuleConfigs, DISPLAY_NAMES } = require('../control-plane/module-registry.cjs');
 const { getCurrentWeekFile } = require('../control-plane/module-logging.cjs');
+const {
+  ensureCurrentWeekWorkspace,
+  readLogWorkspace
+} = require('../control-plane/log-workspace.cjs');
 
 const AFFECT_HISTORY_MAX = 360;
 
@@ -94,7 +98,7 @@ const INTERFACE_TAB_CONTRACT = Object.freeze({
   chat: Object.freeze({ reads: Object.freeze(['status', 'transcript']), writes: Object.freeze(['sendMessage', 'clearTranscript', 'interrupt']), live_events: Object.freeze(['transcript.entry', 'transcript.remove', 'status.update']) }),
   dreams: Object.freeze({ reads: Object.freeze(['dreamTimeline', 'sleep']), writes: Object.freeze(['requestSleep', 'wake']), live_events: Object.freeze(['status.update', 'inner-stream.entry']) }),
   neural: Object.freeze({ reads: Object.freeze(['neuralEvents']), writes: Object.freeze([]), live_events: Object.freeze(['inner-stream.entry']) }),
-  rsi_lab: Object.freeze({ reads: Object.freeze(['selfImprovementStatus', 'selfImprovementCandidates', 'selfImprovementActivity']), writes: Object.freeze(['runSelfImprovementNow', 'pauseSelfImprovement', 'resumeSelfImprovement', 'approveSelfImprovement', 'denySelfImprovement']), live_events: Object.freeze(['status.update']) }),
+  rsi_lab: Object.freeze({ reads: Object.freeze(['selfImprovementStatus', 'selfImprovementCandidates', 'selfImprovementTerminal']), writes: Object.freeze(['runSelfImprovementNow', 'pauseSelfImprovement', 'resumeSelfImprovement', 'approveSelfImprovement', 'denySelfImprovement', 'abortSelfImprovement']), live_events: Object.freeze(['status.update']) }),
   system: Object.freeze({ reads: Object.freeze(['services', 'visionFrame', 'visionObservation', 'emotion', 'affectHistory', 'sleep', 'logPath']), writes: Object.freeze(['startChat', 'stopChat', 'restartChat', 'wake', 'requestSleep', 'pauseSleep', 'resumeSleep', 'restartVision', 'restartHearing', 'restartSpeech', 'controlModule', 'interrupt', 'pushToTalk']), live_events: Object.freeze(['status.update']) }),
   settings: Object.freeze({ reads: Object.freeze(['settings']), writes: Object.freeze(['updateSettings', 'resetSettings', 'importSettings']), live_events: Object.freeze(['status.update']) })
 });
@@ -193,6 +197,7 @@ function createChatLocalInterfaceApi(options = {}) {
   const visionConfig = getVisionConfig('chat');
   const visionPaths = runtimePaths({ runtime_dir: runtimeDir });
   const selfImprovementConfig = loadSelfImprovementConfig();
+  ensureCurrentWeekWorkspace();
   const frameFreshnessMs = Math.max(
     100,
     Number(visionConfig.frame_retention_seconds || 0) * 1000 +
@@ -445,9 +450,9 @@ function createChatLocalInterfaceApi(options = {}) {
         ...row,
         status: 'Stopped',
         lifecycleState: 'stopped',
-        startAvailable: false,
-        stopAvailable: false,
-        resetAvailable: false,
+        startAvailable: true,
+        stopAvailable: true,
+        resetAvailable: true,
         lastError: null,
         detail: exclusiveTrainingDetail
       });
@@ -598,15 +603,7 @@ function createChatLocalInterfaceApi(options = {}) {
   }
 
   function logPath(service) {
-    const key = String(service || '');
-    try {
-      const filePath = getCurrentWeekFile(key);
-      return Object.freeze({ service: key, path: filePath, exists: fs.existsSync(filePath) });
-    } catch (_error) {
-      const legacy = legacyLogPath(key);
-      if (legacy && legacy.path) return legacy;
-      return Object.freeze({ service: key, path: null, exists: false });
-    }
+    return readLogWorkspace(service);
   }
 
   function legacyLogPath(key) {

@@ -116,7 +116,7 @@ vision:
   cognition_scene_require_narrative: true
   cognition_scene_instruction: "Answer from my own current sight in natural first-person language. Integrate the whole grounded scene into one to three flowing sentences instead of reciting a label list. Mention only people, objects, relationships, and scene details supported by the fresh observation."
   cognition_unavailable_instruction: "Say naturally that my sight is unavailable right now without describing implementation details."
-  desired_state_gates_required_for_start: "client_ready|window_visible|awake|inside_awake_window|external_eyes_enabled|policy_enabled|camera_available|no_active_start"
+  desired_state_gates_required_for_start: "awake|inside_awake_window|external_eyes_enabled|policy_enabled|camera_available|no_active_start"
   sleep_overrides_vision_start: true
   vision_camera_stop_timeout_ms: 10000
   vision_camera_availability_probe_timeout_ms: 3000
@@ -532,6 +532,13 @@ audio:
   ambient_memory_failure_log_name: "ambient-memory-failures.jsonl"
   max_frame_queue_size: 200
   whisper_drain_timeout_ms: 8000
+  remote_voice_enabled: true
+  remote_voice_content_type: "audio/wav"
+  remote_voice_max_bytes: 2097152
+  remote_voice_min_duration_ms: 250
+  remote_voice_max_duration_ms: 15000
+  remote_voice_transcript_max_chars: 2000
+  remote_voice_play_reply_audio: true
 
 timeouts:
   ollama_http_ms: 120000
@@ -719,7 +726,7 @@ self_improvement:
   model_thinking_enabled: true
   agent_message_history_max_chars: 60000
   agent_recent_message_count: 14
-  max_agent_iterations: 10000
+  max_agent_iterations: 80
   discovery_tool_limit: 18
   research_tool_limit: 10
   repeated_tool_signature_limit: 2
@@ -731,6 +738,7 @@ self_improvement:
   focused_verification_failure_limit: 4
   focused_repair_no_progress_iteration_limit: 12
   max_command_ms: 900000
+  dependency_install_timeout_ms: 120000
   max_changed_files: 200
   max_patch_bytes: 5242880
   minimum_available_memory_mb: 8192
@@ -916,9 +924,6 @@ self_improvement:
   agent_npm_cache_path: "/root/.cache/npm"
   agent_pip_cache_path: "/root/.cache/pip"
   container_agent_path: "/opt/floki-self-improvement/agent.cjs"
-  selection_rescue_thinking_enabled: false
-  selection_rescue_temperature: 0
-  selection_rescue_max_attempts: 3
   dependency_fingerprint_algorithm: "sha256"
   persistent_dependency_cache_marker_file: ".floki-dependency-cache.json"
   persistent_dependency_cache_root: "/var/lib/floki-rsi/dependency-cache"
@@ -945,12 +950,18 @@ self_improvement:
   environment_check_command_timeout_ms: 60000
   shell_command_progress_interval_ms: 5000
   shell_command_stalled_threshold_ms: 30000
-  iteration_wall_clock_budget_ms: 86400000
+  iteration_wall_clock_budget_ms: 1800000
+  agent_run_wall_clock_budget_ms: 1800000
+  model_turn_deadline_ms: 300000
+  implementation_write_deadline_ms: 300000
+  implementation_no_progress_deadline_ms: 300000
+  focused_repair_no_progress_deadline_ms: 300000
   command_timeout_overrides_ms: "environment_check_ms=60000|git_diff_ms=300000|git_commit_ms=300000|npm_ci_ms=600000|agent_git_show_ms=30000"
   agent_git_show_timeout_ms: 30000
   agent_ollama_request_max_attempts: 5
   agent_ollama_request_retry_backoff_ms: 2000
   worker_heartbeat_file_name: worker.heartbeat.json
+  worker_heartbeat_stale_ms: 30000
   sandbox_heartbeat_file_name: sandbox.heartbeat.json
   sandbox_heartbeat_refresh_ms: 5000
   sandbox_heartbeat_stale_ms: 30000

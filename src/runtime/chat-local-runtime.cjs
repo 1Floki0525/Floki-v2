@@ -1,5 +1,7 @@
 'use strict';
 
+const { readRawTerminal } = require('./raw-terminal-log.cjs');
+
 const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
@@ -1093,6 +1095,12 @@ function createChatLocalRuntime(options = {}) {
     return scheduled;
   }
 
+  // Shutdown owns the full vision teardown including the SSH tunnel. Runtimes
+  // constructed with a fake reconciler (tests) must never touch the real
+  // vision daemon, so the default collapses to a no-op in that case.
+  const visionShutdown = options.vision_shutdown || (options.vision_reconciler
+    ? async () => null
+    : (opts) => stopChatWebcamVisionService({ ...opts, runtime_dir: runtimeDir }));
   const visionReconciler = options.vision_reconciler || createVisionReconciler({
     readStatus: () => readChatWebcamVisionStatus({ runtime_dir: runtimeDir }),
     startService: (options) => startChatWebcamVisionService({ ...options, runtime_dir: runtimeDir }),
@@ -1288,6 +1296,9 @@ function createChatLocalRuntime(options = {}) {
   const preRemMemoryPreparation = options.pre_rem_memory_preparation_runner || runPreRemMemoryPreparation;
 
   async function applyLifecycle(next) {
+    // A reconcile that lands after shutdown begins must not respawn the
+    // detached vision daemon or restart hearing; stop() owns teardown.
+    if (stopping) return;
     lifecycle = next;
     const awake = next && next.is_awake === true;
     const voice = getInterfaceSettings('chat').voice;
@@ -2596,7 +2607,155 @@ function createChatLocalRuntime(options = {}) {
     });
   }
 
+async function waitForRsiWorkerState(expectedRunning, timeoutMs = 30000) {
+    const deadline = Date.now() + timeoutMs;
+    let latest = selfImprovementApi.status();
+    while (Date.now() < deadline) {
+      latest = selfImprovementApi.status();
+      const pid = Number(latest.worker_pid || 0);
+      let pidAlive = false;
+      if (pid > 0) {
+        try { process.kill(pid, 0); pidAlive = true; } catch (_error) { pidAlive = false; }
+      }
+      if (expectedRunning === true && latest.worker_running === true && pidAlive) {
+        return Object.freeze({ verified: true, status: latest, pid_alive: true });
+      }
+      if (expectedRunning === false && latest.worker_running !== true && !pidAlive) {
+        return Object.freeze({ verified: true, status: latest, pid_alive: false });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return Object.freeze({ verified: false, status: latest, pid_alive: false });
+  }
+
+  function runRsiControlScript(name) {
+    const file = path.join(ROOT, 'bin', name);
+    if (!fs.existsSync(file)) {
+      throw new Error('RSI control script is missing: ' + file);
+    }
+    const scriptTimeout = Number(controlPlaneConfig().supervisor_operation_timeout_ms || 120000);
+    const result = spawnSync('bash', [file], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: scriptTimeout,
+      maxBuffer: 4 * 1024 * 1024
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      throw new Error(
+        name + ' failed: ' +
+        String(result.stderr || result.stdout || 'status=' + String(result.status)).trim()
+      );
+    }
+    return Object.freeze({
+      status: result.status,
+      stdout: String(result.stdout || ''),
+      stderr: String(result.stderr || '')
+    });
+  }
+
+  async function stopRsiAuthoritatively(reason = 'system_rsi_stop') {
+    const config = loadSelfImprovementConfig();
+    const {
+      abortNightlyTrainingSession,
+      readNightlySession
+    } = require('../self-improvement/training/nightly-training-session.cjs');
+    const gpu = require('../self-improvement/training/gpu-ownership.cjs');
+    const session = readNightlySession(config);
+    let trainingAbort = null;
+    if (session && session.active === true && session.finalized !== true) {
+      trainingAbort = abortNightlyTrainingSession(session, { config, reason });
+    }
+    selfImprovementApi.preempt(reason);
+    const script = runRsiControlScript('floki-self-improvement-stop.sh');
+    const owner = gpu.currentOwner(config);
+    if (owner === 'hf_training' || owner === 'hf_rem_inference') {
+      gpu.release(owner, config);
+    }
+    const verification = await waitForRsiWorkerState(false);
+    const latest = selfImprovementApi.status();
+    const verified = verification.verified === true &&
+      !latest.current_container &&
+      !latest.current_run_id &&
+      (!trainingAbort || trainingAbort.verified === true);
+    return Object.freeze({
+      ok: verified,
+      verified,
+      marker: verified
+        ? 'FLOKI_V2_RSI_SYSTEM_STOP_VERIFIED'
+        : 'FLOKI_V2_RSI_SYSTEM_STOP_FAILED',
+      module: 'rsi',
+      action: 'stop',
+      script,
+      training_abort: trainingAbort,
+      status: latest,
+      error: verified ? null : 'RSI worker or active workload remained after stop'
+    });
+  }
+
+  async function rsiLifecycleResult(action) {
+    if (action === 'stop') return stopRsiAuthoritatively('system_rsi_stop');
+    if (action === 'reset') {
+      const stopped = await stopRsiAuthoritatively('system_rsi_restart');
+      if (stopped.verified !== true) return stopped;
+      const script = runRsiControlScript('floki-self-improvement-start.sh');
+      const verification = await waitForRsiWorkerState(true);
+      return Object.freeze({
+        ok: verification.verified === true,
+        verified: verification.verified === true,
+        marker: verification.verified === true
+          ? 'FLOKI_V2_RSI_SYSTEM_RESTART_VERIFIED'
+          : 'FLOKI_V2_RSI_SYSTEM_RESTART_FAILED',
+        module: 'rsi',
+        action: 'restart',
+        script,
+        status: verification.status,
+        error: verification.verified === true ? null : 'RSI worker did not become live after restart'
+      });
+    }
+    if (action === 'start') {
+      const before = selfImprovementApi.status();
+      const pid = Number(before.worker_pid || 0);
+      if (before.worker_running === true && pid > 0) {
+        try {
+          process.kill(pid, 0);
+          return Object.freeze({
+            ok: true,
+            verified: true,
+            marker: 'FLOKI_V2_RSI_SYSTEM_ALREADY_RUNNING',
+            module: 'rsi',
+            action: 'start',
+            status: before
+          });
+        } catch (_error) { /* stale status; run the real start script */ }
+      }
+      const script = runRsiControlScript('floki-self-improvement-start.sh');
+      const verification = await waitForRsiWorkerState(true);
+      return Object.freeze({
+        ok: verification.verified === true,
+        verified: verification.verified === true,
+        marker: verification.verified === true
+          ? 'FLOKI_V2_RSI_SYSTEM_START_VERIFIED'
+          : 'FLOKI_V2_RSI_SYSTEM_START_FAILED',
+        module: 'rsi',
+        action: 'start',
+        script,
+        status: verification.status,
+        error: verification.verified === true ? null : 'RSI worker did not become live after start'
+      });
+    }
+    return Object.freeze({
+      ok: false,
+      verified: false,
+      module: 'rsi',
+      action,
+      error: 'unsupported RSI lifecycle action: ' + String(action),
+      httpStatus: 400
+    });
+  }
+
   async function moduleLifecycle(moduleKey, action, body = {}) {
+    if (moduleKey === 'rsi') return rsiLifecycleResult(action);
     if (!isKnownModule(moduleKey)) {
       return Object.freeze({ ok: false, error: 'unknown module key' });
     }
@@ -2892,18 +3051,52 @@ function createChatLocalRuntime(options = {}) {
       return;
     }
     if (req.method === 'POST' && url.pathname === '/self-improvement/abort') {
-      const body = await bodyJson(req);
-      sendJson(
-        res,
-        200,
-        await selfImprovementApi.abort(
+        const body = await bodyJson(req);
+        const result = await selfImprovementApi.abort(
           body.token,
-          body.reason,
+          body.reason || 'maker_abort',
           body.kind
-        )
-      );
-      return;
-    }
+        );
+        let restoration = null;
+        if (String(body.kind || result.run_kind || '') === 'training') {
+          try {
+            restoration = await exitTrainingRuntimeResourceMode({
+              config: selfImprovementConfig,
+              reason: 'nightly_training_aborted',
+              liveAudio,
+              visionReconciler,
+              knowledgeBootstrap,
+              applyLifecycle,
+              buildLifecycle: readLifecycleStatus,
+              restartKnowledge: async () => {
+                if (typeof knowledgeBootstrap.start === 'function') {
+                  return knowledgeBootstrap.start();
+                }
+                return null;
+              },
+              restart_scheduler: false
+            });
+          } catch (error) {
+            sendJson(res, 500, {
+              ok: false,
+              verified: false,
+              marker: 'FLOKI_V2_TRAINING_ABORT_RESTORE_FAILED',
+              error: error.message,
+              abort: result
+            });
+            return;
+          }
+        }
+        const verified = result && result.verified === true &&
+          (!restoration || restoration.ok === true);
+        sendJson(res, verified ? 200 : 500, {
+          ...result,
+          ok: verified,
+          verified,
+          restoration
+        });
+        return;
+      }
     if (req.method === 'GET' && url.pathname === '/self-improvement/activity') {
       try {
         const rsiConfig = loadSelfImprovementConfig();
@@ -3032,79 +3225,22 @@ function createChatLocalRuntime(options = {}) {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/self-improvement/terminal') {
-      try {
-        const rsiConfig = loadSelfImprovementConfig();
-        const rsiStatus = selfImprovementApi.status();
-        const currentRunId = rsiStatus?.current_run_id || null;
-        const lastSandboxLogFile = rsiStatus?.last_sandbox_log_file || null;
-        const terminalFile = currentRunId ? lastSandboxLogFile : lastSandboxLogFile;
-        const displayRunId =
-          currentRunId ||
-          rsiRunIdFromLogFile(lastSandboxLogFile, rsiConfig);
-        const terminal = terminalFile
-          ? await statExistingFileWithin(
-              rsiConfig.workspace_root,
-              terminalFile
-            )
-          : null;
-        if (!terminal) {
-          sendJson(res, 200, {
-            ok: true,
-            run_id: displayRunId,
-            terminal_file: null,
-            cursor: 0,
-            next_cursor: 0,
-            file_size: 0,
-            text: '',
-            generation: rsiStatus?.generation || 0,
-            active: false,
-            completed: !currentRunId && !!lastSandboxLogFile
-          });
-          return;
-        }
-        const cursor = (() => {
-          const raw = url.searchParams.get('cursor');
-          if (raw == null || raw === '' || !/^\d+$/.test(raw)) return 0;
-          const v = Number(raw);
-          return Number.isSafeInteger(v) && v >= 0 ? v : 0;
-        })();
-        const maxBytes = (() => {
-          const raw = url.searchParams.get('max_bytes');
-          if (raw == null || raw === '' || !/^\d+$/.test(raw)) return 65536;
-          return Math.min(262144, Math.max(4096, Number(raw)));
-        })();
-        const fileSize = terminal.stat.size;
-        const readLength = Math.min(maxBytes, Math.max(0, fileSize - cursor));
-        let text = '';
-        let nextCursor = cursor;
-        if (readLength > 0) {
-          const handle = await fs.promises.open(terminal.filePath, 'r');
-          try {
-            const buffer = Buffer.allocUnsafe(readLength);
-            const { bytesRead } = await handle.read(buffer, 0, readLength, cursor);
-            text = buffer.subarray(0, bytesRead).toString('utf8');
-            nextCursor = cursor + bytesRead;
-          } finally {
-            await handle.close();
-          }
-        }
-        sendJson(res, 200, {
-          ok: true,
-          run_id: displayRunId,
-          terminal_file: path.basename(terminal.filePath),
-          cursor,
-          next_cursor: nextCursor,
-          file_size: fileSize,
-          text,
-          generation: rsiStatus?.generation || 0,
-          active: !!currentRunId,
-          completed: !currentRunId && !!lastSandboxLogFile
+        const config = loadSelfImprovementConfig();
+        const { readNightlySession } = require('../self-improvement/training/nightly-training-session.cjs');
+        const payload = await readRawTerminal({
+          config,
+          status: selfImprovementApi.status(),
+          session: readNightlySession(config),
+          cursor: Number(url.searchParams.get('cursor') || 0),
+          before_cursor: url.searchParams.has('before_cursor')
+            ? Number(url.searchParams.get('before_cursor'))
+            : undefined,
+          max_bytes: Number(url.searchParams.get('max_bytes') || 65536),
+          requested_source_id: url.searchParams.get('source_id') || null
         });
-      } catch (error) {
-        sendJson(res, 500, { ok: false, error: error.message });
+        sendJson(res, 200, payload);
+        return;
       }
-      return;
-    }
     if (req.method === 'GET' && url.pathname === '/interface/vision/frame/latest.jpg') {
       try {
         const visionPaths = visionRuntimePaths({ runtime_dir: runtimeDir });
@@ -3230,7 +3366,8 @@ function createChatLocalRuntime(options = {}) {
     server = http.createServer((req, res) => {
       route(req, res).catch((error) => {
         appendLog('request error: ' + error.stack);
-        sendJson(res, 500, { ok: false, error: error.message });
+        const httpStatus = /approval authorization failed/.test(String(error.message)) ? 403 : 500;
+        sendJson(res, httpStatus, { ok: false, error: error.message });
       });
     });
     server.on('upgrade', (request, socket) => {
@@ -3347,6 +3484,14 @@ function createChatLocalRuntime(options = {}) {
     state.knowledge_worker_running = false;
     state.knowledge_refreshing = false;
     await liveAudio.stop();
+    try {
+      const visionStop = await visionShutdown({ stop_tunnel: true });
+      if (visionStop && visionStop.ok === false) {
+        appendLog('vision shutdown left survivors: ' + JSON.stringify(visionStop.stopped_pids || []));
+      }
+    } catch (error) {
+      appendLog('vision shutdown failed: ' + error.message);
+    }
     for (const socket of Array.from(websocketClients)) { try { socket.end(); } catch (error) { appendLog('websocket close failed: ' + error.message); } }
     websocketClients.clear();
     state.websocket_clients = 0;

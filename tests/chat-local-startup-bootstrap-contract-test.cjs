@@ -146,7 +146,7 @@ async function run() {
     ok: true,
     marker: 'FLOKI_V2_CHAT_LOCAL_STARTUP_BOOTSTRAP_PASS',
     api_bound_before_knowledge_refresh_completed: true,
-    senses_held_until_client_ready: true,
+    senses_owned_by_runtime_before_client_ready: true,
     knowledge_refresh_completed_live: true,
     startup_elapsed_ms: startupElapsedMs,
     chat_mode_only: true,

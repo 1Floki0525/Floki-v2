@@ -3,472 +3,282 @@ import { ChevronDown, FlaskConical, Terminal, AlertTriangle } from 'lucide-react
 import SelfImprovementPanel from '@/components/system/SelfImprovementPanel'
 import flokiAdapter from '@/integrations/floki/adapter'
 
-const SENSITIVE_PATTERN = /(?:api[_-]?key|token|secret|password|auth[_-]?header|authorization|cookie|credential)["\s:=]+["']?[A-Za-z0-9+/=_\-]{8,}/gi;
+const TERMINAL_CHUNK_BYTES = 64 * 1024
+const TERMINAL_WINDOW_BYTES = 2 * 1024 * 1024
+const TERMINAL_BOOTSTRAP_POLL_MS = 1000
 
-function redactSensitive(text) {
-  return String(text || '').replace(SENSITIVE_PATTERN, '[REDACTED]');
+function terminalPollMs(uiLimits) {
+  const configured = Number(uiLimits?.terminal_poll_ms)
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : TERMINAL_BOOTSTRAP_POLL_MS
 }
 
-function safeStr(v, max) {
-  return String(v || '').slice(0, max);
+// Retained terminal history is bounded by the YAML-authoritative
+// ui_limits.terminal_event_limit (lines) on top of the byte window.
+function capLinesStart(result, maxLines) {
+  const limit = Number(maxLines)
+  if (!Number.isFinite(limit) || limit <= 0) return result
+  const lines = result.text.split('\n')
+  if (lines.length <= limit) return result
+  const removed = lines.slice(0, lines.length - limit).join('\n') + '\n'
+  return {
+    text: lines.slice(lines.length - limit).join('\n'),
+    removedBytes: result.removedBytes + new TextEncoder().encode(removed).length
+  }
 }
 
-// Split text into display lines, capped at maxLines, each line capped at maxLen chars
-function outputLines(text, maxLines, maxLen) {
-  if (!text) return [];
-  const lines = String(text).split(/\r?\n/);
-  const kept = lines.filter(l => l.trim() !== '' || lines.indexOf(l) < 3).slice(0, maxLines);
-  const result = kept.map(l => l.slice(0, maxLen));
-  if (lines.length > maxLines) result.push(`  … (${lines.length - maxLines} more lines)`);
-  return result;
+function capLinesEnd(result, maxLines) {
+  const limit = Number(maxLines)
+  if (!Number.isFinite(limit) || limit <= 0) return result
+  const lines = result.text.split('\n')
+  if (lines.length <= limit) return result
+  const removed = '\n' + lines.slice(limit).join('\n')
+  return {
+    text: lines.slice(0, limit).join('\n'),
+    removedBytes: result.removedBytes + new TextEncoder().encode(removed).length
+  }
 }
 
-// Faithful code/diff rendering: keep every line (including blanks) so the
-// terminal shows exactly what Floki wrote, like a real editor view.
-function codeLines(text, maxLines, maxLen) {
-  if (!text) return [];
-  const lines = String(text).split(/\r?\n/);
-  const kept = lines.slice(0, maxLines).map(l => l.slice(0, maxLen));
-  if (lines.length > maxLines) kept.push(`  … (${lines.length - maxLines} more lines)`);
-  return kept;
+function trimUtf8Start(text, maxBytes) {
+  const bytes = new TextEncoder().encode(String(text || ''))
+  if (bytes.length <= maxBytes) return { text: String(text || ''), removedBytes: 0 }
+  let start = bytes.length - maxBytes
+  while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start += 1
+  return {
+    text: new TextDecoder().decode(bytes.subarray(start)),
+    removedBytes: start
+  }
 }
 
-// Expand one API event item into one or more display items
-function expandToDisplayItems(item, limits) {
-  const safe = (value, max = limits.terminal_safe_string_max_chars) => safeStr(value, max);
-  const { source, index, record } = item;
-  const type = String(record?.type || '');
-  const de = record?.detail || {};
-  const ts = record?.created_at || null;
-  const baseId = `${source}-${index}`;
-
-  function main(text, color) {
-    return [{ id: baseId, source, ts, text: redactSensitive(text), color, isOutput: false }];
+function trimUtf8End(text, maxBytes) {
+  const bytes = new TextEncoder().encode(String(text || ''))
+  if (bytes.length <= maxBytes) return { text: String(text || ''), removedBytes: 0 }
+  let end = maxBytes
+  while (end > 0 && end < bytes.length && (bytes[end] & 0xc0) === 0x80) end -= 1
+  return {
+    text: new TextDecoder().decode(bytes.subarray(0, end)),
+    removedBytes: bytes.length - end
   }
-  function withOutput(headerText, headerColor, lines, lineColor) {
-    const items = [{ id: baseId, source, ts, text: redactSensitive(headerText), color: headerColor, isOutput: false }];
-    lines.forEach((l, i) => {
-      items.push({ id: `${baseId}-out-${i}`, source: null, ts: null, text: redactSensitive(l), color: lineColor, isOutput: true });
-    });
-    return items;
-  }
-
-  if (type === 'model_turn') {
-    const thinking = Number(de.thinking_chars || 0);
-    const tools = Number(de.tool_call_count || 0);
-    const thinkStr = thinking > 0 ? ` | ${thinking} chars thinking` : '';
-    return main(`[agent] ${tools} tool call${tools !== 1 ? 's' : ''}${thinkStr}`, 'text-violet-400');
-  }
-
-  if (type === 'shell_end') {
-    const identity = safe(de.identity);
-    // Show the REAL command Floki ran, not just its internal label.
-    const cmd = safe(de.command, limits.terminal_command_max_chars) || identity;
-    const exitCode = de.status;
-    const ms = de.duration_ms != null ? ` (${de.duration_ms}ms)` : '';
-    const isFocused = identity === 'focused_test';
-    const prefix = isFocused ? '[test]' : '[shell]';
-    const tag = identity && identity !== cmd ? ` ${identity}:` : '';
-    const ok = exitCode === 0;
-    const headerColor = ok ? 'text-foreground/80' : 'text-orange-300';
-    const header = `${prefix}${tag} $ ${cmd} → exit ${exitCode}${ms}`;
-
-    if (ok) {
-      const stdout = safe(de.stdout, limits.terminal_output_max_chars);
-      const lines = outputLines(stdout, limits.terminal_success_output_max_lines, limits.terminal_output_max_line_chars);
-      if (lines.length === 0) return main(header, headerColor);
-      return withOutput(header, headerColor, lines, 'text-foreground/50');
-    } else {
-      // On failure: stderr takes priority, fallback to stdout
-      const errText = safe(de.stderr, limits.terminal_output_max_chars) || safe(de.stdout, limits.terminal_output_max_chars);
-      const lines = outputLines(errText, limits.terminal_failure_output_max_lines, limits.terminal_output_max_line_chars);
-      if (lines.length === 0) return main(header, headerColor);
-      return withOutput(header, headerColor, lines, 'text-orange-200/70');
-    }
-  }
-
-  if (type === 'shell_progress') {
-    const identity = safe(de.identity);
-    const cmd = safe(de.command, limits.terminal_command_max_chars) || identity;
-    const tag = identity && identity !== cmd ? ` ${identity}:` : '';
-    const elapsed = de.elapsed_ms != null ? ` (${Math.round(de.elapsed_ms / 1000)}s)` : '';
-    return main(`[shell]${tag} $ ${cmd}${elapsed} …`, 'text-foreground/50');
-  }
-
-  if (type === 'write_file') {
-    const filePath = safe(de.path);
-    const bytes = de.bytes != null ? ` (${de.bytes} bytes)` : '';
-    const lc = de.line_count != null ? `, ${de.line_count} lines` : '';
-    const changed = de.workspace_changed ? '' : ' [noop]';
-    const header = `[write] ${filePath}${bytes ? bytes.replace(')', lc + ')') : ''}${changed}`;
-    // Bounded preview field (content_preview); fall back to legacy `content`.
-    const preview = de.content_preview != null ? de.content_preview : de.content;
-    const lines = codeLines(preview, limits.terminal_code_max_lines, limits.terminal_code_max_line_chars);
-    if (de.content_truncated) lines.push('  … (content truncated — preview only)');
-    if (lines.length === 0) return main(header, 'text-sky-400/80');
-    return withOutput(header, 'text-sky-400/80', lines, 'text-sky-200/50');
-  }
-
-  if (type === 'apply_patch') {
-    const filePath = safe(
-      de.path || de.file || (Array.isArray(de.paths) ? de.paths.join(', ') : '')
-    );
-    const header = `[patch] ${filePath}`;
-    // Bounded diff preview (patch_preview); fall back to legacy `patch`.
-    const patchText = safe(de.patch_preview != null ? de.patch_preview : de.patch, limits.terminal_diff_max_chars);
-    const raw = codeLines(patchText, limits.terminal_code_max_lines, limits.terminal_code_max_line_chars);
-    if (de.patch_truncated) raw.push('  … (diff truncated — preview only)');
-    if (raw.length === 0) return main(header, 'text-sky-400/80');
-    const items = [{ id: baseId, source, ts, text: redactSensitive(header), color: 'text-sky-400/80', isOutput: false }];
-    raw.forEach((l, i) => {
-      let color = 'text-foreground/45';
-      if (l.startsWith('+') && !l.startsWith('+++')) color = 'text-emerald-300/70';
-      else if (l.startsWith('-') && !l.startsWith('---')) color = 'text-red-300/70';
-      else if (l.startsWith('@@')) color = 'text-neon-cyan/60';
-      items.push({ id: `${baseId}-p-${i}`, source: null, ts: null, text: redactSensitive(l), color, isOutput: true });
-    });
-    return items;
-  }
-
-  if (type === 'write_memory') {
-    const stream = safe(de.stream || 'episodic');
-    const summary = safe(de.summary, 120);
-    return main(`[memory:${stream}] ${summary}`, 'text-indigo-300/80');
-  }
-
-  if (type === 'convergence_state') {
-    const s = de;
-    const obj = s?.selected_experiment?.objective
-      ? ` — "${String(s.selected_experiment.objective).slice(0, limits.terminal_summary_max_chars)}"`
-      : '';
-    return main(
-      `[state] ${s?.phase || '?'} iter=${s?.iteration || '?'} writes=${s?.write_count || 0} verif=${s?.verification_runs || 0}${obj}`,
-      'text-muted-foreground/50'
-    );
-  }
-
-  if (type === 'convergence_phase') {
-    return main(`[phase→] ${de.phase || ''} (${de.reason || ''})`, 'text-neon-cyan/60');
-  }
-
-  if (type === 'convergence_block') {
-    const tool = de.tool || '';
-    const need = (de.allowed_next_tools || []).join(', ');
-    return main(`[BLOCKED] ${tool} — next: ${need}`, 'text-orange-400');
-  }
-
-  if (type === 'convergence_advisory') {
-    return main(`[advisory] ${de.reason || ''}`, 'text-muted-foreground/50');
-  }
-
-  if (type === 'select_experiment_rejected') {
-    const errText = safe(de.error, limits.terminal_selection_error_max_chars);
-    const lines = errText.split('\n').filter(Boolean).slice(0, limits.terminal_selection_error_max_lines).map(l => l.slice(0, limits.terminal_selection_error_line_max_chars));
-    const header = `[select REJECTED] ${(lines[0] || '').slice(0, limits.terminal_summary_max_chars)}`;
-    const rest = lines.slice(1);
-    if (rest.length === 0) return main(header, 'text-orange-400');
-    return withOutput(header, 'text-orange-400', rest, 'text-orange-300/60');
-  }
-
-  if (type === 'experiment_selected') {
-    const obj = safe(de.experiment?.objective, limits.terminal_summary_max_chars);
-    const focusedTest = safe(de.experiment?.focused_test, limits.terminal_summary_max_chars);
-    const lines = focusedTest ? [`focused_test: ${focusedTest}`] : [];
-    return withOutput(`[SELECTED] ${obj}`, 'text-emerald-400', lines, 'text-emerald-300/60');
-  }
-
-  if (type === 'implementation_started') {
-    return main(`[impl] ${safe(de.experiment?.objective, limits.terminal_summary_max_chars)}`, 'text-emerald-300/80');
-  }
-
-  if (type === 'no_candidate') {
-    return main(`[no candidate] ${de.reason || ''}`, 'text-yellow-400');
-  }
-
-  if (type === 'candidate_finalized' || type === 'candidate_auto_finalized_after_verification') {
-    return main(`[CANDIDATE READY] ${safe(de.objective, limits.terminal_summary_max_chars)}`, 'text-emerald-300 font-bold');
-  }
-
-  if (type === 'sandbox_started') {
-    return main(`started — ${de.run_id || ''}`, 'text-neon-cyan');
-  }
-
-  if (type === 'cycle_no_candidate') {
-    return main(`no candidate — ${de.reason || ''}`, 'text-yellow-400');
-  }
-
-  if (type === 'cycle_failed') {
-    const errText = safe(de.error, limits.terminal_selection_error_max_chars);
-    const lines = outputLines(errText, limits.terminal_selection_error_max_lines, limits.terminal_selection_error_line_max_chars);
-    const header = `FAILED: ${(lines[0] || de.reason || '').slice(0, limits.terminal_summary_max_chars)}`;
-    return withOutput(header, 'text-red-400', lines.slice(1), 'text-red-300/60');
-  }
-
-  if (type === 'cycle_preempted') {
-    return main(`preempted — ${de.reason || ''}`, 'text-muted-foreground/60');
-  }
-
-  if (type === 'fatal') {
-    return main(`[FATAL] ${safe(de.error, limits.terminal_summary_max_chars)}`, 'text-red-400 font-bold');
-  }
-
-  if (type === 'sandbox_output') {
-    return main(safe(de.text, limits.terminal_output_max_chars), 'text-foreground/60');
-  }
-
-  if (type === 'parse_error') {
-    return main(`[parse error] ${safe(record.raw, limits.terminal_summary_max_chars)}`, 'text-red-400/60');
-  }
-
-  if (type === 'selection_anchor_reminder') {
-    return main(`[reminder] select_experiment — iter ${de.iteration || '?'}`, 'text-muted-foreground/40');
-  }
-
-  if (type === 'context_compacted') {
-    return main(
-      `[compact] ${de.before_chars || '?'} → ${de.after_chars || '?'} chars (kept ${de.retained_messages || '?'} msgs)`,
-      'text-muted-foreground/40'
-    );
-  }
-
-  if (type === 'git') {
-    const args = Array.isArray(de.args) ? de.args.join(' ') : safe(de.args);
-    const status = de.status != null ? ` → ${de.status}` : '';
-    if (!args) return main(`[git]`, 'text-muted-foreground/30');
-    return main(`[git] git ${args.slice(0, limits.terminal_summary_max_chars)}${status}`, 'text-muted-foreground/40');
-  }
-
-  if (type === 'candidate_imported') {
-    return main(`[imported] candidate ${de.candidate_id || ''}`, 'text-emerald-400');
-  }
-
-  if (type === 'candidate_denied_by_maker') {
-    return main(`[DENIED] ${safe(de.reason, limits.terminal_summary_max_chars)}`, 'text-red-400');
-  }
-
-  if (type === 'candidate_approved_by_maker') {
-    return main(`[APPROVED] ${de.candidate_id || ''}`, 'text-emerald-400 font-bold');
-  }
-
-  if (type === 'worker_started') return main('started', 'text-neon-cyan/60');
-  if (type === 'worker_cycle_start') return main('cycle starting', 'text-neon-cyan/60');
-
-  // Skip extremely noisy low-value events entirely
-  if (['finalize_git_add', 'sandbox_heartbeat', 'worker_heartbeat'].includes(type)) return [];
-
-  return main(type.replaceAll('_', ' '), 'text-foreground/40');
 }
 
 function RSITerminal() {
-  const [events, setEvents] = useState([])
-  const [error, setError] = useState(null)
-  const [phase, setPhase] = useState(null)
-  const [runId, setRunId] = useState(null)
-  const [atBottom, setAtBottom] = useState(true)
-  const [pendingCount, setPendingCount] = useState(0)
-
-  const auditCursorRef = useRef(null)
-  const sandboxCursorRef = useRef(0)
-  const sandboxLogFileRef = useRef(null)
-  const runIdRef = useRef(null)
-  const atBottomRef = useRef(true)
-  const pendingEventsRef = useRef([])
-  const containerRef = useRef(null)
-  const activeRef = useRef(false)
-  const uiLimitsRef = useRef(null)
-
-  atBottomRef.current = atBottom;
-
-  const flushPending = useCallback(() => {
-    if (pendingEventsRef.current.length > 0) {
-      setEvents(prev => [...prev, ...pendingEventsRef.current].slice(-uiLimitsRef.current.terminal_event_limit));
-      pendingEventsRef.current = [];
-      setPendingCount(0);
-    }
-  }, []);
-
-  const appendEvents = useCallback((newItems) => {
-    if (newItems.length === 0) return;
-    if (atBottomRef.current) {
-      setEvents(prev => [...prev, ...newItems].slice(-uiLimitsRef.current.terminal_event_limit));
-    } else {
-      pendingEventsRef.current = [...pendingEventsRef.current, ...newItems];
-      setPendingCount(pendingEventsRef.current.length);
-    }
-  }, []);
-
-  const jumpToBottom = useCallback(() => {
-    setAtBottom(true);
-    flushPending();
-    if (containerRef.current) containerRef.current.scrollTop = containerRef.current.scrollHeight;
-  }, [flushPending]);
-
-  const handleScroll = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const nowAtBottom = uiLimitsRef.current ? distFromBottom < uiLimitsRef.current.terminal_at_bottom_threshold_px : true;
-    if (nowAtBottom && !atBottomRef.current) { setAtBottom(true); flushPending(); }
-    else if (!nowAtBottom && atBottomRef.current) { setAtBottom(false); }
-  }, [flushPending]);
-
-  // Pin to the bottom BEFORE the browser paints so backfilled/streamed lines
-  // never flash at the top and then jump — the view stays a smooth live tail.
-  useLayoutEffect(() => {
-    if (atBottom && containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  }, [events, atBottom]);
+  const [terminal, setTerminal] = useState({
+    sourceId: null,
+    sourceKind: null,
+    runId: null,
+    startCursor: 0,
+    endCursor: 0,
+    fileSize: 0,
+    text: '',
+    hasOlder: false,
+    active: false
+  });
+  const [status, setStatus] = useState(null);
+  const [error, setError] = useState('');
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [aborting, setAborting] = useState(false);
+  const viewportRef = useRef(null);
+  const terminalRef = useRef(terminal);
+  const uiLimitsRef = useRef(null);
 
   useEffect(() => {
-    activeRef.current = true;
-    let timer = null;
-    let generation = 0;
-    let lastAppliedGeneration = 0;
-    let lastKnownRunId = runIdRef.current;
-    let lastKnownLogFile = sandboxLogFileRef.current;
+    terminalRef.current = terminal;
+  }, [terminal]);
 
-    const poll = async () => {
-      if (!activeRef.current) return;
-      const thisGeneration = ++generation;
-      try {
-        if (!uiLimitsRef.current) {
-          const uiStatus = await flokiAdapter.getSelfImprovementStatus();
-          const configuredLimits = uiStatus?.ui_limits;
-          if (!configuredLimits || !Number.isFinite(Number(configuredLimits.terminal_poll_ms))) {
-            throw new Error('RSI UI limits are missing from chat YAML transport');
-          }
-          uiLimitsRef.current = configuredLimits;
-        }
-        const isInit = auditCursorRef.current === null;
-        const params = isInit
-          ? { audit_cursor: 0, sandbox_cursor: 0, limit: uiLimitsRef.current.terminal_initial_activity_limit }
-          : { audit_cursor: auditCursorRef.current, sandbox_cursor: sandboxCursorRef.current, limit: uiLimitsRef.current.terminal_incremental_activity_limit };
-
-        const result = await flokiAdapter.getSelfImprovementActivity(params);
-        if (!activeRef.current) return;
-        if (thisGeneration <= lastAppliedGeneration) return;
-        lastAppliedGeneration = thisGeneration;
-
-        if (result?.ok) {
-          if (result.ui_limits) uiLimitsRef.current = result.ui_limits;
-          const newRunId = result.run_id || null;
-          const newSandboxFile = result.sandbox_log_file || null;
-
-          const runChanged = newRunId && newRunId !== lastKnownRunId;
-          const logChanged = newSandboxFile && newSandboxFile !== lastKnownLogFile;
-
-          if (!isInit && (runChanged || logChanged) && newRunId && newSandboxFile) {
-            lastKnownRunId = newRunId;
-            lastKnownLogFile = newSandboxFile;
-            sandboxLogFileRef.current = newSandboxFile;
-            sandboxCursorRef.current = 0;
-            pendingEventsRef.current = [];
-            setPendingCount(0);
-            setEvents([]);
-            setAtBottom(true);
-            runIdRef.current = newRunId;
-            setRunId(newRunId);
-            if (result.phase) setPhase(result.phase);
-            setError(null);
-          } else {
-            if (isInit) {
-              lastKnownRunId = newRunId;
-              lastKnownLogFile = newSandboxFile;
-              sandboxLogFileRef.current = newSandboxFile;
-              runIdRef.current = newRunId;
-              setRunId(newRunId);
-            } else if (newRunId && newRunId !== runIdRef.current) {
-              lastKnownRunId = newRunId;
-              runIdRef.current = newRunId;
-              setRunId(newRunId);
-            }
-
-            auditCursorRef.current = result.next_audit_cursor ?? (auditCursorRef.current ?? 0);
-            sandboxCursorRef.current = result.next_sandbox_cursor ?? (sandboxCursorRef.current ?? 0);
-
-            const displayItems = (result.events || []).flatMap(item => {
-              try { return expandToDisplayItems(item, uiLimitsRef.current); } catch (error) { setError(error.message); return []; }
-            });
-            appendEvents(displayItems);
-
-            if (result.phase) setPhase(result.phase);
-            setError(null);
-          }
-        }
-      } catch (err) {
-        if (activeRef.current) setError(err.message);
+  const applyChunk = useCallback((payload, mode = 'append') => {
+    if (!payload || payload.ok !== true) return;
+    setTerminal((current) => {
+      const sourceChanged = Boolean(
+        current.sourceId && payload.source_id &&
+        current.sourceId !== payload.source_id
+      );
+      const lineLimit = uiLimitsRef.current?.terminal_event_limit;
+      if (sourceChanged || !current.sourceId) {
+        const initial = capLinesStart(
+          trimUtf8Start(String(payload.text || ''), TERMINAL_WINDOW_BYTES),
+          lineLimit
+        );
+        return {
+          sourceId: payload.source_id || null,
+          sourceKind: payload.source_kind || null,
+          runId: payload.run_id || null,
+          startCursor: Number(payload.cursor || 0) + initial.removedBytes,
+          endCursor: Number(payload.next_cursor || 0),
+          fileSize: Number(payload.file_size || 0),
+          text: initial.text,
+          hasOlder: payload.has_older === true || initial.removedBytes > 0,
+          active: payload.active === true
+        };
       }
-      if (activeRef.current && uiLimitsRef.current) timer = setTimeout(poll, uiLimitsRef.current.terminal_poll_ms);
-    };
+      if (mode === 'older') {
+        const combined = String(payload.text || '') + current.text;
+        const trimmed = capLinesEnd(
+          trimUtf8End(combined, TERMINAL_WINDOW_BYTES),
+          lineLimit
+        );
+        return {
+          ...current,
+          startCursor: Number(payload.cursor || current.startCursor),
+          endCursor: current.endCursor - trimmed.removedBytes,
+          fileSize: Number(payload.file_size || current.fileSize),
+          text: trimmed.text,
+          hasOlder: payload.has_older === true,
+          active: payload.active === true
+        };
+      }
+      if (Number(payload.cursor) !== current.endCursor) {
+        return current;
+      }
+      const combined = current.text + String(payload.text || '');
+      const trimmed = capLinesStart(
+        trimUtf8Start(combined, TERMINAL_WINDOW_BYTES),
+        lineLimit
+      );
+      return {
+        ...current,
+        sourceKind: payload.source_kind || current.sourceKind,
+        runId: payload.run_id || current.runId,
+        startCursor: current.startCursor + trimmed.removedBytes,
+        endCursor: Number(payload.next_cursor || current.endCursor),
+        fileSize: Number(payload.file_size || current.fileSize),
+        text: trimmed.text,
+        hasOlder: current.hasOlder || trimmed.removedBytes > 0 || payload.has_older === true,
+        active: payload.active === true
+      };
+    });
+  }, []);
 
-    poll();
+  useEffect(() => {
+    let stopped = false;
+    let timer = null;
+    const poll = async () => {
+      try {
+        const current = terminalRef.current;
+        let [payload, nextStatus] = await Promise.all([
+          flokiAdapter.getSelfImprovementTerminal({
+            cursor: current.endCursor,
+            max_bytes: TERMINAL_CHUNK_BYTES
+          }),
+          flokiAdapter.getSelfImprovementStatus()
+        ]);
+        if (stopped) return;
+        if (
+          current.sourceId &&
+          payload?.source_id &&
+          payload.source_id !== current.sourceId
+        ) {
+          payload = await flokiAdapter.getSelfImprovementTerminal({
+            cursor: 0,
+            max_bytes: TERMINAL_CHUNK_BYTES
+          });
+          if (stopped) return;
+        }
+        applyChunk(payload, 'append');
+        if (nextStatus?.ui_limits) uiLimitsRef.current = nextStatus.ui_limits;
+        setStatus(nextStatus);
+        setError('');
+      } catch (pollError) {
+        if (!stopped) setError(pollError?.message || String(pollError));
+      } finally {
+        if (!stopped) timer = setTimeout(poll, terminalPollMs(uiLimitsRef.current));
+      }
+    };
+    void poll();
     return () => {
-      activeRef.current = false;
+      stopped = true;
       if (timer) clearTimeout(timer);
     };
-  }, [appendEvents]);
+  }, [applyChunk]);
+
+  const loadOlder = useCallback(async () => {
+    if (!terminalRef.current.hasOlder || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const current = terminalRef.current;
+      const payload = await flokiAdapter.getSelfImprovementTerminal({
+        before_cursor: current.startCursor,
+        max_bytes: TERMINAL_CHUNK_BYTES,
+        source_id: current.sourceId
+      });
+      applyChunk(payload, 'older');
+      setError('');
+    } catch (loadError) {
+      setError(loadError?.message || String(loadError));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [applyChunk, loadingOlder]);
+
+  const abortTraining = useCallback(async () => {
+    setAborting(true);
+    try {
+      const result = await flokiAdapter.abortSelfImprovement(
+        'training',
+        'maker_abort_training'
+      );
+      if (!result || result.verified !== true) {
+        throw new Error(result?.error || 'Training abort was not verified');
+      }
+      setStatus(await flokiAdapter.getSelfImprovementStatus());
+      setError('');
+    } catch (abortError) {
+      setError(abortError?.message || String(abortError));
+    } finally {
+      setAborting(false);
+    }
+  }, []);
+
+  const trainingAbortAvailable = Boolean(
+    status &&
+    (status.active_run_kind || status.active_kind) === 'training' &&
+    !['aborted', 'completed', 'inactive'].includes(String(status.observed_state || ''))
+  );
 
   return (
-    <div className="flex flex-col rounded-lg border border-neon-cyan/20 bg-black/40 overflow-hidden h-full" data-testid="rsi-terminal">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-black/20 flex-none">
-        <div className="flex items-center gap-2 min-w-0">
-          <Terminal className="w-4 h-4 text-neon-cyan flex-none" />
-          <span className="text-xs font-mono text-neon-cyan tracking-wide flex-none">RSI TERMINAL</span>
-          {phase && <span className="text-[10px] font-mono text-muted-foreground ml-1 flex-none">{phase.replaceAll('_', ' ')}</span>}
-          {runId && <span className="text-[10px] font-mono text-muted-foreground/60 ml-1 truncate">{runId}</span>}
+    <section className="rounded-lg border border-border/60 bg-black/70 overflow-hidden">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
+        <div>
+          <p className="text-xs font-semibold text-foreground">Raw read-only RSI terminal</p>
+          <p className="text-[10px] font-mono text-muted-foreground">
+            {terminal.sourceKind || 'waiting for source'}
+            {terminal.runId ? ` · ${terminal.runId}` : ''}
+            {` · bytes ${terminal.startCursor}-${terminal.endCursor}/${terminal.fileSize}`}
+          </p>
         </div>
-        {!atBottom && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={jumpToBottom}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono border transition-colors flex-none ml-2"
-            style={{
-              borderColor: pendingCount > 0 ? 'rgba(0,255,255,0.3)' : 'rgba(255,255,255,0.15)',
-              color: pendingCount > 0 ? 'rgb(0,255,255)' : 'inherit',
-              background: pendingCount > 0 ? 'rgba(0,255,255,0.08)' : 'transparent'
-            }}
+            type="button"
+            className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50"
+            onClick={loadOlder}
+            disabled={!terminal.hasOlder || loadingOlder}
           >
-            <ChevronDown className="w-3 h-3" />
-            {pendingCount > 0 ? `${pendingCount} new` : 'bottom'}
+            {loadingOlder ? 'Loading…' : 'Load older output'}
           </button>
-        )}
-      </div>
-
-      {error && (
-        <div className="px-3 py-1.5 bg-red-500/10 border-b border-red-500/20 flex items-center gap-2 text-red-400 text-xs flex-none">
-          <AlertTriangle className="w-3 h-3 flex-none" />
-          <span className="font-mono truncate">{error}</span>
+          {trainingAbortAvailable && (
+            <button
+              type="button"
+              className="rounded border border-red-500/60 px-2 py-1 text-xs text-red-300 disabled:opacity-50"
+              onClick={abortTraining}
+              disabled={aborting}
+            >
+              {aborting ? 'Aborting…' : 'Abort Training'}
+            </button>
+          )}
         </div>
+      </header>
+      {error && (
+        <p className="border-b border-red-500/30 px-3 py-2 text-xs text-red-300">{error}</p>
       )}
-
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto font-mono text-[11px] leading-snug p-3 min-h-0"
-        data-testid="rsi-terminal-output"
+      <pre
+        ref={viewportRef}
+        className="h-[460px] overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5 text-emerald-200"
+        aria-label="Raw read-only RSI terminal output"
       >
-        {events.length === 0 && !error && (
-          <div className="text-muted-foreground/40 italic">No activity yet — waiting for RSI sandbox...</div>
-        )}
-        {events.map((item) => (
-          item.isOutput ? (
-            <div key={item.id} className={`pl-4 py-px whitespace-pre-wrap break-words ${item.color}`}>
-              {item.text}
-            </div>
-          ) : (
-            <div key={item.id} className={`py-px ${item.color}`}>
-              <span className="break-words whitespace-pre-wrap">{item.text}</span>
-            </div>
-          )
-        ))}
-      </div>
-
-      <div className="px-3 py-1 border-t border-border/30 text-[10px] font-mono text-muted-foreground/40 flex justify-between flex-none">
-        <span>{events.length} lines</span>
-        <span>{atBottom ? '● live' : '○ scrolled'}</span>
-      </div>
-    </div>
-  )
+        {terminal.text || 'No raw terminal output is available yet.'}
+      </pre>
+    </section>
+  );
 }
 
 export default function RSILab({ flokiStatus }) {

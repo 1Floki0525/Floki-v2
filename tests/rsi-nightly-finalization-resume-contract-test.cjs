@@ -20,11 +20,26 @@ fs.writeFileSync(
 fs.writeFileSync(path.join(sourceAdapter, 'adapter_config.json'), '{}\n');
 fs.writeFileSync(path.join(sourceAdapter, 'adapter_model.safetensors'), 'adapter\n');
 
+// Contract updated 2026-07-04: the nightly completion gate now requires one
+// complete REM claim per completed epoch before a candidate may be compiled,
+// so the fixture provides the epoch's completed REM claim.
+const remClaimFile = path.join(root, 'rem-claims.json');
+fs.writeFileSync(remClaimFile, JSON.stringify({
+  claims: {
+    'run-1-epoch-1': {
+      sleep_date: '2026-06-27',
+      status: 'complete',
+      result: { ok: true }
+    }
+  }
+}) + '\n');
+
 const config = {
   training_runtime_root: runtimeRoot,
   nightly_training_session_file_name: sessionFileName,
   training_metrics_file_name: 'metrics.json',
   nightly_training_min_completed_steps: 1,
+  training_rem_claim_file: remClaimFile,
   adapter_root: adapterRoot,
   candidate_root: candidateRoot,
   nightly_training_candidate_objective: 'configured objective',

@@ -28,19 +28,33 @@ function selfImprovementWorkerLog() {
   return fs.existsSync(candidate) ? candidate : null;
 }
 
+function safeDirectSandboxLog(config, candidate) {
+  if (!candidate) return null;
+  const expectedName = config.sandbox_log_file_name || 'sandbox.log';
+  try {
+    const resolved = fs.realpathSync(path.resolve(candidate));
+    const root = fs.realpathSync(config.workspace_root);
+    if (!resolved.startsWith(root + path.sep)) return null;
+    if (path.basename(resolved) !== expectedName) return null;
+    const parent = path.dirname(resolved);
+    if (path.dirname(parent) !== root) return null;
+    return fs.statSync(resolved).isFile() ? resolved : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
 function selfImprovementSandboxLog() {
   const config = loadSelfImprovementConfig();
   const statusFile = path.join(config.runtime_root, config.status_file_name);
   let status = {};
   try { status = JSON.parse(fs.readFileSync(statusFile, 'utf8')); } catch (_error) { status = {}; }
   const candidate = status?.last_sandbox_log_file ? String(status.last_sandbox_log_file) : null;
-  if (!candidate) return null;
-  const resolved = path.resolve(candidate);
-  return fs.existsSync(resolved) ? resolved : null;
+  return safeDirectSandboxLog(config, candidate);
 }
 
-function currentWeekStamp() {
-  const now = new Date();
+function currentWeekStamp(nowValue = new Date()) {
+  const now = new Date(nowValue);
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = now.getDay();
@@ -58,12 +72,12 @@ function weekLogDir() {
   return path.resolve(runtimeDir, config.module_log_subdir);
 }
 
-function moduleWeekFileName(moduleKey) {
-  return `${moduleKey}.${currentWeekStamp()}.log`;
+function moduleWeekFileName(moduleKey, nowValue) {
+  return `${moduleKey}.${currentWeekStamp(nowValue)}.log`;
 }
 
-function moduleWeekFilePath(moduleKey) {
-  return path.join(weekLogDir(), moduleKey, moduleWeekFileName(moduleKey));
+function moduleWeekFilePath(moduleKey, nowValue) {
+  return path.join(weekLogDir(), moduleKey, moduleWeekFileName(moduleKey, nowValue));
 }
 
 function ensureDir(dirPath) {
@@ -117,6 +131,31 @@ function formatEmptyMessage(moduleKey) {
   return `# no log activity captured for ${moduleKey} this week`;
 }
 
+const REDACTION_PATTERNS = Object.freeze([
+  /"(?:authorization|cookie|set-cookie)"\s*:\s*"(?:Bearer\s+)?[^"]+"/gi,
+  /(?:authorization|cookie|set-cookie)\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+/gi,
+  /"(?:api[_-]?key|token|secret|password|credential)"\s*:\s*"[^"]{8,}"/gi,
+  /(?:api[_-]?key|token|secret|password|credential)\s*[:=]\s*["']?[^"'\s,;]{8,}/gi,
+  /Bearer\s+[A-Za-z0-9+/_=.-]{16,}/g
+]);
+
+function redactModuleLogText(value) {
+  let text = String(value || '');
+  for (const pattern of REDACTION_PATTERNS) {
+    text = text.replace(pattern, '[REDACTED]');
+  }
+  return text;
+}
+
+function cleanupOldModuleWeekFiles(moduleKey, retainWeeks) {
+  const retain = Math.max(1, Number(retainWeeks || 1));
+  const files = listModuleWeekFiles(moduleKey);
+  const keep = new Set(files.slice(-retain));
+  for (const file of files) {
+    if (!keep.has(file)) fs.rmSync(file, { force: true });
+  }
+}
+
 function getCurrentWeekFile(moduleKey) {
   if (!Object.keys(LOG_KEYS).includes(moduleKey)) {
     throw new Error('unknown module key: ' + moduleKey);
@@ -125,6 +164,7 @@ function getCurrentWeekFile(moduleKey) {
   const runtimeDir = getRuntimeDir();
   const dir = ensureDir(path.join(weekLogDir(), moduleKey));
   const filePath = path.join(dir, moduleWeekFileName(moduleKey));
+  cleanupOldModuleWeekFiles(moduleKey, config.module_log_retention_weeks || 1);
 
   if (!fs.existsSync(filePath)) {
     const source = sourceFileForModule(moduleKey, runtimeDir);
@@ -139,7 +179,7 @@ function getCurrentWeekFile(moduleKey) {
         initialLines = [];
       }
     }
-    fs.writeFileSync(filePath, formatWeekHeader(moduleKey) + '\n' + (initialLines.length ? initialLines.join('\n') + '\n' : formatEmptyMessage(moduleKey) + '\n'), 'utf8');
+    fs.writeFileSync(filePath, redactModuleLogText(formatWeekHeader(moduleKey) + '\n' + (initialLines.length ? initialLines.join('\n') + '\n' : formatEmptyMessage(moduleKey) + '\n')), 'utf8');
   }
 
   return filePath;
@@ -177,6 +217,8 @@ module.exports = {
   moduleWeekFilePath,
   weekLogDir,
   readLogTail,
+  redactModuleLogText,
   sourceFileForModule,
-  listModuleWeekFiles
+  listModuleWeekFiles,
+  cleanupOldModuleWeekFiles
 };

@@ -23,6 +23,7 @@ const {
   writeSession
 } = require('./nightly-training-session.cjs');
 const { runHfRemGeneration } = require('./hf-rem-inference.cjs');
+const { observeTrainingReality } = require('./training-observation.cjs');
 const {
   withNightlyHfOperationLock
 } = require('./nightly-hf-operation-lock.cjs');
@@ -271,15 +272,13 @@ function recordClaimFailure(key, error, config) {
   return next.claims[key];
 }
 
-function dueNightlyRemNow(now, sleepState) {
-  if (!sleepState || !Array.isArray(sleepState.rem_cycles)) return false;
-  const at = nowDate(now).getTime();
-  return sleepState.rem_cycles.some((cycle) => (
-    cycle &&
-    cycle.status === 'pending' &&
-    new Date(cycle.scheduled_at).getTime() <= at &&
-    (!cycle.next_retry_at || new Date(cycle.next_retry_at).getTime() <= at)
-  ));
+function dueNightlyRemNow(_now, session) {
+  if (!session || session.active !== true) return false;
+  if (session.finalized === true || session.aborted === true) return false;
+  if (session.current_container) return false;
+  const completedEpochs = Number(session.completed_epochs || 0);
+  const completedRem = Number(session.rem_cycles_completed || 0);
+  return completedEpochs > completedRem && Boolean(session.latest_checkpoint);
 }
 
 function transferGpuToRem(gpu, config, detail) {
@@ -338,12 +337,23 @@ function createNightlyTrainingCoordinator(options = {}) {
     loadConfig: options.load_config || loadFreshSelfImprovementConfig,
     audit: options.audit || ((type, detail) => appendAudit(type, detail, config)),
     status: options.status || ((patch) => updateStatus(patch, config)),
-    readStatus: options.read_status || (() => readStatus(config))
+    readStatus: options.read_status || (() => readStatus(config)), observe: options.observe_training_reality || observeTrainingReality
   };
 
   async function ensureResource(session, reason) {
-    if (session && session.resource_entered === true) return session;
-    const runId = session && session.run_id || (config.nightly_training_run_id_prefix + '-' + String(Date.now()));
+    const owner = deps.gpu.currentOwner(config);
+    if (
+      session &&
+      session.resource_entered === true &&
+      owner === 'hf_training'
+    ) {
+      return session;
+    }
+    if (session && session.resource_entered === true && owner !== 'hf_training') {
+      session = deps.setResourceEntered(session, false, config);
+    }
+    const runId = session && session.run_id ||
+      (config.nightly_training_run_id_prefix + '-' + String(Date.now()));
     const response = await deps.enterResource(runId, config);
     if (!response || response.ok !== true) {
       throw new Error('training resource entry did not return ok');
@@ -424,15 +434,13 @@ function createNightlyTrainingCoordinator(options = {}) {
     }
 
     if (decision.restore_for_wake) {
-      // Restoration work only happens when this pass actually has something
-      // to restore: an unfinalized session with a container, or a session
-      // still holding the training resource.
       const performedRestorationWork = Boolean(session && (
         session.resource_entered === true ||
         (session.finalized !== true && session.current_container)
       ));
-      if (session && session.finalized !== true) {
+      if (session && session.finalized !== true && session.aborted !== true) {
         try {
+          session = deps.refreshSession(session, { config });
           if (session.current_container) {
             const checkpoint = await deps.checkpointSession(session, {
               config,
@@ -441,7 +449,17 @@ function createNightlyTrainingCoordinator(options = {}) {
             });
             session = checkpoint.session || session;
           }
-          session = deps.finalizeSession(session, { config });
+          if (dueNightlyRemNow(observedAt, session)) {
+            await runNightlyRem({
+              now: observedAt,
+              rem_cycle_number: Number(session.rem_cycles_completed || 0) + 1,
+              wake_boundary_completion: true
+            });
+            session = deps.readSession(config);
+          }
+          if (session && session.aborted !== true) {
+            session = deps.finalizeSession(session, { config });
+          }
         } finally {
           if (session && session.resource_entered === true) {
             session = await restoreResource(session, 'nightly_wake_restoration');
@@ -451,22 +469,23 @@ function createNightlyTrainingCoordinator(options = {}) {
         session = await restoreResource(session, 'nightly_wake_restoration');
       }
       if (performedRestorationWork) {
-        // Record the transition once and settle into the truthful daytime
-        // phase; 'nightly_wake_restored' is history, not the current state.
         deps.status({
-          phase: 'daytime_idle',
-          last_transition: 'nightly_wake_restored',
+          phase: session && session.aborted === true
+            ? 'nightly_training_aborted'
+            : 'daytime_idle',
+          last_transition: session && session.aborted === true
+            ? 'nightly_training_aborted'
+            : 'nightly_wake_restored',
           last_transition_at: nowIso(),
           current_run_id: null,
           current_container: null,
-          training_resource_mode: 'idle',
+          training_resource_mode: session && session.aborted === true
+            ? 'aborted'
+            : 'idle',
           gpu_owner: null,
           wake_restoration_error: null
         });
       } else {
-        // Idempotent daytime tick: only correct a stale persisted
-        // 'nightly_wake_restored' phase. Never clobber an active daytime
-        // phase (e.g. 'experimenting') with a wake-restoration write.
         const persisted = deps.readStatus(config);
         if (persisted && persisted.phase === 'nightly_wake_restored') {
           deps.status({ phase: 'daytime_idle' });
@@ -478,11 +497,13 @@ function createNightlyTrainingCoordinator(options = {}) {
     if (
       session &&
       session.sleep_date === sleepWindow.sleep_date &&
-      session.finalized === true
+      (session.finalized === true || session.aborted === true)
     ) {
       return Object.freeze({
         ok: true,
-        action: 'nightly_training_already_finalized',
+        action: session.aborted === true
+          ? 'nightly_training_aborted'
+          : 'nightly_training_already_finalized',
         within_sleep_window: within,
         sleep_date: sleepWindow.sleep_date,
         session
@@ -492,15 +513,10 @@ function createNightlyTrainingCoordinator(options = {}) {
     if (!session || session.sleep_date !== sleepWindow.sleep_date) {
       session = deps.createSession({ config, sleep_window: sleepWindow });
     }
-    session = await ensureResource(session, 'nightly_training');
+
     session = deps.refreshSession(session, { config });
-
     const sleepState = deps.readSleepState();
-
-    if (
-      sleepState &&
-      sleepState.interrupted === true
-    ) {
+    if (sleepState && sleepState.interrupted === true) {
       return Object.freeze({
         ok: true,
         action: 'nightly_chat_interruption',
@@ -510,37 +526,131 @@ function createNightlyTrainingCoordinator(options = {}) {
       });
     }
 
-    if (
-      !dueNightlyRemNow(observedAt, sleepState) &&
-      !session.current_container
-    ) {
-      transferGpuBackToTraining(
-        deps.gpu,
-        config,
-        {
-          reason: 'resume_after_night_chat_idle',
-          run_id: session.run_id
-        }
-      );
-      session = deps.setResourceEntered(
+    if (dueNightlyRemNow(observedAt, session)) {
+      const rem = await runNightlyRem({
+        now: observedAt,
+        rem_cycle_number: Number(session.rem_cycles_completed || 0) + 1
+      });
+      session = deps.readSession(config);
+      return Object.freeze({
+        ok: true,
+        action: 'nightly_rem_after_completed_epoch',
+        within_sleep_window: within,
+        sleep_date: sleepWindow.sleep_date,
         session,
-        true,
-        config
-      );
-      session = await deps.startSegment(
-        session,
-        {
-          config: deps.loadConfig()
-        }
-      );
+        rem
+      });
     }
 
+    let observation = null;
+    if (session.current_container) {
+      observation = deps.observe({
+        config,
+        session,
+        lock_owner: deps.gpu.currentOwner(config),
+        release_owner: (owner) => deps.gpu.release(owner, config),
+        reconcile_stale_owner: true,
+        now_ms: observedAt.getTime()
+      });
+      if (observation.reconciliation_error) {
+        throw new Error(observation.reconciliation_error);
+      }
+      deps.status({
+        state: observation.live_training === true ? 'training' : observation.phase,
+        phase: observation.live_training === true
+          ? 'nightly_training_epoch_running'
+          : 'nightly_training_container_starting',
+        current_run_id: session.run_id,
+        current_container: session.current_container,
+        current_run_kind: 'training',
+        training_resource_mode: observation.resource_mode,
+        gpu_owner: observation.observed_gpu_owner,
+        training_observation: observation,
+        nightly_training_error: observation.error || null
+      });
+      return Object.freeze({
+        ok: true,
+        action: decision.action,
+        training_action: observation.live_training === true
+          ? 'nightly_training_epoch_running'
+          : 'nightly_training_starting',
+        within_sleep_window: within,
+        sleep_date: sleepWindow.sleep_date,
+        session,
+        observation
+      });
+    }
+
+    session = await ensureResource(session, 'nightly_training');
+    transferGpuBackToTraining(deps.gpu, config, {
+      reason: 'start_next_complete_epoch',
+      run_id: session.run_id
+    });
+    session = deps.setResourceEntered(session, true, config);
+    try {
+      session = await deps.startSegment(session, { config: deps.loadConfig() });
+    } catch (error) {
+      let restorationError = null;
+      try {
+        if (session && session.resource_entered === true) {
+          session = await restoreResource(session, 'nightly_training_launch_failure');
+        } else {
+          const owner = deps.gpu.currentOwner(config);
+          if (owner === 'hf_training' || owner === 'hf_rem_inference') {
+            deps.gpu.release(owner, config);
+          }
+        }
+      } catch (restoreError) {
+        restorationError = restoreError;
+      }
+      const failure = restorationError
+        ? String(error.stack || error.message) + '\nresource restoration failed: ' +
+          String(restorationError.stack || restorationError.message)
+        : String(error.stack || error.message);
+      deps.status({
+        state: 'failed',
+        phase: 'nightly_training_container_launch_failed',
+        current_run_id: session && session.run_id || null,
+        current_container: null,
+        training_resource_mode: 'failed',
+        gpu_owner: null,
+        nightly_training_error: failure,
+        last_error: failure
+      });
+      throw restorationError || error;
+    }
+    observation = deps.observe({
+      config,
+      session,
+      lock_owner: deps.gpu.currentOwner(config),
+      release_owner: (owner) => deps.gpu.release(owner, config),
+      reconcile_stale_owner: true,
+      now_ms: Date.now()
+    });
+    if (observation.reconciliation_error) {
+      throw new Error(observation.reconciliation_error);
+    }
+    deps.status({
+      state: observation.live_training === true ? 'training' : 'starting',
+      phase: observation.live_training === true
+        ? 'nightly_training_epoch_running'
+        : 'nightly_training_container_starting',
+      current_run_id: session.run_id,
+      current_container: session.current_container || null,
+      current_run_kind: 'training',
+      training_resource_mode: observation.resource_mode,
+      gpu_owner: observation.observed_gpu_owner,
+      training_observation: observation,
+      nightly_training_error: observation.error || null
+    });
     return Object.freeze({
       ok: true,
       action: decision.action,
+      training_action: 'nightly_training_epoch_started',
       within_sleep_window: within,
       sleep_date: sleepWindow.sleep_date,
-      session
+      session,
+      observation
     });
   }
 
@@ -553,7 +663,16 @@ function createNightlyTrainingCoordinator(options = {}) {
     let session = deps.readSession(config);
     const sleepWindow = deps.getSleepWindow(nowDate(dreamOptions.now));
     const sleepDate = session && session.sleep_date || sleepWindow.sleep_date;
-    const cycleNumber = Number(dreamOptions.rem_cycle_number);
+    if (!dueNightlyRemNow(dreamOptions.now, session)) {
+      return Object.freeze({
+        ok: true,
+        skipped: true,
+        reason: 'no_completed_epoch_waiting_for_rem',
+        completed_epochs: Number(session && session.completed_epochs || 0),
+        completed_rem_cycles: Number(session && session.rem_cycles_completed || 0)
+      });
+    }
+    const cycleNumber = Number(session.rem_cycles_completed || 0) + 1;
     const key = remClaimKey({
       sleep_date: sleepDate,
       rem_cycle_number: cycleNumber
@@ -655,12 +774,12 @@ function createNightlyTrainingCoordinator(options = {}) {
         rem_cycle_number: cycleNumber
       });
       deps.status({
-        state: 'training',
-        phase: 'nightly_rem_hf_inference',
+        state: 'starting',
+        phase: 'nightly_rem_hf_inference_starting',
         current_run_id: session && session.run_id || null,
         current_container: null,
-        training_resource_mode: 'rem_handoff',
-        gpu_owner: 'hf_rem_inference',
+        training_resource_mode: 'hf_rem_starting',
+        gpu_owner: null,
         current_rem_cycle: cycleNumber,
         nightly_training_error: checkpointError,
         nightly_rem_error: null
@@ -764,28 +883,52 @@ function createNightlyTrainingCoordinator(options = {}) {
           session = deps.setResourceEntered(session, true, config);
           session = await deps.startSegment(session, { config: deps.loadConfig() });
           deps.status({
-            phase: 'nightly_training_resumed_after_rem',
+            phase: 'nightly_training_container_starting_after_rem',
             current_run_id: session.run_id,
             current_container: session.current_container,
-            training_resource_mode: 'active',
-            gpu_owner: 'hf_training'
+            training_resource_mode: 'gpu_training_starting',
+            gpu_owner: null
           });
         } else {
           releaseRemGpu(deps.gpu, config);
         }
       } catch (resumeError) {
-        if (session) deps.markTrainingError(session, resumeError, { config });
+        let restorationError = null;
+        if (session) {
+          try { session = deps.markTrainingError(session, resumeError, { config }) || session; }
+          catch (markError) { restorationError = markError; }
+        }
+        try {
+          if (session && session.resource_entered === true) {
+            session = await restoreResource(session, 'nightly_training_resume_after_rem_failed');
+          } else {
+            const owner = deps.gpu.currentOwner(config);
+            if (owner === 'hf_training' || owner === 'hf_rem_inference') {
+              deps.gpu.release(owner, config);
+            }
+          }
+        } catch (restoreError) {
+          restorationError = restorationError || restoreError;
+        }
+        const failure = restorationError
+          ? String(resumeError.stack || resumeError.message) + '\nresource restoration failed: ' +
+            String(restorationError.stack || restorationError.message)
+          : String(resumeError.stack || resumeError.message);
         deps.audit('nightly_training_resume_after_rem_failed', {
           run_id: session && session.run_id || null,
           rem_cycle_number: cycleNumber,
-          error: resumeError.stack || resumeError.message,
+          error: failure,
           rem_error: remError && (remError.stack || remError.message) || null
         });
-        if (!remError && remResult) {
-          deps.status({
-            nightly_training_error: resumeError.stack || resumeError.message
-          });
-        }
+        deps.status({
+          state: 'failed',
+          phase: 'nightly_training_resume_after_rem_failed',
+          current_container: null,
+          training_resource_mode: 'failed',
+          gpu_owner: null,
+          nightly_training_error: failure,
+          last_error: failure
+        });
       }
     }
   }

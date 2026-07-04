@@ -16,6 +16,35 @@ const TOGGLE_STYLES = {
   inactive: 'bg-secondary/20 text-muted-foreground/60 border-border/30 hover:border-border/60',
 };
 
+const WEB_FRAME_POLL_SUCCESS_DELAY_MS = 125;
+const WEB_FRAME_POLL_FAILURE_BASE_DELAY_MS = 250;
+const WEB_FRAME_POLL_MAX_BACKOFF_MS = 2000;
+const WEB_FRAME_REQUEST_TIMEOUT_MS = 5000;
+const WEB_FRAME_FAILURE_GRACE_MS = 5000;
+const WEB_FRAME_FAILURE_THRESHOLD = 3;
+const WEB_META_FAILURE_THRESHOLD = 3;
+const WEB_RETIRED_FRAME_REVOKE_DELAY_MS = 1000;
+
+function preloadBlobUrl(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const cleanup = () => {
+      image.onload = null;
+      image.onerror = null;
+    };
+    image.decoding = 'async';
+    image.onload = () => {
+      cleanup();
+      resolve();
+    };
+    image.onerror = () => {
+      cleanup();
+      reject(new Error('latest vision frame could not be decoded'));
+    };
+    image.src = url;
+  });
+}
+
 function ToggleBtn({ label, active, onClick }) {
   return (
     <button
@@ -131,25 +160,73 @@ export default function VisionPanel() {
   const reconnectTimer = useRef(null);
   const videoBoxRef = useRef(null);
   const jpgFrameUrlRef = useRef(null);
+  const frameFailureCountRef = useRef(0);
+  const metaFailureCountRef = useRef(0);
+  const lastGoodFrameAtRef = useRef(0);
+  const metaInFlightRef = useRef(false);
 
   const refreshMeta = useCallback(async () => {
+    if (metaInFlightRef.current) return;
+    metaInFlightRef.current = true;
+
+    const markUnavailableAfterGrace = (connectionStatus = 'offline') => {
+      metaFailureCountRef.current += 1;
+      const recentFrame =
+        lastGoodFrameAtRef.current > 0 &&
+        Date.now() - lastGoodFrameAtRef.current < WEB_FRAME_FAILURE_GRACE_MS;
+      if (
+        metaFailureCountRef.current < WEB_META_FAILURE_THRESHOLD ||
+        recentFrame
+      ) {
+        return;
+      }
+      setFrameMeta({
+        frameRate: 0,
+        connectionStatus,
+        timestamp: Date.now(),
+      });
+      setOverlayFrame(emptyOverlayState());
+      setSceneLabel('');
+      setSceneConf(null);
+      setDetectionState('offline');
+    };
+
     try {
       const vision = await flokiAdapter.getVisionFrame();
       const connectionStatus = vision.connectionStatus || 'offline';
       const live = connectionStatus === 'active' && vision.frame?.fresh === true;
+
+      if (!live) {
+        markUnavailableAfterGrace(connectionStatus);
+        return;
+      }
+
+      metaFailureCountRef.current = 0;
       setFrameMeta({
-        frameRate: live ? Number(vision.frameRate || 0) : 0,
-        connectionStatus: live ? 'active' : connectionStatus,
+        frameRate: Number(vision.frameRate || 0),
+        connectionStatus: 'active',
         timestamp: vision.timestamp || Date.now(),
       });
       setOverlayFrame((previous) => reduceOverlayFrameState(previous, vision, {
         maxAgeMs: Number(vision.detection?.maxAgeMs || vision.detection?.max_age_ms || 8000),
         blackout,
       }));
-      const detectionFresh = live && vision.detection?.fresh === true && vision.detection?.stale !== true;
-      setDetectionState(!live ? 'offline' : detectionFresh ? 'live' : vision.detection?.available ? 'stale' : 'warming');
-      setSceneLabel(live && vision.scene?.available === true ? String(vision.scene.label || '') : '');
-      const rawSceneConfidence = live ? vision.scene?.confidence : null;
+      const detectionFresh =
+        vision.detection?.fresh === true &&
+        vision.detection?.stale !== true;
+      setDetectionState(
+        detectionFresh
+          ? 'live'
+          : vision.detection?.available
+            ? 'stale'
+            : 'warming'
+      );
+      setSceneLabel(
+        vision.scene?.available === true
+          ? String(vision.scene.label || '')
+          : ''
+      );
+      const rawSceneConfidence = vision.scene?.confidence;
       setSceneConf(
         rawSceneConfidence !== null &&
         rawSceneConfidence !== undefined &&
@@ -159,13 +236,9 @@ export default function VisionPanel() {
       );
     } catch (error) {
       console.error(error);
-      setFrameMeta({ frameRate: 0, connectionStatus: 'offline', timestamp: Date.now() });
-      setOverlayFrame(emptyOverlayState());
-      setSceneLabel('');
-      setSceneConf(null);
-      setDetectionState('offline');
-      setStreamLoaded(false);
-      setStreamError(true);
+      markUnavailableAfterGrace('offline');
+    } finally {
+      metaInFlightRef.current = false;
     }
   }, [blackout]);
 
@@ -196,8 +269,17 @@ export default function VisionPanel() {
 
   const handleStreamError = useCallback(() => {
     if (!mjpegUrl && jpgUrl) {
-      setStreamLoaded(false);
-      setStreamError(true);
+      frameFailureCountRef.current += 1;
+      const recentFrame =
+        lastGoodFrameAtRef.current > 0 &&
+        Date.now() - lastGoodFrameAtRef.current < WEB_FRAME_FAILURE_GRACE_MS;
+      if (
+        frameFailureCountRef.current >= WEB_FRAME_FAILURE_THRESHOLD &&
+        !recentFrame
+      ) {
+        setStreamLoaded(false);
+        setStreamError(true);
+      }
       return;
     }
     setStreamLoaded(false);
@@ -259,31 +341,77 @@ export default function VisionPanel() {
     let cancelled = false;
     let inFlight = false;
     let timer = null;
+    let requestTimeout = null;
     let controller = null;
+    let requestTimedOut = false;
+    const retiredUrls = new Map();
 
-    const clearCurrentFrameUrl = () => {
-      if (jpgFrameUrlRef.current) {
-        URL.revokeObjectURL(jpgFrameUrlRef.current);
-        jpgFrameUrlRef.current = null;
+    const revokeNow = (url) => {
+      if (url) URL.revokeObjectURL(url);
+    };
+
+    const retireFrameUrl = (url) => {
+      if (!url) return;
+      const retireTimer = window.setTimeout(() => {
+        retiredUrls.delete(retireTimer);
+        revokeNow(url);
+      }, WEB_RETIRED_FRAME_REVOKE_DELAY_MS);
+      retiredUrls.set(retireTimer, url);
+    };
+
+    const markFrameFailure = (error) => {
+      frameFailureCountRef.current += 1;
+      const recentFrame =
+        lastGoodFrameAtRef.current > 0 &&
+        Date.now() - lastGoodFrameAtRef.current < WEB_FRAME_FAILURE_GRACE_MS;
+      if (
+        frameFailureCountRef.current >= WEB_FRAME_FAILURE_THRESHOLD &&
+        !recentFrame
+      ) {
+        setStreamLoaded(false);
+        setStreamError(true);
       }
+      if (error) console.error(error);
     };
 
     const poll = async () => {
       if (cancelled || inFlight) return;
       inFlight = true;
+      requestTimedOut = false;
       controller = new AbortController();
+      requestTimeout = window.setTimeout(() => {
+        requestTimedOut = true;
+        controller?.abort();
+      }, WEB_FRAME_REQUEST_TIMEOUT_MS);
+
       try {
         const frame = await flokiAdapter.getVisionFrameBlob({
           signal: controller.signal
         });
         const nextUrl = URL.createObjectURL(frame.blob);
+
+        try {
+          await preloadBlobUrl(nextUrl);
+        } catch (error) {
+          revokeNow(nextUrl);
+          throw error;
+        }
+
         if (cancelled) {
-          URL.revokeObjectURL(nextUrl);
+          revokeNow(nextUrl);
           return;
         }
-        clearCurrentFrameUrl();
+
+        const previousUrl = jpgFrameUrlRef.current;
         jpgFrameUrlRef.current = nextUrl;
         setJpgFrameUrl(nextUrl);
+        if (previousUrl && previousUrl !== nextUrl) {
+          retireFrameUrl(previousUrl);
+        }
+
+        frameFailureCountRef.current = 0;
+        metaFailureCountRef.current = 0;
+        lastGoodFrameAtRef.current = Date.now();
         setStreamLoaded(true);
         setStreamError(false);
         if (frame.timestamp) {
@@ -294,24 +422,51 @@ export default function VisionPanel() {
           }));
         }
       } catch (error) {
-        if (!cancelled && error?.name !== 'AbortError') {
-          console.error(error);
-          setStreamLoaded(false);
-          setStreamError(true);
+        if (
+          !cancelled &&
+          (error?.name !== 'AbortError' || requestTimedOut)
+        ) {
+          markFrameFailure(error);
         }
       } finally {
+        if (requestTimeout) {
+          clearTimeout(requestTimeout);
+          requestTimeout = null;
+        }
         inFlight = false;
         controller = null;
-        if (!cancelled) timer = setTimeout(poll, 330);
+
+        if (!cancelled) {
+          const failures = frameFailureCountRef.current;
+          const retryDelay = failures === 0
+            ? WEB_FRAME_POLL_SUCCESS_DELAY_MS
+            : Math.min(
+                WEB_FRAME_POLL_MAX_BACKOFF_MS,
+                WEB_FRAME_POLL_FAILURE_BASE_DELAY_MS *
+                  (2 ** Math.min(failures - 1, 3))
+              );
+          const delay =
+            typeof document !== 'undefined' && document.hidden
+              ? Math.max(1000, retryDelay)
+              : retryDelay;
+          timer = window.setTimeout(poll, delay);
+        }
       }
     };
 
-    poll();
+    void poll();
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
+      if (requestTimeout) clearTimeout(requestTimeout);
       if (controller) controller.abort();
-      clearCurrentFrameUrl();
+      for (const [retireTimer, url] of retiredUrls.entries()) {
+        clearTimeout(retireTimer);
+        revokeNow(url);
+      }
+      retiredUrls.clear();
+      revokeNow(jpgFrameUrlRef.current);
+      jpgFrameUrlRef.current = null;
       setJpgFrameUrl(null);
     };
   }, [mjpegUrl, jpgUrl]);
@@ -338,7 +493,7 @@ export default function VisionPanel() {
         {displayUrl ? (
           <>
             <img
-              key={frozen ? 'frozen-frame' : (mjpegUrl ? streamKey : displayUrl)}
+              key={frozen ? 'frozen-frame' : (mjpegUrl ? `mjpeg-${streamKey}` : 'jpeg-stream')}
               src={displayUrl}
               alt="Live webcam feed"
               data-testid="vision-feed"

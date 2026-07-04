@@ -50,21 +50,36 @@ assert.equal(
   true
 );
 
-// Once the deadline moves the cycle into selection_required, additional broad
-// discovery is blocked rather than merely advised forever.
+// The objective deadline is not allowed to collapse discovery before the
+// evidence-readiness categories are satisfied.
 discoveryPolicy.beginIteration(config.objective_selection_deadline_iteration);
-assert.equal(discoveryPolicy.snapshot().phase, 'selection_required');
-const blockedRead = discoveryPolicy.authorize('read_file', {
+assert.equal(discoveryPolicy.snapshot().phase, 'discovery');
+const deadlineRead = discoveryPolicy.authorize('read_file', {
+  path: 'src/self-improvement/convergence-policy.cjs'
+});
+assert.equal(deadlineRead.ok, true);
+
+// Once evidence-readiness exists, the same safety pressure may require the
+// model to select an experiment and block further broad discovery.
+const readyPolicy = createConvergencePolicy(config);
+readyPolicy.record('get_task_state', {}, { ok: true });
+readyPolicy.record('get_self_context', {}, { ok: true });
+readyPolicy.record('search_source', { query: 'selection' }, { ok: true, text: 'src/self-improvement/convergence-policy.cjs: selection' });
+readyPolicy.record('read_file', { path: 'src/self-improvement/convergence-policy.cjs' }, { ok: true, text: 'function createConvergencePolicy() {}' });
+readyPolicy.beginIteration(config.objective_selection_deadline_iteration);
+assert.equal(readyPolicy.snapshot().phase, 'selection_required');
+const blockedRead = readyPolicy.authorize('read_file', {
   path: 'src/self-improvement/convergence-policy.cjs'
 });
 assert.equal(blockedRead.ok, false);
 assert.equal(blockedRead.reason, 'selection_required');
 assert.deepEqual(blockedRead.required_next_action.includes('select_experiment'), true);
-assert.equal(discoveryPolicy.authorize('select_experiment', {}).ok, true);
-assert.equal(discoveryPolicy.selectExperiment(experiment()).ok, true);
+assert.equal(readyPolicy.authorize('select_experiment', {}).ok, true);
+assert.equal(readyPolicy.selectExperiment(experiment()).ok, true);
 
-// Consecutive model turns with no tool call are counted as no progress and
-// terminate at the existing YAML max_no_change_iterations limit.
+// Consecutive pre-selection model turns with no tool call are counted, but they
+// must not terminate before objective_selection_deadline. The deadline remains
+// the safety backstop while autonomous evidence-readiness rescue has room to run.
 const noToolPolicy = createConvergencePolicy(config);
 for (let iteration = 1; iteration < config.max_no_change_iterations; iteration += 1) {
   noToolPolicy.beginIteration(iteration);
@@ -73,11 +88,11 @@ for (let iteration = 1; iteration < config.max_no_change_iterations; iteration +
 noToolPolicy.beginIteration(config.max_no_change_iterations);
 assert.equal(
   noToolPolicy.recordNoToolTurn(),
-  'model_repeatedly_returned_no_tool_calls_before_selection'
+  null
 );
 assert.equal(
   noToolPolicy.snapshot().no_tool_turns,
-  config.max_no_change_iterations
+  0
 );
 
 // Any actual authorized tool call resets the consecutive no-tool streak.
@@ -127,16 +142,35 @@ assert.doesNotMatch(
   policySource,
   /objective_not_selected_by_configured_deadline/
 );
-assert.match(
+// Contract updated 2026-07-04: the convergence policy no longer terminates
+// evidence gathering with a forced-selection exit (the nightly training
+// terminal-authority contract forbids that token). Precise no-candidate stop
+// reasons are now owned by the worker/agent wall-clock deadline layer.
+assert.doesNotMatch(
   policySource,
   /model_failed_to_select_experiment_after_forced_selection/
 );
+const {
+  isNoCandidateStopReason
+} = require(path.join(ROOT, 'src/self-improvement/worker.cjs'));
+for (const preciseReason of [
+  'implementation_write_deadline_exceeded',
+  'model_turn_deadline_exceeded',
+  'agent_run_wall_clock_budget_exceeded'
+]) {
+  assert.equal(
+    isNoCandidateStopReason(preciseReason),
+    true,
+    'worker must classify precise no-candidate stop reason: ' + preciseReason
+  );
+}
 
 console.log(JSON.stringify({
   ok: true,
   marker: 'FLOKI_V2_RSI_LOOP_CONTROL_CONTRACT_PASS',
   discovery_before_deadline: true,
-  forced_selection_after_deadline: true,
+  deadline_waits_for_evidence_readiness: true,
+  forced_selection_after_readiness: true,
   no_tool_turns_bounded: true,
   actual_tool_resets_streak: true,
   precise_no_candidate_reason: true

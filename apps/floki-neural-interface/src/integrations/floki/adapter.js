@@ -47,6 +47,113 @@ let webSessionId = null;
 let normalWebTransportEnabled = true;
 let observedWebGeneration = null;
 
+function webBootstrap() {
+  if (typeof window === 'undefined' || hasBridge()) return null;
+  const bootstrap = window.FLOKI_BOOTSTRAP;
+  return bootstrap && typeof bootstrap === 'object' ? bootstrap : null;
+}
+
+let webAuthToken = null;
+let webAuthExpiresAtMs = 0;
+let webAuthPromise = null;
+
+function clearWebAuthToken() {
+  webAuthToken = null;
+  webAuthExpiresAtMs = 0;
+  webAuthPromise = null;
+}
+
+function tokenExpiryMs(token) {
+  try {
+    const part = String(token || '').split('.')[1];
+    if (!part) return 0;
+    const normalized = part.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
+    const exp = Number(payload.exp);
+    return Number.isFinite(exp) && exp > 0 ? exp * 1000 : 0;
+  } catch (_error) {
+    return 0;
+  }
+}
+
+async function ensureWebAuthToken(forceRefresh = false) {
+  if (typeof window === 'undefined' || hasBridge()) return null;
+
+  const bootstrap = webBootstrap();
+  if (!bootstrap) return null;
+
+  const tokenUrl = String(bootstrap.token_url || '').trim();
+  const nonce = String(bootstrap.nonce || '').trim();
+  if (!tokenUrl || !nonce) {
+    throw new Error('WordPress authentication bootstrap is incomplete.');
+  }
+
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    webAuthToken &&
+    Number.isFinite(webAuthExpiresAtMs) &&
+    webAuthExpiresAtMs - now > 30000
+  ) {
+    return webAuthToken;
+  }
+
+  if (webAuthPromise && !forceRefresh) return webAuthPromise;
+
+  webAuthPromise = (async () => {
+    const response = await fetch(tokenUrl, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'X-WP-Nonce': nonce,
+      },
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      throw new Error(`WordPress session exchange failed with HTTP ${response.status}.`);
+    }
+
+    const payload = await response.json();
+    const token = String(
+      payload?.token ||
+      payload?.credential ||
+      payload?.session_token ||
+      payload?.access_token ||
+      ''
+    ).trim();
+    if (!token) {
+      throw new Error('WordPress session exchange returned no gateway credential.');
+    }
+
+    const refreshMs = Math.max(60000, Number(bootstrap.refresh_ms || 300000));
+    webAuthToken = token;
+    webAuthExpiresAtMs =
+      tokenExpiryMs(token) ||
+      Number(payload?.expires_at_ms || 0) ||
+      (Number(payload?.expires_at || 0) * 1000) ||
+      (Date.now() + refreshMs);
+    return webAuthToken;
+  })();
+
+  try {
+    return await webAuthPromise;
+  } catch (error) {
+    clearWebAuthToken();
+    throw error;
+  } finally {
+    webAuthPromise = null;
+  }
+}
+
+function authenticatedWebSocketUrl(url, token) {
+  if (!token) return url;
+  const parsed = new URL(url, window.location.href);
+  parsed.searchParams.set('token', token);
+  return parsed.toString();
+}
+
 function stableWebClientId() {
   if (webClientId) return webClientId;
   const fallback = () => 'web-' + Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
@@ -103,21 +210,33 @@ function assertNormalWebTransport(path) {
 async function runtimeHttpRequest(method, urlPath, body = null, options = {}) {
   assertNormalWebTransport(urlPath);
   const url = RUNTIME_API_BASE + urlPath;
-  const requestOptions = {
-    method,
-    headers: {},
-    credentials: 'include',
-    signal: options.signal
+
+  const execute = async (forceRefresh = false) => {
+    const token = await ensureWebAuthToken(forceRefresh);
+    const requestOptions = {
+      method,
+      headers: {},
+      credentials: 'include',
+      cache: options.cache || 'no-store',
+      signal: options.signal
+    };
+    if (token) requestOptions.headers.Authorization = `Bearer ${token}`;
+    if (options.rawBody != null) {
+      requestOptions.headers['Content-Type'] = options.contentType || 'application/octet-stream';
+      requestOptions.body = options.rawBody;
+    } else if (body) {
+      requestOptions.headers['Content-Type'] = 'application/json';
+      requestOptions.body = JSON.stringify(body);
+    }
+    if (options.accept) requestOptions.headers.Accept = options.accept;
+    return fetch(url, requestOptions);
   };
-  if (options.rawBody != null) {
-    requestOptions.headers['Content-Type'] = options.contentType || 'application/octet-stream';
-    requestOptions.body = options.rawBody;
-  } else if (body) {
-    requestOptions.headers['Content-Type'] = 'application/json';
-    requestOptions.body = JSON.stringify(body);
+
+  let res = await execute(false);
+  if (res.status === 401 && webBootstrap()) {
+    clearWebAuthToken();
+    res = await execute(true);
   }
-  if (options.accept) requestOptions.headers.Accept = options.accept;
-  const res = await fetch(url, requestOptions);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Runtime API error ${res.status}: ${text.slice(0, 200)}`);
@@ -145,6 +264,307 @@ function base64ToBlob(base64, contentType = 'audio/wav') {
     bytes[index] = binary.charCodeAt(index);
   }
   return new Blob([bytes], { type: contentType });
+}
+
+
+function createInAppLogWorkspace(initialService) {
+  if (
+    typeof window === 'undefined' ||
+    typeof document === 'undefined'
+  ) {
+    return {
+      show() {},
+      fail() {}
+    };
+  }
+
+  const existing = document.getElementById(
+    'floki-current-week-log-workspace'
+  );
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'floki-current-week-log-workspace';
+  Object.assign(overlay.style, {
+    position: 'fixed',
+    inset: '0',
+    zIndex: '2147483647',
+    background: 'rgba(2, 6, 12, 0.96)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '18px'
+  });
+
+  const panel = document.createElement('section');
+  Object.assign(panel.style, {
+    width: 'min(1180px, 97vw)',
+    height: 'min(820px, 94vh)',
+    background: '#050b14',
+    border: '1px solid rgba(34, 211, 238, 0.45)',
+    borderRadius: '12px',
+    boxShadow: '0 28px 90px rgba(0,0,0,0.75)',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column'
+  });
+
+  const header = document.createElement('header');
+  Object.assign(header.style, {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '12px',
+    borderBottom: '1px solid rgba(34, 211, 238, 0.18)',
+    background: '#08111f'
+  });
+
+  const title = document.createElement('strong');
+  title.textContent =
+    String(initialService || 'Current-week logs');
+  Object.assign(title.style, {
+    color: '#67e8f9',
+    fontFamily: 'monospace',
+    fontSize: '13px',
+    flex: '1'
+  });
+
+  const search = document.createElement('input');
+  search.type = 'search';
+  search.placeholder = 'Search this week';
+  Object.assign(search.style, {
+    width: '260px',
+    maxWidth: '32vw',
+    background: '#02060c',
+    color: '#dbeafe',
+    border: '1px solid rgba(148,163,184,0.3)',
+    borderRadius: '6px',
+    padding: '7px 9px',
+    fontFamily: 'monospace',
+    fontSize: '11px'
+  });
+
+  const level = document.createElement('select');
+  for (const value of [
+    'all',
+    'error',
+    'warning',
+    'info'
+  ]) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = value.toUpperCase();
+    level.append(option);
+  }
+  Object.assign(level.style, {
+    background: '#02060c',
+    color: '#dbeafe',
+    border: '1px solid rgba(148,163,184,0.3)',
+    borderRadius: '6px',
+    padding: '7px',
+    fontFamily: 'monospace',
+    fontSize: '11px'
+  });
+
+  function actionButton(label) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    Object.assign(button.style, {
+      border: '1px solid rgba(148,163,184,0.35)',
+      borderRadius: '6px',
+      background: '#0f172a',
+      color: '#e2e8f0',
+      padding: '7px 10px',
+      cursor: 'pointer',
+      fontFamily: 'monospace',
+      fontSize: '11px'
+    });
+    return button;
+  }
+
+  const refresh = actionButton('Refresh');
+  const pause = actionButton('Pause');
+  const copy = actionButton('Copy');
+  const download = actionButton('Download');
+  const close = actionButton('Close');
+
+  const meta = document.createElement('div');
+  Object.assign(meta.style, {
+    color: '#94a3b8',
+    fontFamily: 'monospace',
+    fontSize: '10px',
+    padding: '8px 12px',
+    borderBottom: '1px solid rgba(148,163,184,0.12)'
+  });
+
+  const pre = document.createElement('pre');
+  Object.assign(pre.style, {
+    flex: '1',
+    overflow: 'auto',
+    margin: '0',
+    padding: '14px',
+    background: '#02060c',
+    color: '#dbeafe',
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+    fontFamily: 'monospace',
+    fontSize: '11px',
+    lineHeight: '1.45'
+  });
+
+  header.append(
+    title,
+    search,
+    level,
+    refresh,
+    pause,
+    copy,
+    download,
+    close
+  );
+  panel.append(
+    header,
+    meta,
+    pre
+  );
+  overlay.append(panel);
+  document.body.append(overlay);
+
+  let rawText = '';
+  let current = null;
+  let paused = false;
+  let refreshTimer = null;
+  let reload = null;
+
+  function filterText() {
+    const query = search.value.trim().toLowerCase();
+    const selectedLevel = level.value;
+    const rows = rawText
+      .split(/\r?\n/)
+      .filter((line) => {
+        const lower = line.toLowerCase();
+        if (query && !lower.includes(query)) return false;
+        if (
+          selectedLevel === 'error' &&
+          !/(error|fail|fatal|exception|traceback)/i.test(line)
+        ) {
+          return false;
+        }
+        if (
+          selectedLevel === 'warning' &&
+          !/(warn|warning|degraded|retry|timeout)/i.test(line)
+        ) {
+          return false;
+        }
+        if (
+          selectedLevel === 'info' &&
+          /(error|fail|fatal|exception|warn|warning)/i.test(line)
+        ) {
+          return false;
+        }
+        return true;
+      });
+    pre.textContent =
+      rows.join('\n') ||
+      '(No lines match the current filter.)';
+  }
+
+  function schedule() {
+    if (refreshTimer) window.clearTimeout(refreshTimer);
+    if (paused || typeof reload !== 'function') return;
+    refreshTimer = window.setTimeout(
+      () => {
+        Promise.resolve(reload())
+          .catch(() => undefined)
+          .finally(schedule);
+      },
+      5000
+    );
+  }
+
+  search.addEventListener('input', filterText);
+  level.addEventListener('change', filterText);
+  close.addEventListener('click', () => {
+    if (refreshTimer) window.clearTimeout(refreshTimer);
+    overlay.remove();
+  });
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close.click();
+  });
+  pause.addEventListener('click', () => {
+    paused = !paused;
+    pause.textContent = paused ? 'Resume' : 'Pause';
+    schedule();
+  });
+  refresh.addEventListener('click', () => {
+    if (typeof reload === 'function') {
+      Promise.resolve(reload()).catch(() => undefined);
+    }
+  });
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(pre.textContent || '');
+      copy.textContent = 'Copied';
+      window.setTimeout(() => {
+        copy.textContent = 'Copy';
+      }, 1200);
+    } catch (_error) {
+      copy.textContent = 'Copy failed';
+    }
+  });
+  download.addEventListener('click', () => {
+    const blob = new Blob(
+      [rawText],
+      { type: 'text/plain;charset=utf-8' }
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download =
+      String(current?.file_name || 'floki-current-week.log');
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+
+  return {
+    bindReload(callback) {
+      reload = callback;
+      schedule();
+    },
+    show(result = {}) {
+      current = result;
+      rawText = String(result.text || '');
+      title.textContent =
+        String(
+          result.display_name ||
+          result.service ||
+          initialService ||
+          'Current-week logs'
+        );
+      meta.textContent = [
+        result.week ? `week ${result.week}` : null,
+        result.file_name || null,
+        Number.isFinite(Number(result.size_bytes))
+          ? `${Number(result.size_bytes).toLocaleString()} bytes`
+          : null,
+        result.modified_at || null,
+        result.truncated === true ? 'tail truncated' : null,
+        paused ? 'live refresh paused' : 'live refresh every 5s'
+      ].filter(Boolean).join(' · ');
+      filterText();
+      pre.scrollTop = pre.scrollHeight;
+    },
+    fail(error) {
+      rawText =
+        error && error.message
+          ? error.message
+          : String(error || 'Unknown log error');
+      meta.textContent = 'Authenticated log request failed';
+      pre.style.color = '#fca5a5';
+      filterText();
+    }
+  };
 }
 
 class FlokiAdapter {
@@ -220,6 +640,7 @@ class FlokiAdapter {
       {
         raw: true,
         accept: 'image/jpeg',
+        cache: 'no-store',
         signal: options.signal
       }
     );
@@ -265,6 +686,25 @@ class FlokiAdapter {
     if (hasBridge()) return bridge().getSettings();
     return runtimeHttpRequest('GET', '/interface/settings');
   }
+  async updateSettings(section, values) {
+    if (hasBridge()) return bridge().updateSettings(section, values);
+    return runtimeHttpRequest('POST', '/interface/settings/update', {
+      section: String(section || ''),
+      values: values || {}
+    });
+  }
+  async resetSettings(section = null) {
+    if (hasBridge()) {
+      return section == null
+        ? bridge().resetAllSettings()
+        : bridge().resetSettings(section);
+    }
+    return runtimeHttpRequest('POST', '/interface/settings/reset', { section });
+  }
+  async importSettings(settings) {
+    if (hasBridge()) return bridge().importSettings(settings);
+    return runtimeHttpRequest('POST', '/interface/settings/import', { settings: settings || {} });
+  }
   async getTranscript(limit = 200) {
     if (hasBridge()) return bridge().getTranscript(limit);
     return runtimeHttpRequest('GET', '/interface/transcript?limit=' + encodeURIComponent(String(limit)));
@@ -293,8 +733,39 @@ class FlokiAdapter {
     return result;
   }
   async openLog(service) {
-    if (hasBridge()) return bridge().openLog(service);
-    return runtimeHttpRequest('GET', '/interface/log/' + encodeURIComponent(String(service || '')));
+    const label = String(service || '').trim();
+    const viewer = createInAppLogWorkspace(label);
+    const load = async () => {
+      const result = hasBridge()
+        ? await bridge().openLog(label)
+        : await runtimeHttpRequest(
+            'GET',
+            '/interface/log/' +
+              encodeURIComponent(label)
+          );
+      if (
+        result?.exists !== true ||
+        typeof result?.text !== 'string'
+      ) {
+        throw new Error(
+          result?.error ||
+          'The selected current-week log is unavailable.'
+        );
+      }
+      viewer.show(result);
+      return result;
+    };
+    viewer.bindReload(load);
+    try {
+      const result = await load();
+      return {
+        ok: true,
+        ...result
+      };
+    } catch (error) {
+      viewer.fail(error);
+      throw error;
+    }
   }
   async interruptResponse() {
     if (hasBridge()) return bridge().interrupt();
@@ -345,42 +816,57 @@ class FlokiAdapter {
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         reconnectAttempts += 1;
-        connect();
+        void connect();
       }, reconnectDelay);
     };
 
-    const connect = () => {
+    const connect = async () => {
       if (stopped) return;
       if (!normalWebTransportEnabled) return;
       if (socket && socket.readyState < WebSocket.CLOSING) return;
-      socket = new WebSocket(url);
-      socket.addEventListener('open', () => {
-        reconnectAttempts = 0;
-        reconnectDelay = baseReconnectDelay;
-        onEvent({ type: 'stream.connected', data: { url } });
-      });
-      socket.addEventListener('message', (event) => {
-        try {
-          onEvent(JSON.parse(event.data));
-        } catch (error) {
-          console.error('invalid runtime event', error);
-        }
-      });
-      socket.addEventListener('error', () => {
+
+      try {
+        const token = hasBridge() ? null : await ensureWebAuthToken();
+        if (stopped) return;
+        let opened = false;
+        socket = new WebSocket(authenticatedWebSocketUrl(url, token));
+        socket.addEventListener('open', () => {
+          opened = true;
+          reconnectAttempts = 0;
+          reconnectDelay = baseReconnectDelay;
+          onEvent({ type: 'stream.connected', data: { url } });
+        });
+        socket.addEventListener('message', (event) => {
+          try {
+            onEvent(JSON.parse(event.data));
+          } catch (error) {
+            console.error('invalid runtime event', error);
+          }
+        });
+        socket.addEventListener('error', () => {
+          if (!opened && !hasBridge()) clearWebAuthToken();
+          onEvent({
+            type: 'stream.error',
+            data: { error: 'Authoritative runtime event stream disconnected.' },
+          });
+          scheduleReconnect();
+        });
+        socket.addEventListener('close', () => {
+          if (!opened && !hasBridge()) clearWebAuthToken();
+          socket = null;
+          onEvent({ type: 'stream.closed', data: { url } });
+          scheduleReconnect();
+        });
+      } catch (error) {
         onEvent({
           type: 'stream.error',
-          data: { error: 'Authoritative runtime event stream disconnected.' },
+          data: { error: error?.message || 'Authoritative runtime event stream authentication failed.' },
         });
         scheduleReconnect();
-      });
-      socket.addEventListener('close', () => {
-        socket = null;
-        onEvent({ type: 'stream.closed', data: { url } });
-        scheduleReconnect();
-      });
+      }
     };
 
-    connect();
+    void connect();
     return () => {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -539,7 +1025,9 @@ class FlokiAdapter {
     if (hasBridge()) return bridge().getSelfImprovementTerminal ? bridge().getSelfImprovementTerminal(params) : null;
     const q = new URLSearchParams();
     if (params.cursor != null) q.set('cursor', String(params.cursor));
+    if (params.before_cursor != null) q.set('before_cursor', String(params.before_cursor));
     if (params.max_bytes != null) q.set('max_bytes', String(params.max_bytes));
+    if (params.source_id) q.set('source_id', String(params.source_id));
     return runtimeHttpRequest('GET', '/self-improvement/terminal?' + q.toString(), null, {
       signal: params.signal
     });

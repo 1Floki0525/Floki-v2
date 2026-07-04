@@ -1,11 +1,13 @@
 'use strict';
 
+const fs = require('node:fs');
 const path = require('node:path');
 
 const { loadSelfImprovementConfig } = require('./config.cjs');
 const { readStatus } = require('./store.cjs');
 const { readNightlySession } = require('./training/nightly-training-session.cjs');
 const { currentOwner } = require('./training/gpu-ownership.cjs');
+const { observeTrainingReality } = require('./training/training-observation.cjs');
 const { readRemClaims } = require('./training/training-scheduler.cjs');
 const { listAdapters } = require('./training/lineage.cjs');
 const { loadSleepCycleState } = require('../chat/sleep-cycle.cjs');
@@ -50,6 +52,80 @@ function nextNightlyRem(sleepState) {
     status: next.status || null,
     stage: next.stage || null
   });
+}
+
+function latestAgentTelemetry(base, config, nowMs = Date.now()) {
+  const file = base && base.last_sandbox_log_file
+    ? String(base.last_sandbox_log_file)
+    : '';
+  if (!file) return null;
+  let content = '';
+  try {
+    const stat = fs.statSync(file);
+    if (!stat.isFile()) return null;
+    const start = Math.max(0, Number(stat.size || 0) - 262144);
+    const fd = fs.openSync(file, 'r');
+    try {
+      const buffer = Buffer.alloc(Math.max(0, Number(stat.size || 0) - start));
+      if (buffer.length > 0) fs.readSync(fd, buffer, 0, buffer.length, start);
+      content = buffer.toString('utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (_error) {
+    return null;
+  }
+  let latest = null;
+  for (const line of content.split(/\r?\n/)) {
+    if (!line.includes('FLOKI_V2_SELF_IMPROVEMENT_AGENT_AUDIT')) continue;
+    let record;
+    try { record = JSON.parse(line); } catch (_error) { continue; }
+    if (record?.type !== 'progress_heartbeat') continue;
+    const detail = record.detail || {};
+    if (base.current_run_id && detail.run_id && detail.run_id !== base.current_run_id) continue;
+    latest = {
+      observed_at: record.created_at || detail.telemetry_observed_at || null,
+      role: detail.current_role || null,
+      tool: detail.current_tool || null,
+      resource_mode: detail.resource_mode || null,
+      gpu_owner: detail.gpu_owner || null,
+      event: detail.event || null,
+      iteration: detail.iteration ?? null,
+      phase: detail.phase || null
+    };
+  }
+  if (!latest) return null;
+  const observedMs = Date.parse(latest.observed_at || '');
+  const staleMs = Number(
+    config.sandbox_heartbeat_stale_ms ||
+    config.worker_heartbeat_stale_ms ||
+    30000
+  );
+  const stale =
+    !Number.isFinite(observedMs) ||
+    (staleMs > 0 && nowMs - observedMs > staleMs);
+  return Object.freeze({
+    ...latest,
+    stale,
+    source: 'sandbox_agent_audit'
+  });
+}
+
+function normalizeResourceMode(value, activeRun) {
+  const mode = String(value || '').trim();
+  if ([
+    'cognition/model inference',
+    'CPU/tool execution',
+    'filesystem/I/O',
+    'network/research',
+    'GPU/training',
+    'idle'
+  ].includes(mode)) return mode;
+  if (mode === 'active') return 'GPU/training';
+  if (mode === 'entering' || mode === 'restoring' || mode === 'prepared') {
+    return 'CPU/tool execution';
+  }
+  return activeRun ? 'CPU/tool execution' : 'idle';
 }
 
 function loadedModelsForOwner(owner, config, session, lineage) {
@@ -121,11 +197,28 @@ function buildSelfImprovementUiStatus(options = {}) {
     null,
     dependencyErrors
   );
-  const owner = safeRead('GPU ownership status',
-    () => (dependencies.currentOwner || currentOwner)(config),
-    null,
+  const trainingReality = safeRead(
+    'observed training reality',
+    () => (dependencies.observeTrainingReality || observeTrainingReality)({
+      config,
+      session,
+      reconcile_stale_owner: true,
+      now_ms: options.now instanceof Date ? options.now.getTime() : Date.now()
+    }),
+    {
+      phase: session && session.active === true ? 'waiting' : 'inactive',
+      resource_mode: session && session.active === true ? 'waiting' : 'inactive',
+      observed_gpu_owner: null,
+      live_training: false,
+      live_rem: false,
+      stale_gpu_owner: false,
+      stale_owner_reconciled: false,
+      active_hf_model: false,
+      error: null
+    },
     dependencyErrors
   );
+  const owner = trainingReality.observed_gpu_owner;
   const claimsRecord = safeRead('REM claim status',
     () => (dependencies.readRemClaims || readRemClaims)(config),
     { claims: {} },
@@ -160,7 +253,9 @@ function buildSelfImprovementUiStatus(options = {}) {
     base.nightly_training_error,
     base.nightly_rem_error,
     base.wake_restoration_error,
-    session && session.training_error
+    session && session.training_error,
+    trainingReality.error,
+    trainingReality.reconciliation_error
   ].filter(Boolean);
   const rawTrainingProgress = base.training_progress || (session ? {
     run_id: session.run_id,
@@ -186,19 +281,26 @@ function buildSelfImprovementUiStatus(options = {}) {
     'verifying',
     'training'
   ]);
-  const activeRun = Boolean(
-    base.current_run_id ||
-    base.current_container ||
-    activeControlStates.has(controlState)
-  );
-  const activeKind =
-    base.current_run_kind ||
+  const codeRunActive = Boolean(
+    (base.current_run_kind || config.default_rsi_run_kind) === 'code' &&
     (
-      base.current_candidate_type === 'model_adapter' ||
-      base.training_resource_mode === 'active'
-        ? 'training'
-        : config.default_rsi_run_kind
-    );
+      base.current_run_id ||
+      base.current_container ||
+      activeControlStates.has(controlState)
+    )
+  );
+  const trainingSessionOpen = Boolean(
+    session && session.active === true && session.finalized !== true && session.aborted !== true
+  );
+  const activeRun = Boolean(
+    codeRunActive ||
+    trainingSessionOpen ||
+    trainingReality.live_training === true ||
+    trainingReality.live_rem === true
+  );
+  const activeKind = trainingSessionOpen || trainingReality.live_training || trainingReality.live_rem
+    ? 'training'
+    : base.current_run_kind || config.default_rsi_run_kind;
   const codeSandboxActive =
     activeRun && activeKind === 'code';
   const trainingRunActive =
@@ -220,13 +322,45 @@ function buildSelfImprovementUiStatus(options = {}) {
   // stale nightly_wake_* phase) describes a past transition, not the current
   // daytime state.
   const basePhase = base.phase == null ? '' : String(base.phase);
-  const currentPhase = activeRun
-    ? (base.phase || null)
-    : (!basePhase || basePhase.startsWith('nightly_wake'))
-      ? 'daytime_idle'
-      : basePhase;
+  const currentPhase = trainingSessionOpen
+    ? trainingReality.phase
+    : activeRun
+      ? (base.phase || null)
+      : (!basePhase || basePhase.startsWith('nightly_wake'))
+        ? 'daytime_idle'
+        : basePhase;
 
   const loadedModels = loadedModelsForOwner(owner, config, session, lineage);
+  const rawTelemetry = latestAgentTelemetry(
+    base,
+    config,
+    options.now ? Number(new Date(options.now)) : Date.now()
+  );
+  const telemetry = activeRun ? rawTelemetry : null;
+  const freshTelemetry = telemetry && telemetry.stale !== true ? telemetry : null;
+  const effectiveRole = activeRun
+    ? (freshTelemetry?.role || base.current_role || base.role || null)
+    : null;
+  const effectiveTool = activeRun
+    ? (freshTelemetry?.tool || base.current_tool || base.current_command || null)
+    : null;
+  const effectiveResourceMode = normalizeResourceMode(
+    freshTelemetry?.resource_mode || base.resource_mode || base.training_resource_mode,
+    activeRun
+  );
+  const effectiveGpuOwner =
+    owner ||
+    freshTelemetry?.gpu_owner ||
+    (
+      activeRun &&
+      (
+        effectiveResourceMode === 'cognition/model inference' ||
+        effectiveTool === 'model_turn' ||
+        effectiveTool === 'selection_model_turn'
+      )
+        ? 'self-improvement/cognition'
+        : null
+    );
 
   // GPU truth model: the RTX card is the DEVICE. Ownership is either an
   // explicit exclusive ledger owner or the honest shared daytime allocation.
@@ -235,19 +369,23 @@ function buildSelfImprovementUiStatus(options = {}) {
         workload: model.purpose,
         provider: model.provider
       })))
-    : Object.freeze([
-        Object.freeze({
-          workload: 'live_cognition',
-          provider: config.live_cognition_provider
-        }),
-        Object.freeze({
-          workload: 'live_vision',
-          provider: config.vision_provider
-        })
-      ]);
+    : nightlyPolicy.active === true || trainingSessionOpen
+      ? Object.freeze([])
+      : Object.freeze([
+          Object.freeze({
+            workload: 'live_cognition',
+            provider: config.live_cognition_provider
+          }),
+          Object.freeze({
+            workload: 'live_vision',
+            provider: config.vision_provider
+          })
+        ]);
 
   return Object.freeze({
     ...base,
+    state: trainingSessionOpen ? trainingReality.phase : base.state,
+    phase: currentPhase,
     nightly_hf_cycle: nightlyPolicy,
     active_run: Boolean(activeRun),
     active_run_kind: activeRun ? activeKind : null,
@@ -255,26 +393,32 @@ function buildSelfImprovementUiStatus(options = {}) {
     active_goal: activeRun ? (base.current_objective || null) : null,
     next_goal: config.default_objective,
     active_cycle_type: activeCycleType,
-    active_role: activeRun ? (base.current_role || base.role || null) : null,
-    active_tool: activeRun
-      ? (base.current_tool || base.current_command || null)
-      : null,
+    active_role: effectiveRole,
+    active_tool: effectiveTool,
+    telemetry: telemetry ? Object.freeze(telemetry) : null,
+    telemetry_stale: telemetry ? telemetry.stale === true : false,
+    telemetry_generation: freshTelemetry?.observed_at || base.last_heartbeat_at || null,
     current_phase: currentPhase,
     last_transition: Object.freeze({
       phase: base.last_transition || null,
       at: base.last_transition_at || null
     }),
     gpu_device: config.training_expected_gpu_name,
-    gpu_workload_owner: owner || 'daytime_shared_cognition',
+    gpu_workload_owner: owner ||
+      (activeRun && effectiveGpuOwner ? effectiveGpuOwner : null) ||
+      (nightlyPolicy.active === true || trainingSessionOpen ? null : 'daytime_shared_cognition'),
     gpu_workloads: gpuWorkloads,
     exclusive_ownership_lock: owner,
-    resource_mode: base.training_resource_mode || (
-      owner === 'ollama_cognition' ? 'live_cognition' :
-      owner === 'hf_training' ? 'training' :
-      owner === 'hf_rem_inference' ? 'nightly_rem' :
-      owner === 'vision' ? 'vision' : 'idle'
-    ),
-    gpu_owner: owner,
+    resource_mode: trainingSessionOpen || trainingReality.live_training || trainingReality.live_rem
+      ? trainingReality.resource_mode
+      : activeRun && freshTelemetry?.resource_mode
+        ? effectiveResourceMode
+        : base.training_resource_mode || (
+            owner === 'ollama_cognition' ? 'live_cognition' :
+            owner === 'vision' ? 'vision' : 'idle'
+          ),
+    gpu_owner: effectiveGpuOwner,
+    exclusive_gpu_owner: owner,
     loaded_models: loadedModels,
     providers: Object.freeze({
       live_cognition: config.live_cognition_provider,
@@ -309,6 +453,33 @@ function buildSelfImprovementUiStatus(options = {}) {
       candidate_adapter_id: session && session.adapter_id || null,
       candidate_id: session && session.candidate_id || null
     }),
+    training_truth: Object.freeze(trainingReality),
+    nightly_cycle: Object.freeze({
+      active: trainingSessionOpen,
+      aborted: Boolean(session && session.aborted),
+      finalized: Boolean(session && session.finalized),
+      current_epoch: Number(session && session.completed_epochs || 0) +
+        (session && session.current_container ? 1 : 0),
+      epoch_state: trainingReality.phase === 'training'
+        ? 'running'
+        : trainingReality.phase === 'waiting_for_rem'
+          ? 'complete'
+          : trainingReality.phase,
+      completed_epochs: Number(session && session.completed_epochs || 0),
+      current_rem_cycle: trainingReality.phase === 'rem_inference'
+        ? Number(session && session.rem_cycles_completed || 0) + 1
+        : null,
+      completed_rem_cycles: Number(session && session.rem_cycles_completed || 0),
+      next_action: trainingReality.phase === 'waiting_for_rem' || trainingReality.phase === 'rem_inference'
+        ? 'REM dream'
+        : 'training epoch',
+      one_candidate_per_night: true,
+      wake_at: session && session.sleep_window_end || null,
+      error: trainingReality.error || session && session.training_error || null
+    }),
+    observed_state: trainingReality.phase,
+    observed_resource_mode: trainingReality.resource_mode,
+    observed_gpu_owner: owner,
     training_progress: trainingProgress,
     rem_coordination: Object.freeze({
       current_cycle: Number(base.current_rem_cycle || 0) || null,

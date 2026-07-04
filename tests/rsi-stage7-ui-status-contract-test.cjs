@@ -58,15 +58,32 @@ const status = buildSelfImprovementUiStatus({
         latest_checkpoint: '/tmp/base-checkpoint-40'
       }
     }),
+    // Contract updated 2026-07-04: an open nightly session must be explicit
+    // (active/finalized/aborted) and training activity is proven through the
+    // observed training reality, matching the observation-truth status model.
     readNightlySession: () => ({
       run_id: 'nightly-training-1',
       status: 'training',
+      active: true,
+      finalized: false,
+      aborted: false,
       segment_number: 2,
       latest_checkpoint: '/tmp/checkpoint-50',
       current_container: 'training-container',
       adapter_id: 'adapter-v2',
       candidate_id: null,
       restoration: null
+    }),
+    observeTrainingReality: () => ({
+      phase: 'training',
+      resource_mode: 'active',
+      observed_gpu_owner: 'hf_training',
+      live_training: true,
+      live_rem: false,
+      stale_gpu_owner: false,
+      stale_owner_reconciled: false,
+      active_hf_model: true,
+      error: null
     }),
     currentOwner: () => 'hf_training',
     readRemClaims: () => ({

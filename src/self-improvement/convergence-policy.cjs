@@ -85,6 +85,8 @@ function isVerificationShell(command) {
   return segments.every((segment) => allowed.test(segment));
 }
 
+const SELECTION_REQUIRED_PHASE = 'selection_required';
+
 function createConvergencePolicy(config, emit = () => {}) {
   const limits = Object.freeze({
     discoveryToolLimit: requiredPositiveInteger(config, 'discovery_tool_limit'),
@@ -119,13 +121,6 @@ function createConvergencePolicy(config, emit = () => {}) {
       'focused_repair_no_progress_iteration_limit'
     )
   });
-
-  if (limits.objectiveDeadline >= limits.implementationDeadline) {
-    throw new Error(
-      'objective_selection_deadline_iteration must be less than ' +
-      'implementation_start_deadline_iteration'
-    );
-  }
 
   const researchTools = new Set([
     'web_search',
@@ -171,8 +166,83 @@ function createConvergencePolicy(config, emit = () => {}) {
     noWriteGuidanceIssuedAtIteration: null,
     postWriteGuidanceIssuedAtIteration: null,
     blockedCalls: 0,
-    noToolTurns: 0
+    noToolTurns: 0,
+    evidenceReadiness: Object.freeze({
+      task_state: false,
+      self_context: false,
+      repository_evidence: false,
+      source_file: false
+    }),
+    autonomousSelectionReadyEmitted: false
   };
+
+  function evidenceReady(flags = state.evidenceReadiness) {
+    return Boolean(
+      flags.task_state &&
+      flags.self_context &&
+      flags.repository_evidence &&
+      flags.source_file
+    );
+  }
+
+  function successfulEvidenceResult(result = null) {
+    if (!result || typeof result !== 'object') return false;
+    if (result.ok === false || result.error || result.reason) return false;
+    return result.ok === true ||
+      typeof result.content === 'string' ||
+      Array.isArray(result.matches) ||
+      Array.isArray(result.files) ||
+      Array.isArray(result.rows) ||
+      typeof result.path === 'string' ||
+      result.task_state ||
+      result.self_context ||
+      result.memory;
+  }
+
+  function updateEvidenceReadiness(name, args = {}, result = null) {
+    if (
+      state.selectedExperiment ||
+      !successfulEvidenceResult(result)
+    ) return;
+    const previous = state.evidenceReadiness;
+    const next = { ...previous };
+    if (name === 'get_task_state') next.task_state = true;
+    if (name === 'get_self_context' || name === 'search_self_memory') {
+      next.self_context = true;
+    }
+    if (
+      name === 'list_repository' ||
+      name === 'search_source' ||
+      name === 'inspect_symbol' ||
+      name === 'read_file' ||
+      name === 'git_status' ||
+      name === 'corpus_search' ||
+      name === 'corpus_fetch'
+    ) {
+      next.repository_evidence = true;
+    }
+    if (name === 'read_file') {
+      const clean = cleanRelativePath(args.path);
+      if (clean && !clean.startsWith('data/') && !clean.startsWith('state/')) {
+        next.source_file = true;
+      }
+    }
+    const changed = Object.keys(next).some((key) => next[key] !== previous[key]);
+    if (!changed) return;
+    state.evidenceReadiness = Object.freeze(next);
+    emit('autonomous_selection_readiness', {
+      iteration: state.iteration,
+      ready: evidenceReady(next),
+      evidence: state.evidenceReadiness
+    });
+    if (evidenceReady(next) && state.autonomousSelectionReadyEmitted !== true) {
+      state.autonomousSelectionReadyEmitted = true;
+      emit('autonomous_selection_ready', {
+        iteration: state.iteration,
+        evidence: state.evidenceReadiness
+      });
+    }
+  }
 
   function classifyTool(name, args = {}) {
     const shellReadOnly =
@@ -229,7 +299,9 @@ function createConvergencePolicy(config, emit = () => {}) {
       post_write_guidance_issued_at_iteration:
         state.postWriteGuidanceIssuedAtIteration,
       blocked_calls: state.blockedCalls,
-      no_tool_turns: state.noToolTurns
+      no_tool_turns: state.noToolTurns,
+      autonomous_selection_ready: evidenceReady(),
+      autonomous_selection_evidence: state.evidenceReadiness
     });
   }
 
@@ -281,19 +353,14 @@ function createConvergencePolicy(config, emit = () => {}) {
     state.iteration = Number(iteration);
     if (
       !state.selectedExperiment &&
-      state.iteration >= limits.objectiveDeadline
+      state.iteration >= limits.objectiveDeadline &&
+      evidenceReady()
     ) {
-      transition('selection_required', 'objective_selection_deadline');
-    } else if (
-      state.selectedExperiment &&
-      !state.implementationStarted &&
-      state.selectedExperimentAtIteration !== null &&
-      state.iteration - state.selectedExperimentAtIteration >=
-        limits.maxNoChangeIterations
-    ) {
+      // Selection pressure never collapses evidence gathering: this phase is
+      // reachable only after controller-owned evidence readiness is satisfied.
       transition(
-        'implementation_required',
-        'implementation_start_grace_exhausted'
+        SELECTION_REQUIRED_PHASE,
+        'objective_selection_deadline_after_evidence_ready'
       );
     }
     return snapshot();
@@ -327,17 +394,35 @@ function createConvergencePolicy(config, emit = () => {}) {
   }
 
   function authorize(name, args = {}) {
-    if (
-      name === 'select_experiment' ||
-      name === 'start_implementation' ||
-      name === 'write_memory'
-    ) {
+    if (name === 'select_experiment') {
+      const readiness = snapshot();
+      if (
+        !state.selectedExperiment &&
+        readiness.autonomous_selection_ready !== true
+      ) {
+        return block('selection_evidence_not_ready', name, {
+          autonomous_selection_evidence:
+            readiness.autonomous_selection_evidence || null,
+          discovery_tools_remain_available: true
+        });
+      }
+      return Object.freeze({ ok: true });
+    }
+    if (name === 'start_implementation') {
+      if (!state.selectedExperiment) {
+        return block('implementation_requires_selected_experiment', name, {
+          discovery_tools_remain_available: true
+        });
+      }
+      return Object.freeze({ ok: true });
+    }
+    if (name === 'write_memory') {
       return Object.freeze({ ok: true });
     }
 
     if (
       !state.selectedExperiment &&
-      state.phase === 'selection_required'
+      state.phase === SELECTION_REQUIRED_PHASE
     ) {
       return block('selection_required', name, {
         allowed_next_tools: ['select_experiment']
@@ -356,13 +441,9 @@ function createConvergencePolicy(config, emit = () => {}) {
       });
     }
 
-    const isDiscovery = kinds.discovery;
-    const isResearch = kinds.research;
-
     if (!state.selectedExperiment && (kinds.mutation || kinds.verification)) {
       return block('pre_selection_mutation_blocked', name, {
         allowed_next_tools: [
-          'select_experiment',
           'get_task_state',
           'get_self_context',
           'search_self_memory',
@@ -371,57 +452,18 @@ function createConvergencePolicy(config, emit = () => {}) {
           'inspect_symbol',
           'read_file',
           'corpus_search',
-          'corpus_fetch'
+          'corpus_fetch',
+          'select_experiment'
         ]
       });
     }
 
-    if (
-      (state.phase === 'selection_required' ||
-       state.phase === 'implementation_required') &&
-      (isDiscovery || isResearch)
-    ) {
-      advise('phase_requires_progression', name);
-    }
-
-    if (isDiscovery && state.discoveryCalls >= limits.discoveryToolLimit) {
-      transition('selection_required', 'discovery_tool_limit');
-      advise('discovery_tool_limit', name);
-    }
-
-    if (isResearch && state.researchCalls >= limits.researchToolLimit) {
-      transition('selection_required', 'research_tool_limit');
-      advise('research_tool_limit', name);
-    }
-
-    if (
-      state.searchOnlyStreak >= limits.searchOnlyStreakLimit &&
-      (isDiscovery || isResearch)
-    ) {
-      transition('selection_required', 'search_only_streak_limit');
-      advise('search_only_streak_limit', name);
-    }
-
-    if (
-      state.failedLookups >= limits.failedLookupLimit &&
-      (isDiscovery || isResearch)
-    ) {
-      transition('selection_required', 'failed_lookup_limit');
-      advise('failed_lookup_limit', name);
-    }
-
-    if (
-      name === 'shell' &&
-      !state.implementationStarted &&
-      kinds.mutation
-    ) {
+    if (name === 'shell' && !state.implementationStarted && kinds.mutation) {
       advise('mutating_shell_requires_start_implementation', name);
     }
-
     if (name === 'write_file' && !state.implementationStarted) {
       advise('write_requires_start_implementation', name);
     }
-
     if (
       (kinds.verification || name === 'finalize_candidate') &&
       (!state.implementationStarted || state.writeCount === 0)
@@ -437,7 +479,7 @@ function createConvergencePolicy(config, emit = () => {}) {
       state.implementationStarted &&
       state.writeCount === 0 &&
       state.implementationStartedAtIteration !== null &&
-      (kinds.read || isResearch) &&
+      (kinds.read || kinds.research) &&
       !narrowTargetInspection &&
       state.iteration - state.implementationStartedAtIteration >=
         postWriteVerificationGrace
@@ -482,8 +524,8 @@ function createConvergencePolicy(config, emit = () => {}) {
     }
 
     signatures.set(signature, seen + 1);
-    if (isDiscovery) state.discoveryCalls += 1;
-    if (isResearch) state.researchCalls += 1;
+    if (kinds.discovery) state.discoveryCalls += 1;
+    if (kinds.research) state.researchCalls += 1;
     return Object.freeze({ ok: true, signature });
   }
 
@@ -589,6 +631,8 @@ function createConvergencePolicy(config, emit = () => {}) {
       state.failedLookups += 1;
     }
 
+    if (!blocked) updateEvidenceReadiness(name, args, result);
+
     if (!blocked && (isDiscovery || isResearch)) {
       state.searchOnlyStreak += 1;
     } else if (
@@ -672,62 +716,72 @@ function createConvergencePolicy(config, emit = () => {}) {
     emit('convergence_no_tool_turn', {
       iteration: state.iteration,
       phase: state.phase,
-      consecutive_no_tool_turns: state.noToolTurns,
-      limit: limits.maxNoChangeIterations
+      consecutive_no_tool_turns: state.noToolTurns
     });
-
-    if (state.noToolTurns < limits.maxNoChangeIterations) {
-      return null;
+    advise('model_returned_no_tool_call', 'model_turn', {
+      consecutive_no_tool_turns: state.noToolTurns,
+      recoverable: true
+    });
+    if (state.noToolTurns >= limits.maxNoChangeIterations) {
+      // Rescue instead of terminating: the streak resets so evidence
+      // gathering can continue; wall-clock deadlines own boundedness.
+      state.noToolTurns = 0;
     }
-
-    const reason = state.selectedExperiment
-      ? 'model_repeatedly_returned_no_tool_calls'
-      : 'model_repeatedly_returned_no_tool_calls_before_selection';
-    advise(reason, 'model_turn', {
-      consecutive_no_tool_turns: state.noToolTurns,
-      limit: limits.maxNoChangeIterations
-    });
-    return reason;
+    return null;
   }
 
   function endIteration() {
-    if (!state.selectedExperiment &&
-        state.iteration >= limits.implementationDeadline) {
-      advise(
-        'model_failed_to_select_experiment_after_forced_selection',
-        'end_iteration'
-      );
-      return 'model_failed_to_select_experiment_after_forced_selection';
+    if (!state.selectedExperiment) {
+      if (state.noToolTurns > 0) {
+        advise('continue_evidence_gathering_or_select_when_ready', 'end_iteration', {
+          autonomous_selection_ready: snapshot().autonomous_selection_ready === true
+        });
+      }
+      return null;
     }
-    if (state.selectedExperiment &&
-        !state.implementationStarted &&
+
+    if (!state.implementationStarted) {
+      if (
         state.selectedExperimentAtIteration !== null &&
         state.iteration - state.selectedExperimentAtIteration >=
-          limits.maxNoChangeIterations) {
-      advise(
-        'implementation_not_started_after_selection_grace',
-        'end_iteration'
-      );
-      return 'implementation_not_started_after_selection_grace';
+          limits.maxNoChangeIterations
+      ) {
+        advise(
+          'implementation_not_started_after_selection_grace',
+          'end_iteration'
+        );
+        return 'implementation_not_started_after_selection_grace';
+      }
+      advise('implementation_not_started_after_selection', 'end_iteration', {
+        recoverable: true
+      });
+      return null;
     }
-    if (state.implementationStarted &&
-        state.writeCount === 0 &&
-        state.iteration - state.implementationStartedAtIteration >=
-          limits.maxNoChangeIterations) {
+
+    if (state.writeCount === 0) {
+      // A no-write implementation gets one explicit correction turn at grace
+      // exhaustion; boundedness is owned by the agent's YAML wall-clock
+      // implementation_write_deadline_ms, never by an iteration-count exit.
       if (
-        state.noWriteGuidanceIssuedAtIteration === null ||
-        state.noWriteGuidanceIssuedAtIteration === state.iteration
+        state.implementationStartedAtIteration !== null &&
+        state.iteration - state.implementationStartedAtIteration >=
+          limits.maxNoChangeIterations &&
+        state.noWriteGuidanceIssuedAtIteration === null
       ) {
         state.noWriteGuidanceIssuedAtIteration = state.iteration;
         advise('implementation_write_required_before_stop', 'end_iteration');
         return null;
       }
-      advise('implementation_has_no_workspace_change', 'end_iteration');
-      return 'implementation_has_no_workspace_change';
+      advise('implementation_requires_actionable_workspace_change', 'end_iteration', {
+        recoverable: true
+      });
+      return null;
     }
-    if (state.implementationStarted &&
-        state.focusedVerificationFailures >=
-          limits.focusedVerificationFailureLimit) {
+
+    if (
+      state.focusedVerificationFailures >=
+        limits.focusedVerificationFailureLimit
+    ) {
       advise('focused_verification_failed_repeatedly', 'end_iteration', {
         focused_verification_failures: state.focusedVerificationFailures,
         focused_verification_failure_limit:
@@ -735,10 +789,12 @@ function createConvergencePolicy(config, emit = () => {}) {
       });
       return 'focused_verification_failed_repeatedly';
     }
-    if (state.implementationStarted &&
-        state.phase === 'repairing' &&
-        state.focusedVerificationFailures > 0 &&
-        state.lastFocusedFailureIteration !== null) {
+
+    if (
+      state.phase === 'repairing' &&
+      state.focusedVerificationFailures > 0 &&
+      state.lastFocusedFailureIteration !== null
+    ) {
       const latestRepairProgressIteration = Math.max(
         state.lastFocusedFailureIteration,
         state.lastWriteIteration === null ? -1 : state.lastWriteIteration
@@ -750,37 +806,24 @@ function createConvergencePolicy(config, emit = () => {}) {
           focused_verification_failures: state.focusedVerificationFailures,
           focused_repair_idle_iterations: repairIdleIterations,
           focused_repair_no_progress_iteration_limit:
-            limits.focusedRepairNoProgressLimit,
-          last_focused_failure_iteration:
-            state.lastFocusedFailureIteration,
-          last_write_iteration: state.lastWriteIteration
+            limits.focusedRepairNoProgressLimit
         });
         return 'focused_repair_progress_stalled';
       }
-      if (
-        state.focusedRepairGuidanceIssuedAtIteration === null ||
-        state.focusedRepairGuidanceIssuedAtIteration !== state.iteration
-      ) {
-        state.focusedRepairGuidanceIssuedAtIteration = state.iteration;
-        advise('focused_repair_must_fix_then_rerun', 'end_iteration', {
-          focused_verification_failures: state.focusedVerificationFailures,
-          focused_repair_idle_iterations: repairIdleIterations,
-          focused_repair_no_progress_iteration_limit:
-            limits.focusedRepairNoProgressLimit
-        });
-      }
-      // A failing focused test owns the convergence path until it passes, the
-      // configured failure budget is exhausted, or the dedicated repair
-      // no-progress limit is reached. Do not let the generic post-write stall
-      // terminate a legitimate test-repair cycle.
+      advise('focused_repair_must_fix_then_rerun', 'end_iteration', {
+        focused_verification_failures: state.focusedVerificationFailures,
+        focused_repair_idle_iterations: repairIdleIterations
+      });
       return null;
     }
-    if (state.implementationStarted &&
-        state.lastWriteIteration !== null &&
-        state.phase !== 'verified' &&
-        state.phase !== 'focused_verified' &&
-        state.iteration - state.lastWriteIteration >=
-          limits.maxNoChangeIterations) {
+
+    if (
+      state.phase !== 'verified' &&
+      state.phase !== 'focused_verified' &&
+      state.lastWriteIteration !== null &&
+      state.iteration - state.lastWriteIteration >=
+        limits.maxNoChangeIterations
+    ) {
       if (
         state.postWriteGuidanceIssuedAtIteration === null ||
         state.postWriteGuidanceIssuedAtIteration === state.iteration
@@ -792,16 +835,33 @@ function createConvergencePolicy(config, emit = () => {}) {
       advise('implementation_progress_stalled_before_verification', 'end_iteration');
       return 'implementation_progress_stalled_before_verification';
     }
+
+    if (
+      state.phase !== 'verified' &&
+      state.phase !== 'focused_verified'
+    ) {
+      advise('implementation_verification_required', 'end_iteration', {
+        recoverable: true
+      });
+    }
     return null;
   }
 
   function guidance() {
     if (!state.selectedExperiment) {
-      return (
-        'Call select_experiment now with one bounded objective, a falsifiable ' +
-        'hypothesis, baseline evidence, target files, a measurable success ' +
-        'metric, one focused test, and expected follow-on value.'
-      );
+      const readiness = snapshot().autonomous_selection_ready === true;
+      return readiness
+        ? (
+            'Evidence readiness is satisfied. Call select_experiment now with ' +
+            'exactly one bounded experiment through the canonical ' +
+            'schema-constrained selection transaction.'
+          )
+        : (
+            'Continue gathering real task-state, self-context, repository, and ' +
+            'source-file evidence. Discovery and research tools remain available ' +
+            'until controller-owned evidence readiness is satisfied; then call ' +
+            'select_experiment.'
+          );
     }
     if (!state.implementationStarted) {
       return (
@@ -818,44 +878,23 @@ function createConvergencePolicy(config, emit = () => {}) {
         'count as structured implementation progress.'
       );
     }
-    if (state.phase === 'repairing' &&
-        state.focusedVerificationFailures > 0) {
+    if (state.phase === 'repairing' && state.focusedVerificationFailures > 0) {
       const repairedAfterLatestFailure =
         state.lastWriteIteration !== null &&
         state.lastFocusedFailureIteration !== null &&
         state.lastWriteIteration > state.lastFocusedFailureIteration;
-      if (!repairedAfterLatestFailure) {
-        return (
-          'The focused test failed. First use read_file to re-read the failing ' +
-          'test and the production source it exercises, then use apply_patch or ' +
-          'write_file for the smallest correct repair. The generated test may be ' +
-          'wrong; do not assume production is wrong, and do not rerun the same ' +
-          'unchanged failing test.'
-        );
-      }
-      return (
-        'A structured repair was made after the latest focused-test failure. ' +
-        'Call run_focused_test now with no arguments. Do not use shell. If it ' +
-        'passes, call run_verification; if it fails, repair the exact new failure.'
-      );
+      return repairedAfterLatestFailure
+        ? 'A focused repair was made. Call run_focused_test now. After it passes, call run_verification for full verification.'
+        : 'The focused test failed. First use read_file to re-read the failing test and the current state of each selected target file. Then inspect the exact failure and apply the smallest focused repair before rerunning it.';
     }
     if (state.phase === 'focused_verified') {
-      return (
-        'The focused test passed. Call run_verification now. Do not edit the ' +
-        'workspace again unless full verification reports a concrete failure.'
-      );
+      return 'The focused test passed. Call run_verification now.';
     }
     if (state.phase !== 'verified') {
-      const ft = state.selectedExperiment?.focused_test
-        ? ' Your focused test is: ' +
-          state.selectedExperiment.focused_test +
-          '. Call run_focused_test with no arguments — it runs that command automatically.'
-        : ' Call run_focused_test with no arguments.';
       return (
-        'Run the focused test now using the run_focused_test tool — never via ' +
-        'shell, pipelines, or head/tail wrappers; shell test ' +
-        'runs cannot unlock full verification. ' +
-        'After run_focused_test passes, call run_verification.' + ft
+        'A workspace change exists. Run the focused test now with ' +
+        'run_focused_test. After it passes, call run_verification for full ' +
+        'verification.'
       );
     }
     return 'Call finalize_candidate with the verified experiment evidence.';
@@ -863,45 +902,18 @@ function createConvergencePolicy(config, emit = () => {}) {
 
   function feedback() {
     const prefix =
-      'Sandbox tools remain fully available; this is workflow guidance, not a tool denial. ';
-    if (!state.selectedExperiment && state.iteration <= limits.objectiveDeadline) {
-      return (
-        prefix +
-        'selected_experiment is null. Make the next tool call select_experiment ' +
-        'as a planning anchor using the requested objective and an existing ' +
-        'repository file, then continue investigating, editing, searching, and ' +
-        'verifying freely inside the sandbox.'
-      );
-    }
-    if (!state.selectedExperiment && state.implementationStarted) {
-      return (
-        prefix +
-        'selected_experiment is still null after workspace changes. Call ' +
-        'select_experiment now using the actual target files and falsifiable ' +
-        'objective, then continue implementation and verification.'
-      );
-    }
-    if (!state.selectedExperiment &&
-        state.iteration >= limits.objectiveDeadline) {
+      'Sandbox discovery, research, source-inspection, implementation, and verification tools remain available. ';
+    if (!state.selectedExperiment) {
       return prefix + guidance();
     }
-    if (state.selectedExperiment &&
-        !state.implementationStarted) {
+    if (!state.implementationStarted || state.writeCount === 0) {
       return prefix + guidance();
     }
-    if (state.implementationStarted && state.writeCount === 0) {
-      return prefix + guidance();
-    }
-    if (state.implementationStarted &&
-        (state.phase === 'repairing' || state.phase === 'focused_verified')) {
-      return prefix + guidance();
-    }
-    if (state.implementationStarted &&
-        state.writeCount > 0 &&
-        state.phase !== 'verified' &&
-        state.lastWriteIteration !== null &&
-        state.iteration - state.lastWriteIteration >=
-          limits.maxNoChangeIterations) {
+    if (
+      state.phase === 'repairing' ||
+      state.phase === 'focused_verified' ||
+      state.phase !== 'verified'
+    ) {
       return prefix + guidance();
     }
     return null;

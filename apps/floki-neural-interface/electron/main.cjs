@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('node:path');
 
 if (process.platform === 'linux' && process.env.FLOKI_ELECTRON_ENABLE_GPU_SANDBOX !== '1') app.commandLine.appendSwitch('disable-gpu-sandbox');
@@ -160,7 +160,9 @@ function registerIpc() {
   ipcMain.handle('floki:get-self-improvement-terminal', async (_event, payload = {}) => {
     const params = new URLSearchParams();
     if (payload.cursor != null) params.set('cursor', String(payload.cursor));
+    if (payload.before_cursor != null) params.set('before_cursor', String(payload.before_cursor));
     if (payload.max_bytes != null) params.set('max_bytes', String(payload.max_bytes));
+    if (payload.source_id) params.set('source_id', String(payload.source_id));
     return runtimeRequest('GET', '/self-improvement/terminal?' + params.toString());
   });
   ipcMain.handle('floki:get-initial-status', () => runtimeRequest('GET', '/interface/status'));
@@ -232,15 +234,34 @@ function registerIpc() {
     })
   );
   ipcMain.handle('floki:open-log', async (_event, payload = {}) => {
-    const result = await runtimeRequest('GET', '/interface/log/' + encodeURIComponent(String(payload.service || '')));
-    if (!result.exists || !result.path) throw new Error('The selected backend log is not available.');
-    shell.showItemInFolder(result.path);
-    void shell.openPath(result.path).then((openError) => {
-      if (openError) console.error('FLOKI_V2_LOG_OPEN_FAIL: ' + openError);
-    }).catch((error) => {
-      console.error('FLOKI_V2_LOG_OPEN_FAIL: ' + (error && error.message ? error.message : String(error)));
-    });
-    return { ok: true, file: result.path };
+    const result = await runtimeRequest(
+      'GET',
+      '/interface/log/' +
+        encodeURIComponent(
+          String(payload.service || '')
+        )
+    );
+    if (
+      result?.exists !== true ||
+      typeof result?.text !== 'string'
+    ) {
+      throw new Error(
+        result?.error ||
+        'The selected current-week log is unavailable.'
+      );
+    }
+    return {
+      ok: true,
+      service: String(result.service || payload.service || ''),
+      display_name: result.display_name || null,
+      file_name: result.file_name || null,
+      week: result.week || null,
+      exists: true,
+      text: String(result.text || ''),
+      truncated: result.truncated === true,
+      size_bytes: Number(result.size_bytes || 0),
+      modified_at: result.modified_at || null
+    };
   });
   ipcMain.handle('floki:get-runtime-websocket-url', () => 'ws://' + runtimeConfig.runtime_host + ':' + String(runtimeConfig.runtime_port) + '/ws');
 }

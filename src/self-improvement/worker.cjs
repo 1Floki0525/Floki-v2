@@ -37,8 +37,21 @@ const ACTIVE_RUN_PREEMPT_REASONS = new Set([
   'nightly_hf_cycle'
 ]);
 
+const NO_CANDIDATE_STOP_REASONS = new Set([
+  'agent_run_wall_clock_budget_exceeded',
+  'implementation_write_deadline_exceeded',
+  'implementation_progress_stalled',
+  'focused_repair_progress_stalled',
+  'model_turn_deadline_exceeded',
+  'transient_model_failure_budget_exhausted'
+]);
+
 function shouldPreemptActiveRun(reason) {
   return ACTIVE_RUN_PREEMPT_REASONS.has(String(reason || ''));
+}
+
+function isNoCandidateStopReason(reason) {
+  return NO_CANDIDATE_STOP_REASONS.has(String(reason || ''));
 }
 
 function classifySandboxExit(exit, stopRequest, preemptReason) {
@@ -75,22 +88,110 @@ function isNoCandidateSandboxFailure(message) {
     text.includes('agent iteration limit reached without a verified candidate') ||
     text.includes('agent iteration wall-clock budget exceeded') ||
     text.includes('convergence policy ended the cycle without a verified candidate') ||
-    text.includes('floki_v2_self_improvement_sandbox_no_candidate')
+    text.includes('floki_v2_self_improvement_sandbox_no_candidate') ||
+    Array.from(NO_CANDIDATE_STOP_REASONS).some((reason) => text.includes(reason))
   );
 }
 
 function classifyNoCandidateReason(message) {
   const text = String(message || '').toLowerCase();
   if (text.includes('iteration limit reached') || text.includes('iteration_limit')) return 'iteration_limit';
-  if (text.includes('wall-clock budget exceeded') || text.includes('wall_clock_limit')) return 'wall_clock_limit';
-  if (text.includes('implementation_has_no_workspace_change') || text.includes('no_workspace_change')) return 'no_source_change';
-  if (text.includes('model_request_failed') || text.includes('model_error')) return 'model_request_failure';
+  if (text.includes('agent_run_wall_clock_budget_exceeded')) return 'agent_run_wall_clock_budget_exceeded';
+  if (text.includes('implementation_write_deadline_exceeded')) return 'implementation_write_deadline_exceeded';
+  if (text.includes('focused_repair_progress_stalled')) return 'focused_repair_progress_stalled';
+  if (text.includes('transient_model_failure_budget_exhausted')) return 'transient_model_failure_budget_exhausted';
+  if (text.includes('model_turn_deadline_exceeded')) return 'model_turn_deadline_exceeded';
+  if (text.includes('implementation_progress_stalled')) return 'implementation_progress_stalled';
+  if (text.includes('wall-clock budget exceeded') || text.includes('wall_clock_limit')) return 'agent_run_wall_clock_budget_exceeded';
+  if (
+    text.includes('implementation_has_no_workspace_change') ||
+    text.includes('no_workspace_change') ||
+    text.includes('no_source_change')
+  ) return 'implementation_has_no_workspace_change';
+  if (
+    text.includes('model_request_failed') ||
+    text.includes('model_request_failure') ||
+    text.includes('model_error')
+  ) return 'transient_model_failure_budget_exhausted';
   if (text.includes('tool_failure') || text.includes('tool_error')) return 'tool_failure';
   if (text.includes('duplicate_experiment') || text.includes('duplicate experiment')) return 'duplicate_experiment_rejection';
   if (text.includes('focused_test_failed') || text.includes('focused_verification_failed')) return 'focused_test_failure';
   if (text.includes('sandbox_failure') || text.includes('container_failure')) return 'sandbox_container_failure';
   if (text.includes('convergence policy ended') || text.includes('convergence_refusal')) return 'convergence_refusal';
   return 'controlled_no_verified_candidate';
+}
+
+function parseAgentAuditRecords(text) {
+  const records = [];
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    try {
+      const record = JSON.parse(trimmed);
+      if (record && record.marker === 'FLOKI_V2_SELF_IMPROVEMENT_AGENT_AUDIT') {
+        records.push(record);
+      }
+    } catch (_error) {
+    }
+  }
+  return records;
+}
+
+function conciseNoCandidateStatus(message, execution, completedAt = nowIso()) {
+  const records = parseAgentAuditRecords(message);
+  const noCandidate = [...records]
+    .reverse()
+    .find((record) => record.type === 'no_candidate');
+  const heartbeat = [...records]
+    .reverse()
+    .find((record) => record.type === 'progress_heartbeat');
+  const detail = noCandidate?.detail || {};
+  const convergence = detail.convergence || heartbeat?.detail || {};
+  const heartbeatDetail = heartbeat?.detail || {};
+  const runId =
+    detail.run_id ||
+    heartbeatDetail.run_id ||
+    execution?.run_id ||
+    null;
+  const reason = classifyNoCandidateReason(
+    detail.reason ||
+      noCandidate?.reason ||
+      heartbeatDetail.reason ||
+      message
+  );
+  return Object.freeze({
+    run_id: runId,
+    reason,
+    phase:
+      convergence.phase ||
+      heartbeatDetail.phase ||
+      null,
+    iteration:
+      convergence.iteration ??
+      heartbeatDetail.iteration ??
+      null,
+    write_count:
+      convergence.write_count ??
+      heartbeatDetail.write_count ??
+      null,
+    last_write_iteration:
+      convergence.last_write_iteration ??
+      heartbeatDetail.last_write_iteration ??
+      null,
+    last_write_time:
+      heartbeatDetail.last_write_time ||
+      null,
+    elapsed_ms:
+      detail.elapsed_ms ??
+      heartbeatDetail.elapsed_ms ??
+      null,
+    selected_objective:
+      convergence.selected_experiment?.objective ||
+      heartbeatDetail.selected_experiment ||
+      null,
+    terminal_log_file: execution?.log_file || null,
+    timestamp: completedAt
+  });
 }
 
 function noCandidateStatusPatch(message, execution, completedAt = nowIso()) {
@@ -102,7 +203,11 @@ function noCandidateStatusPatch(message, execution, completedAt = nowIso()) {
     last_error: null,
     failure_latched_at: null,
     last_no_candidate_at: completedAt,
-    last_no_candidate_error: String(message || ''),
+    last_no_candidate_error: conciseNoCandidateStatus(
+      message,
+      execution,
+      completedAt
+    ),
     last_sandbox_log_file: execution?.log_file || null,
     last_cycle_completed_at: completedAt
   });
@@ -561,6 +666,21 @@ async function runCycle(options = {}) {
     throw error;
   }
   const preemptTimer = setInterval(() => {
+    const nowMs = Date.now();
+    const wallClockBudgetMs = Math.min(
+      Number(config.iteration_wall_clock_budget_ms) || Number.MAX_SAFE_INTEGER,
+      Number(config.agent_run_wall_clock_budget_ms) || Number.MAX_SAFE_INTEGER
+    );
+    if (
+      preemptReason === null &&
+      Number.isFinite(wallClockBudgetMs) &&
+      wallClockBudgetMs > 0 &&
+      nowMs - cycleStartMs > wallClockBudgetMs
+    ) {
+      preemptReason = 'agent_run_wall_clock_budget_exceeded';
+      stopCurrentContainer(preemptReason, config);
+      return;
+    }
     if (
       options.force !== true &&
       automaticNightCycleOwnsWorker(
@@ -582,7 +702,7 @@ async function runCycle(options = {}) {
     touchSandboxHeartbeat(config, snapshot.run_id);
     const lastSandboxHeartbeat = readSandboxHeartbeat(config);
     const lastSandboxMs = lastSandboxHeartbeat ? Date.parse(lastSandboxHeartbeat.observed_at || '') : null;
-    const stallMs = lastSandboxMs ? (Date.now() - lastSandboxMs) : 0;
+    const stallMs = lastSandboxMs ? (nowMs - lastSandboxMs) : 0;
     const stalled =
       stallMs > config.shell_command_stalled_threshold_ms;
     const runtime = readRuntimeStatus(config);
@@ -616,7 +736,7 @@ async function runCycle(options = {}) {
     }
     const next = {
       last_real_progress_at: new Date(Math.max(cycleStartMs, lastSandboxMs || cycleStartMs)).toISOString(),
-      current_command_elapsed_ms: Date.now() - cycleStartMs,
+      current_command_elapsed_ms: nowMs - cycleStartMs,
       stalled
     };
     updateStatus(next, config);
@@ -636,8 +756,50 @@ async function runCycle(options = {}) {
   const stopRequest = execution.read_stop_request();
   const classification = classifySandboxExit(exit, stopRequest, preemptReason);
   execution.cleanup();
+  const executionStatus = {
+    log_file: execution.log_file,
+    run_id: snapshot.run_id
+  };
 
   if (classification.preempted) {
+    if (isNoCandidateStopReason(classification.reason)) {
+      const summary = execution.read_error_tail();
+      const completedAt = nowIso();
+      const message = summary
+        ? classification.reason + '\n\n' + summary
+        : classification.reason;
+      updateStatus(
+        noCandidateStatusPatch(message, executionStatus, completedAt),
+        config
+      );
+      appendAudit(
+        'cycle_no_candidate',
+        {
+          run_id: snapshot.run_id,
+          exit_code: exit.code,
+          signal: exit.signal,
+          reason: classifyNoCandidateReason(message),
+          preempted: true,
+          sandbox_log_file: execution.log_file
+        },
+        config
+      );
+      try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
+      try {
+        writeCycleMemory({
+          run_id: snapshot.run_id,
+          objective: options.objective || null,
+          outcome: 'no_candidate',
+          reason: classifyNoCandidateReason(message),
+          importance: 0.55
+        });
+      } catch (_) {}
+      return {
+        ok: false,
+        no_candidate: true,
+        reason: classifyNoCandidateReason(message)
+      };
+    }
     updateStatus({
       state: 'waiting_for_idle',
       phase: 'preempted',
@@ -684,7 +846,7 @@ async function runCycle(options = {}) {
     const message = summary ? base + '\n\n' + summary : base;
     const failedAt = nowIso();
     if (isNoCandidateSandboxFailure(message)) {
-      updateStatus(noCandidateStatusPatch(message, execution, failedAt), config);
+      updateStatus(noCandidateStatusPatch(message, executionStatus, failedAt), config);
       appendAudit(
         'cycle_no_candidate',
         {
@@ -748,7 +910,7 @@ async function runCycle(options = {}) {
   if (exit.code === 0 && isNoCandidateSandboxFailure(completionSummary)) {
     const completedAt = nowIso();
     updateStatus(
-      noCandidateStatusPatch(completionSummary, execution, completedAt),
+      noCandidateStatusPatch(completionSummary, executionStatus, completedAt),
       config
     );
     appendAudit('cycle_no_candidate', {
@@ -1165,7 +1327,9 @@ module.exports = {
   readRuntimeStatus,
   resolveManualRunRequest,
   classifySandboxExit,
+  classifyNoCandidateReason,
   isNoCandidateSandboxFailure,
+  isNoCandidateStopReason,
   noCandidateStatusPatch,
   runCycle,
   serviceLoop,

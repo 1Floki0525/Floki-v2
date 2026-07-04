@@ -4,9 +4,15 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { loadSelfImprovementConfig } = require('./config.cjs');
+const {
+  loadFreshSelfImprovementConfig,
+  loadSelfImprovementConfig
+} = require('./config.cjs');
 const { appendAudit, atomicJson, paths, updateStatus } = require('./store.cjs');
 const { normalizeRunKind, candidateTypeForKind } = require('./run-kinds.cjs');
+const {
+  dependencyManifestRequiresNodeModules
+} = require('./dependency-manifest.cjs');
 
 function splitList(value, delimiter) {
   return String(value).split(delimiter).map((item) => item.trim()).filter(Boolean);
@@ -392,11 +398,22 @@ function agentConfig(snapshot, options, config) {
       config.shell_command_progress_interval_ms,
     iteration_wall_clock_budget_ms:
       config.iteration_wall_clock_budget_ms,
+    agent_run_wall_clock_budget_ms:
+      config.agent_run_wall_clock_budget_ms,
+    model_turn_deadline_ms:
+      config.model_turn_deadline_ms,
+    implementation_write_deadline_ms:
+      config.implementation_write_deadline_ms,
+    implementation_no_progress_deadline_ms:
+      config.implementation_no_progress_deadline_ms,
+    focused_repair_no_progress_deadline_ms:
+      config.focused_repair_no_progress_deadline_ms,
     agent_ollama_request_max_attempts:
       config.agent_ollama_request_max_attempts,
     agent_ollama_request_retry_backoff_ms:
       config.agent_ollama_request_retry_backoff_ms,
     max_command_ms: config.max_command_ms,
+    dependency_install_timeout_ms: config.dependency_install_timeout_ms,
     max_changed_files: config.max_changed_files,
     max_patch_bytes: config.max_patch_bytes,
     verification_commands: verificationCommands(config),
@@ -438,9 +455,6 @@ function agentConfig(snapshot, options, config) {
     persistent_dependency_cache_root: config.persistent_dependency_cache_root,
     persistent_dependency_cache_marker_file: config.persistent_dependency_cache_marker_file,
     dependency_fingerprint_algorithm: config.dependency_fingerprint_algorithm,
-    selection_rescue_max_attempts: config.selection_rescue_max_attempts,
-    selection_rescue_temperature: config.selection_rescue_temperature,
-    selection_rescue_thinking_enabled: config.selection_rescue_thinking_enabled,
     browser_command: config.browser_command,
     browser_profile_root: config.browser_profile_root,
     browser_profile_prefix: config.browser_profile_prefix,
@@ -980,6 +994,295 @@ function buildSandboxRunArgs({ containerName, snapshot, hostConfigFile, config }
   });
 }
 
+
+function dependencySeedFingerprint(projectDir, algorithm) {
+  const hash = crypto.createHash(algorithm);
+  let files = 0;
+  for (const name of ['package.json', 'package-lock.json']) {
+    const file = path.join(projectDir, name);
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) continue;
+    hash.update(name);
+    hash.update('\0');
+    hash.update(fs.readFileSync(file));
+    hash.update('\0');
+    files += 1;
+  }
+  if (files === 0) {
+    throw new Error(
+      'dependency seed has no package manifest: ' + projectDir
+    );
+  }
+  return hash.digest('hex');
+}
+
+function dependencyTreeRequired(projectDir) {
+  return dependencyManifestRequiresNodeModules(projectDir);
+}
+
+function dependencyCacheCheckScript(config, cacheDir, fingerprint, project) {
+  const markerFile = path.posix.join(
+    cacheDir,
+    config.persistent_dependency_cache_marker_file
+  );
+  const nodeModules = path.posix.join(cacheDir, 'node_modules');
+  return [
+    'node -e ' + shellQuote(
+      [
+        'const fs=require("fs");',
+        'const marker=process.argv[1];',
+        'const nodeModules=process.argv[2];',
+        'const fingerprint=process.argv[3];',
+        'const project=process.argv[4];',
+        'let row;',
+        'try{row=JSON.parse(fs.readFileSync(marker,"utf8"));}catch(_){process.exit(1)}',
+        'if(row.marker!=="FLOKI_V2_RSI_PERSISTENT_DEPENDENCY_CACHE")process.exit(1);',
+        'if(row.fingerprint!==fingerprint||row.project!==project)process.exit(1);',
+        'if(row.empty_tree===true)process.exit(0);',
+        'if(!fs.existsSync(nodeModules)||!fs.statSync(nodeModules).isDirectory())process.exit(1);',
+        'if(!fs.existsSync(require("path").join(nodeModules,".package-lock.json")))process.exit(1);'
+      ].join('')
+    ) + ' ' +
+      shellQuote(markerFile) + ' ' +
+      shellQuote(nodeModules) + ' ' +
+      shellQuote(fingerprint) + ' ' +
+      shellQuote(project)
+  ].join('');
+}
+
+function persistentDependencyCacheReady(
+  config,
+  cacheDir,
+  fingerprint
+) {
+  const markerFile = path.posix.join(
+    cacheDir,
+    config.persistent_dependency_cache_marker_file
+  );
+  const result = spawnSync(
+    config.sandbox_engine,
+    [
+      'exec',
+      config.persistent_container_name,
+      'sh',
+      '-lc',
+      dependencyCacheCheckScript(
+        config,
+        cacheDir,
+        fingerprint,
+        path.posix.basename(path.posix.dirname(cacheDir)) === 'root'
+          ? '.'
+          : config.interface_project_path
+      )
+    ],
+    {
+      cwd: config.project_root,
+      env: process.env,
+      encoding: 'utf8',
+      timeout: config.podman_command_timeout_ms,
+      maxBuffer: config.podman_output_buffer_bytes
+    }
+  );
+  return result.status === 0;
+}
+
+function seedPersistentDependencyCacheEntry(
+  config,
+  label,
+  projectDir
+) {
+  const fingerprint = dependencySeedFingerprint(
+    projectDir,
+    config.dependency_fingerprint_algorithm
+  );
+  const cacheDir = path.posix.join(
+    config.persistent_dependency_cache_root,
+    label,
+    fingerprint
+  );
+
+  if (
+    persistentDependencyCacheReady(
+      config,
+      cacheDir,
+      fingerprint
+    )
+  ) {
+    return Object.freeze({
+      ok: true,
+      cache_hit: true,
+      label,
+      fingerprint,
+      cache_dir: cacheDir
+    });
+  }
+
+  const hostNodeModules = path.join(
+    projectDir,
+    'node_modules'
+  );
+  const required = dependencyTreeRequired(
+    projectDir
+  );
+
+  if (
+    required &&
+    (
+      !fs.existsSync(hostNodeModules) ||
+      !fs.statSync(hostNodeModules).isDirectory()
+    )
+  ) {
+    throw new Error(
+      'production dependency seed is missing: ' +
+      hostNodeModules
+    );
+  }
+
+  const staging =
+    cacheDir +
+    '.host-seed-' +
+    String(process.pid);
+
+  engineRun(
+    config,
+    [
+      'exec',
+      config.persistent_container_name,
+      'sh',
+      '-lc',
+      'rm -rf ' + shellQuote(staging) +
+        ' && mkdir -p ' +
+        shellQuote(
+          path.posix.join(staging, 'node_modules')
+        )
+    ],
+    {
+      cwd: config.project_root,
+      timeout: config.podman_command_timeout_ms
+    }
+  );
+
+  if (required) {
+    engineRun(
+      config,
+      [
+        'cp',
+        hostNodeModules + '/.',
+        config.persistent_container_name +
+          ':' +
+          path.posix.join(
+            staging,
+            'node_modules'
+          )
+      ],
+      {
+        cwd: config.project_root,
+        timeout: config.image_build_timeout_ms
+      }
+    );
+  }
+
+  const marker = Buffer.from(
+    JSON.stringify({
+      marker:
+        'FLOKI_V2_RSI_PERSISTENT_DEPENDENCY_CACHE',
+      project:
+        label === 'root'
+          ? '.'
+          : config.interface_project_path,
+      fingerprint,
+      empty_tree: !required,
+      created_at: new Date().toISOString(),
+      source: 'production_host_node_modules'
+    }, null, 2) + '\n'
+  ).toString('base64');
+
+  engineRun(
+    config,
+    [
+      'exec',
+      config.persistent_container_name,
+      'sh',
+      '-lc',
+      'printf %s ' +
+        shellQuote(marker) +
+        ' | base64 -d > ' +
+        shellQuote(
+          path.posix.join(
+            staging,
+            config.persistent_dependency_cache_marker_file
+          )
+        ) +
+        ' && rm -rf ' +
+        shellQuote(cacheDir) +
+        ' && mkdir -p ' +
+        shellQuote(path.posix.dirname(cacheDir)) +
+        ' && mv ' +
+        shellQuote(staging) +
+        ' ' +
+        shellQuote(cacheDir)
+    ],
+    {
+      cwd: config.project_root,
+      timeout: config.podman_command_timeout_ms
+    }
+  );
+
+  appendAudit(
+    'dependency_cache_host_seeded',
+    {
+      label,
+      fingerprint,
+      cache_dir: cacheDir,
+      source: hostNodeModules,
+      empty_tree: !required
+    },
+    config
+  );
+
+  return Object.freeze({
+    ok: true,
+    seeded: true,
+    label,
+    fingerprint,
+    cache_dir: cacheDir,
+    empty_tree: !required
+  });
+}
+
+function seedPersistentDependencyCaches(
+  config = loadFreshSelfImprovementConfig()
+) {
+  config = Object.freeze({
+    ...loadFreshSelfImprovementConfig(),
+    ...(config && typeof config === 'object' ? config : {})
+  });
+  if (config.persistent_container_enabled !== true) {
+    throw new Error(
+      'persistent dependency seeding requires the persistent RSI sandbox'
+    );
+  }
+
+  const root = seedPersistentDependencyCacheEntry(
+    config,
+    'root',
+    config.project_root
+  );
+  const interfaceTree = seedPersistentDependencyCacheEntry(
+    config,
+    'interface',
+    path.join(
+      config.project_root,
+      config.interface_project_path
+    )
+  );
+
+  return Object.freeze({
+    ok: true,
+    root,
+    interface: interfaceTree
+  });
+}
+
 function runSandbox(snapshot, options = {}) {
   const config = options.config || loadSelfImprovementConfig();
 
@@ -993,6 +1296,7 @@ function runSandbox(snapshot, options = {}) {
 
   const containerName = config.persistent_container_name;
   ensurePersistentContainerRunning(config);
+  seedPersistentDependencyCaches(config);
   const workspaceSync = syncPersistentProjectWorkspace(snapshot, config);
 
   const outboxRun = path.join(config.outbox_root, snapshot.run_id);
@@ -1119,6 +1423,7 @@ module.exports = {
   persistentWorkspaceTarget,
   readCurrentContainer,
   readCurrentStopRequest,
+  seedPersistentDependencyCaches,
   runSandbox,
   smokeImage,
   stopCurrentContainer,

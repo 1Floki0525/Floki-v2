@@ -53,9 +53,10 @@ function run() {
   assert.match(runtime, /url\.pathname === '\/client-detached'/);
   assert.match(runtime, /url\.pathname === '\/transcript\/clear'/);
   assert.match(runtime, /await liveAudio\.setAwake\(hearingEnabled\)/);
-  assert.match(runtime, /const visionEnabled = awake && state\.client_ready === true/);
+  assert.match(runtime, /const visionEnabled = awake && allGatesPass/);
+  assert.match(runtime, /filter\(\(gate\) => gate !== 'client_ready' && gate !== 'window_visible'\)/);
   assert.match(runtime, /visionReconciler\.reconcile\(visionEnabled/);
-  assert.match(runtime, /state\.client_ready !== true\s*\? 'awaiting_client'/);
+  assert.match(runtime, /hearing_intentionally_suspended: sleeping/);
 
   assert.match(electron, /mainWindow\.show\(\);\s*void runtimeRequest\('POST', '\/client-ready'/s);
   assert.match(electron, /'floki:clear-transcript'/);
@@ -79,7 +80,7 @@ function run() {
     ok: true,
     marker: 'FLOKI_V2_CHAT_LOCAL_INTERFACE_LIFECYCLE_TRANSCRIPT_PASS',
     complete_spoken_command_settle: true,
-    external_senses_wait_for_visible_interface: true,
+    external_senses_survive_client_detach: true,
     typed_and_spoken_history_restored: true,
     visible_chat_clear_supported: true,
     private_memory_preserved_on_clear: true,

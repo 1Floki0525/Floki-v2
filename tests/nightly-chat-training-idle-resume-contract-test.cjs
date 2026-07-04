@@ -32,6 +32,8 @@ const {
     createNightlyTrainingCoordinator({
       config,
       load_config: () => config,
+      enter_resource: async () => ({ ok: true }),
+      exit_resource: async () => ({ ok: true, result: { lifecycle_restored: true } }),
       get_sleep_window: () => ({
         sleep_date: session.sleep_date,
         start_at:

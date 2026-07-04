@@ -57,14 +57,9 @@ function run() {
     assert.equal(typeof config.log_source, 'object');
     assert.equal(typeof config.client_app, 'boolean');
     assert.equal(typeof config.log_available, 'boolean');
-    if (config.client_app) {
-      assert.equal(config.log_key, null);
-      assert.equal(config.log_available, false);
-    } else {
-      assert.equal(typeof config.log_key, 'string');
-      assert.ok(config.log_key.length > 0, 'logKey must be non-empty');
-      assert.equal(config.log_available, true);
-    }
+    assert.equal(typeof config.log_key, 'string');
+    assert.ok(config.log_key.length > 0, 'logKey must be non-empty');
+    assert.equal(config.log_available, true);
     assert.equal(typeof config.timeout_ms, 'number');
     assert.equal(typeof config.requires_confirmation, 'boolean');
     assert.equal(typeof config.preserve_runtime_pid, 'boolean');
@@ -86,8 +81,8 @@ function run() {
     assert.equal(card.resetAvailable, true);
     assert.equal(typeof card.clientApp, 'boolean');
     if (card.clientApp) {
-      assert.equal(card.logAvailable, false);
-      assert.equal(card.logKey, null);
+      assert.equal(card.logAvailable, true);
+      assert.ok(card.logKey.length > 0, 'client app logKey must be non-empty');
       assert.equal(typeof card.enabled, 'boolean');
       assert.equal(typeof card.connectedClientCount, 'number');
       assert.equal(typeof card.healthyClientCount, 'number');
@@ -231,10 +226,6 @@ function run() {
   const logKeys = new Set();
   for (const key of MODULE_KEYS) {
     const logKey = LOG_KEYS[key];
-    if (key === 'web_app' || key === 'mobile_app') {
-      assert.equal(logKey, null);
-      continue;
-    }
     assert.ok(logKey, 'log key missing for ' + key);
     assert.equal(logKeys.has(logKey), false, 'duplicate log key: ' + logKey);
     logKeys.add(logKey);

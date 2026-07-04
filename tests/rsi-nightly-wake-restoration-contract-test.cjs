@@ -36,6 +36,7 @@ const {
       acquire: () => {}
     },
     read_session: () => session,
+    refresh_session: (value) => value,
     checkpoint_session: async (value) => {
       calls.push('checkpoint');
       session = { ...value, current_container: null };
@@ -46,6 +47,7 @@ const {
       session = { ...value, active: false, finalized: true };
       return session;
     },
+    enter_resource: async () => ({ ok: true }),
     exit_resource: async () => {
       calls.push('restore-runtime');
       return { ok: true, result: { lifecycle_restored: true } };

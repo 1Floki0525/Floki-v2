@@ -1,3 +1,5 @@
+import flokiAdapter from '../integrations/floki/adapter';
+
 let currentSettings = {
   version: 3,
   connection: { transport: 'electron-ipc', localApiUrl: 'http://127.0.0.1:7700', localWsUrl: 'ws://127.0.0.1:7700/ws', autoReconnect: true, reconnectDelay: 3000, requestTimeout: 120000, mockMode: false },
@@ -11,15 +13,43 @@ let currentSettings = {
 };
 let listeners = [];
 let loading = null;
-function bridge() { if (!window.floki) throw new Error('Floki Electron settings bridge is unavailable'); return window.floki; }
+function hasBridge() { return typeof window !== 'undefined' && window.floki !== undefined; }
+function bridge() { if (!hasBridge()) throw new Error('Floki Electron settings bridge is unavailable'); return window.floki; }
 function notify(next) { currentSettings = next; listeners.forEach((listener) => listener(currentSettings)); return currentSettings; }
 export function getSettings() { return currentSettings; }
-export function initializeSettings() { if (!loading) loading = bridge().getSettings().then(notify).finally(() => { loading = null; }); return loading; }
-export async function updateSettings(section, values) { return notify(await bridge().updateSettings(section, values)); }
-export async function resetSection(section) { return notify(await bridge().resetSettings(section)); }
-export async function resetAllSettings() { return notify(await bridge().resetAllSettings()); }
+export function initializeSettings() {
+  if (!loading) {
+    const request = hasBridge() ? bridge().getSettings() : flokiAdapter.getSettings();
+    loading = request.then(notify).finally(() => { loading = null; });
+  }
+  return loading;
+}
+export async function updateSettings(section, values) {
+  const next = hasBridge()
+    ? await bridge().updateSettings(section, values)
+    : await flokiAdapter.updateSettings(section, values);
+  return notify(next);
+}
+export async function resetSection(section) {
+  const next = hasBridge()
+    ? await bridge().resetSettings(section)
+    : await flokiAdapter.resetSettings(section);
+  return notify(next);
+}
+export async function resetAllSettings() {
+  const next = hasBridge()
+    ? await bridge().resetAllSettings()
+    : await flokiAdapter.resetSettings(null);
+  return notify(next);
+}
 export async function clearStoredSettings() { return resetAllSettings(); }
 export function exportSettings() { return JSON.stringify(currentSettings, null, 2); }
-export async function importSettings(value) { return notify(await bridge().importSettings(typeof value === 'string' ? JSON.parse(value) : value)); }
+export async function importSettings(value) {
+  const settings = typeof value === 'string' ? JSON.parse(value) : value;
+  const next = hasBridge()
+    ? await bridge().importSettings(settings)
+    : await flokiAdapter.importSettings(settings);
+  return notify(next);
+}
 export function subscribeSettings(listener) { listeners.push(listener); return () => { listeners = listeners.filter((entry) => entry !== listener); }; }
 export function getDefaultSettings() { return JSON.parse(JSON.stringify(currentSettings)); }

@@ -603,7 +603,14 @@ function buildAudioSection(section, mode) {
     ambient_memory_failure_log_max_chars: requireNumber(section.ambient_memory_failure_log_max_chars, 'audio.ambient_memory_failure_log_max_chars'),
     ambient_memory_failure_log_name: requireString(section.ambient_memory_failure_log_name, 'audio.ambient_memory_failure_log_name'),
     max_frame_queue_size: requireNumber(section.max_frame_queue_size, 'audio.max_frame_queue_size'),
-    whisper_drain_timeout_ms: requireNumber(section.whisper_drain_timeout_ms, 'audio.whisper_drain_timeout_ms')
+    whisper_drain_timeout_ms: requireNumber(section.whisper_drain_timeout_ms, 'audio.whisper_drain_timeout_ms'),
+    remote_voice_enabled: requireBoolean(section.remote_voice_enabled, 'audio.remote_voice_enabled'),
+    remote_voice_content_type: requireString(section.remote_voice_content_type, 'audio.remote_voice_content_type'),
+    remote_voice_max_bytes: requireNumber(section.remote_voice_max_bytes, 'audio.remote_voice_max_bytes'),
+    remote_voice_min_duration_ms: requireNumber(section.remote_voice_min_duration_ms, 'audio.remote_voice_min_duration_ms'),
+    remote_voice_max_duration_ms: requireNumber(section.remote_voice_max_duration_ms, 'audio.remote_voice_max_duration_ms'),
+    remote_voice_transcript_max_chars: requireNumber(section.remote_voice_transcript_max_chars, 'audio.remote_voice_transcript_max_chars'),
+    remote_voice_play_reply_audio: requireBoolean(section.remote_voice_play_reply_audio, 'audio.remote_voice_play_reply_audio')
   });
 }
 
@@ -1048,6 +1055,7 @@ function getSelfImprovementConfig(mode = 'chat') {
     focused_repair_no_progress_iteration_limit:
       numberValue('focused_repair_no_progress_iteration_limit'),
     max_command_ms: numberValue('max_command_ms'),
+    dependency_install_timeout_ms: numberValue('dependency_install_timeout_ms'),
     max_changed_files: numberValue('max_changed_files'),
     max_patch_bytes: numberValue('max_patch_bytes'),
     minimum_available_memory_mb: numberValue('minimum_available_memory_mb'),
@@ -1245,9 +1253,6 @@ function getSelfImprovementConfig(mode = 'chat') {
     persistent_dependency_cache_root: stringValue('persistent_dependency_cache_root'),
     persistent_dependency_cache_marker_file: stringValue('persistent_dependency_cache_marker_file'),
     dependency_fingerprint_algorithm: stringValue('dependency_fingerprint_algorithm'),
-    selection_rescue_max_attempts: numberValue('selection_rescue_max_attempts'),
-    selection_rescue_temperature: numberValue('selection_rescue_temperature'),
-    selection_rescue_thinking_enabled: booleanValue('selection_rescue_thinking_enabled'),
     container_agent_path: stringValue('container_agent_path'),
     browser_profile_prefix: stringValue('browser_profile_prefix'),
     github_accept: stringValue('github_accept'),
@@ -1273,11 +1278,17 @@ function getSelfImprovementConfig(mode = 'chat') {
     shell_command_progress_interval_ms: numberValue('shell_command_progress_interval_ms'),
     shell_command_stalled_threshold_ms: numberValue('shell_command_stalled_threshold_ms'),
     iteration_wall_clock_budget_ms: numberValue('iteration_wall_clock_budget_ms'),
+    agent_run_wall_clock_budget_ms: numberValue('agent_run_wall_clock_budget_ms'),
+    model_turn_deadline_ms: numberValue('model_turn_deadline_ms'),
+    implementation_write_deadline_ms: numberValue('implementation_write_deadline_ms'),
+    implementation_no_progress_deadline_ms: numberValue('implementation_no_progress_deadline_ms'),
+    focused_repair_no_progress_deadline_ms: numberValue('focused_repair_no_progress_deadline_ms'),
     command_timeout_overrides_ms: commandTimeoutOverrides,
     agent_git_show_timeout_ms: numberValue('agent_git_show_timeout_ms'),
     agent_ollama_request_max_attempts: numberValue('agent_ollama_request_max_attempts'),
     agent_ollama_request_retry_backoff_ms: numberValue('agent_ollama_request_retry_backoff_ms'),
     worker_heartbeat_file_name: stringValue('worker_heartbeat_file_name'),
+    worker_heartbeat_stale_ms: numberValue('worker_heartbeat_stale_ms'),
     sandbox_heartbeat_file_name: stringValue('sandbox_heartbeat_file_name'),
     sandbox_heartbeat_refresh_ms: numberValue('sandbox_heartbeat_refresh_ms'),
     sandbox_heartbeat_stale_ms: numberValue('sandbox_heartbeat_stale_ms'),

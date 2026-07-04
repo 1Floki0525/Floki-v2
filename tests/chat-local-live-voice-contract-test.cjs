@@ -33,7 +33,8 @@ assert.match(runtime, /const brain = options\.runtime \|\| createRuntime/);
 assert.match(runtime, /input_modality: 'spoken'/);
 assert.match(runtime, /input_modality: 'text'/);
 assert.match(runtime, /hearing_ready: hearingReady/);
-assert.match(runtime, /hearing_intentionally_suspended: sleeping \|\| awaitingClient/);
+assert.match(runtime, /hearing_intentionally_suspended: sleeping/);
+assert.match(runtime, /const hearingEnabled = state\.hearing_enabled === true && awake && voice\.microphoneEnabled === true/);
 assert.match(runtime, /degraded_reasons: degradedReasons/);
 assert.match(audio, /spawn\(arecord/);
 assert.match(audio, /createLiveWhisperService/);
@@ -85,6 +86,7 @@ console.log(JSON.stringify({
   persistent_vad_worker: true,
   persistent_whisper_server_with_fallback: true,
   piper_hard_microphone_gate: true,
+  client_detach_does_not_suspend_hearing: true,
   ambient_audio_ingestion: true,
   all_transcript_modalities_sync_to_gui: true,
   hearing_status_is_truthful: true,

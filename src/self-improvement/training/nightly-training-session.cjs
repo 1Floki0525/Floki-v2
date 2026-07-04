@@ -62,9 +62,10 @@ function readNightlySession(config = loadSelfImprovementConfig()) {
   return current ? Object.freeze(current) : null;
 }
 
-function containerRunning(containerName, config = loadSelfImprovementConfig()) {
+function containerRunning(containerName, config = loadSelfImprovementConfig(), options = {}) {
   if (!containerName) return false;
-  const result = spawnSync(
+  const execute = options.spawnSync || spawnSync;
+  const result = execute(
     config.sandbox_engine,
     ['inspect', '--format', '{{.State.Running}}', containerName],
     {
@@ -277,7 +278,7 @@ function createNightlySession(options = {}) {
     image_rebuilt: image.rebuilt
   }, config);
   updateStatus({
-    state: 'training',
+    state: 'prepared',
     phase: 'nightly_training_prepared',
     current_run_id: runId,
     current_run_kind: 'training',
@@ -399,12 +400,12 @@ async function startNightlyTrainingSegment(session, options = {}) {
       updated_at: nowIso()
     }, config);
     updateStatus({
-      state: 'training',
+      state: 'prepared',
       phase: 'nightly_waiting_for_rem_before_next_epoch',
       current_run_id: session.run_id,
       current_container: null,
-      training_resource_mode: 'active',
-      gpu_owner: 'hf_training',
+      training_resource_mode: 'epoch_complete_waiting_for_rem',
+      gpu_owner: null,
       training_progress: {
         run_id: session.run_id,
         sleep_date: session.sleep_date,
@@ -541,14 +542,14 @@ async function startNightlyTrainingSegment(session, options = {}) {
     latest_checkpoint: session.latest_checkpoint
   }, config);
   updateStatus({
-    state: 'training',
-    phase: 'nightly_training_segment_running',
+    state: 'starting',
+    phase: 'nightly_training_container_starting',
     current_run_id: session.run_id,
     current_run_kind: 'training',
     current_candidate_type: 'model_adapter',
     current_container: containerName,
-    training_resource_mode: 'active',
-    gpu_owner: 'hf_training',
+    training_resource_mode: 'gpu_training_starting',
+    gpu_owner: null,
     last_sandbox_log_file: session.runtime.log_file,
     training_progress: {
       run_id: session.run_id,
@@ -843,7 +844,7 @@ function nightlyCandidateCompletionGate(
     ? Math.floor(epoch + 1e-9)
     : 0;
   const completedRemCycles = completedRemClaimCount(session, config);
-  const requiredRemCycles = Math.max(0, completedEpochs - 1);
+  const requiredRemCycles = completedEpochs;
   const contractMet =
     completedEpochs >= 1 &&
     Number.isFinite(minCompletedSteps) &&
@@ -878,6 +879,7 @@ function finalizeNightlyTraining(session, options = {}) {
   const config = options.config || loadSelfImprovementConfig();
   if (!session) return null;
   if (session.finalized === true) return session;
+  if (session.aborted === true || session.status === 'aborted') return session;
 
   removeControlFiles(session);
   if (session.training_failed === true) {
@@ -1036,6 +1038,130 @@ function finalizeNightlyTraining(session, options = {}) {
   return next;
 }
 
+function abortNightlyTrainingSession(session, options = {}) {
+  const config = options.config || loadSelfImprovementConfig();
+  let current = session || readNightlySession(config);
+  const removed = [];
+  const failures = [];
+  const containers = [];
+  const knownHostPids = new Set();
+  const execute = options.spawnSync || spawnSync;
+  const processIsAlive = options.process_is_alive || ((pid) => {
+    try { process.kill(Number(pid), 0); return true; }
+    catch (_error) { return false; }
+  });
+  if (current && current.current_container) containers.push(current.current_container);
+  const remActiveFile = path.join(config.training_runtime_root, 'hf-rem-active.json');
+  const remActive = readJson(remActiveFile, null);
+  if (remActive && remActive.container) containers.push(remActive.container);
+
+  for (const containerName of [...new Set(containers.filter(Boolean))]) {
+    try {
+      const top = execute(
+        config.sandbox_engine,
+        ['top', containerName, 'hpid'],
+        {
+          cwd: config.project_root,
+          encoding: 'utf8',
+          timeout: config.podman_command_timeout_ms,
+          maxBuffer: config.podman_output_buffer_bytes
+        }
+      );
+      if (!top.error && top.status === 0) {
+        for (const line of String(top.stdout || '').split(/\r?\n/).slice(1)) {
+          const pid = Number(String(line || '').trim().split(/\s+/)[0]);
+          if (Number.isInteger(pid) && pid > 0) knownHostPids.add(pid);
+        }
+      }
+      const result = forceRemoveContainer(containerName, config, options);
+      removed.push({ container: containerName, ...result });
+    } catch (error) {
+      failures.push({ container: containerName, error: error.message });
+    }
+  }
+  fs.rmSync(paths(config).currentContainerFile, { force: true });
+  fs.rmSync(remActiveFile, { force: true });
+  if (current) removeControlFiles(current);
+
+  const verifiedGone = containers.every((containerName) => {
+    try { return containerRunning(containerName, config, options) === false; }
+    catch (_error) { return false; }
+  });
+  const verifyTimeoutMs = Math.max(
+    1000,
+    Number(config.nightly_training_abort_verify_timeout_ms || 10000)
+  );
+  const verifyDeadline = Date.now() + verifyTimeoutMs;
+  let livePids = [...knownHostPids].filter(processIsAlive);
+  const sleeper = new Int32Array(new SharedArrayBuffer(4));
+  while (livePids.length > 0 && Date.now() < verifyDeadline) {
+    Atomics.wait(sleeper, 0, 0, 100);
+    livePids = [...knownHostPids].filter(processIsAlive);
+  }
+  const verifiedProcessesGone = livePids.length === 0;
+
+  if (current) {
+    current = writeSession({
+      ...current,
+      active: false,
+      finalized: true,
+      aborted: true,
+      abort_reason: String(options.reason || 'maker_abort_training'),
+      aborted_at: nowIso(),
+      status: 'aborted',
+      current_container: null,
+      candidate_id: null,
+      adapter_id: null,
+      finalization_reason: 'aborted',
+      updated_at: nowIso()
+    }, config);
+  }
+
+  appendAudit('nightly_training_aborted', {
+    run_id: current && current.run_id || null,
+    reason: String(options.reason || 'maker_abort_training'),
+    removed,
+    failures,
+    verified_workload_gone: verifiedGone && verifiedProcessesGone,
+    verified_container_gone: verifiedGone,
+    verified_processes_gone: verifiedProcessesGone,
+    remaining_host_pids: livePids
+  }, config);
+  updateStatus({
+    state: 'aborted',
+    phase: 'nightly_training_aborted',
+    current_run_id: null,
+    current_container: null,
+    current_run_kind: null,
+    training_resource_mode: 'aborted',
+    gpu_owner: null,
+    training_progress: current ? {
+      run_id: current.run_id,
+      sleep_date: current.sleep_date,
+      completed_epochs: Number(current.completed_epochs || 0),
+      completed_rem_cycles: Number(current.rem_cycles_completed || 0),
+      aborted: true,
+      aborted_at: current.aborted_at
+    } : null,
+    last_error: failures.length ? JSON.stringify(failures) : null
+  }, config);
+
+  return Object.freeze({
+    ok: failures.length === 0 && verifiedGone && verifiedProcessesGone,
+    verified: failures.length === 0 && verifiedGone && verifiedProcessesGone,
+    marker: failures.length === 0 && verifiedGone && verifiedProcessesGone
+      ? 'FLOKI_V2_NIGHTLY_TRAINING_ABORT_VERIFIED'
+      : 'FLOKI_V2_NIGHTLY_TRAINING_ABORT_FAILED',
+    session: current,
+    removed: Object.freeze(removed),
+    failures: Object.freeze(failures),
+    verified_workload_gone: verifiedGone && verifiedProcessesGone,
+    verified_container_gone: verifiedGone,
+    verified_processes_gone: verifiedProcessesGone,
+    remaining_host_pids: Object.freeze(livePids)
+  });
+}
+
 function markNightlyTrainingError(session, error, options = {}) {
   const config = options.config || loadSelfImprovementConfig();
   const message = error && error.stack ? error.stack : String(error && error.message || error);
@@ -1066,6 +1192,7 @@ module.exports = {
   trainingConfigFingerprint,
   nightlyCandidateCompletionGate,
   completedRemClaimCount,
+  abortNightlyTrainingSession,
   buildNightlyTrainingConfig,
   checkpointNightlyTraining,
   containerAbsent,

@@ -77,17 +77,22 @@ assertOrdered(readyToShow, [
 assert.match(runtime, /initial_awake: false/, 'audio must begin gated off');
 assert.match(
   runtime,
-  /const hearingEnabled = state\.hearing_enabled === true && awake && state\.client_ready === true/,
-  'hearing must require the hearing module gate, awake time, and visible interface readiness'
+  /const hearingEnabled = state\.hearing_enabled === true && awake && voice\.microphoneEnabled === true/,
+  'hearing must require the hearing module gate, awake time, and voice settings'
 );
 assert.match(
   runtime,
-  /const visionEnabled = awake && state\.client_ready === true/,
-  'vision must require both awake time and visible interface readiness'
+  /const visionEnabled = awake && allGatesPass/,
+  'vision must require awake time and YAML-authoritative host-sense gates'
 );
 assert.match(
   runtime,
-  /lifecycle = buildFlokiLifecycleStatus\(\)/,
+  /filter\(\(gate\) => gate !== 'client_ready' && gate !== 'window_visible'\)/,
+  'client presence fields must be telemetry only for host senses'
+);
+assert.match(
+  runtime,
+  /lifecycle = readLifecycleStatus\(\)/,
   'runtime must resolve current lifecycle from system time'
 );
 assert.match(runtime, /type: 'experience'/, 'ambient audio memories must use a valid memory type');
@@ -134,7 +139,7 @@ console.log(JSON.stringify({
   timezone: sleep.timezone,
   awake_window: '07:00-23:00',
   sleep_window: '23:00-07:00',
-  client_ready_gate_verified: true,
+  client_presence_telemetry_only_verified: true,
   chat_mode_only: true,
   game_mode_started: false
 }, null, 2));

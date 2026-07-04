@@ -199,7 +199,62 @@ assert.match(policy, /name === 'run_focused_test'/);
 assert.match(policy, /name === 'apply_patch'/);
 assert.match(policy, /focused_verification_failed_repeatedly/);
 assert.match(policy, /focusedVerificationFailures/);
-assert.match(policy, /shell test\s*' \+/);
+const {
+  createConvergencePolicy
+} = require(path.join(
+  ROOT,
+  'src/self-improvement/convergence-policy.cjs'
+));
+
+const convergenceConfigKeys = Array.from(
+  policy.matchAll(
+    /requiredPositiveInteger\(\s*config,\s*'([^']+)'\s*\)/g
+  ),
+  (match) => match[1]
+);
+assert.ok(
+  convergenceConfigKeys.length > 0,
+  'the convergence policy must declare its positive-integer configuration'
+);
+
+const behavioralPolicy = createConvergencePolicy(
+  Object.fromEntries(
+    convergenceConfigKeys.map((name) => [name, 4])
+  )
+);
+behavioralPolicy.beginIteration(1);
+behavioralPolicy.selectExperiment({
+  objective: 'Verify focused-test workflow guidance behavior.',
+  hypothesis: 'A structured write must lead to run_focused_test guidance.',
+  success_metric: 'guidance directs the agent to run_focused_test',
+  baseline_evidence: 'The contract executes the real convergence policy.',
+  focused_test: 'node tests/example-focused-test.cjs',
+  expected_follow_on_value: 'Preserve structured verification ordering.',
+  target_files: ['src/self-improvement/convergence-policy.cjs']
+});
+behavioralPolicy.startImplementation();
+behavioralPolicy.record(
+  'apply_patch',
+  {},
+  { ok: true, workspace_changed: true }
+);
+
+const focusedTestGuidance = behavioralPolicy.guidance();
+assert.match(
+  focusedTestGuidance,
+  /focused test/i,
+  'after a structured implementation write, guidance must require the selected focused test'
+);
+assert.match(
+  focusedTestGuidance,
+  /full verification/i,
+  'focused-test guidance must preserve the required transition to full verification'
+);
+assert.doesNotMatch(
+  focusedTestGuidance,
+  /(?:run|execute).{0,120}focused test.{0,120}(?:via|through|using)\s+shell/i,
+  'guidance must never direct the agent to execute its focused test through shell'
+);
 
 assert.match(worker, /FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_NO_CANDIDATE/i);
 assert.equal(

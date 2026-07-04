@@ -36,6 +36,29 @@ const MODULE_KEYS = Object.freeze([
   'rsi'
 ]);
 
+const MODULE_ACTIONS = Object.freeze({
+  floki_core: Object.freeze(['start', 'stop', 'reset']),
+  authoritative_api: Object.freeze(['start', 'stop', 'reset']),
+  cognition: Object.freeze(['start', 'stop', 'reset']),
+  vision: Object.freeze(['start', 'stop', 'reset']),
+  hearing: Object.freeze(['start', 'stop', 'reset']),
+  speech: Object.freeze(['start', 'stop', 'reset']),
+  memory: Object.freeze(['start', 'stop', 'reset']),
+  emotion: Object.freeze(['start', 'stop', 'reset']),
+  sleep_scheduler: Object.freeze(['start', 'stop', 'reset']),
+  dream_engine: Object.freeze(['start', 'stop', 'reset']),
+  rsi: Object.freeze(['start', 'stop', 'reset']),
+  live_event_stream: Object.freeze(['start', 'stop', 'reset']),
+  web_app: Object.freeze(['start', 'stop', 'reset']),
+  mobile_app: Object.freeze(['start', 'stop', 'reset'])
+});
+
+function moduleActions(key) {
+  return MODULE_ACTIONS[key] || Object.freeze([]);
+}
+
+
+
 function freezeRecord(record) {
   return Object.freeze({ ...record });
 }
@@ -255,8 +278,8 @@ const LOG_KEYS = Object.freeze({
   dream_engine: 'dream_engine',
   authoritative_api: 'authoritative_api',
   live_event_stream: 'live_event_stream',
-  web_app: null,
-  mobile_app: null,
+  web_app: 'web_app',
+  mobile_app: 'mobile_app',
   rsi: 'rsi'
 });
 
@@ -324,20 +347,33 @@ function getModuleConfig(key) {
   const clientApp = CLIENT_APP_MODULES.has(key);
   const clientAppStatus = clientApp ? ctx.clientApps[key] : null;
 
+  const actions = moduleActions(key);
+  const operation = (action) => actions.includes(action)
+    ? Object.freeze({
+        internal: true,
+        type: supervised ? 'supervisor' : 'in_process',
+        confirmation_required: action === 'stop' && requiresConfirmation
+      })
+    : null;
+
   return freezeRecord({
     key,
     name: displayName,
     display_name: displayName,
     status_source: statusFn,
     status,
-    start: Object.freeze({ internal: true, type: supervised ? 'supervisor' : 'in_process' }),
-    stop: Object.freeze({ internal: true, type: supervised ? 'supervisor' : 'in_process', confirmation_required: requiresConfirmation }),
-    reset: Object.freeze({ internal: true, type: supervised ? 'supervisor' : 'in_process' }),
+    start: operation('start'),
+    stop: operation('stop'),
+    reset: operation('reset'),
     health: Object.freeze({ internal: true, type: supervised ? 'supervisor' : 'in_process' }),
+    start_available: actions.includes('start'),
+    stop_available: actions.includes('stop'),
+    reset_available: actions.includes('reset'),
+    restart_available: actions.includes('reset'),
     dependencies: DEPENDENCIES[key],
     log_source: Object.freeze({ runtime_dir: runtimeDir, state_root: stateRoot }),
     log_key: LOG_KEYS[key],
-    log_available: !clientApp,
+    log_available: true,
     client_app: clientApp,
     client_app_status: clientAppStatus,
     timeout_ms: Number(config.supervisor_operation_timeout_ms || 360000),
@@ -393,6 +429,8 @@ function getRegistryMetadata() {
 }
 
 module.exports = {
+  MODULE_ACTIONS,
+  moduleActions,
   MODULE_KEYS,
   DISPLAY_NAMES,
   LOG_KEYS,

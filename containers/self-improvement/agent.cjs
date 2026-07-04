@@ -69,6 +69,8 @@ const AGENT_RECENT_MESSAGE_COUNT =
   requireNumber('agent_recent_message_count');
 const MAX_ITERATIONS = requireNumber('max_agent_iterations');
 const MAX_COMMAND_MS = requireNumber('max_command_ms');
+const DEPENDENCY_INSTALL_TIMEOUT_MS =
+  requireNumber('dependency_install_timeout_ms');
 const MAX_CHANGED_FILES = requireNumber('max_changed_files');
 const MAX_PATCH_BYTES = requireNumber('max_patch_bytes');
 const VERIFICATION = requireArray('verification_commands');
@@ -104,12 +106,6 @@ const PERSISTENT_DEPENDENCY_CACHE_MARKER_FILE =
   requireString('persistent_dependency_cache_marker_file');
 const DEPENDENCY_FINGERPRINT_ALGORITHM =
   requireString('dependency_fingerprint_algorithm');
-const SELECTION_RESCUE_MAX_ATTEMPTS =
-  requireNumber('selection_rescue_max_attempts');
-const SELECTION_RESCUE_TEMPERATURE =
-  requireNumber('selection_rescue_temperature');
-const SELECTION_RESCUE_THINKING_ENABLED =
-  requireBoolean('selection_rescue_thinking_enabled');
 const BROWSER_COMMAND = requireString('browser_command');
 const BROWSER_PROFILE_ROOT = requireString('browser_profile_root');
 const BROWSER_PROFILE_PREFIX = requireString('browser_profile_prefix');
@@ -176,6 +172,16 @@ const RESEARCH_CORPUS_FETCH_MAX_CHARS =
   requireNumber('research_corpus_fetch_max_chars');
 const ITERATION_WALL_CLOCK_BUDGET_MS =
   requireNumber('iteration_wall_clock_budget_ms');
+const AGENT_RUN_WALL_CLOCK_BUDGET_MS =
+  requireNumber('agent_run_wall_clock_budget_ms');
+const MODEL_TURN_DEADLINE_MS =
+  requireNumber('model_turn_deadline_ms');
+const IMPLEMENTATION_WRITE_DEADLINE_MS =
+  requireNumber('implementation_write_deadline_ms');
+const IMPLEMENTATION_NO_PROGRESS_DEADLINE_MS =
+  requireNumber('implementation_no_progress_deadline_ms');
+const FOCUSED_REPAIR_NO_PROGRESS_DEADLINE_MS =
+  requireNumber('focused_repair_no_progress_deadline_ms');
 const OLLAMA_REQUEST_MAX_ATTEMPTS =
   requireNumber('agent_ollama_request_max_attempts');
 const OLLAMA_REQUEST_RETRY_BACKOFF_MS =
@@ -414,30 +420,24 @@ function compactConversation(messages) {
 function selectionAnchorMessage() {
   const snapshot = convergencePolicy.snapshot();
   if (snapshot.selected_experiment) return null;
-  const selectionRequired =
-    snapshot.phase === 'selection_required' ||
-    snapshot.phase === 'implementation_required';
-  if (selectionRequired) {
-    return (
-      'selected_experiment is still null and the selection deadline has been reached. ' +
-      'Call select_experiment now using the evidence you have gathered. Use an existing ' +
-      'repository file as the target. Baseline evidence may honestly state what the ' +
-      'current source lacks; the focused test will verify the improvement. ' +
-      'Do not use placeholder measurements such as X=VALUE, Y=VALUE, TODO, TBD, or ' +
-      'uppercase metric tokens.'
-    );
-  }
+  const evidence = snapshot.autonomous_selection_evidence || {};
+  const missingEvidence = Object.entries({
+    task_state: 'get_task_state',
+    self_context: 'get_self_context or search_self_memory',
+    repository_evidence:
+      'list_repository, search_source, inspect_symbol, corpus_search, or corpus_fetch',
+    source_file: 'read_file on a real source/config/test file'
+  })
+    .filter(([key]) => evidence[key] !== true)
+    .map(([key, tool]) => key + ' via ' + tool);
+  if (missingEvidence.length === 0) return null;
   return (
-    'selected_experiment is null. Investigate the codebase, runtime evidence, and ' +
-    'self-context before calling select_experiment. Use get_task_state, get_self_context, ' +
-    'search_self_memory, list_repository, search_source, inspect_symbol, read_file, ' +
-    'corpus_search, and research tools freely. When you have gathered sufficient evidence, ' +
-    'call select_experiment with one bounded objective, falsifiable hypothesis, baseline ' +
-    'evidence, existing target file, measurable success metric, focused test, and expected ' +
-    'follow-on value. This is a planning anchor, not Maker approval. Do not use placeholder ' +
-    'measurements such as X=VALUE, Y=VALUE, TODO, TBD, or uppercase metric tokens.'
+    'Autonomous experiment selection remains blocked by controller-owned ' +
+    'evidence readiness. Gather the missing evidence: ' +
+    missingEvidence.join('; ') + '. Do not edit or verify before selection.'
   );
 }
+
 
 function preSelectionInvalidToolFeedback(name) {
   return (
@@ -463,6 +463,190 @@ function selectExperimentCorrectionFeedback(result) {
     'A valid baseline can say the current source/test contract lacks the capability.'
   );
 }
+
+function selectionEvidenceEnvelope(messages, readiness) {
+  const recentContext = messages.slice(-12).map((entry) => ({
+    role: entry?.role || null,
+    tool_name: entry?.tool_name || null,
+    content: truncate(String(entry?.content || ''), TOOL_RESULT_MAX_CHARS)
+  }));
+  return {
+    marker: 'FLOKI_V2_AUTONOMOUS_SELECTION_EVIDENCE_READY',
+    objective_source: OBJECTIVE_SOURCE,
+    requested_objective: MAKER_OBJECTIVE,
+    current_objective:
+      taskState.current_objective ||
+      REQUESTED_OBJECTIVE ||
+      DEFAULT_OBJECTIVE,
+    task_state: taskState,
+    autonomous_selection_evidence:
+      readiness.autonomous_selection_evidence || null,
+    recent_context: recentContext
+  };
+}
+
+function parseStructuredSelection(message = {}) {
+  const raw = String(message.content || '').trim();
+  if (!raw) {
+    throw new Error(
+      'schema-constrained selection returned empty content'
+    );
+  }
+  let args;
+  try {
+    args = JSON.parse(raw);
+  } catch (error) {
+    const wrapped = new Error(
+      'schema-constrained selection returned invalid JSON: ' +
+      error.message
+    );
+    wrapped.code = 'EUPSTREAM_PARSE';
+    throw wrapped;
+  }
+  if (!args || Array.isArray(args) || typeof args !== 'object') {
+    throw new Error(
+      'schema-constrained selection must return one experiment object'
+    );
+  }
+  return args;
+}
+
+async function runAutonomousSelectionTransaction(
+  messages,
+  progressDeadlines,
+  iteration
+) {
+  const readiness = convergencePolicy.snapshot();
+  audit('autonomous_selection_transaction_started', {
+    iteration,
+    autonomous_selection_ready:
+      readiness.autonomous_selection_ready === true,
+    evidence: readiness.autonomous_selection_evidence || null,
+    protocol: 'ollama_json_schema'
+  });
+
+  const selectionMessages = [
+    {
+      role: 'system',
+      content:
+        'Select exactly one bounded, measurable Floki-v2 self-improvement ' +
+        'experiment from the supplied evidence. Preserve the Maker objective ' +
+        'exactly when objective_source is maker_requested.'
+    },
+    {
+      role: 'user',
+      content: JSON.stringify(
+        selectionEvidenceEnvelope(messages, readiness)
+      )
+    }
+  ];
+
+  progressDeadlines.heartbeat({
+    event: 'model_turn_start',
+    current_tool: 'selection_model_turn'
+  });
+
+  let message;
+  try {
+    message = await ollamaChat(
+      selectionMessages,
+      [],
+      {
+        format: selectExperimentSchema,
+        compact: false
+      }
+    );
+  } catch (error) {
+    audit('autonomous_selection_transaction_failed', {
+      iteration,
+      protocol: 'ollama_json_schema',
+      error: error.stack || error.message
+    });
+    messages.push({
+      role: 'user',
+      content:
+        'The schema-constrained experiment-selection transaction failed: ' +
+        String(error.message || error) + '.'
+    });
+    return false;
+  } finally {
+    progressDeadlines.heartbeat({
+      event: 'model_turn_result',
+      current_tool: null
+    });
+  }
+
+  let args;
+  try {
+    args = parseStructuredSelection(message);
+  } catch (error) {
+    audit('autonomous_selection_transaction_failed', {
+      iteration,
+      protocol: 'ollama_json_schema',
+      error: error.stack || error.message
+    });
+    messages.push({
+      role: 'user',
+      content:
+        'The schema-constrained experiment-selection response was invalid: ' +
+        String(error.message || error) + '.'
+    });
+    return false;
+  }
+
+  progressDeadlines.recordToolStart('select_experiment');
+  let result;
+  try {
+    result = await executeTool('select_experiment', args);
+  } catch (error) {
+    result = { ok: false, error: error.stack || error.message };
+  }
+  convergencePolicy.record('select_experiment', args, result);
+  progressDeadlines.recordToolResult('select_experiment', result);
+
+  if (result?.ok !== true) {
+    audit('autonomous_selection_transaction_rejected', {
+      iteration,
+      protocol: 'ollama_json_schema',
+      error: result?.error || result?.reason || null,
+      target_files: Array.isArray(args?.target_files)
+        ? args.target_files
+        : [],
+      focused_test: args?.focused_test || null
+    });
+    messages.push({
+      role: 'user',
+      content: selectExperimentCorrectionFeedback(result)
+    });
+    return false;
+  }
+
+  audit('autonomous_selection_transaction_succeeded', {
+    iteration,
+    protocol: 'ollama_json_schema',
+    selected_experiment: result.experiment || null
+  });
+
+  if (!convergencePolicy.snapshot().implementation_started) {
+    const startResult = convergencePolicy.startImplementation();
+    audit('implementation_auto_started_after_selection', {
+      iteration,
+      marker: startResult.marker || null,
+      selected_experiment:
+        convergencePolicy.snapshot().selected_experiment,
+      selection_protocol: 'ollama_json_schema'
+    });
+  }
+
+  messages.push({
+    role: 'user',
+    content:
+      'The controller recorded the model-selected experiment and activated ' +
+      'implementation. Make the bounded source and focused-test changes now.'
+  });
+  return true;
+}
+
 
 function gitCapture(args) {
   const result = spawnSync('git', args, {
@@ -525,6 +709,10 @@ function finishWithoutCandidate(reason, error = null) {
   const detail = {
     reason: String(reason || 'no_verified_candidate'),
     error: error ? String(error.stack || error.message || error) : null,
+    elapsed_ms:
+      typeof sandboxStartedAtMs === 'number'
+        ? Date.now() - sandboxStartedAtMs
+        : null,
     convergence: convergencePolicy.snapshot()
   };
   audit('no_candidate', detail);
@@ -536,6 +724,194 @@ function finishWithoutCandidate(reason, error = null) {
     reason: detail.reason
   }, null, 2));
   return detail;
+}
+
+let sandboxStartedAtMs = null;
+
+function roleForPhase(phase) {
+  switch (String(phase || '')) {
+    case 'discovery':
+      return 'discovery';
+    case 'selection_required':
+    case 'experiment_selected':
+      return 'experiment selection';
+    case 'implementing':
+    case 'implementation_required':
+      return 'implementation';
+    case 'repairing':
+      return 'repair';
+    case 'focused_verified':
+      return 'focused verification';
+    case 'verified':
+      return 'full verification';
+    default:
+      return phase ? String(phase) : 'unknown';
+  }
+}
+
+function resourceModeForTool(name) {
+  const tool = String(name || '');
+  if (!tool) return 'idle';
+  if (tool === 'model_turn' || tool === 'selection_model_turn') {
+    return 'cognition/model inference';
+  }
+  if (
+    tool === 'read_file' ||
+    tool === 'write_file' ||
+    tool === 'apply_patch' ||
+    tool === 'show_diff' ||
+    tool === 'git_status' ||
+    tool === 'list_repository' ||
+    tool === 'search_source' ||
+    tool === 'inspect_symbol' ||
+    tool === 'get_task_state' ||
+    tool === 'update_task_state' ||
+    tool === 'get_self_context' ||
+    tool === 'search_self_memory'
+  ) {
+    return 'filesystem/I/O';
+  }
+  if (
+    tool === 'web_search' ||
+    tool === 'web_fetch' ||
+    tool === 'browser_fetch' ||
+    tool === 'github_search' ||
+    tool === 'arxiv_search' ||
+    tool === 'crossref_search' ||
+    tool === 'context7_resolve_library' ||
+    tool === 'context7_query_docs'
+  ) {
+    return 'network/research';
+  }
+  return 'CPU/tool execution';
+}
+
+function createProgressDeadlines() {
+  let selectedAtMs = null;
+  let implementationStartedAtMs = null;
+  let lastSuccessfulProgressAtMs = null;
+  let lastWriteAtMs = null;
+  let currentTool = null;
+
+  function snapshot(extra = {}) {
+    const convergence = convergencePolicy.snapshot();
+    return Object.freeze({
+      run_id: RUN_ID,
+      generation: 1,
+      phase: convergence.phase,
+      iteration: convergence.iteration,
+      selected_experiment:
+        convergence.selected_experiment?.objective || null,
+      write_count: convergence.write_count,
+      last_write_time:
+        lastWriteAtMs === null
+          ? null
+          : new Date(lastWriteAtMs).toISOString(),
+      last_write_iteration: convergence.last_write_iteration,
+      current_tool: currentTool,
+      current_role: roleForPhase(convergence.phase),
+      resource_mode: currentTool ? resourceModeForTool(currentTool) : 'idle',
+      gpu_owner: currentTool === 'model_turn' || currentTool === 'selection_model_turn'
+        ? 'self-improvement/cognition'
+        : null,
+      telemetry_observed_at: nowIso(),
+      last_successful_progress_time:
+        lastSuccessfulProgressAtMs === null
+          ? null
+          : new Date(lastSuccessfulProgressAtMs).toISOString(),
+      elapsed_ms:
+        sandboxStartedAtMs === null ? null : Date.now() - sandboxStartedAtMs,
+      ...extra
+    });
+  }
+
+  function refreshFromConvergence() {
+    const convergence = convergencePolicy.snapshot();
+    if (convergence.selected_experiment && selectedAtMs === null) {
+      selectedAtMs = Date.now();
+    }
+    if (convergence.implementation_started && implementationStartedAtMs === null) {
+      implementationStartedAtMs = Date.now();
+    }
+    return convergence;
+  }
+
+  function markProgress(kind) {
+    const now = Date.now();
+    lastSuccessfulProgressAtMs = now;
+    if (kind === 'write') lastWriteAtMs = now;
+  }
+
+  function recordToolStart(name) {
+    currentTool = name || null;
+    audit('progress_heartbeat', snapshot({ event: 'tool_start' }));
+  }
+
+  function recordToolResult(name, result) {
+    const convergence = refreshFromConvergence();
+    const changed =
+      (name === 'write_file' || name === 'apply_patch') &&
+      result?.workspace_changed === true;
+    if (changed) markProgress('write');
+    if (name === 'run_focused_test') markProgress('focused_test');
+    if (name === 'run_verification' && result?.ok === true) {
+      markProgress('verification');
+    }
+    currentTool = null;
+    audit('progress_heartbeat', snapshot({
+      event: 'tool_result',
+      tool: name || null,
+      tool_ok: result?.ok === undefined ? null : result.ok === true,
+      convergence_phase: convergence.phase
+    }));
+  }
+
+  function stopReason() {
+    const now = Date.now();
+    const convergence = refreshFromConvergence();
+    if (
+      sandboxStartedAtMs !== null &&
+      now - sandboxStartedAtMs > AGENT_RUN_WALL_CLOCK_BUDGET_MS
+    ) {
+      return 'agent_run_wall_clock_budget_exceeded';
+    }
+    if (
+      selectedAtMs !== null &&
+      convergence.write_count <= 0 &&
+      now - selectedAtMs > IMPLEMENTATION_WRITE_DEADLINE_MS
+    ) {
+      return 'implementation_write_deadline_exceeded';
+    }
+    if (
+      implementationStartedAtMs !== null &&
+      now - (lastSuccessfulProgressAtMs || implementationStartedAtMs) >
+        IMPLEMENTATION_NO_PROGRESS_DEADLINE_MS
+    ) {
+      return 'implementation_progress_stalled';
+    }
+    if (
+      convergence.phase === 'repairing' &&
+      now - (lastSuccessfulProgressAtMs || implementationStartedAtMs || now) >
+        FOCUSED_REPAIR_NO_PROGRESS_DEADLINE_MS
+    ) {
+      return 'focused_repair_progress_stalled';
+    }
+    return null;
+  }
+
+  function heartbeat(extra = {}) {
+    if (Object.prototype.hasOwnProperty.call(extra, 'current_tool')) {
+      currentTool = extra.current_tool;
+    }
+    audit('progress_heartbeat', snapshot(extra));
+  }
+
+  return Object.freeze({
+    heartbeat,
+    recordToolResult,
+    recordToolStart,
+    stopReason
+  });
 }
 
 function shell(command, timeoutMs = MAX_COMMAND_MS, options = {}) {
@@ -564,7 +940,8 @@ function shell(command, timeoutMs = MAX_COMMAND_MS, options = {}) {
       npm_config_cache: NPM_CACHE_PATH,
       PIP_CACHE_DIR: PIP_CACHE_PATH
     },
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true
   });
   const stdoutChunks = [];
   const stderrChunks = [];
@@ -574,7 +951,17 @@ function shell(command, timeoutMs = MAX_COMMAND_MS, options = {}) {
   let cancelReason = null;
   let timedOut = false;
   let resolved = false;
-  const deadline = Math.max(MIN_COMMAND_TIMEOUT_MS, Math.min(Number(timeoutMs) || MAX_COMMAND_MS, MAX_COMMAND_MS));
+  const identityTimeoutMs =
+    identity === 'interface_install' || identity === 'root_install'
+      ? DEPENDENCY_INSTALL_TIMEOUT_MS
+      : timeoutMs;
+  const deadline = Math.max(
+    MIN_COMMAND_TIMEOUT_MS,
+    Math.min(
+      Number(identityTimeoutMs) || MAX_COMMAND_MS,
+      MAX_COMMAND_MS
+    )
+  );
 
   function recordProgress(reason) {
     audit('shell_progress', {
@@ -593,10 +980,14 @@ function shell(command, timeoutMs = MAX_COMMAND_MS, options = {}) {
     if (resolved) return;
     timedOut = true;
     cancelReason = 'configured_timeout';
-    try { child.kill('SIGTERM'); } catch (_error) {}
+    try { process.kill(-child.pid, 'SIGTERM'); } catch (_error) {
+      try { child.kill('SIGTERM'); } catch (_fallbackError) {}
+    }
     setTimeout(() => {
       if (!resolved) {
-        try { child.kill('SIGKILL'); } catch (_error) {}
+        try { process.kill(-child.pid, 'SIGKILL'); } catch (_error) {
+          try { child.kill('SIGKILL'); } catch (_fallbackError) {}
+        }
       }
     }, 5000);
   }, deadline);
@@ -606,7 +997,9 @@ function shell(command, timeoutMs = MAX_COMMAND_MS, options = {}) {
       if (resolved) return;
       cancelled = true;
       cancelReason = 'caller_aborted';
-      try { child.kill('SIGTERM'); } catch (_error) {}
+      try { process.kill(-child.pid, 'SIGTERM'); } catch (_error) {
+        try { child.kill('SIGTERM'); } catch (_fallbackError) {}
+      }
     }, { once: true });
   }
 
@@ -1159,21 +1552,38 @@ function ollamaRequest(method, requestPath, payload = null, options = {}) {
   });
 }
 
-async function ollamaChat(messages, tools) {
-  compactConversation(messages);
-  const payload = await ollamaRequest('POST', OLLAMA_CHAT_PATH, {
+async function ollamaChat(messages, tools, options = {}) {
+  if (options.compact !== false) compactConversation(messages);
+  const thinkingEnabled = Object.prototype.hasOwnProperty.call(options, 'think')
+    ? options.think
+    : MODEL_THINKING_ENABLED;
+  const temperature = Object.prototype.hasOwnProperty.call(options, 'temperature')
+    ? options.temperature
+    : MODEL_TEMPERATURE;
+  const requestPayload = {
     model: MODEL,
     messages,
-    tools,
     stream: OLLAMA_STREAM,
-    think: MODEL_THINKING_ENABLED,
+    think: thinkingEnabled,
     keep_alive: MODEL_KEEP_ALIVE,
     options: {
-      temperature: MODEL_TEMPERATURE,
+      temperature,
       top_p: MODEL_TOP_P,
       num_ctx: CONTEXT_WINDOW
     }
-  });
+  };
+  if (Array.isArray(tools) && tools.length > 0) {
+    requestPayload.tools = tools;
+  }
+  if (options.format && typeof options.format === 'object') {
+    requestPayload.format = options.format;
+  }
+  const payload = await ollamaRequest(
+    'POST',
+    OLLAMA_CHAT_PATH,
+    requestPayload,
+    options
+  );
   const message = payload.message || {};
   audit('model_turn', {
     prompt_eval_count: Number(payload.prompt_eval_count || 0),
@@ -1183,10 +1593,14 @@ async function ollamaChat(messages, tools) {
     tool_call_count: Array.isArray(message.tool_calls)
       ? message.tool_calls.length
       : 0,
-    thinking_enabled: MODEL_THINKING_ENABLED
+    thinking_enabled: thinkingEnabled,
+    temperature,
+    response_contract:
+      requestPayload.format ? 'json_schema' : 'native_tool_call'
   });
   return message;
 }
+
 
 const selectExperimentTool = {
   type: 'function',
@@ -1227,6 +1641,11 @@ const selectExperimentTool = {
     }
   }
 };
+
+const selectExperimentSchema = Object.freeze({
+  ...selectExperimentTool.function.parameters,
+  additionalProperties: false
+});
 
 const tools = [
   selectExperimentTool,
@@ -2902,6 +3321,17 @@ function readDependencyCacheMarker(file) {
   }
 }
 
+function dependencyCacheEntryValid(marker, expected) {
+  if (!marker || typeof marker !== 'object') return false;
+  if (marker.marker !== 'FLOKI_V2_RSI_PERSISTENT_DEPENDENCY_CACHE') return false;
+  if (marker.fingerprint !== expected.fingerprint) return false;
+  if (marker.project !== expected.project) return false;
+  if (marker.empty_tree === true) return true;
+  if (!fs.existsSync(expected.node_modules)) return false;
+  if (!fs.statSync(expected.node_modules).isDirectory()) return false;
+  return fs.existsSync(path.join(expected.node_modules, '.package-lock.json'));
+}
+
 function replaceDependencyLink(workspaceNodeModules, cacheNodeModules) {
   fs.rmSync(workspaceNodeModules, { recursive: true, force: true });
   fs.symlinkSync(cacheNodeModules, workspaceNodeModules, 'dir');
@@ -2951,17 +3381,11 @@ async function ensurePersistentDependencyTree(
   const workspaceNodeModules = path.join(projectDir, 'node_modules');
   const marker = readDependencyCacheMarker(markerFile);
 
-  if (
-    marker &&
-    marker.fingerprint === fingerprint &&
-    (
-      marker.empty_tree === true ||
-      (
-        fs.existsSync(cacheNodeModules) &&
-        fs.statSync(cacheNodeModules).isDirectory()
-      )
-    )
-  ) {
+  if (dependencyCacheEntryValid(marker, {
+    fingerprint,
+    project: projectRelativePath,
+    node_modules: cacheNodeModules
+  })) {
     if (marker.empty_tree === true) {
       fs.rmSync(workspaceNodeModules, { recursive: true, force: true });
     } else {
@@ -2990,12 +3414,20 @@ async function ensurePersistentDependencyTree(
   fs.rmSync(workspaceNodeModules, { recursive: true, force: true });
   const install = await shell(
     'cd ' + shellQuote(projectRelativePath) + ' && ' + installCommand,
-    MAX_COMMAND_MS,
+    DEPENDENCY_INSTALL_TIMEOUT_MS,
     {
       identity: commandIdentity,
       progress_interval_ms: SHELL_PROGRESS_INTERVAL_MS
     }
   );
+  if (install.timed_out === true) {
+    throw new Error(
+      cacheLabel +
+      ' dependency installation timed out after ' +
+      String(DEPENDENCY_INSTALL_TIMEOUT_MS) +
+      ' ms'
+    );
+  }
   if (install.status !== 0) {
     throw new Error(
       cacheLabel + ' dependency installation failed with status ' +
@@ -3224,13 +3656,40 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
     }
   ];
 
-  const iterationBudgetMs = ITERATION_WALL_CLOCK_BUDGET_MS;
+  const iterationBudgetMs = Math.min(
+    ITERATION_WALL_CLOCK_BUDGET_MS,
+    AGENT_RUN_WALL_CLOCK_BUDGET_MS
+  );
   const iterationStartedAt = Date.now();
+  sandboxStartedAtMs = iterationStartedAt;
+  const progressDeadlines = createProgressDeadlines();
 
-  for (let iteration = 0; iteration < MAX_ITERATIONS && !finalized; iteration += 1) {
+  for (let iteration = 0; !finalized; iteration += 1) {
     convergencePolicy.beginIteration(iteration + 1);
+    progressDeadlines.heartbeat({ event: 'iteration_start' });
+    const deadlineStopReason = progressDeadlines.stopReason();
+    if (deadlineStopReason) {
+      return finishWithoutCandidate(deadlineStopReason);
+    }
     if (Date.now() - iterationStartedAt > iterationBudgetMs) {
-      throw new Error('agent iteration wall-clock budget exceeded: ' + iterationBudgetMs + 'ms');
+      return finishWithoutCandidate('agent_run_wall_clock_budget_exceeded');
+    }
+    const selectionReadinessSnapshot = convergencePolicy.snapshot();
+    if (
+      !selectionReadinessSnapshot.selected_experiment &&
+      selectionReadinessSnapshot.autonomous_selection_ready === true
+    ) {
+      const selected = await runAutonomousSelectionTransaction(
+        messages,
+        progressDeadlines,
+        iteration + 1
+      );
+      if (selected) continue;
+      const selectionStopReason = convergencePolicy.endIteration();
+      if (selectionStopReason) {
+        return finishWithoutCandidate(selectionStopReason);
+      }
+      continue;
     }
     const selectionMessage = selectionAnchorMessage();
     if (selectionMessage) {
@@ -3279,10 +3738,25 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       });
     }
     let message;
+    const modelTurnController = new AbortController();
+    const modelTurnTimer = setTimeout(
+      () => modelTurnController.abort(new Error('model_turn_deadline_exceeded')),
+      MODEL_TURN_DEADLINE_MS
+    );
     try {
-      message = await ollamaChat(messages, activeTools);
+      progressDeadlines.heartbeat({
+        event: 'model_turn_start',
+        current_tool: 'model_turn'
+      });
+      message = await ollamaChat(messages, activeTools, {
+        signal: modelTurnController.signal
+      });
       consecutiveModelTurnFailures = 0;
     } catch (error) {
+      if (modelTurnController.signal.aborted) {
+        clearTimeout(modelTurnTimer);
+        return finishWithoutCandidate('model_turn_deadline_exceeded', error);
+      }
       consecutiveModelTurnFailures += 1;
       audit('model_turn_failure', {
         iteration: iteration + 1,
@@ -3313,14 +3787,17 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
           'state without restarting discovery.'
       });
       continue;
+    } finally {
+      clearTimeout(modelTurnTimer);
     }
+    progressDeadlines.heartbeat({
+      event: 'model_turn_result',
+      current_tool: null
+    });
     messages.push(message);
     const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
     if (calls.length === 0) {
-      const noToolStopReason = convergencePolicy.recordNoToolTurn();
-      if (noToolStopReason) {
-        return finishWithoutCandidate(noToolStopReason);
-      }
+      convergencePolicy.recordNoToolTurn();
       const noToolConvergenceStopReason = convergencePolicy.endIteration();
       if (noToolConvergenceStopReason) {
         return finishWithoutCandidate(noToolConvergenceStopReason);
@@ -3338,6 +3815,7 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
         try { args = JSON.parse(args); } catch (_error) { args = {}; }
       }
       let result;
+      progressDeadlines.recordToolStart(name);
       const authorization = convergencePolicy.authorize(name, args);
       const preSelectionInvalidTool =
         !convergencePolicy.snapshot().selected_experiment &&
@@ -3353,6 +3831,11 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
         }
       }
       convergencePolicy.record(name, args, result);
+      progressDeadlines.recordToolResult(name, result);
+      const toolDeadlineStopReason = progressDeadlines.stopReason();
+      if (toolDeadlineStopReason) {
+        return finishWithoutCandidate(toolDeadlineStopReason);
+      }
       if (name === 'select_experiment' && result?.ok !== true) {
         audit('select_experiment_rejected', {
           iteration: iteration + 1,
@@ -3439,11 +3922,6 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       });
     }
   }
-
-  if (!finalized) {
-    return finishWithoutCandidate('agent_iteration_limit_reached');
-  }
-  printSandboxPass();
 }
 
 main().catch((error) => {

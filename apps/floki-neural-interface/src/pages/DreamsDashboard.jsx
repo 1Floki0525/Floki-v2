@@ -31,14 +31,19 @@ function sessionLabel(session) {
 
 export default function DreamsDashboard({ flokiStatus }) {
   const [timeline, setTimeline] = useState(null);
+  const [rsiStatus, setRsiStatus] = useState(null);
   const [selectedDreamId, setSelectedDreamId] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [clock, setClock] = useState(Date.now());
 
   const refreshTimeline = useCallback(async () => {
     try {
-      const next = await flokiAdapter.getDreamTimeline();
+      const [next, status] = await Promise.all([
+        flokiAdapter.getDreamTimeline(),
+        flokiAdapter.getSelfImprovementStatus()
+      ]);
       setTimeline(next);
+      setRsiStatus(status);
       setSelectedDreamId((current) => {
         if (current && next.dreams?.some((dream) => dream.id === current)) return current;
         return next.dreams?.[0]?.id || null;
@@ -141,6 +146,8 @@ export default function DreamsDashboard({ flokiStatus }) {
 
   const activeSession = timeline.activeSession;
   const activeLabel = sessionLabel(activeSession);
+  const nightlyCycle = rsiStatus?.nightly_cycle || null;
+  const isNightly = activeSession?.kind === 'nightly_sleep';
   const sleepRemainingMs = activeSession?.wakeAt
     ? Math.max(0, new Date(activeSession.wakeAt).getTime() - clock)
     : Math.max(0, Number(activeSession?.remainingMs || 0));
@@ -171,15 +178,22 @@ export default function DreamsDashboard({ flokiStatus }) {
                   {activeLabel}
                 </p>
                 <p className="mt-1 text-[11px] text-muted-foreground font-mono">
-                  {activeSession.status === 'dreaming'
-                    ? `REM cycle ${activeSession.currentRemCycle || '—'} is generating a full first-person dream now.`
-                    : `One REM dream every ${activeSession.remIntervalMinutes || 10} minutes until wake.`}
+                  {isNightly
+                    ? 'One complete HF training epoch, then one REM dream, repeating until 07:00 America/Toronto. One adapter candidate is compiled for review at wake.'
+                    : activeSession.status === 'dreaming'
+                      ? `REM cycle ${activeSession.currentRemCycle || '—'} is generating a full first-person dream now.`
+                      : 'Manual 30-minute nap: REM at +10 and +20 minutes, wake at +30 minutes.'}
                 </p>
                 <p className="mt-1 text-[10px] text-muted-foreground/70 font-mono">
-                  REM cycles: {completedCycles}/{totalCycles} complete
+                  {isNightly
+                    ? `Completed epochs: ${Number(nightlyCycle?.completed_epochs || 0)} · Completed dreams: ${Number(nightlyCycle?.completed_rem_cycles || 0)} · Next: ${nightlyCycle?.next_action || 'training epoch'}`
+                    : `REM cycles: ${completedCycles}/${totalCycles} complete`}
                 </p>
                 {activeSession.lastError && (
                   <p className="mt-1 text-[11px] text-red-400 font-mono">{activeSession.lastError}</p>
+                )}
+                {isNightly && nightlyCycle?.error && (
+                  <p className="mt-1 text-[11px] text-red-400 font-mono">{nightlyCycle.error}</p>
                 )}
                 {actionError && (
                   <p className="mt-1 text-[11px] text-red-400 font-mono">Dreams action failed: {actionError}</p>
@@ -208,16 +222,57 @@ export default function DreamsDashboard({ flokiStatus }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-[300px] font-mono">
+              {isNightly ? (
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 min-w-[360px] font-mono">
                 <div className="rounded-md border border-border/50 px-3 py-2">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                    Sleep remaining
-                  </p>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Wake countdown</p>
                   <p className="text-lg font-semibold text-foreground">
-                    {formatCountdown(sleepRemainingMs, activeSession.kind === 'nightly_sleep')}
+                    {formatCountdown(sleepRemainingMs, true)}
                   </p>
                 </div>
-
+                <div className="rounded-md border border-neon-cyan/20 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Current epoch</p>
+                  <p className="text-lg font-semibold text-neon-cyan">
+                    {nightlyCycle?.current_epoch || '—'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {String(nightlyCycle?.epoch_state || 'waiting').replaceAll('_', ' ')}
+                  </p>
+                </div>
+                <div className="rounded-md border border-neon-cyan/20 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Current REM</p>
+                  <p className="text-lg font-semibold text-neon-cyan">
+                    {nightlyCycle?.current_rem_cycle ? `Cycle ${nightlyCycle.current_rem_cycle}` : '—'}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border/50 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Epochs complete</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {Number(nightlyCycle?.completed_epochs || 0)}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border/50 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Dreams complete</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {Number(nightlyCycle?.completed_rem_cycles || 0)}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border/50 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Next action</p>
+                  <p className="text-sm font-semibold text-foreground">
+                    {nightlyCycle?.next_action || 'training epoch'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">One candidate per night</p>
+                </div>
+              </div>
+              ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-[300px] font-mono">
+                <div className="rounded-md border border-border/50 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Sleep remaining</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {formatCountdown(sleepRemainingMs, false)}
+                  </p>
+                </div>
                 <div className="rounded-md border border-neon-cyan/20 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
                     {activeSession.status === 'dreaming' ? 'Current REM' : 'Next REM in'}
@@ -229,23 +284,12 @@ export default function DreamsDashboard({ flokiStatus }) {
                         ? '—'
                         : formatCountdown(nextRemCountdownMs)}
                   </p>
-                  {activeSession.status !== 'dreaming' && activeSession.nextRemCycleAt && (
-                    <p className="text-[10px] text-muted-foreground">
-                      Cycle {activeSession.nextRemCycleNumber || '—'} at{' '}
-                      {new Date(activeSession.nextRemCycleAt).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        timeZone: 'America/Toronto'
-                      })}
-                    </p>
-                  )}
-                  {activeSession.status !== 'dreaming' && !activeSession.nextRemCycleAt && (
-                    <p className="text-[10px] text-muted-foreground">
-                      No further REM cycle before wake.
-                    </p>
-                  )}
+                  <p className="text-[10px] text-muted-foreground">
+                    Manual nap REM remains +10 / +20, wake +30.
+                  </p>
                 </div>
               </div>
+              )}
             </div>
           </div>
         )}

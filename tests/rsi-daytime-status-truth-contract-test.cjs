@@ -52,6 +52,17 @@ function uiDependencies(overrides = {}) {
     listAdapters: () => [],
     loadSleepCycleState: () => null,
     readManualNapState: () => ({ active: false }),
+    observeTrainingReality: () => ({
+      phase: 'inactive',
+      resource_mode: 'inactive',
+      observed_gpu_owner: null,
+      live_training: false,
+      live_rem: false,
+      stale_gpu_owner: false,
+      stale_owner_reconciled: false,
+      active_hf_model: false,
+      error: null
+    }),
     ...overrides
   };
 }
@@ -127,6 +138,7 @@ const training = buildSelfImprovementUiStatus({
     }),
     readNightlySession: () => ({
       run_id: 'nightly-training-1',
+      active: true,
       status: 'training',
       segment_number: 2,
       latest_checkpoint: '/tmp/checkpoint-50',
@@ -135,14 +147,25 @@ const training = buildSelfImprovementUiStatus({
       candidate_id: null,
       restoration: null
     }),
-    currentOwner: () => 'hf_training'
+    currentOwner: () => 'hf_training',
+    observeTrainingReality: () => ({
+      phase: 'training',
+      resource_mode: 'active',
+      observed_gpu_owner: 'hf_training',
+      live_training: true,
+      live_rem: false,
+      stale_gpu_owner: false,
+      stale_owner_reconciled: false,
+      active_hf_model: true,
+      error: null
+    })
   })
 });
 
 assert.equal(training.active_run, true);
 assert.equal(training.active_run_kind, 'training');
-assert.equal(training.current_phase, 'nightly_training_segment_running',
-  'active phase must pass through untouched');
+assert.equal(training.current_phase, 'training',
+  'active phase must show observed training reality');
 assert.equal(training.active_goal, 'nightly training');
 assert.equal(training.active_role, 'trainer');
 assert.equal(training.active_cycle_type, 'floki_selected');
@@ -182,6 +205,7 @@ assert.equal(training.gpu_workloads[0].workload, 'qlora_training');
       acquire: () => {}
     },
     read_session: () => session,
+    refresh_session: (value) => value,
     checkpoint_session: async (value) => {
       session = { ...value, current_container: null };
       return { ok: true, session };
@@ -190,6 +214,7 @@ assert.equal(training.gpu_workloads[0].workload, 'qlora_training');
       session = { ...value, active: false, finalized: true };
       return session;
     },
+    enter_resource: async () => ({ ok: true }),
     exit_resource: async () => ({
       ok: true,
       result: { lifecycle_restored: true }

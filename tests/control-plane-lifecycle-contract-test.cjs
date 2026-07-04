@@ -230,8 +230,8 @@ async function run() {
       assert.equal(card.startAvailable, true);
       assert.equal(card.stopAvailable, true);
       assert.equal(card.resetAvailable, true);
-      assert.equal(card.logAvailable, false);
-      assert.equal(card.logKey, null);
+      assert.equal(card.logAvailable, true);
+      assert.equal(card.logKey, key);
     }
     for (const [key, card] of controlCards) {
       if (key === 'web_app' || key === 'mobile_app') continue;

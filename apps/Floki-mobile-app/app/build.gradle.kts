@@ -1,7 +1,24 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+val flokiMobileAuthProperties = Properties()
+val flokiMobileAuthFile =
+    rootProject.file("mobile-auth.local.properties")
+if (flokiMobileAuthFile.isFile) {
+    flokiMobileAuthFile.inputStream().use {
+        flokiMobileAuthProperties.load(it)
+    }
+}
+val flokiMobileBootstrapSecret =
+    flokiMobileAuthProperties.getProperty(
+        "flokiMobileBootstrapSecret",
+        ""
+    ).trim()
+
 
 android {
     namespace = "com.floki.neural"
@@ -11,8 +28,13 @@ android {
         applicationId = "com.floki.neural"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.2.0-rsi-remote"
+        versionCode = 8
+        versionName = "0.4.5-rsi-runtime-weekly-logs"
+        buildConfigField(
+            "String",
+            "FLOKI_MOBILE_BOOTSTRAP_SECRET",
+            "\"${flokiMobileBootstrapSecret}\""
+        )
     }
 
     buildTypes {

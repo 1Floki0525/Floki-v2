@@ -4,13 +4,15 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.floki.neural.data.FlokiBackend
+import com.floki.neural.data.FlokiUnauthorizedException
+import com.floki.neural.data.MobileBootstrapAuth
+import com.floki.neural.data.MobileBootstrapSession
 import com.floki.neural.data.FlokiAudioRecorder
 import com.floki.neural.data.ProfileStore
 import com.floki.neural.data.ServerProfile
 import com.floki.neural.data.booleanOrNull
 import com.floki.neural.data.intOrNull
 import com.floki.neural.data.longOrNull
-import com.floki.neural.data.normalizeFlokiSessionCredential
 import com.floki.neural.data.stringOrNull
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -65,7 +67,9 @@ data class ServiceItem(
     val connectedClientCount: Int? = null,
     val healthyClientCount: Int? = null,
     val transportType: String? = null,
-    val controlGeneration: Long? = null
+    val controlGeneration: Long? = null,
+    val logAvailable: Boolean = false,
+    val logKey: String? = null
 )
 
 data class CandidateItem(
@@ -107,13 +111,55 @@ data class RsiSnapshot(
     val modelProxyReady: Boolean = false,
     val currentRunId: String? = null,
     val currentContainer: String? = null,
+    val currentObjective: String? = null,
+    val activeRole: String? = null,
+    val activeTool: String? = null,
+    val resourceMode: String? = null,
+    val gpuOwner: String? = null,
+    val gpuWorkloadOwner: String? = null,
+    val telemetryStale: Boolean = false,
     val lastError: String? = null
+)
+
+data class SessionSnapshot(
+    val signedIn: Boolean = false,
+    val account: String? = null,
+    val role: String? = null,
+    val status: String? = null,
+    val expiresAt: Long? = null,
+    val capabilities: Set<String> = emptySet(),
+    val lastError: String? = null
+) {
+    fun has(capability: String): Boolean = signedIn && capabilities.contains(capability)
+}
+
+data class VisionDetection(
+    val id: String,
+    val kind: String,
+    val label: String,
+    val confidence: Float?,
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float
+)
+
+data class VisionOverlaySnapshot(
+    val detections: List<VisionDetection> = emptyList(),
+    val frameWidth: Int = 0,
+    val frameHeight: Int = 0,
+    val frameRate: Double = 0.0,
+    val connectionStatus: String = "offline",
+    val frameFresh: Boolean = false,
+    val detectionFresh: Boolean = false,
+    val updatedAt: Long = 0L
 )
 
 data class FlokiUiState(
     val profile: ServerProfile = ServerProfile(),
     val connected: Boolean = false,
     val websocketConnected: Boolean = false,
+    val session: SessionSnapshot = SessionSnapshot(),
     val refreshing: Boolean = false,
     val busyAction: String? = null,
     val runtime: RuntimeSnapshot = RuntimeSnapshot(),
@@ -128,19 +174,46 @@ data class FlokiUiState(
     val rsiTerminalGeneration: Long = 0,
     val rsiTerminalActive: Boolean = false,
     val rsiTerminalError: String? = null,
+    val logWorkspaceTitle: String? = null,
+    val logWorkspaceService: String = "",
+    val logWorkspaceText: String = "",
+    val logWorkspaceLoading: Boolean = false,
     val visionFrameBytes: ByteArray? = null,
     val visionFrameGeneration: Int = 0,
+    val visionOverlay: VisionOverlaySnapshot =
+        VisionOverlaySnapshot(),
+    val visionTransportState: String = "waiting",
+    val visionTransportFailures: Int = 0,
     val recording: Boolean = false,
     val hasAudioPermission: Boolean = false,
     val message: String? = null,
     val error: String? = null
-)
+) {
+    /**
+     * Truthful connection state derived from real traffic outcomes, never
+     * from cached data alone.
+     */
+    val connectionState: String
+        get() = when {
+            profile.sessionCredential.isBlank() && !profile.developerMode -> "Signed out"
+            connected -> "Connected"
+            error?.contains("Unauthorized", ignoreCase = true) == true -> "Unauthorized"
+            refreshing -> "Connecting"
+            else -> "Offline"
+        }
+}
 
 class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     private val profileStore = ProfileStore(application.applicationContext)
     private val audioRecorder = FlokiAudioRecorder()
     private var profile = profileStore.load()
-    private var backend = FlokiBackend(profile)
+    private val mobileBootstrapAuth = MobileBootstrapAuth()
+    private var accessCredential = ""
+    private var accessExpiresAtMs = 0L
+    private var backend = FlokiBackend(
+        profile,
+        accessCredential
+    )
     private var socket: WebSocket? = null
     private var pollingJob: Job? = null
     private var heartbeatJob: Job? = null
@@ -148,6 +221,8 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     private var visionPollingJob: Job? = null
     private var reconnectJob: Job? = null
     private var voiceJob: Job? = null
+    private var bootstrapJob: Job? = null
+    private var tokenRefreshJob: Job? = null
     private var transportGeneration = 0
     private val mobileClientId = profileStore.loadOrCreateMobileClientId()
     private val mobileSessionId = "mobile-session-${UUID.randomUUID()}"
@@ -159,21 +234,32 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
 
     private val refreshInProgress = AtomicBoolean(false)
     private val terminalRefreshInProgress = AtomicBoolean(false)
+    private val visionFrameRequestInProgress =
+        AtomicBoolean(false)
+    private val visionMetadataRequestInProgress =
+        AtomicBoolean(false)
+    private var visionLastGoodFrameAtMs = 0L
+    private var visionConsecutiveFrameFailures = 0
+    private var visionAuthoritativeOfflineCount = 0
 
     private val _state = MutableStateFlow(FlokiUiState(profile = profile))
     val state: StateFlow<FlokiUiState> = _state.asStateFlow()
 
     init {
-        restartTransport()
-        refresh()
-        refreshRsiTerminal(reset = true)
+        if (profile.developerMode) {
+            accessExpiresAtMs = Long.MAX_VALUE
+            restartTransport()
+            refresh()
+            refreshRsiTerminal(reset = true)
+        } else {
+            bootstrapAndStart()
+        }
     }
 
     fun saveProfile(
         host: String,
         portText: String,
         pollText: String,
-        sessionCredential: String,
         useTls: Boolean,
         developerMode: Boolean
     ) {
@@ -183,7 +269,6 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             .trimEnd('/')
         val port = portText.toIntOrNull()
         val poll = pollText.toLongOrNull()
-        val cleanCredential = normalizeFlokiSessionCredential(sessionCredential)
 
         when {
             cleanHost.isBlank() -> setError("Server host cannot be empty")
@@ -195,15 +280,12 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             poll == null || poll !in 1_000L..60_000L -> setError(
                 "Poll interval must be between 1000 and 60000 ms"
             )
-            !developerMode && cleanCredential.isBlank() -> setError(
-                "Public gateway profiles require an approved-user session credential"
-            )
             else -> {
                 profile = ServerProfile(
                     host = cleanHost,
                     port = port,
                     pollIntervalMs = poll,
-                    sessionCredential = cleanCredential,
+                    sessionCredential = "",
                     useTls = useTls,
                     developerMode = developerMode
                 )
@@ -216,11 +298,233 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
                         error = null
                     )
                 }
-                restartTransport()
-                refresh()
-                refreshRsiTerminal(reset = true)
+                if (profile.developerMode) {
+                    accessCredential = ""
+                    accessExpiresAtMs = Long.MAX_VALUE
+                    restartTransport()
+                    refresh()
+                    refreshRsiTerminal(reset = true)
+                } else {
+                    accessCredential = ""
+                    accessExpiresAtMs = 0L
+                    bootstrapAndStart(force = true)
+                }
             }
         }
+    }
+
+    fun reconnectAutomaticAccess() {
+        if (profile.developerMode) {
+            restartTransport()
+            refresh()
+            return
+        }
+        bootstrapAndStart(force = true)
+    }
+
+    private fun bootstrapAndStart(
+        force: Boolean = false
+    ) {
+        if (profile.developerMode) {
+            accessCredential = ""
+            accessExpiresAtMs = Long.MAX_VALUE
+            restartTransport()
+            refresh()
+            return
+        }
+
+        if (
+            bootstrapJob?.isActive == true &&
+            !force
+        ) {
+            return
+        }
+
+        if (force) {
+            bootstrapJob?.cancel()
+            bootstrapJob = null
+        }
+
+        bootstrapJob = viewModelScope.launch {
+            var attempt = 0
+            try {
+                while (isActive) {
+                    val hasUsableCredential =
+                        accessCredential.isNotBlank() &&
+                            System.currentTimeMillis() +
+                                5_000L <
+                                accessExpiresAtMs
+
+                    _state.update {
+                        it.copy(
+                            connected =
+                                if (hasUsableCredential) {
+                                    it.connected
+                                } else {
+                                    false
+                                },
+                            websocketConnected =
+                                if (hasUsableCredential) {
+                                    it.websocketConnected
+                                } else {
+                                    false
+                                },
+                            message =
+                                if (attempt == 0) {
+                                    "Authorizing this host-built APK…"
+                                } else {
+                                    "Reconnecting automatic access…"
+                                },
+                            error = null
+                        )
+                    }
+
+                    try {
+                        val session =
+                            mobileBootstrapAuth.requestSession(
+                                mobileClientId
+                            )
+                        applyBootstrapSession(session)
+                        return@launch
+                    } catch (
+                        error:
+                            kotlinx.coroutines.CancellationException
+                    ) {
+                        throw error
+                    } catch (_: Exception) {
+                        attempt += 1
+
+                        if (!hasUsableCredential) {
+                            accessCredential = ""
+                            accessExpiresAtMs = 0L
+                            stopAllTransport()
+                        }
+
+                        _state.update {
+                            it.copy(
+                                connected =
+                                    if (hasUsableCredential) {
+                                        it.connected
+                                    } else {
+                                        false
+                                    },
+                                websocketConnected =
+                                    if (hasUsableCredential) {
+                                        it.websocketConnected
+                                    } else {
+                                        false
+                                    },
+                                message =
+                                    "Reconnecting automatic access…",
+                                error = null
+                            )
+                        }
+
+                        val retryDelay = (
+                            AUTO_ACCESS_RETRY_BASE_MS *
+                                attempt.coerceAtMost(15)
+                        ).coerceAtMost(
+                            AUTO_ACCESS_RETRY_MAX_MS
+                        )
+                        delay(retryDelay)
+                    }
+                }
+            } finally {
+                bootstrapJob = null
+            }
+        }
+    }
+
+    private suspend fun applyBootstrapSession(
+        session: MobileBootstrapSession
+    ) {
+        accessCredential = session.accessToken
+        accessExpiresAtMs =
+            System.currentTimeMillis() +
+                session.expiresInSeconds * 1_000L
+        backend.close()
+        backend = FlokiBackend(
+            profile,
+            accessCredential
+        )
+
+        val gatewaySession = parseSession(
+            backend.getSession()
+        )
+        val missingCapabilities =
+            FULL_HOST_CAPABILITIES.filterNot(
+                gatewaySession::has
+            )
+
+        if (
+            !gatewaySession.signedIn ||
+            gatewaySession.role?.lowercase() !in
+                setOf("admin", "administrator") ||
+            gatewaySession.status?.lowercase() != "approved" ||
+            missingCapabilities.isNotEmpty()
+        ) {
+            accessCredential = ""
+            accessExpiresAtMs = 0L
+            backend.close()
+            throw IllegalStateException(
+                "Host-authorized APK did not receive full control capabilities" +
+                    if (missingCapabilities.isEmpty()) {
+                        ""
+                    } else {
+                        ": " + missingCapabilities.sorted().joinToString(", ")
+                    }
+            )
+        }
+
+        _state.update {
+            it.copy(
+                session = gatewaySession,
+                message = "Host-authorized APK connected with full control",
+                error = null
+            )
+        }
+
+        restartTransport()
+        refresh()
+        refreshRsiTerminal(reset = true)
+    }
+
+    private fun recoverUnauthorized() {
+        if (
+            profile.developerMode ||
+            bootstrapJob?.isActive == true
+        ) {
+            return
+        }
+
+        accessCredential = ""
+        accessExpiresAtMs = 0L
+        stopAllTransport()
+        _state.update {
+            it.copy(
+                connected = false,
+                websocketConnected = false,
+                message = "Renewing automatic access…",
+                error = null
+            )
+        }
+        bootstrapAndStart()
+    }
+
+    private fun stopAllTransport() {
+        reconnectJob?.cancel()
+        pollingJob?.cancel()
+        heartbeatJob?.cancel()
+        tokenRefreshJob?.cancel()
+        terminalPollingJob?.cancel()
+        visionPollingJob?.cancel()
+        voiceJob?.cancel()
+        socket?.close(
+            1000,
+            "host authorization unavailable"
+        )
+        socket = null
+        backend.close()
     }
 
     fun refresh() {
@@ -229,6 +533,16 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(refreshing = true) }
             try {
                 val status = backend.getObject("/interface/status")
+                val sessionResult = runCatching {
+                    if (
+                        profile.developerMode ||
+                        accessCredential.isNotBlank()
+                    ) {
+                        backend.getSession()
+                    } else {
+                        null
+                    }
+                }
                 val servicesResult = runCatching { backend.getArray("/interface/services") }
                 val services = servicesResult.getOrNull()?.let(::parseServices)
                 services?.firstOrNull { it.key == MOBILE_APP_KEY }?.let(::applyMobileServiceControl)
@@ -255,6 +569,16 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update { current ->
                     current.copy(
                         connected = true,
+                        session = sessionResult.fold(
+                            onSuccess = { json ->
+                                json?.let(::parseSession) ?: SessionSnapshot()
+                            },
+                            onFailure = { error ->
+                                current.session.copy(
+                                    lastError = error.message
+                                )
+                            }
+                        ),
                         runtime = parseRuntime(status),
                         services = services ?: current.services,
                         chat = transcriptResult.getOrNull()?.let(::parseChat)
@@ -274,11 +598,53 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             } catch (error: Exception) {
+                val detail =
+                    error.message.orEmpty()
+                val authorizationFailure =
+                    error is FlokiUnauthorizedException
+                val transientTransportFailure =
+                    detail.contains(
+                        "unable to resolve host",
+                        ignoreCase = true
+                    ) ||
+                        detail.contains(
+                            "timeout",
+                            ignoreCase = true
+                        ) ||
+                        detail.contains(
+                            "failed to connect",
+                            ignoreCase = true
+                        )
+
+                if (authorizationFailure) {
+                    recoverUnauthorized()
+                }
+
                 _state.update {
                     it.copy(
                         connected = false,
                         refreshing = false,
-                        error = error.message ?: "Could not reach Floki-v2"
+                        message =
+                            if (authorizationFailure) {
+                                "Renewing automatic access…"
+                            } else if (
+                                transientTransportFailure
+                            ) {
+                                "Reconnecting secure transport…"
+                            } else {
+                                it.message
+                            },
+                        error =
+                            if (
+                                authorizationFailure ||
+                                transientTransportFailure
+                            ) {
+                                null
+                            } else {
+                                detail.ifBlank {
+                                    "Could not reach Floki-v2"
+                                }
+                            }
                     )
                 }
             } finally {
@@ -348,23 +714,186 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun flushVisionFrame() {
-        _state.update { it.copy(visionFrameBytes = null) }
+        visionLastGoodFrameAtMs = 0L
+        visionConsecutiveFrameFailures = 0
+        visionAuthoritativeOfflineCount = 0
+        _state.update {
+            it.copy(
+                visionFrameBytes = null,
+                visionOverlay = VisionOverlaySnapshot(),
+                visionTransportState = "waiting",
+                visionTransportFailures = 0
+            )
+        }
     }
 
     fun refreshVisionFrame() {
         if (!normalMobileTransportEnabled) return
         viewModelScope.launch {
-            try {
-                val bytes = backend.getBytes("/interface/vision/frame/latest.jpg")
+            pollVisionFrameOnce()
+            pollVisionMetadataOnce()
+        }
+    }
+
+    private suspend fun pollVisionFrameOnce() {
+        if (!normalMobileTransportEnabled) return
+        if (!visionFrameRequestInProgress.compareAndSet(false, true)) return
+
+        try {
+            val bytes = backend.getVisionFrameBytes()
+            visionLastGoodFrameAtMs = System.currentTimeMillis()
+            visionConsecutiveFrameFailures = 0
+            _state.update {
+                it.copy(
+                    visionFrameBytes = bytes,
+                    visionFrameGeneration = it.visionFrameGeneration + 1,
+                    visionTransportState = "live",
+                    visionTransportFailures = 0
+                )
+            }
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: FlokiUnauthorizedException) {
+            recoverUnauthorized()
+        } catch (_: Exception) {
+            visionConsecutiveFrameFailures += 1
+            val hasLastGoodFrame = _state.value.visionFrameBytes != null
+            _state.update {
+                it.copy(
+                    visionTransportState = if (hasLastGoodFrame) "reconnecting" else "waiting",
+                    visionTransportFailures = visionConsecutiveFrameFailures
+                )
+            }
+        } finally {
+            visionFrameRequestInProgress.set(false)
+        }
+    }
+
+    private suspend fun pollVisionMetadataOnce() {
+        if (!normalMobileTransportEnabled) return
+        if (!visionMetadataRequestInProgress.compareAndSet(false, true)) return
+
+        try {
+            val overlay = parseVisionOverlay(backend.getVisionMetadata())
+            val authoritativeLive =
+                overlay.connectionStatus == "active" && overlay.frameFresh
+
+            if (authoritativeLive) {
+                visionAuthoritativeOfflineCount = 0
                 _state.update {
                     it.copy(
-                        visionFrameBytes = bytes,
-                        visionFrameGeneration = it.visionFrameGeneration + 1
+                        visionOverlay = overlay,
+                        visionTransportState = if (it.visionFrameBytes != null) "live" else "waiting"
                     )
                 }
-            } catch (_: Exception) {
+            } else {
+                visionAuthoritativeOfflineCount += 1
+                val lastGoodAgeMs = System.currentTimeMillis() - visionLastGoodFrameAtMs
+                val clearExpiredFrame =
+                    visionAuthoritativeOfflineCount >= VISION_AUTHORITATIVE_OFFLINE_CONFIRMATIONS &&
+                        lastGoodAgeMs > VISION_FRAME_GRACE_MS
+
+                _state.update {
+                    it.copy(
+                        visionFrameBytes = if (clearExpiredFrame) null else it.visionFrameBytes,
+                        visionOverlay = overlay.copy(detections = emptyList()),
+                        visionTransportState = if (clearExpiredFrame) "waiting" else "reconnecting"
+                    )
+                }
+            }
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: FlokiUnauthorizedException) {
+            recoverUnauthorized()
+        } catch (_: Exception) {
+            // Transient metadata failures preserve the last good frame and boxes.
+        } finally {
+            visionMetadataRequestInProgress.set(false)
+        }
+    }
+
+    private fun parseVisionOverlay(root: JSONObject): VisionOverlaySnapshot {
+        val frame = root.optJSONObject("frame")
+        val detection = root.optJSONObject("detection")
+        val connectionStatus = root.stringOrNull("connectionStatus") ?: "offline"
+        val frameFresh = frame?.booleanOrNull("fresh") == true
+        val detectionFresh =
+            connectionStatus == "active" &&
+                frameFresh &&
+                detection?.booleanOrNull("fresh") == true &&
+                detection.booleanOrNull("stale") != true
+
+        val detections = if (detectionFresh) {
+            buildList {
+                addAll(parseVisionDetectionArray(root.optJSONArray("objects"), "object"))
+                addAll(parseVisionDetectionArray(root.optJSONArray("persons"), "person"))
+                addAll(parseVisionDetectionArray(root.optJSONArray("faces"), "face"))
+            }
+        } else {
+            emptyList()
+        }
+
+        return VisionOverlaySnapshot(
+            detections = detections,
+            frameWidth = frame?.intOrNull("width") ?: 0,
+            frameHeight = frame?.intOrNull("height") ?: 0,
+            frameRate = root.optDouble("frameRate", 0.0).takeIf { it.isFinite() } ?: 0.0,
+            connectionStatus = connectionStatus,
+            frameFresh = frameFresh,
+            detectionFresh = detectionFresh,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    private fun parseVisionDetectionArray(
+        array: JSONArray?,
+        kind: String
+    ): List<VisionDetection> {
+        if (array == null) return emptyList()
+
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val box = item.optJSONObject("bbox") ?: continue
+                val x = finiteFloat(box.opt("x")) ?: continue
+                val y = finiteFloat(box.opt("y")) ?: continue
+                val width = finiteFloat(box.opt("width")) ?: continue
+                val height = finiteFloat(box.opt("height")) ?: continue
+
+                if (
+                    x < 0f || y < 0f || width <= 0f || height <= 0f ||
+                    x > 1f || y > 1f || width > 1f || height > 1f ||
+                    x + width > 1.001f || y + height > 1.001f
+                ) continue
+
+                val label =
+                    item.stringOrNull("label")
+                        ?: item.stringOrNull("class")
+                        ?: item.stringOrNull("name")
+                        ?: kind
+                add(
+                    VisionDetection(
+                        id = item.stringOrNull("id") ?: "$kind-$index",
+                        kind = kind,
+                        label = label,
+                        confidence = finiteFloat(item.opt("confidence"))?.coerceIn(0f, 1f),
+                        x = x,
+                        y = y,
+                        width = width,
+                        height = height
+                    )
+                )
             }
         }
+    }
+
+    private fun finiteFloat(value: Any?): Float? {
+        val number = when (value) {
+            is Number -> value.toFloat()
+            is String -> value.toFloatOrNull()
+            else -> null
+        }
+        return number?.takeIf { it.isFinite() }
     }
 
     fun sendChat(text: String) {
@@ -501,6 +1030,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             setError("Unknown module")
             return
         }
+        if (!requireCapability("system:control", "Module $cleanAction")) return
         runAction("$cleanModule:$cleanAction") {
             val response = backend.post("/control/modules/$cleanModule/$cleanAction")
             if (cleanModule == MOBILE_APP_KEY && cleanAction in setOf("start", "reset")) {
@@ -515,7 +1045,27 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     fun requestNap() = control("requestSleep")
     fun wake() = control("wake")
 
+    /**
+     * Server-side authorization is authoritative; this local gate exists so a
+     * missing capability produces an actionable reason instead of a request
+     * that is known to fail.
+     */
+    private fun requireCapability(
+        capability: String,
+        actionLabel: String
+    ): Boolean {
+        if (profile.developerMode) return true
+        if (_state.value.session.has(capability)) return true
+
+        bootstrapAndStart(force = true)
+        setError(
+            "$actionLabel is waiting for host-authorized full access to refresh."
+        )
+        return false
+    }
+
     fun approveCandidate(id: String) {
+        if (!requireCapability("candidate:review", "Candidate approval")) return
         runAction("approve") {
             val response = backend.post(
                 "/self-improvement/approve",
@@ -531,6 +1081,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             setError("A denial reason is required")
             return
         }
+        if (!requireCapability("candidate:review", "Candidate denial")) return
         runAction("deny") {
             val response = backend.post(
                 "/self-improvement/deny",
@@ -542,11 +1093,137 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun pauseRsi() = authenticatedAction("pause", "/self-improvement/pause")
-    fun resumeRsi() = authenticatedAction("resume", "/self-improvement/resume")
+    fun openLog(service: String) {
+        if (
+            !requireCapability(
+                "logs:read",
+                "Open current-week log"
+            )
+        ) {
+            return
+        }
+
+        val cleanService = service.trim()
+        if (cleanService.isBlank()) {
+            setError(
+                "A log service is required"
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    logWorkspaceTitle =
+                        cleanService
+                            .replace('_', ' ')
+                            .uppercase(),
+                    logWorkspaceService =
+                        cleanService,
+                    logWorkspaceText =
+                        "Loading authenticated current-week log…",
+                    logWorkspaceLoading = true,
+                    error = null
+                )
+            }
+            try {
+                val result =
+                    backend.getLog(cleanService)
+                if (
+                    result.booleanOrNull(
+                        "exists"
+                    ) != true
+                ) {
+                    throw IllegalStateException(
+                        result.stringOrNull(
+                            "error"
+                        ) ?:
+                            "The selected current-week log is unavailable"
+                    )
+                }
+                _state.update {
+                    it.copy(
+                        logWorkspaceTitle =
+                            result.stringOrNull(
+                                "display_name"
+                            ) ?:
+                                cleanService
+                                    .replace('_', ' ')
+                                    .uppercase(),
+                        logWorkspaceText =
+                            result.stringOrNull(
+                                "text"
+                            ).orEmpty().ifBlank {
+                                "(No log activity was captured this week.)"
+                            },
+                        logWorkspaceLoading = false
+                    )
+                }
+            } catch (
+                error:
+                    kotlinx.coroutines.CancellationException
+            ) {
+                throw error
+            } catch (
+                error: FlokiUnauthorizedException
+            ) {
+                recoverUnauthorized()
+                _state.update {
+                    it.copy(
+                        logWorkspaceLoading = false,
+                        logWorkspaceText =
+                            "Host authorization is refreshing. Reopen the log in a moment."
+                    )
+                }
+            } catch (error: Exception) {
+                _state.update {
+                    it.copy(
+                        logWorkspaceLoading = false,
+                        logWorkspaceText =
+                            error.message ?:
+                                "Could not load current-week log"
+                    )
+                }
+            }
+        }
+    }
+
+    fun refreshOpenLog() {
+        val service =
+            _state.value.logWorkspaceService
+        if (service.isNotBlank()) {
+            openLog(service)
+        }
+    }
+
+    fun closeLogWorkspace() {
+        _state.update {
+            it.copy(
+                logWorkspaceTitle = null,
+                logWorkspaceService = "",
+                logWorkspaceText = "",
+                logWorkspaceLoading = false
+            )
+        }
+    }
+
+    fun pauseRsi() {
+        if (!requireCapability("self_improvement:control", "Pausing self-improvement")) return
+        authenticatedAction("pause", "/self-improvement/pause")
+    }
+
+    fun resumeRsi() {
+        if (!requireCapability("self_improvement:control", "Resuming self-improvement")) return
+        authenticatedAction("resume", "/self-improvement/resume")
+    }
 
     fun runRsi(objective: String) {
+        if (!requireCapability("self_improvement:control", "Run Now")) return
         val body = JSONObject()
+            .put(
+                "kind",
+                "code"
+            )
         val cleanObjective = objective.trim()
         if (cleanObjective.isNotBlank()) body.put("objective", cleanObjective)
 
@@ -558,6 +1235,27 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             response.stringOrNull("message") ?: "RSI cycle started"
+        }
+    }
+
+fun trainRsi(objective: String) {
+        if (!requireCapability("self_improvement:control", "Run Now")) return
+        val body = JSONObject()
+            .put(
+                "kind",
+                "training"
+            )
+        val cleanObjective = objective.trim()
+        if (cleanObjective.isNotBlank()) body.put("objective", cleanObjective)
+
+        runAction("train-now") {
+            val response = backend.post("/self-improvement/run-now", body)
+            if (response.booleanOrNull("ok") == false) {
+                throw IllegalStateException(
+                    response.stringOrNull("error") ?: "RSI training failed"
+                )
+            }
+            response.stringOrNull("message") ?: "RSI training started"
         }
     }
 
@@ -573,17 +1271,7 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun logout() {
-        profile = profile.copy(sessionCredential = "")
-        profileStore.save(profile)
-        profile = profileStore.load()
-        _state.update {
-            it.copy(
-                profile = profile,
-                message = "Session credential cleared",
-                error = null
-            )
-        }
-        restartTransport()
+        reconnectAutomaticAccess()
     }
 
     private fun runAction(name: String, block: suspend () -> String) {
@@ -597,10 +1285,16 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
                 refresh()
                 refreshRsiTerminal()
             } catch (error: Exception) {
+                if (
+                    error is FlokiUnauthorizedException
+                ) {
+                    recoverUnauthorized()
+                }
                 _state.update {
                     it.copy(
                         busyAction = null,
-                        error = error.message ?: "$name failed"
+                        error = error.message
+                            ?: "$name failed"
                     )
                 }
             }
@@ -622,12 +1316,16 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         reconnectJob?.cancel()
         pollingJob?.cancel()
         heartbeatJob?.cancel()
+        tokenRefreshJob?.cancel()
         terminalPollingJob?.cancel()
         visionPollingJob?.cancel()
         socket?.close(1000, "profile changed")
         backend.close()
 
-        backend = FlokiBackend(profile)
+        backend = FlokiBackend(
+            profile,
+            accessCredential
+        )
         terminalCursor = 0L
         terminalGeneration = 0L
         _state.update {
@@ -640,8 +1338,37 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
+        val transportAuthenticated =
+            profile.developerMode ||
+                accessCredential.isNotBlank()
+
+        if (!transportAuthenticated) {
+            return
+        }
+
         startMobileHeartbeat(generation)
-        if (normalMobileTransportEnabled) connectSocket(generation)
+        if (normalMobileTransportEnabled) {
+            connectSocket(generation)
+        }
+
+        if (!profile.developerMode) {
+            tokenRefreshJob = viewModelScope.launch {
+                val refreshDelay = (
+                    accessExpiresAtMs -
+                        System.currentTimeMillis() -
+                        60_000L
+                ).coerceAtLeast(30_000L)
+
+                delay(refreshDelay)
+
+                if (
+                    isActive &&
+                    generation == transportGeneration
+                ) {
+                    bootstrapAndStart(force = true)
+                }
+            }
+        }
 
         pollingJob = viewModelScope.launch {
             while (isActive && generation == transportGeneration) {
@@ -659,9 +1386,16 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             visionPollingJob = viewModelScope.launch {
+                var metadataTick = 0
                 while (isActive && generation == transportGeneration) {
-                    delay(500L)
-                    refreshVisionFrame()
+                    val cycleStartedAt = System.currentTimeMillis()
+                    pollVisionFrameOnce()
+                    if (metadataTick % 2 == 0) {
+                        pollVisionMetadataOnce()
+                    }
+                    metadataTick += 1
+                    val elapsed = System.currentTimeMillis() - cycleStartedAt
+                    delay((VISION_POLL_TARGET_MS - elapsed).coerceAtLeast(25L))
                 }
             }
         }
@@ -669,8 +1403,19 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startMobileHeartbeat(generation: Int) {
         heartbeatJob = viewModelScope.launch {
-            while (isActive && generation == transportGeneration) {
-                runCatching { sendMobileHeartbeat() }
+            while (
+                isActive &&
+                generation == transportGeneration
+            ) {
+                try {
+                    sendMobileHeartbeat()
+                } catch (
+                    error: FlokiUnauthorizedException
+                ) {
+                    recoverUnauthorized()
+                    break
+                } catch (_: Exception) {
+                }
                 delay(5_000L)
             }
         }
@@ -742,13 +1487,39 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             onFailure = { message ->
                 viewModelScope.launch {
                     if (generation == transportGeneration) {
+                        val authorizationFailure =
+                            message.contains("401") ||
+                                message.contains(
+                                    "unauthorized",
+                                    ignoreCase = true
+                                ) ||
+                                message.contains(
+                                    "invalid token",
+                                    ignoreCase = true
+                                )
+
                         _state.update {
                             it.copy(
                                 websocketConnected = false,
-                                error = message
+                                message =
+                                    if (
+                                        authorizationFailure
+                                    ) {
+                                        "Renewing automatic access…"
+                                    } else {
+                                        "Reconnecting secure transport…"
+                                    },
+                                error = null
                             )
                         }
-                        scheduleSocketReconnect(generation)
+
+                        if (authorizationFailure) {
+                            recoverUnauthorized()
+                        } else {
+                            scheduleSocketReconnect(
+                                generation
+                            )
+                        }
                     }
                 }
             },
@@ -775,11 +1546,32 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
         reconnectJob?.cancel()
         pollingJob?.cancel()
         heartbeatJob?.cancel()
+        bootstrapJob?.cancel()
+        tokenRefreshJob?.cancel()
         terminalPollingJob?.cancel()
         visionPollingJob?.cancel()
         voiceJob?.cancel()
         socket?.close(1000, "app closing")
         backend.close()
+    }
+
+    private fun parseSession(json: JSONObject): SessionSnapshot {
+        val user = json.optJSONObject("user") ?: JSONObject()
+        val capabilitiesArray = json.optJSONArray("capabilities") ?: JSONArray()
+        val capabilities = buildSet {
+            for (index in 0 until capabilitiesArray.length()) {
+                capabilitiesArray.optString(index).takeIf { it.isNotBlank() }?.let(::add)
+            }
+        }
+        return SessionSnapshot(
+            signedIn = json.booleanOrNull("ok") == true,
+            account = user.stringOrNull("sub"),
+            role = user.stringOrNull("role"),
+            status = user.stringOrNull("status"),
+            expiresAt = user.longOrNull("expires_at"),
+            capabilities = capabilities,
+            lastError = null
+        )
     }
 
     private fun parseRuntime(json: JSONObject): RuntimeSnapshot = RuntimeSnapshot(
@@ -813,7 +1605,9 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
                         connectedClientCount = item.intOrNull("connectedClientCount"),
                         healthyClientCount = item.intOrNull("healthyClientCount"),
                         transportType = item.stringOrNull("transportType"),
-                        controlGeneration = item.longOrNull("controlGeneration")
+                        controlGeneration = item.longOrNull("controlGeneration"),
+                        logAvailable = item.booleanOrNull("logAvailable") == true,
+                        logKey = item.stringOrNull("logKey")
                     )
                 )
         }
@@ -902,6 +1696,14 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
             modelProxyReady = status.booleanOrNull("model_proxy_ready") == true,
             currentRunId = status.stringOrNull("current_run_id"),
             currentContainer = status.stringOrNull("current_container"),
+            currentObjective = status.stringOrNull("current_objective")
+                ?: status.stringOrNull("active_goal"),
+            activeRole = status.stringOrNull("active_role"),
+            activeTool = status.stringOrNull("active_tool"),
+            resourceMode = status.stringOrNull("resource_mode"),
+            gpuOwner = status.stringOrNull("gpu_owner"),
+            gpuWorkloadOwner = status.stringOrNull("gpu_workload_owner"),
+            telemetryStale = status.booleanOrNull("telemetry_stale") == true,
             lastError = status.stringOrNull("last_error")
         )
     }
@@ -934,6 +1736,32 @@ class FlokiViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val MOBILE_APP_KEY = "mobile_app"
+                val FULL_HOST_CAPABILITIES =
+            setOf(
+            "auth:read",
+            "candidate:review",
+            "chat:use",
+            "dreams:read",
+            "logs:read",
+            "memory:read",
+            "neural:read",
+            "runtime:control",
+            "schedule:write",
+            "self_improvement:control",
+            "self_improvement:read",
+            "settings:write",
+            "system:control",
+            "system:read",
+            "uploads:write",
+            "vision:read",
+            "voice:use",
+            "ws:connect",
+            )
+const val VISION_POLL_TARGET_MS = 300L
+        const val VISION_FRAME_GRACE_MS = 2_500L
+        const val VISION_AUTHORITATIVE_OFFLINE_CONFIRMATIONS = 3
+        const val AUTO_ACCESS_RETRY_BASE_MS = 2_000L
+        const val AUTO_ACCESS_RETRY_MAX_MS = 30_000L
         val MODULE_ACTIONS = setOf("start", "stop", "reset")
     }
 }

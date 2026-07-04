@@ -32,7 +32,10 @@ const {
     finalized: false,
     resource_entered: true,
     training_failed: false,
-    current_container: 'training-container'
+    completed_epochs: 1,
+    rem_cycles_completed: 0,
+    latest_checkpoint: '/tmp/checkpoint-epoch-1',
+    current_container: null
   };
 
   const gpu = {
@@ -59,13 +62,10 @@ const {
   const coordinator = createNightlyTrainingCoordinator({
     config,
     gpu,
+    enter_resource: async () => ({ ok: true }),
+    exit_resource: async () => ({ ok: true, result: { lifecycle_restored: true } }),
     read_session: () => session,
     refresh_session: (value) => value,
-    checkpoint_session: async (value) => {
-      calls.push('checkpoint');
-      session = { ...value, current_container: null };
-      return { ok: true, checkpointed: true, session };
-    },
     set_resource_entered: (value, entered) => {
       session = { ...value, resource_entered: entered };
       return session;
@@ -119,35 +119,36 @@ const {
     status: () => {}
   });
 
-  const options = {
-    now: new Date('2026-06-28T04:10:00.000Z'),
-    rem_cycle_number: 7,
-    sleep_window_start: '2026-06-28T03:00:00.000Z',
-    sleep_window_end: '2026-06-28T11:00:00.000Z'
-  };
-
-  const first = await coordinator.runNightlyRem(options);
+  const first = await coordinator.runNightlyRem({
+    now: new Date('2026-06-28T04:10:00.000Z')
+  });
   assert.equal(first.ok, true);
   assert.equal(first.provider, 'huggingface');
   assert.equal(first.approved_lineage_only, true);
   assert.deepEqual(calls, [
-    'checkpoint',
     'gpu:hf_training->hf_rem_inference',
     'hf-rem-generation',
     'gpu:hf_rem_inference->hf_training',
     'resume-training'
   ]);
 
-  const second = await coordinator.runNightlyRem(options);
-  assert.equal(second.deduplicated_from_claim, true);
-  assert.equal(hfCalls, 1, 'completed REM claim must not regenerate a dream');
-  assert.equal(readRemClaims(config).claims['2026-06-27:cycle-7'].status, 'complete');
+  const second = await coordinator.runNightlyRem({
+    now: new Date('2026-06-28T04:10:01.000Z')
+  });
+  assert.equal(second.ok, true);
+  assert.equal(second.skipped, true,
+    'second REM call with no new completed epoch must skip');
+  assert.equal(second.completed_epochs, 1);
+  assert.equal(second.completed_rem_cycles, 1);
+  assert.equal(hfCalls, 1,
+    'completed REM claim must not regenerate a dream');
+  assert.equal(readRemClaims(config).claims['2026-06-27:cycle-1'].status, 'complete');
 
   fs.rmSync(root, { recursive: true, force: true });
   console.log(JSON.stringify({
     ok: true,
     marker: 'FLOKI_RSI_NIGHTLY_REM_HANDOFF_PASS',
-    checkpoint_before_rem: true,
+    epoch_triggered_rem: true,
     gpu_handoff_order_verified: true,
     approved_hf_lineage_only: true,
     exact_once_completed_claim: true

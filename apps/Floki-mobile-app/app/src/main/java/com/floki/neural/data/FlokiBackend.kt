@@ -36,7 +36,6 @@ private val sharedClient = OkHttpClient.Builder()
     .connectTimeout(15, TimeUnit.SECONDS)
     .readTimeout(120, TimeUnit.SECONDS)
     .writeTimeout(30, TimeUnit.SECONDS)
-    .pingInterval(20, TimeUnit.SECONDS)
     .retryOnConnectionFailure(true)
     .build()
 
@@ -159,13 +158,17 @@ class ProfileStore(context: Context) {
         val storedHost = preferences.getString(KEY_HOST, DEFAULT_HOST)
             ?.trim()
             .orEmpty()
-        val storedPort = preferences.getInt(KEY_PORT, DEFAULT_PORT)
-        val storedTls = preferences.getBoolean(KEY_USE_TLS, DEFAULT_USE_TLS)
-        val storedDeveloperMode = preferences.getBoolean(KEY_DEVELOPER_MODE, false)
+        // A loopback profile only ever works through a USB adb-reverse tunnel,
+        // so it must never survive an app restart as the effective endpoint.
+        // Developer mode may select loopback for the current process, but every
+        // fresh start boots on the production gateway. The credential is
+        // preserved across this migration so a signed-in owner stays signed in.
         val mustReset =
             preferences.getInt(KEY_SCHEMA_VERSION, 0) != PROFILE_SCHEMA_VERSION ||
-                isLegacyLocalEndpoint(storedHost, storedPort, storedTls, storedDeveloperMode)
+                isLoopbackHostName(storedHost)
         if (mustReset) {
+            val preservedCredential = preferences.getString(KEY_SESSION_CREDENTIAL, "").orEmpty()
+            val preservedClientId = preferences.getString(KEY_MOBILE_CLIENT_ID, "").orEmpty()
             preferences.edit(commit = true) {
                 clear()
                 putInt(KEY_SCHEMA_VERSION, PROFILE_SCHEMA_VERSION)
@@ -174,6 +177,12 @@ class ProfileStore(context: Context) {
                 putLong(KEY_POLL_INTERVAL_MS, DEFAULT_POLL_INTERVAL_MS)
                 putBoolean(KEY_USE_TLS, DEFAULT_USE_TLS)
                 putBoolean(KEY_DEVELOPER_MODE, false)
+                if (preservedCredential.isNotBlank()) {
+                    putString(KEY_SESSION_CREDENTIAL, preservedCredential)
+                }
+                if (preservedClientId.isNotBlank()) {
+                    putString(KEY_MOBILE_CLIENT_ID, preservedClientId)
+                }
             }
         }
         check(
@@ -256,7 +265,11 @@ class ProfileStore(context: Context) {
     private fun normalizeProfile(profile: ServerProfile): ServerProfile {
         val host = profile.host.trim().ifBlank { DEFAULT_HOST }
         val sessionCredential = normalizeFlokiSessionCredential(profile.sessionCredential)
-        if (!isLegacyLocalEndpoint(host, profile.port, profile.useTls, profile.developerMode)) {
+        // Loopback is only reachable over a USB adb-reverse tunnel. It may be
+        // selected explicitly through developer mode for the current process;
+        // outside developer mode it always normalizes to the production
+        // gateway. ProfileStore.init returns every fresh start to production.
+        if (!isLoopbackHostName(host) || profile.developerMode) {
             return profile.copy(host = host, sessionCredential = sessionCredential)
         }
         return profile.copy(
@@ -287,25 +300,26 @@ class ProfileStore(context: Context) {
     }
 }
 
-private fun isLegacyLocalEndpoint(
-    host: String,
-    port: Int,
-    useTls: Boolean,
-    developerMode: Boolean
-): Boolean {
-    if (developerMode) return false
+internal fun isLoopbackHostName(host: String): Boolean {
     val normalized = host.trim().lowercase()
-    return !useTls &&
-        port == 7700 &&
-        (normalized == "127.0.0.1" || normalized == "localhost")
+    return normalized == "127.0.0.1" ||
+        normalized == "localhost" ||
+        normalized == "[::1]" ||
+        normalized == "::1" ||
+        normalized == "10.0.2.2"
 }
 
-class FlokiHttpException(message: String) : IOException(message)
+open class FlokiHttpException(message: String) : IOException(message)
+class FlokiUnauthorizedException(message: String) : FlokiHttpException(message)
 
-class FlokiBackend(profile: ServerProfile) {
+class FlokiBackend(
+    profile: ServerProfile,
+    accessCredential: String = ""
+) {
     private val baseUrl = profile.baseUrl
     private val webSocketUrl = profile.webSocketUrl
-    private val sessionCredential = normalizeFlokiSessionCredential(profile.sessionCredential)
+    private val sessionCredential =
+        normalizeFlokiSessionCredential(accessCredential)
 
     /**
      * Authenticated client that attaches the approved-user Bearer session.
@@ -328,9 +342,28 @@ class FlokiBackend(profile: ServerProfile) {
         return builder
     }
 
+    suspend fun getLog(service: String): JSONObject {
+        val encoded =
+            java.net.URLEncoder.encode(
+                service,
+                java.nio.charset.StandardCharsets.UTF_8
+                    .toString()
+            )
+        return getObject(
+            "/interface/log/$encoded"
+        )
+    }
+
     suspend fun getObject(path: String): JSONObject = withContext(Dispatchers.IO) {
         parseObject(execute(Request.Builder().url(url(path)).get().build()))
     }
+
+    /**
+     * Sanitized identity and capability set for the authenticated session,
+     * served by the gateway. Never contains the raw session token or any
+     * internal runtime secret.
+     */
+    suspend fun getSession(): JSONObject = getObject("/auth/session")
 
     suspend fun getArray(path: String): JSONArray = withContext(Dispatchers.IO) {
         parseArray(execute(Request.Builder().url(url(path)).get().build()))
@@ -354,6 +387,89 @@ class FlokiBackend(profile: ServerProfile) {
             parseObject(execute(request))
         }
 
+    suspend fun getVisionMetadata(): JSONObject =
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url(url("/interface/vision/frame"))
+                .header("Cache-Control", "no-cache")
+                .header("Pragma", "no-cache")
+                .get()
+                .build()
+            val call = client.newCall(request)
+            call.timeout().timeout(5, TimeUnit.SECONDS)
+            call.execute().use { response ->
+                val responseText = response.body.string()
+                if (!response.isSuccessful) {
+                    val detail = runCatching {
+                        JSONObject(responseText).optString("error")
+                    }.getOrNull()
+                    if (response.code == 401) {
+                        throw FlokiUnauthorizedException(
+                            detail?.takeIf { it.isNotBlank() }
+                                ?: "Vision metadata authorization expired"
+                        )
+                    }
+                    throw FlokiHttpException(
+                        detail?.takeIf { it.isNotBlank() }
+                            ?: "HTTP ${response.code} for Vision metadata"
+                    )
+                }
+                parseObject(responseText)
+            }
+        }
+
+    suspend fun getVisionFrameBytes(): ByteArray =
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url(url("/interface/vision/frame/latest.jpg"))
+                .header("Accept", "image/jpeg")
+                .header("Cache-Control", "no-cache")
+                .header("Pragma", "no-cache")
+                .get()
+                .build()
+            val call = client.newCall(request)
+            call.timeout().timeout(5, TimeUnit.SECONDS)
+            call.execute().use { response ->
+                if (!response.isSuccessful) {
+                    val responseText = response.body.string()
+                    val detail = runCatching {
+                        JSONObject(responseText).optString("error")
+                    }.getOrNull()
+                    if (response.code == 401) {
+                        throw FlokiUnauthorizedException(
+                            detail?.takeIf { it.isNotBlank() }
+                                ?: "Vision frame authorization expired"
+                        )
+                    }
+                    throw FlokiHttpException(
+                        detail?.takeIf { it.isNotBlank() }
+                            ?: "HTTP ${response.code} for Vision frame"
+                    )
+                }
+
+                val contentType = response.header("Content-Type").orEmpty().lowercase()
+                if (!contentType.contains("image/jpeg")) {
+                    throw FlokiHttpException(
+                        "Latest Vision frame did not return image/jpeg"
+                    )
+                }
+
+                val bytes = response.body.bytes()
+                val completeJpeg =
+                    bytes.size > 100 &&
+                        bytes[0] == 0xff.toByte() &&
+                        bytes[1] == 0xd8.toByte() &&
+                        bytes[bytes.lastIndex - 1] == 0xff.toByte() &&
+                        bytes[bytes.lastIndex] == 0xd9.toByte()
+                if (!completeJpeg) {
+                    throw FlokiHttpException(
+                        "latest vision frame was not a complete JPEG"
+                    )
+                }
+                bytes
+            }
+        }
+
     fun openEvents(
         onOpen: () -> Unit,
         onMessage: (String) -> Unit,
@@ -364,8 +480,17 @@ class FlokiBackend(profile: ServerProfile) {
         return client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) = onOpen()
             override fun onMessage(webSocket: WebSocket, text: String) = onMessage(text)
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                onFailure(t.message ?: "WebSocket connection failed")
+            override fun onFailure(
+                webSocket: WebSocket,
+                t: Throwable,
+                response: Response?
+            ) {
+                val message = if (response?.code == 401) {
+                    "HTTP 401: host-authorized mobile session expired"
+                } else {
+                    t.message ?: "WebSocket connection failed"
+                }
+                onFailure(message)
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = onClosed()
         })
@@ -376,7 +501,14 @@ class FlokiBackend(profile: ServerProfile) {
     suspend fun getBytes(path: String): ByteArray = withContext(Dispatchers.IO) {
         client.newCall(Request.Builder().url(url(path)).get().build()).execute().use { response ->
             if (!response.isSuccessful) {
-                throw FlokiHttpException("HTTP ${response.code} for $path")
+                if (response.code == 401) {
+                    throw FlokiUnauthorizedException(
+                        "HTTP 401 for $path"
+                    )
+                }
+                throw FlokiHttpException(
+                    "HTTP ${response.code} for $path"
+                )
             }
             response.body.bytes()
         }
@@ -393,10 +525,10 @@ class FlokiBackend(profile: ServerProfile) {
             val text = response.body.string()
             if (!response.isSuccessful) {
                 val detail = runCatching { JSONObject(text).optString("error") }.getOrNull()
-                if (response.code == 401 && detail.equals("invalid token", ignoreCase = true)) {
-                    throw FlokiHttpException(
-                        "Unauthorized: missing, expired, or invalid approved-user session credential. " +
-                            "Open Settings and paste the raw gateway token without the word Bearer."
+                if (response.code == 401) {
+                    throw FlokiUnauthorizedException(
+                        detail?.takeIf { it.isNotBlank() }
+                            ?: "Host-authorized mobile session expired"
                     )
                 }
                 throw FlokiHttpException(

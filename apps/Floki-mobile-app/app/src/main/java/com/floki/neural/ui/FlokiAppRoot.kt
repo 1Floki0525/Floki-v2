@@ -2,6 +2,7 @@ package com.floki.neural.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -70,7 +72,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -78,7 +85,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -96,6 +102,7 @@ import com.floki.neural.ui.theme.NeonGreen
 import com.floki.neural.ui.theme.NeonRed
 import com.floki.neural.ui.theme.NeonViolet
 import android.graphics.BitmapFactory
+import android.graphics.Paint as AndroidPaint
 import java.text.DateFormat
 import java.util.Date
 
@@ -162,6 +169,7 @@ fun FlokiMobileApp(vm: FlokiViewModel = viewModel()) {
                 .padding(innerPadding)
         ) {
             MessageBanner(state = state, onClear = vm::clearMessage)
+            LogWorkspaceDialog(state, vm)
             when (tab) {
                 MobileTab.CHAT -> ChatScreen(state, vm)
                 MobileTab.VISION -> VisionScreen(state, vm)
@@ -174,6 +182,78 @@ fun FlokiMobileApp(vm: FlokiViewModel = viewModel()) {
             }
         }
     }
+}
+
+@Composable
+private fun LogWorkspaceDialog(
+    state: FlokiUiState,
+    vm: FlokiViewModel
+) {
+    val title =
+        state.logWorkspaceTitle ?: return
+
+    AlertDialog(
+        onDismissRequest =
+            vm::closeLogWorkspace,
+        confirmButton = {
+            TextButton(
+                onClick =
+                    vm::closeLogWorkspace
+            ) {
+                Text("Close")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick =
+                    vm::refreshOpenLog,
+                enabled =
+                    !state.logWorkspaceLoading
+            ) {
+                Text("Refresh")
+            }
+        },
+        title = {
+            Text(
+                title,
+                color = NeonCyan,
+                fontFamily =
+                    FontFamily.Monospace,
+                fontSize = 13.sp
+            )
+        },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(460.dp)
+                    .background(
+                        Color.Black,
+                        RoundedCornerShape(7.dp)
+                    )
+                    .padding(10.dp)
+                    .verticalScroll(
+                        rememberScrollState()
+                    )
+            ) {
+                Text(
+                    state.logWorkspaceText,
+                    color =
+                        if (
+                            state.logWorkspaceLoading
+                        ) {
+                            NeonAmber
+                        } else {
+                            FlokiText
+                        },
+                    fontFamily =
+                        FontFamily.Monospace,
+                    fontSize = 9.sp
+                )
+            }
+        },
+        containerColor = FlokiSurface
+    )
 }
 
 @Composable
@@ -199,7 +279,7 @@ private fun Header(state: FlokiUiState, onRefresh: () -> Unit) {
                     text = if (state.connected) {
                         "${state.runtime.state} · ${state.runtime.model}"
                     } else {
-                        "Disconnected · ${state.profile.host}:${state.profile.port}"
+                        "${state.connectionState} · ${state.profile.host}:${state.profile.port}"
                     },
                     color = FlokiTextDim,
                     fontFamily = FontFamily.Monospace,
@@ -211,7 +291,11 @@ private fun Header(state: FlokiUiState, onRefresh: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = if (state.websocketConnected) "WSS" else "POLL",
-                    color = if (state.websocketConnected) NeonGreen else NeonAmber,
+                    color = when {
+                        state.websocketConnected -> NeonGreen
+                        state.connected -> NeonAmber
+                        else -> NeonRed
+                    },
                     fontFamily = FontFamily.Monospace,
                     fontSize = 9.sp
                 )
@@ -579,6 +663,15 @@ private fun SystemScreen(state: FlokiUiState, vm: FlokiViewModel) {
                         fontSize = 10.sp
                     )
                 }
+                Spacer(Modifier.height(8.dp))
+                ActionButton(
+                    "Current-week log",
+                    Icons.Filled.Timeline,
+                    NeonCyan,
+                    state.busyAction == null && service.logAvailable
+                ) {
+                    vm.openLog(service.logKey ?: service.key)
+                }
                 if (service.startAvailable || service.stopAvailable || service.resetAvailable) {
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -631,6 +724,10 @@ private fun RsiScreen(state: FlokiUiState, vm: FlokiViewModel) {
             .sortedByDescending { it.createdAt }
     }
     val shown = if (candidateView == "history") history else pending
+    val canControlRsi = state.profile.developerMode ||
+        state.session.has("self_improvement:control")
+    val canReviewCandidates = state.profile.developerMode ||
+        state.session.has("candidate:review")
     val runBlocked = state.busyAction != null ||
         state.rsi.paused ||
         state.rsi.currentRunId != null ||
@@ -657,9 +754,28 @@ private fun RsiScreen(state: FlokiUiState, vm: FlokiViewModel) {
                 KeyValue("Model proxy", if (state.rsi.modelProxyReady) "ready" else "not ready")
                 KeyValue("Current run", state.rsi.currentRunId ?: "—")
                 KeyValue("Sandbox", state.rsi.currentContainer ?: "—")
+                KeyValue("Goal", state.rsi.currentObjective ?: "—")
+                KeyValue("Role", state.rsi.activeRole ?: "—")
+                KeyValue("Tool", state.rsi.activeTool ?: "—")
+                KeyValue("Resource", state.rsi.resourceMode ?: "idle")
+                KeyValue(
+                    "GPU owner",
+                    state.rsi.gpuOwner ?: state.rsi.gpuWorkloadOwner ?: "none"
+                )
+                if (state.rsi.telemetryStale) {
+                    KeyValue("Telemetry", "stale")
+                }
                 state.rsi.lastError?.let {
                     Spacer(Modifier.height(6.dp))
                     Text(it, color = NeonRed, fontSize = 11.sp)
+                }
+                if (!canControlRsi) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "HOST AUTHORIZATION IS RESTORING FULL CONTROL",
+                        color = NeonAmber,
+                        fontSize = 10.sp
+                    )
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -667,14 +783,36 @@ private fun RsiScreen(state: FlokiUiState, vm: FlokiViewModel) {
                         "Pause",
                         Icons.Filled.Pause,
                         NeonAmber,
-                        state.busyAction == null && !state.rsi.paused
+                        canControlRsi && state.busyAction == null && !state.rsi.paused
                     ) { vm.pauseRsi() }
                     ActionButton(
                         "Resume",
                         Icons.Filled.PlayArrow,
                         NeonGreen,
-                        state.busyAction == null && state.rsi.paused
+                        canControlRsi && state.busyAction == null && state.rsi.paused
                     ) { vm.resumeRsi() }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ActionButton(
+                        "Worker log",
+                        Icons.Filled.Timeline,
+                        NeonCyan,
+                        state.busyAction == null
+                    ) {
+                        vm.openLog("rsi_worker")
+                    }
+                    ActionButton(
+                        "Active log",
+                        Icons.Filled.Timeline,
+                        NeonViolet,
+                        state.busyAction == null
+                    ) {
+                        vm.openLog("rsi_sandbox")
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
@@ -694,9 +832,21 @@ private fun RsiScreen(state: FlokiUiState, vm: FlokiViewModel) {
                     "Run now",
                     Icons.Filled.Science,
                     NeonViolet,
-                    !runBlocked
+                    canControlRsi && !runBlocked
                 ) {
                     vm.runRsi(objective)
+                    objective = ""
+                }
+                Spacer(Modifier.height(8.dp))
+                ActionButton(
+                    "Train now",
+                    Icons.Filled.Build,
+                    NeonCyan,
+                    !runBlocked
+                ) {
+                    vm.trainRsi(
+                        objective
+                    )
                     objective = ""
                 }
             }
@@ -773,7 +923,7 @@ private fun RsiScreen(state: FlokiUiState, vm: FlokiViewModel) {
                             "Deny",
                             Icons.Filled.Close,
                             NeonRed,
-                            state.busyAction == null && denialReason.isNotBlank()
+                            canReviewCandidates && state.busyAction == null && denialReason.isNotBlank()
                         ) {
                             vm.denyCandidate(candidate.id, denialReason)
                             denialReason = ""
@@ -782,10 +932,18 @@ private fun RsiScreen(state: FlokiUiState, vm: FlokiViewModel) {
                             "Approve",
                             Icons.Filled.Check,
                             NeonGreen,
-                            state.busyAction == null
+                            canReviewCandidates && state.busyAction == null
                         ) {
                             vm.approveCandidate(candidate.id)
                         }
+                    }
+                    if (!canReviewCandidates) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Review disabled: this account lacks candidate:review",
+                            color = NeonAmber,
+                            fontSize = 10.sp
+                        )
                     }
                 } else {
                     Spacer(Modifier.height(8.dp))
@@ -874,14 +1032,25 @@ private fun VisionScreen(state: FlokiUiState, vm: FlokiViewModel) {
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                "VISION FEED",
-                color = NeonCyan,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
-                modifier = Modifier.weight(1f)
-            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "VISION FEED",
+                    color = NeonCyan,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
+                )
+                Text(
+                    text = "%.1f FPS · %d boxes · %s".format(
+                        state.visionOverlay.frameRate,
+                        state.visionOverlay.detections.size,
+                        state.visionTransportState
+                    ),
+                    color = if (state.visionTransportState == "live") NeonGreen else NeonAmber,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 9.sp
+                )
+            }
             Text(
                 "gen #${state.visionFrameGeneration}",
                 color = FlokiTextDim,
@@ -889,30 +1058,26 @@ private fun VisionScreen(state: FlokiUiState, vm: FlokiViewModel) {
                 fontSize = 9.sp
             )
             Spacer(Modifier.width(8.dp))
-            IconButton(onClick = { vm.flushVisionFrame() }) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Flush vision frame", tint = NeonCyan)
+            IconButton(onClick = { vm.refreshVisionFrame() }) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = "Refresh Vision frame",
+                    tint = NeonCyan
+                )
             }
         }
 
         val bytes = state.visionFrameBytes
-        if (bytes == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.38f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "Waiting for vision feed…",
-                    color = FlokiTextDim,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp
-                )
-            }
-        } else {
-            val bitmap = remember(bytes) {
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            }
+        val bitmap = remember(bytes, state.visionFrameGeneration) {
+            if (bytes == null) null else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap.asImageBitmap(),
@@ -922,23 +1087,115 @@ private fun VisionScreen(state: FlokiUiState, vm: FlokiViewModel) {
                         .background(Color.Black),
                     contentScale = ContentScale.Fit
                 )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.38f)),
-                    contentAlignment = Alignment.Center
-                ) {
+
+                VisionDetectionOverlay(
+                    sourceWidth = bitmap.width,
+                    sourceHeight = bitmap.height,
+                    detections = state.visionOverlay.detections,
+                    detectionFresh = state.visionOverlay.detectionFresh
+                )
+
+                if (state.visionTransportState == "reconnecting") {
                     Text(
-                        "Failed to decode frame",
-                        color = NeonRed,
+                        "RECONNECTING · LAST GOOD FRAME",
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 10.dp)
+                            .background(
+                                Color.Black.copy(alpha = 0.72f),
+                                RoundedCornerShape(6.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        color = NeonAmber,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 9.sp
                     )
                 }
+            } else {
+                Text(
+                    text = if (state.visionTransportFailures > 0) {
+                        "Reconnecting to Vision…"
+                    } else {
+                        "Waiting for Vision feed…"
+                    },
+                    color = FlokiTextDim,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp
+                )
             }
         }
     }
+}
+
+@Composable
+private fun VisionDetectionOverlay(
+    sourceWidth: Int,
+    sourceHeight: Int,
+    detections: List<VisionDetection>,
+    detectionFresh: Boolean
+) {
+    if (!detectionFresh || sourceWidth <= 0 || sourceHeight <= 0 || detections.isEmpty()) return
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val sourceWidthPx = sourceWidth.toFloat()
+        val sourceHeightPx = sourceHeight.toFloat()
+        val scale = minOf(size.width / sourceWidthPx, size.height / sourceHeightPx)
+        val renderedWidth = sourceWidthPx * scale
+        val renderedHeight = sourceHeightPx * scale
+        val imageLeft = (size.width - renderedWidth) / 2f
+        val imageTop = (size.height - renderedHeight) / 2f
+        val strokeWidth = 2.dp.toPx()
+        val labelTextSize = 11.sp.toPx()
+        val labelPadding = 3.dp.toPx()
+        val labelHeight = labelTextSize + labelPadding * 2f
+        val textPaint = AndroidPaint().apply {
+            isAntiAlias = true
+            textSize = labelTextSize
+            typeface = android.graphics.Typeface.MONOSPACE
+        }
+
+        detections.forEach { detection ->
+            val color = visionDetectionColor(detection.kind)
+            val left = imageLeft + detection.x * renderedWidth
+            val top = imageTop + detection.y * renderedHeight
+            val width = detection.width * renderedWidth
+            val height = detection.height * renderedHeight
+            if (width <= 1f || height <= 1f) return@forEach
+
+            drawRect(
+                color = color,
+                topLeft = Offset(left, top),
+                size = Size(width, height),
+                style = Stroke(width = strokeWidth)
+            )
+
+            val confidenceText = detection.confidence?.let { " ${(it * 100f).toInt()}%" }.orEmpty()
+            val label = detection.label + confidenceText
+            textPaint.color = color.toArgb()
+            val measuredWidth = textPaint.measureText(label)
+            val backgroundWidth = (measuredWidth + labelPadding * 2f).coerceAtMost(width)
+            val labelTop = (top - labelHeight).coerceAtLeast(imageTop)
+
+            drawRect(
+                color = Color.Black.copy(alpha = 0.76f),
+                topLeft = Offset(left, labelTop),
+                size = Size(backgroundWidth, labelHeight)
+            )
+            drawContext.canvas.nativeCanvas.drawText(
+                label,
+                left + labelPadding,
+                labelTop + labelPadding + labelTextSize * 0.82f,
+                textPaint
+            )
+        }
+    }
+}
+
+private fun visionDetectionColor(kind: String): Color = when (kind.lowercase()) {
+    "person" -> NeonCyan
+    "face" -> NeonViolet
+    else -> NeonGreen
 }
 
 @Composable
@@ -947,9 +1204,6 @@ private fun SettingsScreen(state: FlokiUiState, vm: FlokiViewModel) {
     var port by remember(state.profile.port) { mutableStateOf(state.profile.port.toString()) }
     var poll by remember(state.profile.pollIntervalMs) {
         mutableStateOf(state.profile.pollIntervalMs.toString())
-    }
-    var sessionCredential by remember(state.profile.sessionCredential) {
-        mutableStateOf(state.profile.sessionCredential)
     }
     var useTls by remember(state.profile.useTls) { mutableStateOf(state.profile.useTls) }
     var developerMode by remember(state.profile.developerMode) {
@@ -1014,16 +1268,6 @@ private fun SettingsScreen(state: FlokiUiState, vm: FlokiViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 colors = fieldColors()
             )
-            Spacer(Modifier.height(6.dp))
-            OutlinedTextField(
-                value = sessionCredential,
-                onValueChange = { sessionCredential = it },
-                label = { Text("Approved-user session credential") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-                colors = fieldColors()
-            )
             Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1050,7 +1294,6 @@ private fun SettingsScreen(state: FlokiUiState, vm: FlokiViewModel) {
                         host,
                         port,
                         poll,
-                        sessionCredential,
                         useTls,
                         developerMode
                     )
@@ -1066,10 +1309,58 @@ private fun SettingsScreen(state: FlokiUiState, vm: FlokiViewModel) {
                     fontWeight = FontWeight.Bold
                 )
             }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = vm::logout) {
-                Text("CLEAR SESSION", fontFamily = FontFamily.Monospace)
+        }
+
+        Panel("ACCOUNT") {
+            KeyValue("Signed in as", state.session.account ?: "not signed in")
+            KeyValue("Role", state.session.role ?: "—")
+            KeyValue("Connection", state.connectionState)
+            KeyValue(
+                "Session",
+                when {
+                    state.session.signedIn -> "valid (${state.session.status ?: "active"})"
+                    state.profile.sessionCredential.isBlank() -> "no credential"
+                    else -> state.session.lastError ?: "not verified"
+                }
+            )
+            if (state.session.capabilities.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text("Capabilities", color = FlokiText, fontSize = 12.sp)
+                Text(
+                    state.session.capabilities.sorted().joinToString("\n"),
+                    color = FlokiTextDim,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp
+                )
             }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = vm::reconnectAutomaticAccess
+            ) {
+                Text(
+                    "RECONNECT AUTOMATIC ACCESS",
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        Panel("HOST-AUTHORIZED APK") {
+            Text(
+                "No login or token entry is required. " +
+                    "Any device where you install this host-built APK " +
+                    "receives full Floki access automatically.",
+                color = FlokiTextDim,
+                fontSize = 11.sp
+            )
+            Spacer(Modifier.height(7.dp))
+            KeyValue(
+                "Authorization",
+                if (state.connected) {
+                    "automatic access active"
+                } else {
+                    "automatic access connecting"
+                }
+            )
         }
 
         Panel("CONNECTION PROFILES") {

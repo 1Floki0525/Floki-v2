@@ -79,6 +79,15 @@ while runtime_active "$PID" && [ "$COUNT" -lt 80 ]; do
 done
 if runtime_active "$PID"; then
   kill -KILL "$PID" >/dev/null 2>&1 || true
+  COUNT=0
+  while runtime_active "$PID" && [ "$COUNT" -lt 20 ]; do
+    sleep 0.25
+    COUNT=$((COUNT + 1))
+  done
+fi
+if runtime_active "$PID"; then
+  echo "{\"ok\":false,\"marker\":\"FLOKI_V2_CHAT_STOP_SCRIPT_FAIL\",\"stopped\":false,\"pid\":$PID,\"error\":\"runtime process survived SIGKILL\",\"chat_mode_only\":true}"
+  exit 1
 fi
 rm -f "$PID_FILE" "$COMPAT_PID_FILE"
 echo "{\"ok\":true,\"marker\":\"FLOKI_V2_CHAT_STOP_SCRIPT_PASS\",\"stopped\":true,\"pid\":$PID,\"chat_mode_only\":true}"

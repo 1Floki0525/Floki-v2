@@ -1210,11 +1210,49 @@ function createLiveAudioService(options = {}) {
     });
   }
 
+  async function transcribeFile(inputFile, metadata = {}) {
+    if (!state.awake) {
+      throw new Error('hearing is intentionally suspended while Floki is asleep');
+    }
+    if (state.speaking || voiceLock.isEarsMuted().ears_muted_now) {
+      throw new Error('microphone capture is locked while Piper is speaking');
+    }
+    if (!whisper.status().ready) await whisper.start();
+    state.service_state = 'transcribing';
+    state.last_transcription_at = null;
+    publish({
+      remote_audio_source: metadata.source || 'remote_audio',
+      remote_audio_utterance_id: metadata.utterance_id || null
+    });
+    try {
+      const parsed = await whisper.transcribe(inputFile);
+      state.last_transcription_at = nowIso();
+      state.last_transcription_text = parsed.speech_text || parsed.raw_text || '';
+      state.utterances_completed += 1;
+      state.last_error = null;
+      return parsed;
+    } catch (error) {
+      state.last_error = error.message;
+      state.service_state = 'degraded';
+      throw error;
+    } finally {
+      state.service_state = state.awake ? 'listening' : 'sleeping';
+      publish();
+    }
+  }
+
+  async function synthesizeSpeech(text, metadata = {}) {
+    piper.refreshReadiness();
+    return piper.synthesize(text, metadata);
+  }
+
   return Object.freeze({
     start,
     stop,
     setAwake,
     setSpeechEnabled,
+    transcribeFile,
+    synthesizeSpeech,
     speak: (text, metadata) => piper.speak(text, metadata),
     interruptSpeech: (options) => piper.interrupt(options),
     status: () => snapshot(),

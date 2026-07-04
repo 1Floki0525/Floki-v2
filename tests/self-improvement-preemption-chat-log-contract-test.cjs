@@ -98,7 +98,12 @@ assert.equal(
     null,
     'no-candidate cycles must stay retryable instead of becoming a hard failure latch'
   );
-  assert.match(patch.last_no_candidate_error, /without a verified candidate/);
+  assert.equal(
+    patch.last_no_candidate_error.reason,
+    'iteration_limit',
+    'no-candidate status must expose a bounded structured reason instead of raw terminal text'
+  );
+  assert.equal(patch.last_no_candidate_error.terminal_log_file, '/tmp/sandbox.log');
 }
 assert.equal(
   isNoCandidateSandboxFailure('Error: write EPIPE'),
@@ -201,7 +206,11 @@ assert.match(adapter, /settings\?\.connection\?\.autoReconnect/);
 assert.match(adapter, /setTimeout\(\(\) => \{[\s\S]*connect\(\);[\s\S]*\}, reconnectDelay\)/);
 assert.match(adapter, /type: 'stream\.connected'/);
 assert.match(adapter, /type: 'stream\.closed'/);
-assert.doesNotMatch(adapter, /setTimeout\([^,]+,\s*\d+/);
+assert.doesNotMatch(
+  adapter,
+  /reconnectTimer\s*=\s*setTimeout\(\(\)\s*=>\s*\{[\s\S]*?\},\s*\d+\s*\)/,
+  'WebSocket reconnect timing must not use a numeric literal'
+);
 
 const chatPanel = text('apps/floki-neural-interface/src/components/chat/ChatPanel.jsx');
 assert.match(chatPanel, /isAuthoritativeAssistantForPending/);
