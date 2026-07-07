@@ -44,3 +44,10 @@ contextBridge.exposeInMainWorld('floki', Object.freeze({
   getSelfImprovementActivity: (params = {}) => invoke('floki:get-self-improvement-activity', params),
   getSelfImprovementTerminal: (params = {}) => invoke('floki:get-self-improvement-terminal', params),
 }));
+
+contextBridge.exposeInMainWorld('flokiWidget', Object.freeze({
+  getState: () => invoke('floki-widget:get-state'),
+  expand: () => invoke('floki-widget:expand'),
+  collapse: () => invoke('floki-widget:collapse'),
+  toggle: () => invoke('floki-widget:toggle'),
+}));

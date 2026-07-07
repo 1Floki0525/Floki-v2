@@ -74,3 +74,6 @@ apps/Floki-mobile-app/*.keystore
 /.claude/
 # Local web app deploy bundles generated outside source control
 /floki-neural-web-app-*.zip
+
+# Local Playwright MCP page state
+.playwright-mcp/page-*.yml

@@ -180,11 +180,13 @@ ALL_MARKERS = (
     "grounding-dino-worker.py",
     "floki-chat-local-start.sh",
     "floki-app.sh",
+    "floki-desktop-widget",
     "floki-neural-interface",
 )
 APP_MARKERS = (
     "floki-chat-local-start.sh",
     "floki-app.sh",
+    "floki-desktop-widget",
     "floki-neural-interface",
 )
 
@@ -687,6 +689,7 @@ case "$ACTION" in
     run_helper_if_present "floki-chat-vision-start.sh"
     run_helper_if_present "floki-sleep-scheduler-start.sh"
     run_helper_if_present "floki-self-improvement-start.sh"
+    run_helper_if_present "floki-desktop-widget-start.sh"
     runtime_ready || fail "runtime is not ready after startup"
     printf '%s\n' "FLOKI_RUNTIME_START_PASS" "background_runtime=true" "shared_clients=electron|website|mobile" "settings_source=config/chat.config.yaml"
     ;;
@@ -695,6 +698,7 @@ case "$ACTION" in
       printf '%s\n' "FLOKI_RUNTIME_STOP_DRY_RUN" "models_included=true" "settings_source=config/chat.config.yaml"
       exit 0
     fi
+    run_stop_helper "floki-desktop-widget-stop.sh"
     stop_app || STOP_HELPER_FAILURES+=("stop_app")
     # The chat runtime must die before the vision stop: while alive, its
     # lifecycle reconciler respawns the detached vision daemon and re-opens
