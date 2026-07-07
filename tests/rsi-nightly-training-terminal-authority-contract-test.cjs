@@ -2,6 +2,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -13,11 +14,55 @@ assert.ok(
   'Floki-v2 requires Node 24 or newer'
 );
 
+
+const PERSISTENT_PTY_CONTRACT_REGISTRY_MARKER =
+  'FLOKI_RSI_PTY_PERSISTENT_TEST_REGISTRY_V1';
+const PERSISTENT_PTY_CONTRACTS = Object.freeze([
+  'tests/self-improvement-pty-session-contract-test.cjs',
+  'tests/self-improvement-pty-integration-contract-test.cjs',
+  'tests/self-improvement-run-now-permanent-workstation-contract-test.cjs',
+  'tests/rsi-xterm-terminal-ui-contract-test.cjs'
+]);
+
+function runPersistentPtyContracts() {
+  for (const relative of PERSISTENT_PTY_CONTRACTS) {
+    const absolute = path.join(ROOT, relative);
+    assert.equal(
+      fs.existsSync(absolute),
+      true,
+      'registered PTY contract is missing from the repository: ' + relative
+    );
+    const result = spawnSync(process.execPath, [absolute], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        FLOKI_RSI_PTY_REGISTERED_SUITE: '1'
+      },
+      encoding: 'utf8',
+      timeout: 120000,
+      maxBuffer: 16 * 1024 * 1024
+    });
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    assert.equal(
+      result.status,
+      0,
+      relative + ' failed from the permanent PTY registry' +
+        (result.error ? ': ' + result.error.message : '') +
+        (result.signal ? ' signal=' + result.signal : '')
+    );
+  }
+  return Object.freeze({
+    marker: PERSISTENT_PTY_CONTRACT_REGISTRY_MARKER,
+    tests: PERSISTENT_PTY_CONTRACTS
+  });
+}
+
 const agent = read('containers/self-improvement/agent.cjs');
 const convergenceSource = read('src/self-improvement/convergence-policy.cjs');
 for (const token of [
   'runAutonomousSelectionTransaction',
-  'format: selectExperimentSchema',
+  'format: selectionDecisionSchema',
   "protocol: 'ollama_json_schema'",
   "executeTool('select_experiment', args)"
 ]) assert.equal(agent.includes(token), true, 'canonical selection token missing: ' + token);
@@ -406,11 +451,11 @@ const { readRawTerminal, selectRawTerminalSource } = require('../src/runtime/raw
   assert.match(runtime, /emotionLifecycleResult\(action\)/);
   assert.match(runtime, /liveEventStreamLifecycleResult\(action\)/);
   assert.match(runtime, /dreamEngineLifecycleResult\(action\)/);
-  assert.match(runtime, /clientAppLifecycleResult\(moduleKey, action\)/);
+  assert.match(runtime, /clientAppLifecycleResult\(moduleKey, action, body\)/);
   assert.match(runtime, /rsiLifecycleResult\(action\)/);
 
   const rsiUi = read('apps/floki-neural-interface/src/pages/RSILab.jsx');
-  assert.match(rsiUi, /Raw read-only RSI terminal/);
+  assert.match(rsiUi, /RSI Terminal/);
   assert.match(rsiUi, /Load older output/);
   assert.match(rsiUi, /Abort Training/);
   assert.match(rsiUi, /before_cursor/);
@@ -421,6 +466,11 @@ const { readRawTerminal, selectRawTerminalSource } = require('../src/runtime/raw
   assert.match(dreamsUi, /One candidate per night/);
   assert.doesNotMatch(dreamsUi, /One REM dream every/);
 
+  const ptyRegistry = runPersistentPtyContracts();
+  assert.equal(
+    ptyRegistry.marker,
+    'FLOKI_RSI_PTY_PERSISTENT_TEST_REGISTRY_V1'
+  );
   console.log('FLOKI_RSI_NIGHTLY_TRAINING_TERMINAL_AUTHORITY_CONTRACT_PASS');
 })().catch((error) => {
   console.error(error && error.stack || error);

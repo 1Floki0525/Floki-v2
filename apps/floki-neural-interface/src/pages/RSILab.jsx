@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ChevronDown, FlaskConical, Terminal, AlertTriangle } from 'lucide-react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { FlaskConical } from 'lucide-react'
 import SelfImprovementPanel from '@/components/system/SelfImprovementPanel'
+import ReadOnlyXtermTerminal from '@/components/rsi/ReadOnlyXtermTerminal'
 import flokiAdapter from '@/integrations/floki/adapter'
 
 // Seed values used only until the first status response delivers the
@@ -10,6 +11,10 @@ const TERMINAL_BOOTSTRAP_LIMITS = Object.freeze({
   window_bytes: 2 * 1024 * 1024,
   poll_ms: 1000
 })
+
+// before_cursor is clamped to the file size by the backend, so the largest
+// safe integer always requests the newest bounded tail of the stream.
+const TERMINAL_TAIL_CURSOR = Number.MAX_SAFE_INTEGER
 
 function terminalLimit(uiLimits, key, bootstrap) {
   const configured = Number(uiLimits?.[key])
@@ -44,73 +49,85 @@ function terminalWindowBytes(uiLimits) {
   )
 }
 
-// Retained terminal history is bounded by the YAML-authoritative
-// ui_limits.terminal_event_limit (lines) on top of the byte window.
-function capLinesStart(result, maxLines) {
-  const limit = Number(maxLines)
-  if (!Number.isFinite(limit) || limit <= 0) return result
-  const lines = result.text.split('\n')
-  if (lines.length <= limit) return result
-  const removed = lines.slice(0, lines.length - limit).join('\n') + '\n'
+// Raw PTY sources deliver base64 bytes; plain log sources deliver utf8 text.
+// Both become a Uint8Array written to xterm without any sanitization.
+function decodeTerminalBytes(payload) {
+  if (payload?.encoding === 'base64' && payload.data_base64) {
+    const binary = atob(String(payload.data_base64))
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index)
+    }
+    return bytes
+  }
+  return new TextEncoder().encode(String(payload?.text || ''))
+}
+
+function chunkFromPayload(payload, bytes) {
+  return Object.freeze({
+    start: Number(payload.cursor || 0),
+    end: Number(payload.next_cursor || 0),
+    bytes
+  })
+}
+
+function windowByteTotal(chunks) {
+  return chunks.reduce((sum, chunk) => sum + chunk.bytes.length, 0)
+}
+
+// Bound the replay window from the oldest side as the append poll grows it.
+function boundChunksFromStart(chunks, maxBytes) {
+  let total = windowByteTotal(chunks)
+  let index = 0
+  while (index < chunks.length - 1 && total > maxBytes) {
+    total -= chunks[index].bytes.length
+    index += 1
+  }
+  return { chunks: index > 0 ? chunks.slice(index) : chunks, dropped: index > 0 }
+}
+
+// Bound the replay window from the newest side when Load Older grows it; any
+// dropped tail bytes are re-fetched by the append poll from the new end
+// cursor, so no output is lost.
+function boundChunksFromEnd(chunks, maxBytes) {
+  let total = windowByteTotal(chunks)
+  let endIndex = chunks.length
+  while (endIndex > 1 && total > maxBytes) {
+    total -= chunks[endIndex - 1].bytes.length
+    endIndex -= 1
+  }
   return {
-    text: lines.slice(lines.length - limit).join('\n'),
-    removedBytes: result.removedBytes + new TextEncoder().encode(removed).length
+    chunks: endIndex < chunks.length ? chunks.slice(0, endIndex) : chunks,
+    dropped: endIndex < chunks.length
   }
 }
 
-function capLinesEnd(result, maxLines) {
-  const limit = Number(maxLines)
-  if (!Number.isFinite(limit) || limit <= 0) return result
-  const lines = result.text.split('\n')
-  if (lines.length <= limit) return result
-  const removed = '\n' + lines.slice(limit).join('\n')
+function emptyTerminalState(revision = 0) {
   return {
-    text: lines.slice(0, limit).join('\n'),
-    removedBytes: result.removedBytes + new TextEncoder().encode(removed).length
-  }
-}
-
-function trimUtf8Start(text, maxBytes) {
-  const bytes = new TextEncoder().encode(String(text || ''))
-  if (bytes.length <= maxBytes) return { text: String(text || ''), removedBytes: 0 }
-  let start = bytes.length - maxBytes
-  while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start += 1
-  return {
-    text: new TextDecoder().decode(bytes.subarray(start)),
-    removedBytes: start
-  }
-}
-
-function trimUtf8End(text, maxBytes) {
-  const bytes = new TextEncoder().encode(String(text || ''))
-  if (bytes.length <= maxBytes) return { text: String(text || ''), removedBytes: 0 }
-  let end = maxBytes
-  while (end > 0 && end < bytes.length && (bytes[end] & 0xc0) === 0x80) end -= 1
-  return {
-    text: new TextDecoder().decode(bytes.subarray(0, end)),
-    removedBytes: bytes.length - end
+    sourceId: /** @type {string | null} */ (null),
+    sourceKind: /** @type {string | null} */ (null),
+    runId: /** @type {string | null} */ (null),
+    startCursor: 0,
+    endCursor: 0,
+    fileSize: 0,
+    hasOlder: false,
+    active: false,
+    revision,
+    revisionKind: /** @type {string} */ ('reset'),
+    chunks: /** @type {Array<{ start: number, end: number, bytes: Uint8Array }>} */ ([])
   }
 }
 
 function RSITerminal() {
-  const [terminal, setTerminal] = useState({
-    sourceId: null,
-    sourceKind: null,
-    runId: null,
-    startCursor: 0,
-    endCursor: 0,
-    fileSize: 0,
-    text: '',
-    hasOlder: false,
-    active: false
-  });
+  const [terminal, setTerminal] = useState(() => emptyTerminalState());
   const [status, setStatus] = useState(null);
   const [error, setError] = useState('');
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [aborting, setAborting] = useState(false);
-  const viewportRef = useRef(null);
+  const [following, setFollowing] = useState(true);
   const terminalRef = useRef(terminal);
   const uiLimitsRef = useRef(null);
+  const xtermRef = useRef(null);
 
   useEffect(() => {
     terminalRef.current = terminal;
@@ -119,62 +136,77 @@ function RSITerminal() {
   const applyChunk = useCallback((payload, mode = 'append') => {
     if (!payload || payload.ok !== true) return;
     setTerminal((current) => {
-      const sourceChanged = Boolean(
-        current.sourceId && payload.source_id &&
-        current.sourceId !== payload.source_id
-      );
-      const lineLimit = uiLimitsRef.current?.terminal_event_limit;
-      if (sourceChanged || !current.sourceId) {
-        const initial = capLinesStart(
-          trimUtf8Start(String(payload.text || ''), terminalWindowBytes(uiLimitsRef.current)),
-          lineLimit
-        );
+      const windowBytes = terminalWindowBytes(uiLimitsRef.current);
+      if (mode === 'reset') {
+        if (!payload.source_id) {
+          // No selectable source: keep showing empty state, but only bump
+          // the revision when an existing source actually disappeared.
+          return current.sourceId
+            ? emptyTerminalState(current.revision + 1)
+            : current;
+        }
+        const bytes = decodeTerminalBytes(payload);
         return {
-          sourceId: payload.source_id || null,
+          sourceId: payload.source_id,
           sourceKind: payload.source_kind || null,
           runId: payload.run_id || null,
-          startCursor: Number(payload.cursor || 0) + initial.removedBytes,
+          startCursor: Number(payload.cursor || 0),
           endCursor: Number(payload.next_cursor || 0),
           fileSize: Number(payload.file_size || 0),
-          text: initial.text,
-          hasOlder: payload.has_older === true || initial.removedBytes > 0,
-          active: payload.active === true
+          hasOlder: payload.has_older === true,
+          active: payload.active === true,
+          revision: current.revision + 1,
+          revisionKind: 'reset',
+          chunks: bytes.length > 0 ? [chunkFromPayload(payload, bytes)] : []
         };
       }
+      if (!current.sourceId || payload.source_id !== current.sourceId) {
+        return current;
+      }
       if (mode === 'older') {
-        const combined = String(payload.text || '') + current.text;
-        const trimmed = capLinesEnd(
-          trimUtf8End(combined, terminalWindowBytes(uiLimitsRef.current)),
-          lineLimit
-        );
+        const bytes = decodeTerminalBytes(payload);
+        if (bytes.length === 0) {
+          return { ...current, hasOlder: payload.has_older === true };
+        }
+        const grown = [chunkFromPayload(payload, bytes), ...current.chunks];
+        const bounded = boundChunksFromEnd(grown, windowBytes);
+        const lastChunk = bounded.chunks[bounded.chunks.length - 1];
         return {
           ...current,
-          startCursor: Number(payload.cursor || current.startCursor),
-          endCursor: current.endCursor - trimmed.removedBytes,
+          startCursor: Number(payload.cursor || 0),
+          endCursor: lastChunk ? lastChunk.end : Number(payload.next_cursor || 0),
           fileSize: Number(payload.file_size || current.fileSize),
-          text: trimmed.text,
           hasOlder: payload.has_older === true,
-          active: payload.active === true
+          active: payload.active === true,
+          revision: current.revision + 1,
+          revisionKind: 'older',
+          chunks: bounded.chunks
         };
       }
       if (Number(payload.cursor) !== current.endCursor) {
         return current;
       }
-      const combined = current.text + String(payload.text || '');
-      const trimmed = capLinesStart(
-        trimUtf8Start(combined, terminalWindowBytes(uiLimitsRef.current)),
-        lineLimit
-      );
+      const bytes = decodeTerminalBytes(payload);
+      if (bytes.length === 0) {
+        return {
+          ...current,
+          fileSize: Number(payload.file_size || current.fileSize),
+          hasOlder: current.hasOlder || payload.has_older === true,
+          active: payload.active === true
+        };
+      }
+      const grown = [...current.chunks, chunkFromPayload(payload, bytes)];
+      const bounded = boundChunksFromStart(grown, windowBytes);
       return {
         ...current,
         sourceKind: payload.source_kind || current.sourceKind,
         runId: payload.run_id || current.runId,
-        startCursor: current.startCursor + trimmed.removedBytes,
+        startCursor: bounded.chunks[0] ? bounded.chunks[0].start : current.startCursor,
         endCursor: Number(payload.next_cursor || current.endCursor),
         fileSize: Number(payload.file_size || current.fileSize),
-        text: trimmed.text,
-        hasOlder: current.hasOlder || trimmed.removedBytes > 0 || payload.has_older === true,
-        active: payload.active === true
+        hasOlder: current.hasOlder || bounded.dropped || payload.has_older === true,
+        active: payload.active === true,
+        chunks: bounded.chunks
       };
     });
   }, []);
@@ -185,26 +217,38 @@ function RSITerminal() {
     const poll = async () => {
       try {
         const current = terminalRef.current;
+        const request = current.sourceId
+          ? { cursor: current.endCursor, max_bytes: terminalChunkBytes(uiLimitsRef.current) }
+          : { before_cursor: TERMINAL_TAIL_CURSOR, max_bytes: terminalChunkBytes(uiLimitsRef.current) };
         let [payload, nextStatus] = await Promise.all([
-          flokiAdapter.getSelfImprovementTerminal({
-            cursor: current.endCursor,
-            max_bytes: terminalChunkBytes(uiLimitsRef.current)
-          }),
+          flokiAdapter.getSelfImprovementTerminal(request),
           flokiAdapter.getSelfImprovementStatus()
         ]);
         if (stopped) return;
-        if (
+        let mode = current.sourceId ? 'append' : 'reset';
+        const sourceSwitched = Boolean(
           current.sourceId &&
           payload?.source_id &&
           payload.source_id !== current.sourceId
-        ) {
+        );
+        const cursorDiscontinuity = Boolean(
+          mode === 'append' &&
+          !sourceSwitched &&
+          payload?.ok === true &&
+          Number(payload.cursor) !== current.endCursor
+        );
+        if (sourceSwitched || cursorDiscontinuity) {
+          // Reset and reload the newest bounded tail: either the backend
+          // switched sources or the byte stream is no longer continuous
+          // (for example the file was truncated in place).
           payload = await flokiAdapter.getSelfImprovementTerminal({
-            cursor: 0,
+            before_cursor: TERMINAL_TAIL_CURSOR,
             max_bytes: terminalChunkBytes(uiLimitsRef.current)
           });
           if (stopped) return;
+          mode = 'reset';
         }
-        applyChunk(payload, 'append');
+        applyChunk(payload, mode);
         if (nextStatus?.ui_limits) uiLimitsRef.current = nextStatus.ui_limits;
         setStatus(nextStatus);
         setError('');
@@ -266,10 +310,10 @@ function RSITerminal() {
   );
 
   return (
-    <section className="rounded-lg border border-border/60 bg-black/70 overflow-hidden">
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
+    <section className="flex w-full min-w-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-black/70">
+      <header className="flex flex-none flex-wrap items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
         <div>
-          <p className="text-xs font-semibold text-foreground">Raw read-only RSI terminal</p>
+          <p className="text-xs font-bold text-foreground">RSI Terminal</p>
           <p className="text-[10px] font-mono text-muted-foreground">
             {terminal.sourceKind || 'waiting for source'}
             {terminal.runId ? ` · ${terminal.runId}` : ''}
@@ -285,6 +329,18 @@ function RSITerminal() {
           >
             {loadingOlder ? 'Loading…' : 'Load older output'}
           </button>
+          <button
+            type="button"
+            aria-pressed={following}
+            className={
+              following
+                ? 'rounded border border-emerald-400/70 bg-emerald-500/20 px-2 py-1 text-xs text-emerald-200'
+                : 'rounded border border-border px-2 py-1 text-xs text-muted-foreground'
+            }
+            onClick={() => xtermRef.current?.followOutput()}
+          >
+            {following ? 'Following output' : 'Follow output'}
+          </button>
           {trainingAbortAvailable && (
             <button
               type="button"
@@ -298,15 +354,23 @@ function RSITerminal() {
         </div>
       </header>
       {error && (
-        <p className="border-b border-red-500/30 px-3 py-2 text-xs text-red-300">{error}</p>
+        <p className="flex-none border-b border-red-500/30 px-3 py-2 text-xs text-red-300">{error}</p>
       )}
-      <pre
-        ref={viewportRef}
-        className="h-[460px] overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5 text-emerald-200"
-        aria-label="Raw read-only RSI terminal output"
-      >
-        {terminal.text || 'No raw terminal output is available yet.'}
-      </pre>
+      {/* Fixed, clamped terminal body: log length can never change the card
+          height, and all terminal scrolling happens inside xterm's own
+          viewport. The xterm host fills this box absolutely. */}
+      <div className="relative flex-none min-w-0 overflow-hidden h-[clamp(280px,34vh,430px)] min-h-[260px] max-h-[430px]">
+        <ReadOnlyXtermTerminal
+          ref={xtermRef}
+          revision={terminal.revision}
+          revisionKind={terminal.revisionKind}
+          chunks={terminal.chunks}
+          hasSource={Boolean(terminal.sourceId)}
+          scrollbackLines={status?.ui_limits?.terminal_event_limit}
+          atBottomThresholdPx={status?.ui_limits?.terminal_at_bottom_threshold_px}
+          onFollowingChange={setFollowing}
+        />
+      </div>
     </section>
   );
 }
@@ -328,16 +392,15 @@ export default function RSILab({ flokiStatus }) {
           terminal off-screen, and overflow-y-auto scrolls its contents
           INTERNALLY (the panel's own left list / right detail / objective +
           actions stay usable without any page-level scroll). */}
-      <div className="flex-[3] min-h-0 overflow-hidden px-6">
+      <div className="flex-[3] min-h-0 overflow-hidden min-w-0 px-6">
         <SelfImprovementPanel />
       </div>
 
-      {/* RSI terminal — anchored at the bottom with a stable flex ratio
-          (flex-[2]) and a readable floor (min-h-[16rem]) so it survives short
-          viewports like 1366x768. overflow-hidden bounds the region; the
-          RSITerminal's own flex-1 body handles internal scrolling while its
-          header/footer stay visible. */}
-      <div className="flex-[2] min-h-[16rem] overflow-hidden px-6 pb-5 pt-3">
+      {/* RSI terminal — anchored at the bottom. The card owns a fixed,
+          clamped height (see RSITerminal), so terminal content can never
+          expand the page vertically or horizontally; xterm scrolls
+          internally and FitAddon fits the cell grid to the box. */}
+      <div className="flex-none min-w-0 overflow-hidden px-6 pb-5 pt-3">
         <RSITerminal />
       </div>
     </div>

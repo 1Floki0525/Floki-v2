@@ -76,7 +76,11 @@ function httpJson(calls) {
     buildLifecycle: () => ({ is_awake: true }),
     httpJson: httpJson(calls),
     gpu,
-    queryGpuComputeProcesses: async () => []
+    queryGpuComputeProcesses: async () => [],
+    // Deterministic daytime semantics regardless of when the test runs:
+    // restore policy defers daytime-service restoration inside the real
+    // sleep window, which is time-of-day dependent without this override.
+    is_within_sleep_window: () => false
   };
 
   const entered = await enterTrainingRuntimeResourceMode({
@@ -134,7 +138,8 @@ function httpJson(calls) {
       buildLifecycle: () => ({ is_awake: true }),
       httpJson: httpJson(rollbackCalls),
       gpu: failingGpu,
-      queryGpuComputeProcesses: async () => []
+      queryGpuComputeProcesses: async () => [],
+      is_within_sleep_window: () => false
     }),
     (error) => {
       assert.match(error.message, /FLOKI_TRAINING_RESOURCE_ENTER_FAILED/);

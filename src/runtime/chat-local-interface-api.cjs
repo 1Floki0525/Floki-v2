@@ -530,11 +530,27 @@ function createChatLocalInterfaceApi(options = {}) {
   function buildNeuralEvents(limit = 250) {
     const settings = getInterfaceSettings('chat').neuralStream;
     const seen = new Set();
-    const entries = readPrivateThoughtTail(Math.max(Number(limit || 250) * 4, 250), transcriptOptions)
-      .filter((entry) => settings.sessionOnly !== true || !sessionId || entry.session_id === sessionId)
-      .filter((entry) => naturalInnerText(entry.text))
+    const allEntries = readPrivateThoughtTail(
+      Math.max(Number(limit || 250) * 4, 250),
+      transcriptOptions
+    ).filter((entry) => naturalInnerText(entry.text));
+    const currentSessionEntries = sessionId
+      ? allEntries.filter((entry) => entry.session_id === sessionId)
+      : allEntries;
+    // sessionOnly prioritizes the current living session, but it must never
+    // turn a real persistent inner history into a blank Neural Stream. Until
+    // the current session has authentic entries, expose the newest safe
+    // persisted summaries as historical continuity.
+    const selectedEntries =
+      settings.sessionOnly === true &&
+      sessionId &&
+      currentSessionEntries.length > 0
+        ? currentSessionEntries
+        : allEntries;
+    const entries = selectedEntries
       .filter((entry) => {
-        const key = String(entry.category || 'reflection') + ':' + normalizePrivateThoughtText(entry.text);
+        const key = String(entry.category || 'reflection') + ':' +
+          normalizePrivateThoughtText(entry.text);
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -543,10 +559,19 @@ function createChatLocalInterfaceApi(options = {}) {
     return entries.map((entry) => Object.freeze({
       id: entry.id,
       timestamp: Date.parse(entry.created_at || '') || Date.now(),
-      module: String(entry.category || 'reflection').replace(/(^|_)([a-z])/g, (_m, _p, c) => c.toUpperCase()),
+      module: String(entry.category || 'reflection').replace(
+        /(^|_)([a-z])/g,
+        (_m, _p, c) => c.toUpperCase()
+      ),
       category: entry.category || 'reflection',
       summary: entry.text,
-      severity: entry.severity || 'info'
+      severity: entry.severity || 'info',
+      session_id: entry.session_id || null,
+      historical: Boolean(
+        sessionId &&
+        entry.session_id &&
+        entry.session_id !== sessionId
+      )
     }));
   }
 

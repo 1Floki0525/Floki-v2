@@ -49,9 +49,31 @@ assertOrdered(runtimeStart, [
 
 assertOrdered(app, [
   'runtime_ready || fail',
-  'setsid bash "$ROOT/bin/floki-chat-local-start.sh"'
+  'setsid bash -c'
 ]);
 assert.match(app, /runtime_autostart=false/);
+assert.match(app, /APP_READY_FILE/);
+assert.match(app, /APP_LOG_FILE/);
+assert.match(app, /terminal_released=true/);
+assert.match(app, /<\/dev\/null >>"\$APP_LOG_FILE" 2>&1 &/);
+assert.doesNotMatch(
+  app,
+  /\bwait "\$APP_PID"/,
+  'floki-app.sh must release the launching terminal after window readiness'
+);
+assert.match(electron, /FLOKI_APP_READY_FILE/);
+assert.match(electron, /writeAppReadyMarker/);
+assert.match(electron, /FLOKI_V2_ELECTRON_WINDOW_READY/);
+
+// Floki desktop identity and icon contract.
+assert.match(
+  electron,
+  /const APP_ICON = path\.join\([\s\S]*'apps',[\s\S]*'assets',[\s\S]*'floki-icon\.png'/
+);
+assert.match(electron, /app\.setName\('Floki'\)/);
+assert.match(electron, /app\.setDesktopName\('floki\.app\.desktop'\)/);
+assert.match(electron, /icon:\s*APP_ICON/);
+assert.match(electron, /mainWindow\.setIcon\(APP_ICON\)/);
 assert.doesNotMatch(
   app,
   /^\s*(?:exec\s+)?(?:bash\s+)?(?:"?\$ROOT\/bin\/floki-runtime\.sh"?|(?:\.\/)?bin\/floki-runtime\.sh)\s+start\b/m,
@@ -116,6 +138,7 @@ const readyToShow = electron.slice(
 );
 assertOrdered(readyToShow, [
   'mainWindow.show()',
+  'writeAppReadyMarker(mainWindow)',
   "runtimeRequest('POST', '/client-ready'"
 ]);
 

@@ -197,7 +197,7 @@ assert.match(agent, /assertRealPathInsideRoot|assertRealPathInsideWorkspace/,
 assert.match(policy, /result\?\.workspace_changed === true/);
 assert.match(policy, /name === 'run_focused_test'/);
 assert.match(policy, /name === 'apply_patch'/);
-assert.match(policy, /focused_verification_failed_repeatedly/);
+assert.match(policy, /focused_repair_must_fix_then_rerun/);
 assert.match(policy, /focusedVerificationFailures/);
 const {
   createConvergencePolicy
@@ -256,7 +256,7 @@ assert.doesNotMatch(
   'guidance must never direct the agent to execute its focused test through shell'
 );
 
-assert.match(worker, /FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_NO_CANDIDATE/i);
+assert.match(worker, /FLOKI_V2_SELF_IMPROVEMENT_NO_SAFE_CANDIDATE/i);
 assert.equal(
   pkg.scripts['self-improvement:once'],
   'bash bin/floki-node24-run.sh node src/self-improvement/worker.cjs --once --force'

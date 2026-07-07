@@ -55,7 +55,9 @@ const { enterTrainingRuntimeResourceMode, exitTrainingRuntimeResourceMode } = re
     []
   );
   assert.deepEqual(calls.slice(0, 3), ['audio:false', 'vision:false', 'knowledge:stop']);
-  const exited = await exitTrainingRuntimeResourceMode({ config, gpu, httpJson, applyLifecycle: async () => calls.push('lifecycle:restore'), buildLifecycle: () => ({ is_awake: true }) });
+  // is_within_sleep_window pinned false: restore policy defers daytime
+  // restoration inside the real sleep window, which is time-of-day dependent.
+  const exited = await exitTrainingRuntimeResourceMode({ config, gpu, httpJson, applyLifecycle: async () => calls.push('lifecycle:restore'), buildLifecycle: () => ({ is_awake: true }), is_within_sleep_window: () => false });
   assert.equal(exited.ok, true);
   assert.equal(owner, null);
   assert(calls.includes('lifecycle:restore'));

@@ -115,9 +115,16 @@ function validateTransport(value) {
 function summarizeAppState(key, appState, options = {}) {
   const nowMs = Number(options.now_ms || Date.now());
   const freshMs = Math.max(1000, Number(options.heartbeat_fresh_ms || DEFAULT_HEARTBEAT_FRESH_MS));
-  const clients = appState.clients && typeof appState.clients === 'object' ? appState.clients : {};
+  const app = appState && typeof appState === 'object'
+    ? appState
+    : emptyAppState(key);
+  const clients = app.clients && typeof app.clients === 'object'
+    ? app.clients
+    : {};
+  const generation = Math.max(1, Number(app.generation || 1));
+  const enabled = app.enabled !== false;
   const currentClients = Object.values(clients)
-    .filter((client) => client && Number(client.generation) === Number(appState.generation));
+    .filter((client) => client && Number(client.generation) === generation);
   const freshClients = currentClients.filter((client) => {
     const seenAt = Date.parse(String(client.last_heartbeat_at || ''));
     return Number.isFinite(seenAt) && nowMs - seenAt <= freshMs;
@@ -133,11 +140,23 @@ function summarizeAppState(key, appState, options = {}) {
   const lastClient = currentClients
     .slice()
     .sort((a, b) => Date.parse(String(b.last_heartbeat_at || '')) - Date.parse(String(a.last_heartbeat_at || '')))[0] || null;
-  const status = appState.enabled === false
+
+  const status = enabled === false
     ? 'stopped'
     : healthyClients.length > 0 && !unhealthyFreshClient
       ? 'running'
       : 'degraded';
+
+  const clientPresence = enabled === false
+    ? 'disabled'
+    : healthyClients.length > 0
+      ? 'fresh'
+      : freshClients.length > 0
+        ? 'unhealthy'
+        : currentClients.length > 0
+          ? 'stale'
+          : 'idle';
+
   const connectedSince = healthyClients
     .map((client) => client.connected_since)
     .filter(Boolean)
@@ -146,22 +165,24 @@ function summarizeAppState(key, appState, options = {}) {
 
   return Object.freeze({
     app_key: key,
-    enabled: appState.enabled === true,
+    enabled,
     status,
-    connected_client_count: appState.enabled === true ? freshClients.length : 0,
-    healthy_client_count: appState.enabled === true ? healthyClients.length : 0,
+    client_presence: clientPresence,
+    connection_required_for_health: false,
+    connected_client_count: enabled ? freshClients.length : 0,
+    healthy_client_count: enabled ? healthyClients.length : 0,
+    stale_client_count: enabled
+      ? Math.max(0, currentClients.length - freshClients.length)
+      : 0,
     last_heartbeat_at: lastClient ? lastClient.last_heartbeat_at : null,
-    connected_since: appState.enabled === true ? connectedSince : null,
-    session_uptime_ms: appState.enabled === true && Number.isFinite(connectedSinceMs)
+    connected_since: enabled ? connectedSince : null,
+    session_uptime_ms: enabled && Number.isFinite(connectedSinceMs)
       ? Math.max(0, nowMs - connectedSinceMs)
       : 0,
     transport_type: lastClient ? lastClient.transport_type : null,
     last_reported_error: lastClient ? lastClient.last_reported_error || null : null,
-    control_generation: Number(appState.generation) || 1,
+    control_generation: generation,
     heartbeat_fresh_ms: freshMs,
-    stale_client_count: appState.enabled === true
-      ? Math.max(0, currentClients.length - freshClients.length)
-      : 0,
     clients: Object.freeze(freshClients.map((client) => Object.freeze({
       client_id: client.client_id,
       session_id: client.session_id,
@@ -198,7 +219,12 @@ function recordClientAppHeartbeat(payload = {}, options = {}) {
   const app = state.apps[key];
   const at = nowIso();
   const previous = app.clients[clientId] || {};
-  const generation = Number(app.generation) || 1;
+  const generation = Math.max(1, Number(app.generation || 1));
+
+  // Heartbeats are intentionally accepted even while a client app is stopped.
+  // That is the recovery path: the server can remain stopped to normal traffic,
+  // remember the fresh client, then report running immediately when Start is
+  // requested without needing a second heartbeat.
   const nextApp = {
     ...app,
     updated_at: at,
@@ -216,10 +242,13 @@ function recordClientAppHeartbeat(payload = {}, options = {}) {
           ? previous.connected_since
           : at,
         transport_type: transportType,
-        last_reported_error: payload.error ? String(payload.error).slice(0, 500) : null
+        last_reported_error: payload.error
+          ? String(payload.error).slice(0, 500)
+          : null
       }
     }
   };
+
   const next = {
     ...state,
     apps: {
@@ -239,22 +268,33 @@ function controlClientApp(appKey, action, options = {}) {
     error.httpStatus = 400;
     throw error;
   }
+
   const state = readState(options);
   const before = state.apps[key];
   const previousStatus = summarizeAppState(key, before, options).status;
   const at = nowIso();
+
   const desiredEnabled = op !== 'stop';
   const nextGeneration = op === 'reset'
-    ? Number(before.generation || 1) + 1
-    : Number(before.generation || 1);
+    ? Math.max(1, Number(before.generation || 1)) + 1
+    : Math.max(1, Number(before.generation || 1));
+
+  // Start preserves fresh recovery heartbeats recorded while stopped.
+  // Stop and reset clear clients because stopped traffic is disabled and reset
+  // must force the next GUI session/heartbeat to prove liveness again.
+  const nextClients = op === 'reset' || op === 'stop'
+    ? {}
+    : (before.clients && typeof before.clients === 'object' ? before.clients : {});
+
   const nextApp = {
     ...before,
     enabled: desiredEnabled,
     generation: nextGeneration,
     updated_at: at,
     last_action: op,
-    clients: op === 'reset' || op === 'stop' ? {} : before.clients
+    clients: nextClients
   };
+
   const next = {
     ...state,
     apps: {
@@ -264,6 +304,7 @@ function controlClientApp(appKey, action, options = {}) {
   };
   writeState(next, options);
   const current = summarizeAppState(key, nextApp, options);
+
   return Object.freeze({
     previousStatus,
     current,

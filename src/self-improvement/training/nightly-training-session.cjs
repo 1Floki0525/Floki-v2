@@ -14,7 +14,7 @@ const {
   updateStatus
 } = require('../store.cjs');
 const { waitForContainerStart } = require('../sandbox.cjs');
-const { assertHfMasterReady } = require('./master-preflight.cjs');
+const { assertHfMasterReady, assertTrainingEngineReady } = require('./master-preflight.cjs');
 const { buildDataset } = require('./dataset-builder.cjs');
 const { buildTrainingConfig, buildTrainingRunArgs } = require('./qlora-config.cjs');
 const {
@@ -368,6 +368,9 @@ async function startNightlyTrainingSegment(session, options = {}) {
   if (session.resource_entered !== true) {
     throw new Error('nightly training resource mode is not active');
   }
+  // Fail fast with an actionable error when the engine cannot parse the
+  // NVIDIA CDI spec, instead of retrying doomed container launches all night.
+  assertTrainingEngineReady(config);
 
   const preparedTraining = writeTrainingConfig(
     session,

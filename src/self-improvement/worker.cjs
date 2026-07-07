@@ -19,7 +19,7 @@ const {
   updateStatus
 } = require('./store.cjs');
 const { createSourceSnapshot } = require('./snapshot.cjs');
-const { runSandbox, stopCurrentContainer } = require('./sandbox.cjs');
+const { runSandbox, stopActiveRunProcess } = require('./sandbox.cjs');
 const { createModelProxy } = require('./model-proxy.cjs');
 const { normalizeRunKind, candidateTypeForKind } = require('./run-kinds.cjs');
 const {
@@ -37,21 +37,8 @@ const ACTIVE_RUN_PREEMPT_REASONS = new Set([
   'nightly_hf_cycle'
 ]);
 
-const NO_CANDIDATE_STOP_REASONS = new Set([
-  'agent_run_wall_clock_budget_exceeded',
-  'implementation_write_deadline_exceeded',
-  'implementation_progress_stalled',
-  'focused_repair_progress_stalled',
-  'model_turn_deadline_exceeded',
-  'transient_model_failure_budget_exhausted'
-]);
-
 function shouldPreemptActiveRun(reason) {
   return ACTIVE_RUN_PREEMPT_REASONS.has(String(reason || ''));
-}
-
-function isNoCandidateStopReason(reason) {
-  return NO_CANDIDATE_STOP_REASONS.has(String(reason || ''));
 }
 
 function classifySandboxExit(exit, stopRequest, preemptReason) {
@@ -82,132 +69,88 @@ function classifySandboxExit(exit, stopRequest, preemptReason) {
   });
 }
 
-function isNoCandidateSandboxFailure(message) {
-  const text = String(message || '').toLowerCase();
-  return (
-    text.includes('agent iteration limit reached without a verified candidate') ||
-    text.includes('agent iteration wall-clock budget exceeded') ||
-    text.includes('convergence policy ended the cycle without a verified candidate') ||
-    text.includes('floki_v2_self_improvement_sandbox_no_candidate') ||
-    Array.from(NO_CANDIDATE_STOP_REASONS).some((reason) => text.includes(reason))
+// A run may end without a candidate ONLY through the agent's evidence-backed
+// no-safe-candidate decision record. Safety-limit trips, deadlines, stall
+// counters, and transport failures are real failures, never fabricated
+// no-candidate successes.
+function readNoSafeCandidateRecord(runId, config) {
+  const file = path.join(
+    config.outbox_root,
+    String(runId),
+    config.no_safe_candidate_file_name
   );
-}
-
-function classifyNoCandidateReason(message) {
-  const text = String(message || '').toLowerCase();
-  if (text.includes('iteration limit reached') || text.includes('iteration_limit')) return 'iteration_limit';
-  if (text.includes('agent_run_wall_clock_budget_exceeded')) return 'agent_run_wall_clock_budget_exceeded';
-  if (text.includes('implementation_write_deadline_exceeded')) return 'implementation_write_deadline_exceeded';
-  if (text.includes('focused_repair_progress_stalled')) return 'focused_repair_progress_stalled';
-  if (text.includes('transient_model_failure_budget_exhausted')) return 'transient_model_failure_budget_exhausted';
-  if (text.includes('model_turn_deadline_exceeded')) return 'model_turn_deadline_exceeded';
-  if (text.includes('implementation_progress_stalled')) return 'implementation_progress_stalled';
-  if (text.includes('wall-clock budget exceeded') || text.includes('wall_clock_limit')) return 'agent_run_wall_clock_budget_exceeded';
+  const record = safeJson(file, null);
   if (
-    text.includes('implementation_has_no_workspace_change') ||
-    text.includes('no_workspace_change') ||
-    text.includes('no_source_change')
-  ) return 'implementation_has_no_workspace_change';
-  if (
-    text.includes('model_request_failed') ||
-    text.includes('model_request_failure') ||
-    text.includes('model_error')
-  ) return 'transient_model_failure_budget_exhausted';
-  if (text.includes('tool_failure') || text.includes('tool_error')) return 'tool_failure';
-  if (text.includes('duplicate_experiment') || text.includes('duplicate experiment')) return 'duplicate_experiment_rejection';
-  if (text.includes('focused_test_failed') || text.includes('focused_verification_failed')) return 'focused_test_failure';
-  if (text.includes('sandbox_failure') || text.includes('container_failure')) return 'sandbox_container_failure';
-  if (text.includes('convergence policy ended') || text.includes('convergence_refusal')) return 'convergence_refusal';
-  return 'controlled_no_verified_candidate';
-}
-
-function parseAgentAuditRecords(text) {
-  const records = [];
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('{')) continue;
-    try {
-      const record = JSON.parse(trimmed);
-      if (record && record.marker === 'FLOKI_V2_SELF_IMPROVEMENT_AGENT_AUDIT') {
-        records.push(record);
-      }
-    } catch (_error) {
-    }
+    !record ||
+    record.marker !== 'FLOKI_V2_SELF_IMPROVEMENT_NO_SAFE_CANDIDATE' ||
+    record.run_id !== runId ||
+    typeof record.detailed_reason !== 'string' ||
+    record.detailed_reason.trim() === '' ||
+    !Array.isArray(record.evidence_findings) ||
+    record.evidence_findings.length < 3 ||
+    !Array.isArray(record.considered_alternatives) ||
+    record.considered_alternatives.length < 2 ||
+    record.considered_alternatives.some(
+      (row) =>
+        !row ||
+        typeof row.alternative !== 'string' ||
+        row.alternative.trim() === '' ||
+        typeof row.rejection_reason !== 'string' ||
+        row.rejection_reason.trim() === ''
+    ) ||
+    record.evidence_readiness_complete !== true
+  ) {
+    return null;
   }
-  return records;
+  return record;
 }
 
-function conciseNoCandidateStatus(message, execution, completedAt = nowIso()) {
-  const records = parseAgentAuditRecords(message);
-  const noCandidate = [...records]
-    .reverse()
-    .find((record) => record.type === 'no_candidate');
-  const heartbeat = [...records]
-    .reverse()
-    .find((record) => record.type === 'progress_heartbeat');
-  const detail = noCandidate?.detail || {};
-  const convergence = detail.convergence || heartbeat?.detail || {};
-  const heartbeatDetail = heartbeat?.detail || {};
-  const runId =
-    detail.run_id ||
-    heartbeatDetail.run_id ||
-    execution?.run_id ||
-    null;
-  const reason = classifyNoCandidateReason(
-    detail.reason ||
-      noCandidate?.reason ||
-      heartbeatDetail.reason ||
-      message
+function readRunFailureRecord(runId, config) {
+  const file = path.join(
+    config.outbox_root,
+    String(runId),
+    config.run_failure_file_name
   );
-  return Object.freeze({
-    run_id: runId,
-    reason,
-    phase:
-      convergence.phase ||
-      heartbeatDetail.phase ||
-      null,
-    iteration:
-      convergence.iteration ??
-      heartbeatDetail.iteration ??
-      null,
-    write_count:
-      convergence.write_count ??
-      heartbeatDetail.write_count ??
-      null,
-    last_write_iteration:
-      convergence.last_write_iteration ??
-      heartbeatDetail.last_write_iteration ??
-      null,
-    last_write_time:
-      heartbeatDetail.last_write_time ||
-      null,
-    elapsed_ms:
-      detail.elapsed_ms ??
-      heartbeatDetail.elapsed_ms ??
-      null,
-    selected_objective:
-      convergence.selected_experiment?.objective ||
-      heartbeatDetail.selected_experiment ||
-      null,
-    terminal_log_file: execution?.log_file || null,
-    timestamp: completedAt
-  });
+  return safeJson(file, null);
 }
 
-function noCandidateStatusPatch(message, execution, completedAt = nowIso()) {
+function persistNoSafeCandidateDecision(record, config) {
+  const dir = path.join(
+    config.runtime_root,
+    config.no_safe_candidate_dir_name
+  );
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const file = path.join(dir, String(record.run_id) + '.json');
+  fs.writeFileSync(file, JSON.stringify(record, null, 2) + '\n', {
+    mode: 0o600
+  });
+  return file;
+}
+
+function noSafeCandidateStatusPatch(record, execution, completedAt = nowIso()) {
   return Object.freeze({
     state: 'waiting_for_idle',
-    phase: 'no_verified_candidate',
+    phase: 'no_safe_candidate',
     current_run_id: null,
     current_container: null,
     last_error: null,
     failure_latched_at: null,
     last_no_candidate_at: completedAt,
-    last_no_candidate_error: conciseNoCandidateStatus(
-      message,
-      execution,
-      completedAt
-    ),
+    last_no_candidate_error: Object.freeze({
+      run_id: record.run_id,
+      reason: 'no_safe_candidate',
+      detailed_reason: record.detailed_reason,
+      evidence_findings: record.evidence_findings,
+      considered_alternatives: record.considered_alternatives,
+      phase: record.phase || null,
+      selected_experiment: record.selected_experiment || null,
+      target_files: record.target_files || [],
+      focused_test_state: record.focused_test_state || null,
+      verification_state: record.verification_state || null,
+      elapsed_ms: record.elapsed_ms ?? null,
+      terminal_log_file: execution?.log_file || null,
+      timestamp: completedAt
+    }),
     last_sandbox_log_file: execution?.log_file || null,
     last_cycle_completed_at: completedAt
   });
@@ -444,15 +387,6 @@ function idleEligibility(runtime, status, config, force = false) {
   }
 
   const lastActivity = latestActivityMs(runtime);
-  const failureAt = Date.parse(status.failure_latched_at || '') || 0;
-  if (
-    !force &&
-    config.failure_requires_new_activity === true &&
-    failureAt > 0 &&
-    lastActivity <= failureAt
-  ) {
-    return { eligible: false, reason: 'failure_waiting_for_new_activity' };
-  }
   if (!force && Date.now() - lastActivity < config.idle_seconds * 1000) {
     return { eligible: false, reason: 'idle_threshold_not_reached' };
   }
@@ -665,22 +599,13 @@ async function runCycle(options = {}) {
     execution.cleanup();
     throw error;
   }
+  // The run has no wall-clock or iteration budget: it continues until a
+  // candidate is verified, an evidence-backed no-safe-candidate decision is
+  // accepted, the Maker pauses or aborts, runtime stop/reset occurs, or a
+  // real failure occurs. Preemption here covers only genuine external
+  // conditions (night handoff, foreground turns, memory pressure, pause).
   const preemptTimer = setInterval(() => {
     const nowMs = Date.now();
-    const wallClockBudgetMs = Math.min(
-      Number(config.iteration_wall_clock_budget_ms) || Number.MAX_SAFE_INTEGER,
-      Number(config.agent_run_wall_clock_budget_ms) || Number.MAX_SAFE_INTEGER
-    );
-    if (
-      preemptReason === null &&
-      Number.isFinite(wallClockBudgetMs) &&
-      wallClockBudgetMs > 0 &&
-      nowMs - cycleStartMs > wallClockBudgetMs
-    ) {
-      preemptReason = 'agent_run_wall_clock_budget_exceeded';
-      stopCurrentContainer(preemptReason, config);
-      return;
-    }
     if (
       options.force !== true &&
       automaticNightCycleOwnsWorker(
@@ -689,7 +614,7 @@ async function runCycle(options = {}) {
       )
     ) {
       preemptReason = 'automatic_code_crossed_into_night';
-      stopCurrentContainer(
+      stopActiveRunProcess(
         'automatic_code_crossed_into_night',
         config
       );
@@ -725,11 +650,11 @@ async function runCycle(options = {}) {
       shouldPreemptActiveRun(eligibility.reason)
     ) {
       preemptReason = eligibility.reason;
-      stopCurrentContainer(eligibility.reason, config);
+      stopActiveRunProcess(eligibility.reason, config);
     }
     if (status.paused === true) {
       preemptReason = 'paused';
-      stopCurrentContainer('paused', config);
+      stopActiveRunProcess('paused', config);
     }
     if (stalled) {
       appendAudit('command_stalled', { run_id: snapshot.run_id, stall_ms: stallMs }, config);
@@ -762,44 +687,6 @@ async function runCycle(options = {}) {
   };
 
   if (classification.preempted) {
-    if (isNoCandidateStopReason(classification.reason)) {
-      const summary = execution.read_error_tail();
-      const completedAt = nowIso();
-      const message = summary
-        ? classification.reason + '\n\n' + summary
-        : classification.reason;
-      updateStatus(
-        noCandidateStatusPatch(message, executionStatus, completedAt),
-        config
-      );
-      appendAudit(
-        'cycle_no_candidate',
-        {
-          run_id: snapshot.run_id,
-          exit_code: exit.code,
-          signal: exit.signal,
-          reason: classifyNoCandidateReason(message),
-          preempted: true,
-          sandbox_log_file: execution.log_file
-        },
-        config
-      );
-      try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
-      try {
-        writeCycleMemory({
-          run_id: snapshot.run_id,
-          objective: options.objective || null,
-          outcome: 'no_candidate',
-          reason: classifyNoCandidateReason(message),
-          importance: 0.55
-        });
-      } catch (_) {}
-      return {
-        ok: false,
-        no_candidate: true,
-        reason: classifyNoCandidateReason(message)
-      };
-    }
     updateStatus({
       state: 'waiting_for_idle',
       phase: 'preempted',
@@ -837,40 +724,8 @@ async function runCycle(options = {}) {
 
   const cycleObjective = options.objective || null;
 
-  if (exit.code !== 0 && exit.code !== 137) {
-    const summary = execution.read_error_tail();
-    const base = exit.error
-      ? exit.error.message
-      : 'sandbox exited with status ' + exit.code +
-        (exit.signal ? ' signal ' + exit.signal : '');
-    const message = summary ? base + '\n\n' + summary : base;
+  function failCycle(message, auditType = 'cycle_failed', extra = {}) {
     const failedAt = nowIso();
-    if (isNoCandidateSandboxFailure(message)) {
-      updateStatus(noCandidateStatusPatch(message, executionStatus, failedAt), config);
-      appendAudit(
-        'cycle_no_candidate',
-        {
-          run_id: snapshot.run_id,
-          exit_code: exit.code,
-          signal: exit.signal,
-          reason: classifyNoCandidateReason(message),
-          error: message.slice(0, 800),
-          sandbox_log_file: execution.log_file
-        },
-        config
-      );
-      try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
-      try {
-        writeCycleMemory({
-          run_id: snapshot.run_id,
-          objective: cycleObjective,
-          outcome: 'no_candidate',
-          reason: classifyNoCandidateReason(message),
-          importance: 0.55
-        });
-      } catch (_) {}
-      return { ok: false, no_candidate: true, error: message };
-    }
     updateStatus({
       state: 'failed',
       phase: classification.phase,
@@ -881,44 +736,67 @@ async function runCycle(options = {}) {
       last_sandbox_log_file: execution.log_file,
       last_cycle_completed_at: failedAt
     }, config);
-    appendAudit(
-      classification.killed ? 'cycle_killed_137' : 'cycle_failed',
-      {
-        run_id: snapshot.run_id,
-        exit_code: exit.code,
-        signal: exit.signal,
-        reason: classification.reason,
-        error: message,
-        sandbox_log_file: execution.log_file
-      },
-      config
-    );
+    appendAudit(auditType, {
+      run_id: snapshot.run_id,
+      exit_code: exit.code,
+      signal: exit.signal,
+      reason: classification.reason,
+      error: message,
+      sandbox_log_file: execution.log_file,
+      ...extra
+    }, config);
     try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
     try {
       writeCycleMemory({
         run_id: snapshot.run_id,
         objective: cycleObjective,
         outcome: 'cycle_failed',
-        reason: message.slice(0, 400),
+        reason: String(message || '').slice(0, 400),
         importance: 0.50
       });
     } catch (_) {}
     return { ok: false, error: message };
   }
 
-  const completionSummary = execution.read_error_tail();
-  if (exit.code === 0 && isNoCandidateSandboxFailure(completionSummary)) {
+  if (exit.code !== 0 && exit.code !== 137) {
+    // A non-zero sandbox exit is always a real, persisted failure. The agent
+    // writes a structured failure record with the actual error; the log tail
+    // is the fallback evidence.
+    const failureRecord = readRunFailureRecord(snapshot.run_id, config);
+    const summary = execution.read_error_tail();
+    const base = failureRecord
+      ? String(failureRecord.reason || 'run_failed') +
+        (failureRecord.error ? ': ' + String(failureRecord.error) : '')
+      : exit.error
+        ? exit.error.message
+        : 'sandbox exited with status ' + exit.code +
+          (exit.signal ? ' signal ' + exit.signal : '');
+    const message = summary ? base + '\n\n' + summary : base;
+    return failCycle(
+      message,
+      classification.killed ? 'cycle_killed_137' : 'cycle_failed',
+      failureRecord ? { failure_record: failureRecord } : {}
+    );
+  }
+
+  // Exit code zero is not success by itself. The run must have produced
+  // exactly one explicit outcome: a pending-review candidate or an
+  // evidence-backed no-safe-candidate decision.
+  const noSafeCandidate = readNoSafeCandidateRecord(snapshot.run_id, config);
+  if (noSafeCandidate) {
     const completedAt = nowIso();
+    const persistedFile = persistNoSafeCandidateDecision(noSafeCandidate, config);
     updateStatus(
-      noCandidateStatusPatch(completionSummary, executionStatus, completedAt),
+      noSafeCandidateStatusPatch(noSafeCandidate, executionStatus, completedAt),
       config
     );
-    appendAudit('cycle_no_candidate', {
+    appendAudit('cycle_no_safe_candidate', {
       run_id: snapshot.run_id,
-      exit_code: exit.code,
-      signal: exit.signal,
-      reason: classifyNoCandidateReason(completionSummary),
-      error: String(completionSummary || '').slice(0, 800),
+      detailed_reason: noSafeCandidate.detailed_reason,
+      evidence_finding_count: noSafeCandidate.evidence_findings.length,
+      considered_alternative_count:
+        noSafeCandidate.considered_alternatives.length,
+      persisted_file: persistedFile,
       sandbox_log_file: execution.log_file
     }, config);
     try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
@@ -926,21 +804,31 @@ async function runCycle(options = {}) {
       writeCycleMemory({
         run_id: snapshot.run_id,
         objective: cycleObjective,
-        outcome: 'no_candidate',
-        reason: classifyNoCandidateReason(completionSummary),
+        outcome: 'no_safe_candidate',
+        reason: String(noSafeCandidate.detailed_reason || '').slice(0, 400),
         importance: 0.55
       });
     } catch (_) {}
     return {
       ok: false,
       no_candidate: true,
-      controlled: true,
-      error: completionSummary
+      evidence_backed: true,
+      reason: 'no_safe_candidate'
     };
   }
 
   try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
-  const candidate = importOutbox(snapshot.run_id, config);
+  let candidate;
+  try {
+    candidate = importOutbox(snapshot.run_id, config);
+  } catch (error) {
+    return failCycle(
+      'sandbox exited 0 without a verified candidate or an evidence-backed ' +
+      'no-safe-candidate decision: ' + error.message,
+      'cycle_failed',
+      { zero_exit_without_outcome: true }
+    );
+  }
   try {
     writeCycleMemory({
       run_id: snapshot.run_id,
@@ -977,7 +865,7 @@ async function serviceLoop(options = {}) {
   const requestStop = (reason = 'worker_shutdown') => {
     if (stopping) return;
     stopping = true;
-    stopCurrentContainer(reason, config);
+    stopActiveRunProcess(reason, config);
     wakeController.wake(reason);
   };
   const signalNames = options.process_signal_names || ['SIGTERM', 'SIGINT'];
@@ -1011,6 +899,7 @@ async function serviceLoop(options = {}) {
     state: config.enabled ? 'waiting_for_idle' : 'disabled',
     phase: null,
     worker_running: true,
+    worker_pid: process.pid,
     model_proxy_ready: true,
     started_at: nowIso(),
     last_error: null,
@@ -1040,7 +929,14 @@ async function serviceLoop(options = {}) {
       continue;
     }
     if (status.paused) {
-      updateStatus({ state: 'paused', phase: null }, config);
+      updateStatus({
+        state: 'paused',
+        phase: null,
+        worker_running: true,
+        worker_pid: process.pid,
+        model_proxy_ready: true,
+        worker_alive_at: nowIso()
+      }, config);
       await wakeController.wait(config.poll_ms);
       continue;
     }
@@ -1271,6 +1167,11 @@ async function serviceLoop(options = {}) {
     if (manualNightCodeOverride) {
       continue;
     }
+    // Explicit Maker-requested cycles have no cooldown; the cooldown applies
+    // only between automatic idle-scheduled cycles.
+    if (request?.force === true) {
+      continue;
+    }
     await wakeController.wait(config.cooldown_seconds * 1000);
   }
 
@@ -1286,6 +1187,7 @@ async function serviceLoop(options = {}) {
     state: 'stopped',
     phase: null,
     worker_running: false,
+    worker_pid: null,
     model_proxy_ready: false
   }, config);
   appendAudit('worker_stopped', { pid: process.pid }, config);
@@ -1304,10 +1206,24 @@ async function main() {
 
 if (require.main === module) {
   main().catch((error) => {
+    const detail = error && error.stack ? error.stack : String(error && error.message || error);
+    try {
+      const config = loadSelfImprovementConfig();
+      updateStatus({
+        state: 'stopped',
+        phase: 'worker_start_failed',
+        worker_running: false,
+        worker_pid: null,
+        model_proxy_ready: false,
+        last_error: detail,
+        failure_latched_at: nowIso()
+      }, config);
+      appendAudit('worker_start_failed', { pid: process.pid, error: detail }, config);
+    } catch (_statusError) {}
     console.error(JSON.stringify({
       ok: false,
       marker: 'FLOKI_V2_SELF_IMPROVEMENT_WORKER_FAIL',
-      error: error.stack || error.message
+      error: detail
     }, null, 2));
     process.exit(1);
   });
@@ -1327,10 +1243,10 @@ module.exports = {
   readRuntimeStatus,
   resolveManualRunRequest,
   classifySandboxExit,
-  classifyNoCandidateReason,
-  isNoCandidateSandboxFailure,
-  isNoCandidateStopReason,
-  noCandidateStatusPatch,
+  readNoSafeCandidateRecord,
+  readRunFailureRecord,
+  persistNoSafeCandidateDecision,
+  noSafeCandidateStatusPatch,
   runCycle,
   serviceLoop,
   shouldPreemptActiveRun

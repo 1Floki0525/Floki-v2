@@ -73,9 +73,12 @@ assert.match(
   schedulerSource,
   /nightly_chat_interruption/
 );
+// Training resumption after a night chat interruption re-enters through the
+// standard epoch-boundary launch (commit 75aa7a0 removed the dedicated
+// resume_after_night_chat_idle transfer detail).
 assert.match(
   schedulerSource,
-  /resume_after_night_chat_idle/
+  /start_next_complete_epoch/
 );
 
 console.log(

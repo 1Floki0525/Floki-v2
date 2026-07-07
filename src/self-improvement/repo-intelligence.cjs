@@ -205,8 +205,11 @@ function buildRepositoryMap(config = loadSelfImprovementConfig()) {
   );
 
   const files = {};
-  const definitionIndex = {}; // name -> [{file, line, kind}]
-  const exportIndex = {}; // name -> [file]
+  // Null-prototype maps: symbol names are arbitrary source-derived strings and
+  // may collide with Object.prototype keys (constructor, toString, __proto__).
+  // A plain {} would make lookups return inherited members instead of arrays.
+  const definitionIndex = Object.create(null); // name -> [{file, line, kind}]
+  const exportIndex = Object.create(null); // name -> [file]
   let totalDefinitions = 0;
 
   for (const entry of fileList) {

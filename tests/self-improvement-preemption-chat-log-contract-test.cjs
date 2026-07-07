@@ -10,8 +10,7 @@ const text = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
 const {
   classifySandboxExit,
   idleEligibility,
-  isNoCandidateSandboxFailure,
-  noCandidateStatusPatch,
+  readNoSafeCandidateRecord,
   shouldPreemptActiveRun
 } = require('../src/self-improvement/worker.cjs');
 const {
@@ -46,8 +45,7 @@ const runtime = {
 const status = { paused: false, failure_latched_at: null };
 const eligibilityConfig = {
   minimum_available_memory_mb: 0,
-  idle_seconds: 0,
-  failure_requires_new_activity: true
+  idle_seconds: 0
 };
 assert.deepEqual(
   idleEligibility(runtime, status, eligibilityConfig, false),
@@ -77,39 +75,49 @@ assert.equal(
   'manual nap REM must not kill an active RSI sandbox'
 );
 assert.equal(shouldPreemptActiveRun('idle_threshold_not_reached'), false);
-assert.equal(shouldPreemptActiveRun('failure_waiting_for_new_activity'), false);
 assert.equal(shouldPreemptActiveRun('chat_runtime_not_ready'), false);
-assert.equal(
-  isNoCandidateSandboxFailure('Error: agent iteration limit reached without a verified candidate'),
-  true,
-  'agent iteration exhaustion is a no-candidate cycle that must wait for new activity before retrying'
-);
 {
-  const patch = noCandidateStatusPatch(
-    'Error: agent iteration limit reached without a verified candidate',
-    { log_file: '/tmp/sandbox.log' },
-    '2026-06-25T00:00:00.000Z'
-  );
-  assert.equal(patch.state, 'waiting_for_idle');
-  assert.equal(patch.phase, 'no_verified_candidate');
-  assert.equal(patch.last_error, null, 'no-candidate cycles must not degrade the RSI UI with last_error');
-  assert.equal(
-    patch.failure_latched_at,
-    null,
-    'no-candidate cycles must stay retryable instead of becoming a hard failure latch'
-  );
-  assert.equal(
-    patch.last_no_candidate_error.reason,
-    'iteration_limit',
-    'no-candidate status must expose a bounded structured reason instead of raw terminal text'
-  );
-  assert.equal(patch.last_no_candidate_error.terminal_log_file, '/tmp/sandbox.log');
+  // Log text can never manufacture a no-candidate outcome: only a validated
+  // evidence-backed record ends a run without a candidate.
+  const noSafeTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'floki-rsi-nosafe-'));
+  try {
+    const recordConfig = {
+      outbox_root: noSafeTemp,
+      no_safe_candidate_file_name: 'no-safe-candidate.json'
+    };
+    assert.equal(readNoSafeCandidateRecord('rsi-x', recordConfig), null);
+    fs.mkdirSync(path.join(noSafeTemp, 'rsi-x'));
+    const file = path.join(noSafeTemp, 'rsi-x', 'no-safe-candidate.json');
+    fs.writeFileSync(file, JSON.stringify({
+      marker: 'FLOKI_V2_SELF_IMPROVEMENT_NO_SAFE_CANDIDATE',
+      run_id: 'rsi-x',
+      detailed_reason: 'incomplete',
+      evidence_findings: ['only-one'],
+      considered_alternatives: [],
+      evidence_readiness_complete: true
+    }) + '\n');
+    assert.equal(
+      readNoSafeCandidateRecord('rsi-x', recordConfig),
+      null,
+      'an incomplete evidence contract must not be accepted'
+    );
+    fs.writeFileSync(file, JSON.stringify({
+      marker: 'FLOKI_V2_SELF_IMPROVEMENT_NO_SAFE_CANDIDATE',
+      run_id: 'rsi-x',
+      detailed_reason: 'complete evidence-backed decision fixture',
+      evidence_findings: ['f1', 'f2', 'f3'],
+      considered_alternatives: [
+        { alternative: 'a1', rejection_reason: 'r1' },
+        { alternative: 'a2', rejection_reason: 'r2' }
+      ],
+      evidence_readiness_complete: true
+    }) + '\n');
+    const accepted = readNoSafeCandidateRecord('rsi-x', recordConfig);
+    assert.equal(accepted.detailed_reason, 'complete evidence-backed decision fixture');
+  } finally {
+    fs.rmSync(noSafeTemp, { recursive: true, force: true });
+  }
 }
-assert.equal(
-  isNoCandidateSandboxFailure('Error: write EPIPE'),
-  false,
-  'transport and sandbox infrastructure failures must remain real failures'
-);
 assert.deepEqual(
   classifySandboxExit({ code: 137, signal: null }, null, null),
   {

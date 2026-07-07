@@ -114,3 +114,14 @@
 .animate-scan {
   animation: scan-line 3s linear infinite;
 }
+/* RSI read-only xterm terminal: the host box owns a fixed height, xterm owns
+   all scrolling. Terminal bytes must never reflow as ordinary HTML text or
+   grow the page — wrapping is controlled by xterm's fitted columns. */
+.rsi-xterm-host .xterm {
+  width: 100%;
+  height: 100%;
+}
+.rsi-xterm-host .xterm-viewport {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}

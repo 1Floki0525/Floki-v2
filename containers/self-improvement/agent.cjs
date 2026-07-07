@@ -6,6 +6,7 @@ const http = require('node:http');
 const path = require('node:path');
 const readline = require('node:readline');
 const { spawn, spawnSync } = require('node:child_process');
+const { createPtySession } = require('./pty-session.cjs');
 
 const CONFIG_FILE = process.env.FLOKI_RSI_CONFIG_FILE;
 if (typeof CONFIG_FILE !== 'string' || CONFIG_FILE.trim() === '') {
@@ -67,7 +68,6 @@ const AGENT_MESSAGE_HISTORY_MAX_CHARS =
   requireNumber('agent_message_history_max_chars');
 const AGENT_RECENT_MESSAGE_COUNT =
   requireNumber('agent_recent_message_count');
-const MAX_ITERATIONS = requireNumber('max_agent_iterations');
 const MAX_COMMAND_MS = requireNumber('max_command_ms');
 const DEPENDENCY_INSTALL_TIMEOUT_MS =
   requireNumber('dependency_install_timeout_ms');
@@ -86,6 +86,12 @@ const GIT_SHOW_BUFFER_BYTES = requireNumber('agent_git_show_buffer_bytes');
 const COMMAND_AUDIT_MAX_CHARS = requireNumber('agent_command_audit_max_chars');
 const TOOL_RESULT_MAX_CHARS = requireNumber('agent_tool_result_max_chars');
 const TERMINAL_PREVIEW_MAX_CHARS = requireNumber('agent_terminal_preview_max_chars');
+const TERMINAL_STREAM_FILE_NAME = requireString('terminal_stream_file_name');
+const TERMINAL_STREAM_MAX_BYTES = requireNumber('terminal_stream_max_bytes');
+const TERMINAL_SENTINEL_GRACE_MS = requireNumber('terminal_sentinel_grace_ms');
+const TERMINAL_INTERRUPT_GRACE_MS = requireNumber('terminal_interrupt_grace_ms');
+const PTY_ROWS = requireNumber('pty_rows');
+const PTY_COLS = requireNumber('pty_cols');
 const TEST_OUTPUT_TAIL_CHARS = requireNumber('agent_test_output_tail_chars');
 const MIN_COMMAND_TIMEOUT_MS = requireNumber('agent_min_command_timeout_ms');
 const ENVIRONMENT_CHECK_TIMEOUT_MS =
@@ -170,12 +176,12 @@ const RESEARCH_CORPUS_SEARCH_MAX_LIMIT =
   requireNumber('research_corpus_search_max_limit');
 const RESEARCH_CORPUS_FETCH_MAX_CHARS =
   requireNumber('research_corpus_fetch_max_chars');
-const ITERATION_WALL_CLOCK_BUDGET_MS =
-  requireNumber('iteration_wall_clock_budget_ms');
-const AGENT_RUN_WALL_CLOCK_BUDGET_MS =
-  requireNumber('agent_run_wall_clock_budget_ms');
 const MODEL_TURN_DEADLINE_MS =
   requireNumber('model_turn_deadline_ms');
+const NO_SAFE_CANDIDATE_FILE_NAME =
+  requireString('no_safe_candidate_file_name');
+const RUN_FAILURE_FILE_NAME =
+  requireString('run_failure_file_name');
 const IMPLEMENTATION_WRITE_DEADLINE_MS =
   requireNumber('implementation_write_deadline_ms');
 const IMPLEMENTATION_NO_PROGRESS_DEADLINE_MS =
@@ -188,10 +194,12 @@ const OLLAMA_REQUEST_RETRY_BACKOFF_MS =
   requireNumber('agent_ollama_request_retry_backoff_ms');
 
 let shutdownSignal = null;
+let agentPtySession = null;
 function exitForShutdown(signal) {
   if (shutdownSignal) return;
   shutdownSignal = signal;
   try {
+    closeAgentPtySession('signal_' + signal);
     fs.writeSync(2, JSON.stringify({
       ok: true,
       marker: 'FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_PREEMPTED',
@@ -208,6 +216,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
 
 const runRoot = path.join(OUTBOX, RUN_ID + '.working');
 const finalRoot = path.join(OUTBOX, RUN_ID);
+const terminalStreamFile = path.join(runRoot, TERMINAL_STREAM_FILE_NAME);
 // Flat file in OUTBOX root — persists even when exitNoCandidate deletes runRoot
 const agentMemoryOutboxFile = path.join(OUTBOX, RUN_ID + '-memory-writes.jsonl');
 fs.rmSync(runRoot, { recursive: true, force: true });
@@ -224,6 +233,9 @@ let finalized = false;
 let consecutiveModelTurnFailures = 0;
 let verifiedPatchSha = null;
 let verifiedChangedFiles = [];
+// Set when the model's evidence-backed no-safe-candidate decision has been
+// validated and persisted; the main loop then ends the cycle explicitly.
+let noSafeCandidateAccepted = null;
 
 const taskState = {
   marker: 'FLOKI_V2_SELF_IMPROVEMENT_TASK_STATE',
@@ -248,8 +260,6 @@ const taskState = {
   test_results: [],
   verification_status: 'not_started',
   model_retry_state: { consecutive_failures: 0 },
-  remaining_iteration_budget: MAX_ITERATIONS,
-  remaining_wall_clock_budget_ms: ITERATION_WALL_CLOCK_BUDGET_MS,
   candidate_status: 'none',
   next_required_action: 'select_experiment',
   last_successful_action: null,
@@ -529,9 +539,16 @@ async function runAutonomousSelectionTransaction(
     {
       role: 'system',
       content:
-        'Select exactly one bounded, measurable Floki-v2 self-improvement ' +
-        'experiment from the supplied evidence. Preserve the Maker objective ' +
-        'exactly when objective_source is maker_requested.'
+        'Decide between exactly two structured outcomes based on the supplied ' +
+        'evidence. Either select one bounded, measurable Floki-v2 ' +
+        'self-improvement experiment (decision: "experiment", with the complete ' +
+        'objective, hypothesis, baseline_evidence, target_files, ' +
+        'success_metric, focused_test, and expected_follow_on_value fields), or ' +
+        'decide that no safe candidate currently exists (decision: ' +
+        '"no_safe_candidate", with a detailed_reason, at least three concrete ' +
+        'evidence_findings, and at least two considered_alternatives each with ' +
+        'a rejection_reason). Preserve the Maker objective exactly when ' +
+        'objective_source is maker_requested.'
     },
     {
       role: 'user',
@@ -552,7 +569,7 @@ async function runAutonomousSelectionTransaction(
       selectionMessages,
       [],
       {
-        format: selectExperimentSchema,
+        format: selectionDecisionSchema,
         compact: false
       }
     );
@@ -590,6 +607,42 @@ async function runAutonomousSelectionTransaction(
       content:
         'The schema-constrained experiment-selection response was invalid: ' +
         String(error.message || error) + '.'
+    });
+    return false;
+  }
+
+  // The structured decision explicitly supports both outcomes. A
+  // no_safe_candidate decision routes through the same evidence-contract
+  // validation as the report_no_safe_candidate tool.
+  if (String(args.decision || '').trim() === 'no_safe_candidate') {
+    progressDeadlines.recordToolStart('report_no_safe_candidate');
+    let decisionResult;
+    try {
+      decisionResult = await executeTool('report_no_safe_candidate', args);
+    } catch (error) {
+      decisionResult = { ok: false, error: error.stack || error.message };
+    }
+    convergencePolicy.record('report_no_safe_candidate', args, decisionResult);
+    progressDeadlines.recordToolResult('report_no_safe_candidate', decisionResult);
+    if (decisionResult?.ok === true) {
+      audit('autonomous_selection_no_safe_candidate_accepted', {
+        iteration,
+        protocol: 'ollama_json_schema'
+      });
+      return true;
+    }
+    audit('autonomous_selection_no_safe_candidate_rejected', {
+      iteration,
+      protocol: 'ollama_json_schema',
+      error: decisionResult?.error || null
+    });
+    messages.push({
+      role: 'user',
+      content:
+        'The no_safe_candidate decision was rejected: ' +
+        String(decisionResult?.error || 'validation failed') +
+        '. Either provide the complete no-safe-candidate evidence contract ' +
+        'or select one bounded, measurable experiment.'
     });
     return false;
   }
@@ -705,25 +758,154 @@ function workspaceFingerprint() {
   return hash.digest('hex');
 }
 
-function finishWithoutCandidate(reason, error = null) {
-  const detail = {
-    reason: String(reason || 'no_verified_candidate'),
-    error: error ? String(error.stack || error.message || error) : null,
+// Every cycle ends in exactly one explicit outcome: a verified pending_review
+// candidate, an evidence-backed no-safe-candidate decision, a preemption, or a
+// real persisted failure. There is no other successful exit.
+
+function publishRunOutcomeRoot() {
+  // Close the real PTY while its stream still lives under runRoot, then move
+  // the complete immutable run outcome (including terminal.pty) atomically.
+  closeAgentPtySession('run_outcome_published');
+  if (!fs.existsSync(runRoot)) return;
+  fs.rmSync(finalRoot, { recursive: true, force: true });
+  fs.renameSync(runRoot, finalRoot);
+}
+
+function validateNoSafeCandidateDecision(args = {}) {
+  const detailedReason = String(args.detailed_reason || '').trim();
+  if (detailedReason.length < 40) {
+    throw new Error(
+      'report_no_safe_candidate requires a detailed_reason explaining why no ' +
+      'bounded, measurable improvement is currently safe (at least 40 chars)'
+    );
+  }
+  const findings = Array.isArray(args.evidence_findings)
+    ? args.evidence_findings.map((row) => String(row || '').trim()).filter(Boolean)
+    : [];
+  if (findings.length < 3) {
+    throw new Error(
+      'report_no_safe_candidate requires at least three concrete evidence ' +
+      'findings from real tool results'
+    );
+  }
+  const alternatives = Array.isArray(args.considered_alternatives)
+    ? args.considered_alternatives.map((row) => ({
+        alternative: String(row?.alternative || '').trim(),
+        rejection_reason: String(row?.rejection_reason || '').trim()
+      }))
+    : [];
+  if (
+    alternatives.length < 2 ||
+    alternatives.some((row) => !row.alternative || !row.rejection_reason)
+  ) {
+    throw new Error(
+      'report_no_safe_candidate requires at least two considered alternatives, ' +
+      'each with the reason it was rejected'
+    );
+  }
+  return { detailed_reason: detailedReason, evidence_findings: findings, considered_alternatives: alternatives };
+}
+
+function finishWithNoSafeCandidate(decision) {
+  const convergence = convergencePolicy.snapshot();
+  const lastFocused = focusedTestResults.length > 0
+    ? focusedTestResults[focusedTestResults.length - 1]
+    : null;
+  const record = {
+    marker: 'FLOKI_V2_SELF_IMPROVEMENT_NO_SAFE_CANDIDATE',
+    run_id: RUN_ID,
+    created_at: nowIso(),
+    detailed_reason: decision.detailed_reason,
+    evidence_findings: decision.evidence_findings,
+    considered_alternatives: decision.considered_alternatives,
+    evidence_readiness_complete:
+      convergence.autonomous_selection_ready === true,
+    evidence: convergence.autonomous_selection_evidence || null,
+    phase: convergence.phase,
+    selected_experiment: convergence.selected_experiment || null,
+    target_files: convergence.selected_experiment?.target_files || [],
+    focused_test_state: lastFocused
+      ? { runs: focusedTestResults.length, last_ok: lastFocused.ok === true }
+      : null,
+    verification_state: {
+      runs: testResults.length,
+      all_passed:
+        testResults.length > 0 && testResults.every((row) => row.ok === true)
+    },
+    write_count: convergence.write_count,
+    iteration: convergence.iteration,
     elapsed_ms:
       typeof sandboxStartedAtMs === 'number'
         ? Date.now() - sandboxStartedAtMs
         : null,
-    convergence: convergencePolicy.snapshot()
+    convergence
   };
-  audit('no_candidate', detail);
-  fs.rmSync(runRoot, { recursive: true, force: true });
+  fs.writeFileSync(
+    path.join(runRoot, NO_SAFE_CANDIDATE_FILE_NAME),
+    JSON.stringify(record, null, 2) + '\n'
+  );
+  audit('no_safe_candidate', record);
+  writeTaskState({
+    candidate_status: 'no_safe_candidate',
+    last_successful_action: 'report_no_safe_candidate',
+    next_required_action: 'none'
+  });
+  publishRunOutcomeRoot();
   console.log(JSON.stringify({
     ok: true,
     no_candidate: true,
     marker: 'FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_NO_CANDIDATE',
-    reason: detail.reason
+    reason: 'no_safe_candidate'
   }, null, 2));
-  return detail;
+  return record;
+}
+
+// A real failure: persist the actual error and exit non-zero. Never converted
+// into a successful no-candidate result.
+function finishWithFailure(reason, error = null) {
+  const convergence = convergencePolicy.snapshot();
+  const record = {
+    marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_FAILURE',
+    run_id: RUN_ID,
+    created_at: nowIso(),
+    reason: String(reason || 'run_failed'),
+    error: error ? String(error.stack || error.message || error) : null,
+    phase: convergence.phase,
+    iteration: convergence.iteration,
+    write_count: convergence.write_count,
+    selected_experiment: convergence.selected_experiment || null,
+    elapsed_ms:
+      typeof sandboxStartedAtMs === 'number'
+        ? Date.now() - sandboxStartedAtMs
+        : null,
+    convergence
+  };
+  try {
+    fs.writeFileSync(
+      path.join(runRoot, RUN_FAILURE_FILE_NAME),
+      JSON.stringify(record, null, 2) + '\n'
+    );
+    audit('run_failed', record);
+    writeTaskState({
+      candidate_status: 'failed',
+      last_error: record.reason + (record.error ? ': ' + record.error : ''),
+      next_required_action: 'none'
+    });
+    publishRunOutcomeRoot();
+  } catch (persistError) {
+    console.error(JSON.stringify({
+      ok: false,
+      marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_FAILURE_PERSIST_FAIL',
+      error: persistError.stack || persistError.message
+    }, null, 2));
+  }
+  console.error(JSON.stringify({
+    ok: false,
+    marker: 'FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_FAIL',
+    reason: record.reason,
+    error: record.error
+  }, null, 2));
+  process.exit(1);
 }
 
 let sandboxStartedAtMs = null;
@@ -840,11 +1022,15 @@ function createProgressDeadlines() {
     const now = Date.now();
     lastSuccessfulProgressAtMs = now;
     if (kind === 'write') lastWriteAtMs = now;
+    // Real progress clears prior stall corrections so a later, unrelated
+    // stall gets its own corrective turn before ever becoming a failure.
+    stallCorrections.clear();
   }
 
   function recordToolStart(name) {
     currentTool = name || null;
     audit('progress_heartbeat', snapshot({ event: 'tool_start' }));
+    writeTerminalActivity('tool started', name || 'unknown');
   }
 
   function recordToolResult(name, result) {
@@ -864,55 +1050,176 @@ function createProgressDeadlines() {
       tool_ok: result?.ok === undefined ? null : result.ok === true,
       convergence_phase: convergence.phase
     }));
+    if (result?.ok === false) {
+      writeTerminalActivity('tool failed', name || 'unknown');
+    } else {
+      writeTerminalActivity('tool completed', name || 'unknown');
+    }
   }
 
-  function stopReason() {
+  // Stall guards are YAML-driven safety limits, not success conditions. The
+  // first trip of a guard issues one explicit corrective turn and restarts
+  // that guard's window; a second trip of the same guard is a real, persisted
+  // run failure. There is no run-level wall-clock or iteration budget: an
+  // actively progressing run continues until a candidate is verified, an
+  // evidence-backed no-safe-candidate decision is accepted, the Maker pauses
+  // or aborts, or runtime stop/reset preempts it.
+  const stallCorrections = new Map();
+
+  function stallCheck() {
     const now = Date.now();
     const convergence = refreshFromConvergence();
-    if (
-      sandboxStartedAtMs !== null &&
-      now - sandboxStartedAtMs > AGENT_RUN_WALL_CLOCK_BUDGET_MS
-    ) {
-      return 'agent_run_wall_clock_budget_exceeded';
-    }
+    const trips = [];
     if (
       selectedAtMs !== null &&
       convergence.write_count <= 0 &&
-      now - selectedAtMs > IMPLEMENTATION_WRITE_DEADLINE_MS
+      now - (stallCorrections.get('implementation_write_stalled') || selectedAtMs) >
+        IMPLEMENTATION_WRITE_DEADLINE_MS
     ) {
-      return 'implementation_write_deadline_exceeded';
+      trips.push({
+        kind: 'implementation_write_stalled',
+        guidance:
+          'No structured apply_patch or write_file change has been made since ' +
+          'selection. Make the smallest real workspace change to a selected ' +
+          'target file now, or call report_no_safe_candidate with the complete ' +
+          'evidence contract if the evidence shows no safe change exists.'
+      });
     }
     if (
       implementationStartedAtMs !== null &&
-      now - (lastSuccessfulProgressAtMs || implementationStartedAtMs) >
-        IMPLEMENTATION_NO_PROGRESS_DEADLINE_MS
+      convergence.phase !== 'repairing' &&
+      now - Math.max(
+        lastSuccessfulProgressAtMs || implementationStartedAtMs,
+        stallCorrections.get('implementation_progress_stalled') || 0
+      ) > IMPLEMENTATION_NO_PROGRESS_DEADLINE_MS
     ) {
-      return 'implementation_progress_stalled';
+      trips.push({
+        kind: 'implementation_progress_stalled',
+        guidance:
+          'No successful progress (write, focused test, or verification) has ' +
+          'occurred within the stall window. Continue the selected experiment ' +
+          'with the next concrete action now.'
+      });
     }
     if (
       convergence.phase === 'repairing' &&
-      now - (lastSuccessfulProgressAtMs || implementationStartedAtMs || now) >
-        FOCUSED_REPAIR_NO_PROGRESS_DEADLINE_MS
+      now - Math.max(
+        lastSuccessfulProgressAtMs || implementationStartedAtMs || now,
+        stallCorrections.get('focused_repair_progress_stalled') || 0
+      ) > FOCUSED_REPAIR_NO_PROGRESS_DEADLINE_MS
     ) {
-      return 'focused_repair_progress_stalled';
+      trips.push({
+        kind: 'focused_repair_progress_stalled',
+        guidance:
+          'The focused repair has made no progress within the stall window. ' +
+          'Re-read the failing test and the production source, make the ' +
+          'smallest correct repair, and rerun the exact focused test now.'
+      });
     }
-    return null;
+    if (trips.length === 0) return null;
+    const trip = trips[0];
+    if (!stallCorrections.has(trip.kind)) {
+      stallCorrections.set(trip.kind, now);
+      audit('stall_correction_issued', {
+        kind: trip.kind,
+        iteration: convergence.iteration,
+        phase: convergence.phase,
+        write_count: convergence.write_count
+      });
+      return Object.freeze({ kind: trip.kind, corrective: true, guidance: trip.guidance });
+    }
+    return Object.freeze({ kind: trip.kind, corrective: false });
   }
 
   function heartbeat(extra = {}) {
     if (Object.prototype.hasOwnProperty.call(extra, 'current_tool')) {
       currentTool = extra.current_tool;
     }
-    audit('progress_heartbeat', snapshot(extra));
+    const row = snapshot(extra);
+    audit('progress_heartbeat', row);
+    if (extra.event === 'iteration_start') {
+      writeTerminalActivity('autonomous cycle', 'iteration ' + String(row.iteration || 0));
+    } else if (extra.event === 'model_turn_start') {
+      writeTerminalActivity('cognition', 'model turn started');
+    } else if (extra.event === 'model_turn_result') {
+      writeTerminalActivity('cognition', 'model turn completed');
+    }
   }
 
   return Object.freeze({
     heartbeat,
     recordToolResult,
     recordToolStart,
-    stopReason
+    stallCheck
   });
 }
+
+function ensureAgentPtySession() {
+  if (agentPtySession) return agentPtySession;
+  agentPtySession = createPtySession({
+    stream_file: terminalStreamFile,
+    cwd: WORKSPACE,
+    env: {
+      ...process.env,
+      HOME: AGENT_HOME_PATH,
+      npm_config_cache: NPM_CACHE_PATH,
+      NPM_CONFIG_CACHE: NPM_CACHE_PATH,
+      PIP_CACHE_DIR: PIP_CACHE_PATH
+    },
+    rows: PTY_ROWS,
+    cols: PTY_COLS,
+    stream_max_bytes: TERMINAL_STREAM_MAX_BYTES,
+    output_max_bytes: SHELL_OUTPUT_BUFFER_BYTES,
+    sentinel_grace_ms: TERMINAL_SENTINEL_GRACE_MS,
+    interrupt_grace_ms: TERMINAL_INTERRUPT_GRACE_MS,
+    shell_command: 'bash --noprofile --norc -i',
+    prompt: '\\u@\\h:${PWD}$ ',
+    on_event(type, detail) {
+      if (type === 'stream_chunk') return;
+      audit('pty_' + type, detail);
+    }
+  });
+  audit('pty_session_created', {
+    stream_file: terminalStreamFile,
+    rows: PTY_ROWS,
+    cols: PTY_COLS
+  });
+  return agentPtySession;
+}
+
+function closeAgentPtySession(reason = 'agent_exit') {
+  if (!agentPtySession) return;
+  const session = agentPtySession;
+  agentPtySession = null;
+  session.close(reason);
+}
+
+function safeTerminalActivityToken(value) {
+  return String(value || '')
+    .replace(/[^a-zA-Z0-9._:/ -]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
+function writeTerminalActivity(kind, detail = '') {
+  const safeKind = safeTerminalActivityToken(kind);
+  const safeDetail = safeTerminalActivityToken(detail);
+  if (!safeKind) return false;
+  try {
+    return ensureAgentPtySession().writeActivity(
+      safeKind + (safeDetail ? ' · ' + safeDetail : '')
+    );
+  } catch (error) {
+    audit('terminal_activity_write_failed', {
+      kind: safeKind,
+      error: error.message
+    });
+    return false;
+  }
+}
+
+process.once('exit', () => closeAgentPtySession('agent_exit'));
 
 function shell(command, timeoutMs = MAX_COMMAND_MS, options = {}) {
   const identity = String(options.identity || (command || '').slice(0, 80));
@@ -930,27 +1237,7 @@ function shell(command, timeoutMs = MAX_COMMAND_MS, options = {}) {
     err.code = 'SHELL_CANCELLED';
     throw err;
   }
-  const workspaceBefore = workspaceFingerprint();
-  const started = Date.now();
-  const child = spawn('bash', ['-lc', command], {
-    cwd: WORKSPACE,
-    env: {
-      ...process.env,
-      HOME: AGENT_HOME_PATH,
-      npm_config_cache: NPM_CACHE_PATH,
-      PIP_CACHE_DIR: PIP_CACHE_PATH
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true
-  });
-  const stdoutChunks = [];
-  const stderrChunks = [];
-  let totalStdoutBytes = 0;
-  let totalStderrBytes = 0;
-  let cancelled = false;
-  let cancelReason = null;
-  let timedOut = false;
-  let resolved = false;
+
   const identityTimeoutMs =
     identity === 'interface_install' || identity === 'root_install'
       ? DEPENDENCY_INSTALL_TIMEOUT_MS
@@ -962,111 +1249,70 @@ function shell(command, timeoutMs = MAX_COMMAND_MS, options = {}) {
       MAX_COMMAND_MS
     )
   );
+  const workspaceBefore = workspaceFingerprint();
+  const started = Date.now();
 
   function recordProgress(reason) {
     audit('shell_progress', {
       command: identity,
       reason,
-      elapsed_ms: Date.now() - started,
-      cancelled,
-      timed_out: timedOut
+      elapsed_ms: Date.now() - started
     });
   }
 
-  const progressTimer = setInterval(() => recordProgress('interval'), progressIntervalMs);
+  const progressTimer = setInterval(
+    () => recordProgress('interval'),
+    progressIntervalMs
+  );
   recordProgress('start');
 
-  const sigkillTimer = setTimeout(() => {
-    if (resolved) return;
-    timedOut = true;
-    cancelReason = 'configured_timeout';
-    try { process.kill(-child.pid, 'SIGTERM'); } catch (_error) {
-      try { child.kill('SIGTERM'); } catch (_fallbackError) {}
-    }
-    setTimeout(() => {
-      if (!resolved) {
-        try { process.kill(-child.pid, 'SIGKILL'); } catch (_error) {
-          try { child.kill('SIGKILL'); } catch (_fallbackError) {}
-        }
-      }
-    }, 5000);
-  }, deadline);
-
-  if (cancelOnSignal) {
-    cancelOnSignal.addEventListener('abort', () => {
-      if (resolved) return;
-      cancelled = true;
-      cancelReason = 'caller_aborted';
-      try { process.kill(-child.pid, 'SIGTERM'); } catch (_error) {
-        try { child.kill('SIGTERM'); } catch (_fallbackError) {}
-      }
-    }, { once: true });
-  }
-
-  child.stdout.on('data', (chunk) => {
-    const buffer = Buffer.from(chunk);
-    totalStdoutBytes += buffer.length;
-    if (totalStdoutBytes > SHELL_OUTPUT_BUFFER_BYTES) {
-      stdoutChunks.push(buffer.slice(0, SHELL_OUTPUT_BUFFER_BYTES - (totalStdoutBytes - buffer.length)));
-    } else {
-      stdoutChunks.push(buffer);
-    }
-  });
-  child.stderr.on('data', (chunk) => {
-    const buffer = Buffer.from(chunk);
-    totalStderrBytes += buffer.length;
-    if (totalStderrBytes > SHELL_OUTPUT_BUFFER_BYTES) {
-      stderrChunks.push(buffer.slice(0, SHELL_OUTPUT_BUFFER_BYTES - (totalStderrBytes - buffer.length)));
-    } else {
-      stderrChunks.push(buffer);
-    }
-  });
-
-  return new Promise((resolve, reject) => {
-    function finalize(exitCode, signal) {
-      if (resolved) return;
-      resolved = true;
-      clearInterval(progressTimer);
-      clearTimeout(sigkillTimer);
-      const workspaceAfter = workspaceFingerprint();
-      const record = {
-        command,
-        identity,
-        status: exitCode,
-        signal: signal || null,
-        duration_ms: Date.now() - started,
-        cancelled,
-        timed_out: timedOut,
-        cancel_reason: cancelReason,
-        workspace_before: workspaceBefore,
-        workspace_after: workspaceAfter,
-        workspace_changed:
-          workspaceBefore !== null &&
-          workspaceAfter !== null &&
-          workspaceBefore !== workspaceAfter,
-        stdout: truncate(Buffer.concat(stdoutChunks).toString('utf8'), COMMAND_AUDIT_MAX_CHARS),
-        stderr: truncate(Buffer.concat(stderrChunks).toString('utf8'), COMMAND_AUDIT_MAX_CHARS)
-      };
-      audit('shell_end', record);
-      resolve(record);
-    }
-    child.once('error', (error) => {
-      if (resolved) return;
-      resolved = true;
-      clearInterval(progressTimer);
-      clearTimeout(sigkillTimer);
-      audit('shell_end', {
-        command: identity,
-        status: -1,
-        signal: null,
-        duration_ms: Date.now() - started,
-        error: error.message,
-        cancelled,
-        timed_out: timedOut
-      });
-      reject(error);
+  return ensureAgentPtySession().run(String(command || ''), {
+    timeout_ms: deadline,
+    signal: cancelOnSignal
+  }).then((result) => {
+    clearInterval(progressTimer);
+    const workspaceAfter = workspaceFingerprint();
+    const record = {
+      command,
+      identity,
+      status: result.status,
+      signal: null,
+      duration_ms: result.duration_ms,
+      cancelled: result.cancelled === true,
+      timed_out: result.timed_out === true,
+      cancel_reason: result.cancelled === true
+        ? 'caller_aborted'
+        : result.timed_out === true
+          ? 'configured_timeout'
+          : null,
+      workspace_before: workspaceBefore,
+      workspace_after: workspaceAfter,
+      workspace_changed:
+        workspaceBefore !== null &&
+        workspaceAfter !== null &&
+        workspaceBefore !== workspaceAfter,
+      stdout: truncate(result.stdout, COMMAND_AUDIT_MAX_CHARS),
+      stderr: truncate(result.stderr, COMMAND_AUDIT_MAX_CHARS),
+      pty_merged_output: result.pty_merged_output === true,
+      pty_generation: result.pty_generation,
+      pty_replaced: result.pty_replaced === true,
+      terminal_stream_file: terminalStreamFile,
+      shell_pwd: result.pwd || null,
+      output_truncated: result.output_truncated === true
+    };
+    audit('shell_end', record);
+    return record;
+  }, (error) => {
+    clearInterval(progressTimer);
+    audit('shell_end', {
+      command: identity,
+      status: -1,
+      signal: null,
+      duration_ms: Date.now() - started,
+      error: error.message,
+      terminal_stream_file: terminalStreamFile
     });
-    child.once('close', (code, signal) => finalize(code, signal));
+    throw error;
   });
 }
 
@@ -1647,8 +1893,78 @@ const selectExperimentSchema = Object.freeze({
   additionalProperties: false
 });
 
+// Structured selection decision: the model must either produce a complete
+// experiment (the full select_experiment contract plus decision:"experiment")
+// or a complete evidence-backed no-safe-candidate decision. A bare decision
+// field is never sufficient; runtime validation enforces the full contract of
+// whichever branch was chosen.
+const selectionDecisionSchema = Object.freeze({
+  type: 'object',
+  properties: {
+    decision: { type: 'string', enum: ['experiment', 'no_safe_candidate'] },
+    ...selectExperimentTool.function.parameters.properties,
+    detailed_reason: { type: 'string' },
+    evidence_findings: { type: 'array', items: { type: 'string' } },
+    considered_alternatives: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          alternative: { type: 'string' },
+          rejection_reason: { type: 'string' }
+        },
+        required: ['alternative', 'rejection_reason']
+      }
+    }
+  },
+  required: ['decision']
+});
+
+const reportNoSafeCandidateTool = {
+  type: 'function',
+  function: {
+    name: 'report_no_safe_candidate',
+    description:
+      'End this cycle with an explicit evidence-backed decision that no bounded, ' +
+      'measurable improvement is currently safe to attempt. Only valid after the ' +
+      'complete evidence readiness contract is satisfied. Requires a detailed ' +
+      'reason, at least three concrete evidence findings from real tool results, ' +
+      'and at least two considered alternatives with the reason each was rejected. ' +
+      'Never use this to hide a software error, tool failure, or transport failure.',
+    parameters: {
+      type: 'object',
+      properties: {
+        detailed_reason: { type: 'string' },
+        evidence_findings: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'At least three concrete findings from real evidence.'
+        },
+        considered_alternatives: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              alternative: { type: 'string' },
+              rejection_reason: { type: 'string' }
+            },
+            required: ['alternative', 'rejection_reason']
+          },
+          description: 'At least two alternatives and why each was rejected.'
+        }
+      },
+      required: [
+        'detailed_reason',
+        'evidence_findings',
+        'considered_alternatives'
+      ]
+    }
+  }
+};
+
 const tools = [
   selectExperimentTool,
+  reportNoSafeCandidateTool,
   {
     type: 'function',
     function: {
@@ -2091,10 +2407,43 @@ const preSelectionTools = tools.filter(
 // passes, so the decision path cannot be simulated outside the failing test.
 const repairTools = selectRepairTools(tools, (t) => t.function?.name);
 
+// Accept valid model-selected sandbox paths (for example /workspace/tests/x.cjs
+// or the real in-container workspace path /home/floki/Floki-v2/src/x.cjs) and
+// normalize them to safe workspace-relative paths. Host paths, traversal, and
+// any other absolute path are rejected by the callers' containment checks.
+const MODEL_PATH_PREFIXES = (() => {
+  const prefixes = new Set(['/workspace', WORKSPACE, WORKSPACE_REAL]);
+  const legacy = String(process.env.FLOKI_LEGACY_WORKSPACE_PATH || '').trim();
+  if (legacy && legacy.startsWith('/')) prefixes.add(legacy);
+  return Array.from(prefixes).filter(Boolean);
+})();
+
+function normalizeModelPath(value) {
+  let text = String(value || '').trim().replaceAll('\\', '/');
+  for (const prefix of MODEL_PATH_PREFIXES) {
+    if (text === prefix) return '.';
+    if (text.startsWith(prefix + '/')) {
+      return text.slice(prefix.length).replace(/^\/+/, '');
+    }
+  }
+  return text;
+}
+
 function resolveWorkspacePath(relative) {
-  const value = path.resolve(WORKSPACE, String(relative || ''));
+  const normalized = normalizeModelPath(relative);
+  const value = path.resolve(WORKSPACE, normalized);
   if (value !== WORKSPACE && !value.startsWith(WORKSPACE + path.sep)) {
     throw new Error('path escapes sandbox workspace');
+  }
+  // Symlink escape guard: the realpath of an existing target must also stay
+  // inside the workspace realpath.
+  let probe = value;
+  while (probe !== WORKSPACE && !fs.existsSync(probe)) {
+    probe = path.dirname(probe);
+  }
+  const real = fs.realpathSync.native(probe);
+  if (real !== WORKSPACE_REAL && !real.startsWith(WORKSPACE_REAL + path.sep)) {
+    throw new Error('path escapes sandbox workspace through a symlink');
   }
   return value;
 }
@@ -2272,10 +2621,13 @@ function validateExperimentTargetFiles(args = {}) {
 
   let existingFiles = 0;
   const normalized = targetFiles.map((relative) => {
-    if (path.isAbsolute(relative)) {
+    // Valid model-selected sandbox absolute paths (/workspace/..., the real
+    // in-container workspace path) normalize to workspace-relative paths;
+    // any other absolute path is rejected.
+    const portable = normalizeModelPath(relative);
+    if (path.isAbsolute(portable)) {
       throw new Error('experiment target must be workspace-relative: ' + relative);
     }
-    const portable = relative.replaceAll('\\', '/');
     const clean = path.posix.normalize(portable);
     if (clean === '..' || clean.startsWith('../')) {
       throw new Error('experiment target escapes workspace: ' + relative);
@@ -2460,6 +2812,38 @@ function shellFocusedTestRejection(command) {
 
 async function executeTool(name, args) {
   switch (name) {
+    case 'report_no_safe_candidate': {
+      const readiness = convergencePolicy.snapshot();
+      if (readiness.autonomous_selection_ready !== true) {
+        return {
+          ok: false,
+          error:
+            'report_no_safe_candidate requires complete evidence readiness ' +
+            '(task state, self-context, repository evidence, and a real ' +
+            'source file must all have been inspected first)',
+          autonomous_selection_evidence:
+            readiness.autonomous_selection_evidence || null
+        };
+      }
+      let decision;
+      try {
+        decision = validateNoSafeCandidateDecision(args);
+      } catch (error) {
+        return { ok: false, error: error.message };
+      }
+      const record = finishWithNoSafeCandidate(decision);
+      noSafeCandidateAccepted = {
+        ok: true,
+        no_candidate: true,
+        evidence_backed: true,
+        record
+      };
+      return {
+        ok: true,
+        marker: 'FLOKI_V2_SELF_IMPROVEMENT_NO_SAFE_CANDIDATE_ACCEPTED',
+        run_id: RUN_ID
+      };
+    }
     case 'shell': {
       const rejected = shellFocusedTestRejection(args.command);
       if (rejected) {
@@ -2475,10 +2859,7 @@ async function executeTool(name, args) {
     case 'get_task_state':
       return {
         ok: true,
-        task_state: writeTaskState({
-          remaining_iteration_budget:
-            Math.max(0, MAX_ITERATIONS - convergencePolicy.snapshot().iteration)
-        }),
+        task_state: writeTaskState({}),
         convergence: convergencePolicy.snapshot()
       };
     case 'update_task_state': {
@@ -3221,6 +3602,12 @@ async function finalizeCandidate(args) {
     risk_level: String(args.risk_level || 'high'),
     risk_notes: String(args.risk_notes || ''),
     base_commit: baseCommit,
+    // Truthful revision/version metadata for code candidates: the sandbox
+    // baseline commit this patch applies to, plus any denied-revision lineage.
+    version: baseCommit ? String(baseCommit).slice(0, 12) : null,
+    revision_of_denied_candidate:
+      convergence.selected_experiment?.revision_constraint?.revising_denied ||
+      null,
     changed_files: changedFiles,
     before_hashes: beforeHashes,
     after_hashes: afterHashes,
@@ -3249,6 +3636,7 @@ async function finalizeCandidate(args) {
     last_successful_action: 'finalize_candidate',
     next_required_action: 'await_maker_review'
   });
+  closeAgentPtySession('candidate_finalized');
   fs.rmSync(finalRoot, { recursive: true, force: true });
   fs.renameSync(runRoot, finalRoot);
   finalized = true;
@@ -3656,23 +4044,25 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
     }
   ];
 
-  const iterationBudgetMs = Math.min(
-    ITERATION_WALL_CLOCK_BUDGET_MS,
-    AGENT_RUN_WALL_CLOCK_BUDGET_MS
-  );
-  const iterationStartedAt = Date.now();
-  sandboxStartedAtMs = iterationStartedAt;
+  sandboxStartedAtMs = Date.now();
   const progressDeadlines = createProgressDeadlines();
 
+  // Condition-driven execution: the loop has no iteration cap and no run-level
+  // wall clock. It ends only through candidate finalization, an accepted
+  // evidence-backed no-safe-candidate decision, preemption (SIGTERM), or a
+  // real persisted failure.
   for (let iteration = 0; !finalized; iteration += 1) {
     convergencePolicy.beginIteration(iteration + 1);
     progressDeadlines.heartbeat({ event: 'iteration_start' });
-    const deadlineStopReason = progressDeadlines.stopReason();
-    if (deadlineStopReason) {
-      return finishWithoutCandidate(deadlineStopReason);
+    if (noSafeCandidateAccepted) {
+      return noSafeCandidateAccepted;
     }
-    if (Date.now() - iterationStartedAt > iterationBudgetMs) {
-      return finishWithoutCandidate('agent_run_wall_clock_budget_exceeded');
+    const stall = progressDeadlines.stallCheck();
+    if (stall) {
+      if (!stall.corrective) {
+        return finishWithFailure(stall.kind);
+      }
+      messages.push({ role: 'user', content: stall.guidance });
     }
     const selectionReadinessSnapshot = convergencePolicy.snapshot();
     if (
@@ -3685,10 +4075,10 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
         iteration + 1
       );
       if (selected) continue;
-      const selectionStopReason = convergencePolicy.endIteration();
-      if (selectionStopReason) {
-        return finishWithoutCandidate(selectionStopReason);
+      if (noSafeCandidateAccepted) {
+        return noSafeCandidateAccepted;
       }
+      convergencePolicy.endIteration();
       continue;
     }
     const selectionMessage = selectionAnchorMessage();
@@ -3709,6 +4099,7 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       allTools: tools,
       preSelectionTools,
       selectExperimentTool,
+      reportNoSafeCandidateTool,
       repairTools
     });
     const activeRevisionConstraint =
@@ -3753,27 +4144,27 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       });
       consecutiveModelTurnFailures = 0;
     } catch (error) {
-      if (modelTurnController.signal.aborted) {
-        clearTimeout(modelTurnTimer);
-        return finishWithoutCandidate('model_turn_deadline_exceeded', error);
-      }
+      // A model-turn deadline trip is a transport safety limit: retry with
+      // the selected experiment preserved. Exhausted retries and
+      // non-retryable transport errors are real failures — never a
+      // fabricated no-candidate success.
+      const turnDeadlineTripped = modelTurnController.signal.aborted;
       consecutiveModelTurnFailures += 1;
       audit('model_turn_failure', {
         iteration: iteration + 1,
         consecutive_failures: consecutiveModelTurnFailures,
         max_failures: Math.max(1, Math.floor(OLLAMA_REQUEST_MAX_ATTEMPTS)),
-        retryable: isRetryableModelError(error),
+        deadline_tripped: turnDeadlineTripped,
+        retryable: turnDeadlineTripped || isRetryableModelError(error),
         error: error.stack || error.message
       });
       if (
-        !isRetryableModelError(error) ||
+        (!turnDeadlineTripped && !isRetryableModelError(error)) ||
         consecutiveModelTurnFailures >=
           Math.max(1, Math.floor(OLLAMA_REQUEST_MAX_ATTEMPTS))
       ) {
-        return finishWithoutCandidate(
-          'transient_model_failure_budget_exhausted',
-          error
-        );
+        clearTimeout(modelTurnTimer);
+        return finishWithFailure('model_transport_failure', error);
       }
       await new Promise((resolve) => setTimeout(
         resolve,
@@ -3798,10 +4189,7 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
     const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
     if (calls.length === 0) {
       convergencePolicy.recordNoToolTurn();
-      const noToolConvergenceStopReason = convergencePolicy.endIteration();
-      if (noToolConvergenceStopReason) {
-        return finishWithoutCandidate(noToolConvergenceStopReason);
-      }
+      convergencePolicy.endIteration();
       messages.push({
         role: 'user',
         content: convergencePolicy.feedback() || convergencePolicy.guidance()
@@ -3832,9 +4220,8 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       }
       convergencePolicy.record(name, args, result);
       progressDeadlines.recordToolResult(name, result);
-      const toolDeadlineStopReason = progressDeadlines.stopReason();
-      if (toolDeadlineStopReason) {
-        return finishWithoutCandidate(toolDeadlineStopReason);
+      if (noSafeCandidateAccepted) {
+        return noSafeCandidateAccepted;
       }
       if (name === 'select_experiment' && result?.ok !== true) {
         audit('select_experiment_rejected', {
@@ -3910,10 +4297,7 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       printSandboxPass();
       return { ok: true, candidate_id: RUN_ID };
     }
-    const convergenceStopReason = convergencePolicy.endIteration();
-    if (convergenceStopReason) {
-      return finishWithoutCandidate(convergenceStopReason);
-    }
+    convergencePolicy.endIteration();
     const convergenceFeedback = convergencePolicy.feedback();
     if (convergenceFeedback) {
       messages.push({
@@ -3925,6 +4309,7 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
 }
 
 main().catch((error) => {
+  closeAgentPtySession('fatal_error');
   audit('fatal', { error: error.stack || error.message });
   console.error(JSON.stringify({
     ok: false,

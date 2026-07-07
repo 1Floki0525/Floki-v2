@@ -81,7 +81,9 @@ function transport() {
     gpu,
     httpJson: transport(),
     applyLifecycle: async () => undefined,
-    buildLifecycle: () => ({ is_awake: true })
+    buildLifecycle: () => ({ is_awake: true }),
+    // Deterministic daytime semantics regardless of when the test runs.
+    is_within_sleep_window: () => false
   });
   assert.equal(exited.ok, true);
   assert.equal(exited.knowledge_restart_required, false);
@@ -115,7 +117,9 @@ function transport() {
       knowledgeBootstrap: { stopAndWait: async () => true },
       gpu: failingGpu,
       httpJson: transport(),
-      queryGpuComputeProcesses: async () => []
+      queryGpuComputeProcesses: async () => [],
+      // Deterministic daytime semantics regardless of when the test runs.
+      is_within_sleep_window: () => false
     }),
     (error) => {
       assert.match(

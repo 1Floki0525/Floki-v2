@@ -167,7 +167,7 @@ function buildModelSection(section, mode, label) {
   requireString(model, 'models.' + label + '.model');
   requireString(endpoint, 'models.' + label + '.endpoint');
 
-  return Object.freeze({
+  const built = {
     provider: requireString(section.provider, 'models.' + label + '.provider'),
     model,
     endpoint,
@@ -177,7 +177,34 @@ function buildModelSection(section, mode, label) {
     top_p: requireNumber(section.top_p, 'models.' + label + '.top_p'),
     timeout_ms: requireNumber(section.timeout_ms, 'models.' + label + '.timeout_ms'),
     keep_alive: requireString(section.keep_alive, 'models.' + label + '.keep_alive')
-  });
+  };
+
+  // Optional local HF vision socket endpoint (YAML-authoritative, no hardcoded
+  // URL in the vision service). Present on the vision section only.
+  if (section.local_endpoint_default !== undefined || section.local_endpoint_env !== undefined) {
+    built.local_endpoint = resolveEnvOrDefault(section, 'local_endpoint_env', 'local_endpoint_default');
+    requireString(built.local_endpoint, 'models.' + label + '.local_endpoint');
+  }
+
+  // Local HF inference-server runtime parameters. Present on the section that
+  // owns the HF server process (cognition); the whole block is YAML-authoritative
+  // so nothing about the local Qwen3.5 4B server is hardcoded in scripts/source.
+  if (section.hf_device !== undefined) {
+    built.hf = Object.freeze({
+      device: requireString(section.hf_device, 'models.' + label + '.hf_device'),
+      load_in_4bit: requireBoolean(section.hf_load_in_4bit, 'models.' + label + '.hf_load_in_4bit'),
+      dtype: requireString(section.hf_dtype, 'models.' + label + '.hf_dtype'),
+      gpu_index: requireNumber(section.hf_gpu_index, 'models.' + label + '.hf_gpu_index'),
+      gpu_max_memory: requireString(section.hf_gpu_max_memory, 'models.' + label + '.hf_gpu_max_memory'),
+      cpu_max_memory: requireString(section.hf_cpu_max_memory, 'models.' + label + '.hf_cpu_max_memory'),
+      max_new_tokens: requireNumber(section.hf_max_new_tokens, 'models.' + label + '.hf_max_new_tokens'),
+      repetition_penalty: requireNumber(section.hf_repetition_penalty, 'models.' + label + '.hf_repetition_penalty'),
+      warmup_attempts: requireNumber(section.hf_warmup_attempts, 'models.' + label + '.hf_warmup_attempts'),
+      tokenizers_parallelism: requireBoolean(section.hf_tokenizers_parallelism, 'models.' + label + '.hf_tokenizers_parallelism')
+    });
+  }
+
+  return Object.freeze(built);
 }
 
 function buildVisionSection(section, mode) {
@@ -231,14 +258,6 @@ function buildVisionSection(section, mode) {
       webcam_capture_command: requireString(section.webcam_capture_command, 'vision.webcam_capture_command'),
       webcam_capture_allow_env: requireString(section.webcam_capture_allow_env, 'vision.webcam_capture_allow_env'),
       chat_vision_allow_env: requireString(section.chat_vision_allow_env, 'vision.chat_vision_allow_env'),
-      vlm_ssh_tunnel_enabled: requireBoolean(section.vlm_ssh_tunnel_enabled, 'vision.vlm_ssh_tunnel_enabled'),
-      vlm_ssh_tunnel_target: requireString(section.vlm_ssh_tunnel_target, 'vision.vlm_ssh_tunnel_target'),
-      vlm_ssh_tunnel_local_host: requireString(section.vlm_ssh_tunnel_local_host, 'vision.vlm_ssh_tunnel_local_host'),
-      vlm_ssh_tunnel_local_port: requireNumber(section.vlm_ssh_tunnel_local_port, 'vision.vlm_ssh_tunnel_local_port'),
-      vlm_ssh_tunnel_remote_host: requireString(section.vlm_ssh_tunnel_remote_host, 'vision.vlm_ssh_tunnel_remote_host'),
-      vlm_ssh_tunnel_remote_port: requireNumber(section.vlm_ssh_tunnel_remote_port, 'vision.vlm_ssh_tunnel_remote_port'),
-      vlm_ssh_tunnel_socket_name: requireString(section.vlm_ssh_tunnel_socket_name, 'vision.vlm_ssh_tunnel_socket_name'),
-      vlm_ssh_tunnel_check_timeout_ms: requireNumber(section.vlm_ssh_tunnel_check_timeout_ms, 'vision.vlm_ssh_tunnel_check_timeout_ms'),
     desired_state_gates_required_for_start: requireString(section.desired_state_gates_required_for_start, 'vision.desired_state_gates_required_for_start'),
     sleep_overrides_vision_start: requireBoolean(section.sleep_overrides_vision_start, 'vision.sleep_overrides_vision_start'),
     vision_camera_stop_timeout_ms: requireNumber(section.vision_camera_stop_timeout_ms, 'vision.vision_camera_stop_timeout_ms'),
@@ -425,7 +444,9 @@ function buildSleepSection(section, mode) {
     ...(mode === 'chat' ? {
       scheduler_tick_ms: requireNumber(section.scheduler_tick_ms, 'sleep.scheduler_tick_ms'),
       scheduler_heartbeat_refresh_ms: requireNumber(section.scheduler_heartbeat_refresh_ms, 'sleep.scheduler_heartbeat_refresh_ms'),
-      scheduler_heartbeat_stale_ms: requireNumber(section.scheduler_heartbeat_stale_ms, 'sleep.scheduler_heartbeat_stale_ms')
+      scheduler_heartbeat_stale_ms: requireNumber(section.scheduler_heartbeat_stale_ms, 'sleep.scheduler_heartbeat_stale_ms'),
+      rem_catchup_grace_minutes: requireNumber(section.rem_catchup_grace_minutes, 'sleep.rem_catchup_grace_minutes'),
+      rem_max_dispatch_per_tick: requireNumber(section.rem_max_dispatch_per_tick, 'sleep.rem_max_dispatch_per_tick')
     } : {}),
     lifecycle_transition_notifications_enabled: requireBoolean(section.lifecycle_transition_notifications_enabled, 'sleep.lifecycle_transition_notifications_enabled'),
     manual_nap_duration_minutes: requireNumber(section.manual_nap_duration_minutes, 'sleep.manual_nap_duration_minutes'),
@@ -1102,6 +1123,24 @@ function getSelfImprovementConfig(mode = 'chat') {
     persistent_source_mirror_directory_name: stringValue('persistent_source_mirror_directory_name'),
     persistent_workspace_root_mount_path: stringValue('persistent_workspace_root_mount_path'),
     persistent_container_idle_command: stringValue('persistent_container_idle_command'),
+    workstation_storage_mount_path: stringValue('workstation_storage_mount_path'),
+    workstation_persistence_proof_path: stringValue('workstation_persistence_proof_path'),
+    workstation_proof_record_file_name: stringValue('workstation_proof_record_file_name'),
+    workstation_systemd_ready_timeout_ms: numberValue('workstation_systemd_ready_timeout_ms'),
+    workstation_systemd_ready_poll_ms: numberValue('workstation_systemd_ready_poll_ms'),
+    run_unit_prefix_agent: stringValue('run_unit_prefix_agent'),
+    run_unit_prefix_training: stringValue('run_unit_prefix_training'),
+    run_unit_prefix_rem: stringValue('run_unit_prefix_rem'),
+    run_unit_stop_timeout_ms: numberValue('run_unit_stop_timeout_ms'),
+    no_safe_candidate_file_name: stringValue('no_safe_candidate_file_name'),
+    no_safe_candidate_dir_name: stringValue('no_safe_candidate_dir_name'),
+    run_failure_file_name: stringValue('run_failure_file_name'),
+    terminal_stream_file_name: stringValue('terminal_stream_file_name'),
+    terminal_stream_max_bytes: numberValue('terminal_stream_max_bytes'),
+    terminal_sentinel_grace_ms: numberValue('terminal_sentinel_grace_ms'),
+    terminal_interrupt_grace_ms: numberValue('terminal_interrupt_grace_ms'),
+    pty_rows: numberValue('pty_rows'),
+    pty_cols: numberValue('pty_cols'),
     workspace_mount_path: stringValue('workspace_mount_path'),
     outbox_mount_path: stringValue('outbox_mount_path'),
     self_context_mount_path: stringValue('self_context_mount_path'),
@@ -1427,6 +1466,7 @@ function getSelfImprovementConfig(mode = 'chat') {
     training_gpu_probe_command: stringValue('training_gpu_probe_command'),
     training_cdi_generate_args: stringValue('training_cdi_generate_args'),
     training_cdi_podman_spec_version: stringValue('training_cdi_podman_spec_version'),
+    training_engine_min_major: numberValue('training_engine_min_major'),
     training_cdi_generated_spec_path: stringValue('training_cdi_generated_spec_path'),
     training_gpu_runtime_mode: stringValue('training_gpu_runtime_mode'),
     training_cdi_device_name: stringValue('training_cdi_device_name'),

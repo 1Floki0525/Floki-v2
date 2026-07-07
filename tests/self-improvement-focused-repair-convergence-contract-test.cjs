@@ -103,8 +103,10 @@ function selectAndWrite(policy) {
   assert.match(policy.guidance(), /Call run_verification now/);
 }
 
-// A repair that makes no structured progress is still bounded, but receives a
-// precise repair-specific stop reason instead of a misleading generic stall.
+// A repair that makes no structured progress keeps receiving the
+// fix-then-rerun advisory; iteration boundaries never terminate the run.
+// Unrecoverable stalls are owned by the agent's wall-clock stall guard,
+// which corrects once and then persists a real failure.
 {
   const policy = createConvergencePolicy(config({
     focused_repair_no_progress_iteration_limit: 4
@@ -117,23 +119,34 @@ function selectAndWrite(policy) {
     { ok: false, status: 1 }
   );
   policy.beginIteration(7);
-  assert.equal(policy.endIteration(), 'focused_repair_progress_stalled');
+  assert.equal(policy.endIteration(), null);
+  policy.beginIteration(50);
+  assert.equal(
+    policy.endIteration(),
+    null,
+    'repair iteration counters must never end the run'
+  );
 }
 
-// Repeated actual focused-test failures remain bounded by the independent YAML
-// failure budget.
+// Repeated legitimate focused-test failures never terminate the run: the
+// agent keeps repairing under the fix-then-rerun advisory, and unrecoverable
+// stalls become real failures through the agent's wall-clock stall guard.
 {
   const policy = createConvergencePolicy(config({
     focused_verification_failure_limit: 2
   }));
   selectAndWrite(policy);
-  policy.beginIteration(3);
-  policy.record('run_focused_test', {}, { ok: false, status: 1 });
-  policy.beginIteration(4);
-  policy.record('apply_patch', {}, { ok: true, workspace_changed: true });
-  policy.beginIteration(5);
-  policy.record('run_focused_test', {}, { ok: false, status: 1 });
-  assert.equal(policy.endIteration(), 'focused_verification_failed_repeatedly');
+  for (let iteration = 3; iteration <= 21; iteration += 2) {
+    policy.beginIteration(iteration);
+    policy.record('run_focused_test', {}, { ok: false, status: 1 });
+    policy.beginIteration(iteration + 1);
+    policy.record('apply_patch', {}, { ok: true, workspace_changed: true });
+    assert.equal(
+      policy.endIteration(),
+      null,
+      'legitimate repair attempts must never terminate the run'
+    );
+  }
 }
 
 console.log(JSON.stringify({
@@ -141,6 +154,6 @@ console.log(JSON.stringify({
   marker: 'FLOKI_V2_FOCUSED_REPAIR_CONVERGENCE_CONTRACT_PASS',
   generated_test_can_be_repaired: true,
   generic_stall_suppressed_during_repair: true,
-  repair_no_progress_bounded: true,
-  focused_failure_budget_preserved: true
+  repair_no_progress_advisory_only: true,
+  repeated_repair_attempts_never_terminate: true
 }, null, 2));

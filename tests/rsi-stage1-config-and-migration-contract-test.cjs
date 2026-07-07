@@ -52,7 +52,12 @@ const templateText = fs.readFileSync(
   'utf8'
 );
 assert.ok(!/\/media\/binary-god/.test(templateText), 'no personal host paths in public template');
-assert.ok(!/\/home\/[a-z]/.test(templateText), 'no personal home paths in public template');
+// The permanent workstation's in-container identity paths (/home/floki) are
+// portable and belong in the template; personal HOST home paths do not.
+assert.ok(
+  !/\/home\/(?!floki\b)[a-z]/.test(templateText),
+  'no personal home paths in public template'
+);
 
 // --- migration is a no-op on the already-current private config ---
 const noop = migrateChatConfig({ checkOnly: true });

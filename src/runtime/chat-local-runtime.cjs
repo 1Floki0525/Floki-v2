@@ -1095,7 +1095,7 @@ function createChatLocalRuntime(options = {}) {
     return scheduled;
   }
 
-  // Shutdown owns the full vision teardown including the SSH tunnel. Runtimes
+  // Shutdown owns the full local vision teardown. Runtimes
   // constructed with a fake reconciler (tests) must never touch the real
   // vision daemon, so the default collapses to a no-op in that case.
   const visionShutdown = options.vision_shutdown || (options.vision_reconciler
@@ -1659,6 +1659,7 @@ function createChatLocalRuntime(options = {}) {
     const privateKey = fs.readFileSync(resolved, 'utf8').trim();
     const signed = buildAuthorizationHeader(privateKey, 'POST', moduleKey, action, JSON.stringify(body || {}));
     return {
+      transport: 'signed_ed25519_tcp',
       host: config.supervisor_host,
       port: config.supervisor_port,
       path: '/modules/' + moduleKey + '/' + action,
@@ -1675,6 +1676,7 @@ function createChatLocalRuntime(options = {}) {
     return new Promise((resolve) => {
       let settled = false;
       const options = supervisorRequestOptions(moduleKey, action, body);
+      const transport = options.transport || 'signed_ed25519_tcp';
       const reqBody = JSON.stringify(body || {});
       const req = http.request(options, (response) => {
         let raw = '';
@@ -1687,23 +1689,24 @@ function createChatLocalRuntime(options = {}) {
             const parsed = JSON.parse(raw);
             resolve(Object.freeze({
               ...(parsed && typeof parsed === 'object' ? parsed : { ok: false, error: 'invalid supervisor response' }),
-              httpStatus: Number(response.statusCode || 0)
+              httpStatus: Number(response.statusCode || 0),
+              transport
             }));
           } catch (_error) {
-            resolve({ ok: false, error: 'invalid supervisor response', httpStatus: 502 });
+            resolve({ ok: false, error: 'invalid supervisor response', httpStatus: 502, transport });
           }
         });
       });
       req.on('error', (error) => {
         if (settled) return;
         settled = true;
-        resolve({ ok: false, error: error.message, httpStatus: 503 });
+        resolve({ ok: false, error: error.message, httpStatus: 503, transport });
       });
       req.on('timeout', () => {
         if (settled) return;
         settled = true;
         req.destroy();
-        resolve({ ok: false, error: 'supervisor request timed out', httpStatus: 504 });
+        resolve({ ok: false, error: 'supervisor request timed out', httpStatus: 504, transport });
       });
       req.write(reqBody);
       req.end();
@@ -2514,7 +2517,7 @@ function createChatLocalRuntime(options = {}) {
     });
   }
 
-  async function clientAppLifecycleResult(moduleKey, action) {
+  async function clientAppLifecycleResult(moduleKey, action, body = {}) {
     let controlled;
     try {
       controlled = controlClientApp(moduleKey, action, { runtime_dir: runtimeDir });
@@ -2534,13 +2537,26 @@ function createChatLocalRuntime(options = {}) {
     }
 
     const app = controlled.current;
+    const operationStatus = app.enabled === true ? 'running' : 'stopped';
+    const healthStatus = app.status;
+    const explicitControlReason =
+      body &&
+      Object.prototype.hasOwnProperty.call(body, 'reason') &&
+      String(body.reason || '').trim().length > 0;
+    const responseStatus = explicitControlReason
+      ? operationStatus
+      : healthStatus;
+
     appendLog(
       'control-plane ' + moduleKey + ' ' + action +
       ' previous=' + controlled.previousStatus +
-      ' current=' + app.status +
+      ' current=' + responseStatus +
+      ' operation=' + operationStatus +
+      ' health=' + healthStatus +
       ' enabled=' + String(app.enabled === true) +
       ' generation=' + String(app.control_generation) +
       ' clients=' + String(app.connected_client_count) +
+      ' healthy_clients=' + String(app.healthy_client_count) +
       ' changed=' + String(controlled.changed)
     );
     publish();
@@ -2551,25 +2567,33 @@ function createChatLocalRuntime(options = {}) {
       action,
       changed: controlled.changed,
       previousStatus: controlled.previousStatus,
-      status: app.status,
-      lifecycleState: app.status,
+      status: responseStatus,
+      lifecycleState: responseStatus,
       health: Object.freeze({
         ok: true,
         pid: process.pid,
         runtime_pid_preserved: true,
         client_app: true,
         enabled: app.enabled === true,
+        status: healthStatus,
+        client_presence: app.client_presence || 'idle',
+        connection_required_for_health:
+          app.connection_required_for_health === true,
         connected_client_count: app.connected_client_count,
         healthy_client_count: app.healthy_client_count,
+        stale_client_count: app.stale_client_count,
         last_heartbeat_at: app.last_heartbeat_at,
         connected_since: app.connected_since,
         session_uptime_ms: app.session_uptime_ms,
         transport_type: app.transport_type,
         last_reported_error: app.last_reported_error,
+        heartbeat_fresh_ms: app.heartbeat_fresh_ms,
         control_generation: app.control_generation,
         recovery_heartbeat_path_available: true
       }),
-      message: moduleKey + ' ' + action + ' accepted by the authoritative client-app control service.',
+      message:
+        moduleKey + ' ' + action +
+        ' accepted by the authoritative client-app control service.',
       error: null,
       safeError: null,
       httpStatus: 200,
@@ -2808,7 +2832,7 @@ async function waitForRsiWorkerState(expectedRunning, timeoutMs = 30000) {
     }
 
     if (moduleKey === 'web_app' || moduleKey === 'mobile_app') {
-      return clientAppLifecycleResult(moduleKey, action);
+      return clientAppLifecycleResult(moduleKey, action, body);
     }
 
     if (IN_PROCESS_MODULES.has(moduleKey)) {

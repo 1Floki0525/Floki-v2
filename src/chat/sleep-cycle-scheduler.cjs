@@ -11,7 +11,10 @@ const {
 const { PROJECT_ROOT: ROOT, getPathConfig, getSleepConfig } = require('../config/floki-config.cjs');
 const { runSleepCycleTick, loadSleepCycleState } = require('./sleep-cycle.cjs');
 const { getProductionNightlyTrainingCoordinator } = require('../self-improvement/training/training-scheduler.cjs');
-const { loadSelfImprovementConfig } = require('../self-improvement/config.cjs');
+const {
+  loadFreshSelfImprovementConfig,
+  loadSelfImprovementConfig
+} = require('../self-improvement/config.cjs');
 const {
   readDreamEngineControl
 } = require('./dream-engine-control.cjs');
@@ -152,6 +155,16 @@ function automaticNightlyCoordinatorEnabled(
   );
 }
 
+function rsiPauseSentinelPresent(config = loadSelfImprovementConfig()) {
+  try {
+    return fs.existsSync(
+      path.join(config.runtime_root, config.pause_file_name)
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
 async function runSchedulerIteration(options = {}) {
   const paths = schedulerPaths(options);
   ensureDirSync(paths.runtime_dir);
@@ -166,20 +179,42 @@ async function runSchedulerIteration(options = {}) {
     FLOKI_ALLOW_DREAM_ENGINE:
       dreamControl.enabled === true ? '1' : '0'
   };
+  const selfImprovementConfig =
+    options.self_improvement_config || loadFreshSelfImprovementConfig();
   const trainingCoordinator =
     Object.prototype.hasOwnProperty.call(options, 'training_coordinator')
       ? options.training_coordinator
-      : (automaticNightlyCoordinatorEnabled(options.self_improvement_config)
+      : (automaticNightlyCoordinatorEnabled(selfImprovementConfig)
           ? getProductionNightlyTrainingCoordinator()
           : null);
+  const rsiPaused =
+    Object.prototype.hasOwnProperty.call(options, 'rsi_paused')
+      ? options.rsi_paused === true
+      : rsiPauseSentinelPresent(selfImprovementConfig);
   let nightlyTrainingError = null;
   if (trainingCoordinator) {
     try {
-      await trainingCoordinator.beforeTick({ env, now: options.now || new Date() });
+      await trainingCoordinator.beforeTick({
+        env,
+        now: options.now || new Date(),
+        rsi_paused: rsiPaused
+      });
     } catch (error) {
       nightlyTrainingError = error.stack || error.message;
     }
   }
+  // REM ownership for this tick. The RSI pause sentinel and a terminally
+  // failed nightly session both hand REM back to the fixed 10-minute
+  // wall-clock schedule; only healthy enabled nighttime training keeps
+  // the epoch-triggered schedule.
+  const remMode =
+    trainingCoordinator && typeof trainingCoordinator.remMode === 'function'
+      ? trainingCoordinator.remMode({
+          now: options.now || new Date(),
+          rsi_paused: rsiPaused
+        })
+      : (trainingCoordinator ? 'epoch_triggered' : 'wall_clock');
+  const epochTriggeredRem = remMode === 'epoch_triggered';
 
   writeHeartbeat(paths, {
     phase: 'tick_start',
@@ -187,6 +222,8 @@ async function runSchedulerIteration(options = {}) {
     dream_engine_generation: dreamControl.generation,
     dream_engine_control_file:
       dreamControl.control_file || null,
+    rsi_paused: rsiPaused,
+    rem_mode: remMode,
     nightly_training_error: nightlyTrainingError
   });
   const refresh = setInterval(() => {
@@ -200,9 +237,21 @@ async function runSchedulerIteration(options = {}) {
       runtime_dir: paths.runtime_dir,
       dream_engine_control: dreamControl,
       write_report: options.write_report !== false,
-      nightly_epoch_triggered_rem: Boolean(trainingCoordinator)
+      nightly_epoch_triggered_rem: epochTriggeredRem
     };
-    if (trainingCoordinator) {
+    // Explicit clock/state overrides let an isolated harness (daytime night
+    // cycle simulation, contract tests) drive the same production tick with
+    // simulated timestamps and scoped state files. Production service runs
+    // never set these, so default behavior is unchanged.
+    if (options.now) tickOptions.now = options.now;
+    if (options.state_file) tickOptions.state_file = options.state_file;
+    if (options.events_file) tickOptions.events_file = options.events_file;
+    if (options.report_file) tickOptions.report_file = options.report_file;
+    if (options.dream_options) tickOptions.dream_options = options.dream_options;
+    if (typeof options.dream_runner === 'function') {
+      tickOptions.dream_runner = options.dream_runner;
+    }
+    if (trainingCoordinator && epochTriggeredRem) {
       tickOptions.dream_runner = (dreamOptions) =>
         trainingCoordinator.runNightlyRem(dreamOptions);
     }
@@ -289,14 +338,17 @@ async function runSchedulerIteration(options = {}) {
       await trainingCoordinator.afterTick({
         env,
         tick,
-        now: options.now || new Date()
+        now: options.now || new Date(),
+        rsi_paused: rsiPaused
       });
     } catch (error) {
       nightlyTrainingError = error.stack || error.message;
     }
   }
 
-  const state = loadSleepCycleState();
+  const state = loadSleepCycleState(
+    options.state_file ? { state_file: options.state_file } : {}
+  );
   const record = Object.freeze({
     ok: true,
     marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_TICK_PASS',
@@ -314,6 +366,8 @@ async function runSchedulerIteration(options = {}) {
       dreamControl.control_file || null,
     current_sleep_date: state ? state.current_sleep_date : null,
     nightly_training_enabled: Boolean(trainingCoordinator),
+    rsi_paused: rsiPaused,
+    rem_mode: remMode,
     nightly_training_error: nightlyTrainingError,
     chat_mode_only: true,
     game_mode_started: false
@@ -328,6 +382,8 @@ async function runSchedulerIteration(options = {}) {
     dream_engine_generation: dreamControl.generation,
     dream_engine_control_file:
       dreamControl.control_file || null,
+    rsi_paused: rsiPaused,
+    rem_mode: remMode,
     nightly_training_error: nightlyTrainingError
   });
   return record;
@@ -408,12 +464,8 @@ function cleanupSchedulerProcess(pid, paths, timeoutMs) {
 async function runSchedulerService(options = {}) {
   const paths = schedulerPaths(options);
   ensureDirSync(paths.runtime_dir);
-  const serviceTrainingCoordinator =
-    Object.prototype.hasOwnProperty.call(options, 'training_coordinator')
-      ? options.training_coordinator
-      : (automaticNightlyCoordinatorEnabled(options.self_improvement_config)
-          ? getProductionNightlyTrainingCoordinator()
-          : null);
+  const injectedCoordinator =
+    Object.prototype.hasOwnProperty.call(options, 'training_coordinator');
 
   const existingPid = readPid(paths.pid_file);
   if (existingPid && existingPid !== process.pid && processIsAlive(existingPid)) {
@@ -442,7 +494,12 @@ async function runSchedulerService(options = {}) {
 
   try {
     while (!stopping) {
-      await runSchedulerIteration({ ...options, ...paths, training_coordinator: serviceTrainingCoordinator });
+      // The coordinator (and the RSI pause sentinel) are re-evaluated on
+      // every iteration so live pause/enable controls take effect without
+      // a scheduler restart. An explicitly injected coordinator is kept.
+      const iterationOptions = { ...options, ...paths };
+      if (!injectedCoordinator) delete iterationOptions.training_coordinator;
+      await runSchedulerIteration(iterationOptions);
       await waitForNextTick(SCHEDULER_TICK_MS, () => stopping);
     }
   } catch (error) {
@@ -457,9 +514,14 @@ async function runSchedulerService(options = {}) {
     });
     throw error;
   } finally {
-    if (serviceTrainingCoordinator) {
+    const shutdownCoordinator = injectedCoordinator
+      ? options.training_coordinator
+      : (automaticNightlyCoordinatorEnabled(loadFreshSelfImprovementConfig())
+          ? getProductionNightlyTrainingCoordinator()
+          : null);
+    if (shutdownCoordinator) {
       try {
-        await serviceTrainingCoordinator.shutdown({
+        await shutdownCoordinator.shutdown({
           reason: 'sleep_scheduler_service_stop'
         });
       } catch (error) {
@@ -551,6 +613,7 @@ if (require.main === module) {
 
 module.exports = {
   automaticNightlyCoordinatorEnabled,
+  rsiPauseSentinelPresent,
   ROOT,
   SCHEDULER_TICK_MS,
   SCHEDULER_HEARTBEAT_STALE_MS,

@@ -134,8 +134,13 @@ const agentDeadlineSource = require('node:fs').readFileSync(
 );
 assert.match(
   agentDeadlineSource,
+  /implementation_write_stalled/,
+  'the agent stall guard must correct, then fail, a no-write implementation'
+);
+assert.doesNotMatch(
+  agentDeadlineSource,
   /implementation_write_deadline_exceeded/,
-  'the agent wall-clock write deadline must bound a no-write implementation'
+  'stall guards never manufacture a successful no-candidate exit'
 );
 assert.match(
   agentDeadlineSource,
@@ -208,7 +213,11 @@ for (let iteration = 5; iteration <= 8; iteration += 1) {
     );
   }
 }
-assert.equal(stopReason, 'implementation_progress_stalled_before_verification');
+assert.equal(
+  stopReason,
+  null,
+  'post-write verification pressure steers with advisories but never terminates'
+);
 assert.equal(policy.snapshot().verification_runs, 0);
 
 const focusedFailurePolicy = createConvergencePolicy(config);
@@ -241,7 +250,11 @@ for (let attempt = 1; attempt <= 3; attempt += 1) {
   });
   focusedStopReason = focusedFailurePolicy.endIteration();
 }
-assert.equal(focusedStopReason, 'focused_verification_failed_repeatedly');
+assert.equal(
+  focusedStopReason,
+  null,
+  'repeated legitimate focused-test repair attempts must never terminate the run'
+);
 assert.equal(
   focusedFailurePolicy.snapshot().focused_verification_failures,
   3
@@ -258,6 +271,6 @@ console.log(JSON.stringify({
   unrelated_post_write_reads_are_blocked_until_verification: true,
   post_write_guidance_gets_a_verification_turn: true,
   cd_find_shell_reads_are_blocked_after_write: true,
-  stalled_loop_stops: true,
-  repeated_focused_test_failure_stops: true
+  stalls_steer_without_terminating: true,
+  repeated_focused_test_failures_never_terminate: true
 }, null, 2));

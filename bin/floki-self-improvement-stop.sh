@@ -15,9 +15,11 @@ PID_FILE="$RUNTIME_ROOT/$(config_value worker_pid_file_name)"
 STOP_ATTEMPTS="$(config_value service_stop_attempts)"
 STOP_POLL_SECONDS="$(config_value service_stop_poll_seconds)"
 
+# Stop only the active run's transient unit inside the workstation. The
+# workstation container itself is stopped exclusively by bin/floki-runtime.sh.
 bash "$NODE_RUN" node - <<'NODE' || true
-const { stopCurrentContainer } = require('./src/self-improvement/sandbox.cjs');
-stopCurrentContainer('service_stop');
+const { stopActiveRunProcess } = require('./src/self-improvement/sandbox.cjs');
+stopActiveRunProcess('service_stop');
 NODE
 
 if [ ! -f "$PID_FILE" ]; then

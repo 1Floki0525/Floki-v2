@@ -49,6 +49,50 @@ function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_error) { return null; }
 }
 
+function sanitizeTerminalText(buffer) {
+  return String(Buffer.isBuffer(buffer) ? buffer.toString('utf8') : buffer || '')
+    .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\u001b[()][0-2A-Z0-9]/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+}
+
+function terminalRunIdFromFile(file) {
+  const parent = path.basename(path.dirname(file));
+  return parent.endsWith('.working')
+    ? parent.slice(0, -'.working'.length)
+    : parent;
+}
+
+function codePtyFile(config, runId) {
+  const id = String(runId || '').trim();
+  if (!id || !config.outbox_root || !config.terminal_stream_file_name) {
+    return null;
+  }
+  const working = path.join(
+    config.outbox_root,
+    id + '.working',
+    config.terminal_stream_file_name
+  );
+  if (statFile(working)) return working;
+  const finalOutbox = path.join(
+    config.outbox_root,
+    id,
+    config.terminal_stream_file_name
+  );
+  if (statFile(finalOutbox)) return finalOutbox;
+  if (config.candidate_root) {
+    const candidate = path.join(
+      config.candidate_root,
+      id,
+      config.terminal_stream_file_name
+    );
+    if (statFile(candidate)) return candidate;
+  }
+  return null;
+}
+
 function selectRawTerminalSource(options = {}) {
   const config = options.config;
   const status = options.status || {};
@@ -59,33 +103,103 @@ function selectRawTerminalSource(options = {}) {
     : path.resolve(PROJECT_ROOT, chatRuntimeConfigured);
   const allowedRoots = [
     config.workspace_root,
+    config.outbox_root,
+    config.candidate_root,
     config.training_runtime_root,
     config.runtime_root,
     chatRuntimeRoot
   ].filter(Boolean).map((value) => path.resolve(value));
-  const remActivity = readJson(path.join(config.training_runtime_root, 'hf-rem-active.json'));
+  const remActivity = readJson(path.join(
+    config.training_runtime_root,
+    'hf-rem-active.json'
+  ));
   const candidates = [];
-  const push = (kind, file, active, runId) => {
+  const push = (kind, file, active, runId, rawPty = false) => {
     if (!file) return;
     const resolved = path.resolve(file);
     if (!allowedRoots.some((root) => inside(root, resolved))) return;
     const stat = statFile(resolved);
     if (!stat) return;
-    candidates.push({ kind, file: resolved, stat, active: active === true, run_id: runId || null });
+    candidates.push({
+      kind,
+      file: resolved,
+      stat,
+      active: active === true,
+      run_id: runId || null,
+      raw_pty: rawPty === true
+    });
   };
 
-  if (remActivity) push('nightly_rem', remActivity.log_file, true, session && session.run_id);
+  if (remActivity) {
+    push(
+      'nightly_rem',
+      remActivity.log_file,
+      true,
+      session && session.run_id
+    );
+  }
   if (session && session.runtime) {
-    push('nightly_training', session.runtime.log_file, session.active === true && session.finalized !== true, session.run_id);
+    push(
+      'nightly_training',
+      session.runtime.log_file,
+      session.active === true && session.finalized !== true,
+      session.run_id
+    );
   }
-  if (status.current_run_kind === 'code') {
-    push('code', status.last_sandbox_log_file, Boolean(status.current_run_id), status.current_run_id);
+
+  const activeCodeRun = status.current_run_kind === 'code'
+    ? status.current_run_id
+    : null;
+  const activePty = codePtyFile(config, activeCodeRun);
+  push('code_pty', activePty, Boolean(activeCodeRun), activeCodeRun, true);
+
+  if (!candidates.some((row) => row.kind === 'code_pty')) {
+    const latestOutboxPty = config.outbox_root && config.terminal_stream_file_name
+      ? latestNamedLog(
+          config.outbox_root,
+          [config.terminal_stream_file_name]
+        )
+      : null;
+    const latestCandidatePty = config.candidate_root && config.terminal_stream_file_name
+      ? latestNamedLog(
+          config.candidate_root,
+          [config.terminal_stream_file_name]
+        )
+      : null;
+    const latest = [latestOutboxPty, latestCandidatePty]
+      .filter(Boolean)
+      .map((file) => ({ file, stat: statFile(file) }))
+      .filter((row) => row.stat)
+      .sort((left, right) => right.stat.mtimeMs - left.stat.mtimeMs)[0];
+    if (latest) {
+      push(
+        'code_pty',
+        latest.file,
+        false,
+        terminalRunIdFromFile(latest.file),
+        true
+      );
+    }
   }
+
   if (!candidates.some((row) => row.kind.startsWith('nightly_'))) {
-    push('nightly_training', latestNamedLog(config.training_runtime_root, [config.training_log_file_name || 'training.log']), false, session && session.run_id);
+    push(
+      'nightly_training',
+      latestNamedLog(
+        config.training_runtime_root,
+        [config.training_log_file_name || 'training.log']
+      ),
+      false,
+      session && session.run_id
+    );
   }
-  if (!candidates.some((row) => row.kind === 'code')) {
-    push('code', status.last_sandbox_log_file, Boolean(status.current_run_id), status.current_run_id);
+  if (!candidates.some((row) => row.kind === 'code_pty')) {
+    push(
+      'code',
+      status.last_sandbox_log_file,
+      Boolean(status.current_run_id),
+      status.current_run_id
+    );
   }
 
   if (!candidates.some((row) => row.kind.startsWith('nightly_'))) {
@@ -114,15 +228,19 @@ function selectRawTerminalSource(options = {}) {
   const priority = (row) => {
     if (row.active && row.kind === 'nightly_rem') return 0;
     if (row.active && row.kind === 'nightly_training') return 1;
-    if (row.active && row.kind === 'code') return 2;
-    if (row.kind === 'nightly_rem') return 3;
-    if (row.kind === 'nightly_training') return 4;
-    if (row.kind === 'code') return 5;
-    return 6;
+    if (row.active && row.kind === 'code_pty') return 2;
+    if (row.active && row.kind === 'code') return 3;
+    if (row.kind === 'nightly_rem') return 4;
+    if (row.kind === 'nightly_training') return 5;
+    if (row.kind === 'code_pty') return 6;
+    if (row.kind === 'code') return 7;
+    return 8;
   };
   decorated.sort((left, right) => {
     const byPriority = priority(left) - priority(right);
-    return byPriority !== 0 ? byPriority : right.stat.mtimeMs - left.stat.mtimeMs;
+    return byPriority !== 0
+      ? byPriority
+      : right.stat.mtimeMs - left.stat.mtimeMs;
   });
   return decorated[0];
 }
@@ -185,12 +303,22 @@ async function readRawTerminal(options = {}) {
     terminal_file: source.file,
     cursor: start,
     next_cursor: actualEnd,
+    sequence_start: start,
+    sequence_end: actualEnd,
     file_size: size,
     has_older: start > 0,
     has_newer: actualEnd < size,
-    text: buffer.toString('utf8'),
+    encoding: source.raw_pty === true ? 'base64' : 'utf8',
+    data_base64: source.raw_pty === true
+      ? buffer.toString('base64')
+      : null,
+    text: source.raw_pty === true
+      ? sanitizeTerminalText(buffer)
+      : buffer.toString('utf8'),
     active: source.active === true,
-    completed: source.active !== true
+    completed: source.active !== true,
+    eof: source.active !== true && actualEnd >= size,
+    raw_pty: source.raw_pty === true
   });
 }
 
@@ -199,6 +327,8 @@ module.exports = {
   latestNamedLog,
   readBoundedBytes,
   readRawTerminal,
+  sanitizeTerminalText,
   selectRawTerminalSource,
-  statFile
+  statFile,
+  terminalRunIdFromFile
 };

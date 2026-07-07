@@ -18,7 +18,7 @@
  * - expose honest readiness
  * - do not capture images
  * - do not record audio
- * - do not call qwen3-vl
+ * - do not call the local HF vision model
  * - do not claim live sight/hearing yet
  */
 

@@ -31,6 +31,7 @@ assert.deepEqual(
     action: 'nightly_training',
     train_now: true,
     pause_for_manual_nap: false,
+    pause_for_rsi_pause: false,
     restore_for_wake: false
   }
 );
@@ -42,6 +43,34 @@ assert.equal(
     manual_nap_active: true
   }).action,
   'manual_nap_ollama'
+);
+
+assert.deepEqual(
+  nightlyTrainingDecision({
+    enabled: true,
+    within_sleep_window: true,
+    manual_nap_active: false,
+    rsi_paused: true
+  }),
+  {
+    action: 'rsi_paused_wall_clock_rem',
+    train_now: false,
+    pause_for_manual_nap: false,
+    pause_for_rsi_pause: true,
+    restore_for_wake: false
+  },
+  'RSI pause inside the sleep window must stop training and hand REM to the wall-clock schedule'
+);
+
+assert.equal(
+  nightlyTrainingDecision({
+    enabled: true,
+    within_sleep_window: false,
+    manual_nap_active: false,
+    rsi_paused: true
+  }).action,
+  'wake_restoration',
+  'RSI pause must not block morning wake restoration/finalization'
 );
 assert.equal(
   nightlyTrainingDecision({

@@ -102,8 +102,20 @@ try {
     hostConfigFile: path.join(snapB.run_root, 'agent-config.json'),
     config
   });
-  const workdirA = execA[execA.indexOf('--workdir') + 1];
-  const workdirB = execB[execB.indexOf('--workdir') + 1];
+  // The agent runs inside a run-scoped transient systemd unit; the working
+  // directory travels on systemd-run instead of podman exec --workdir.
+  const workdirOf = (args) => {
+    const entry = args.find((value) =>
+      String(value).startsWith('--working-directory='));
+    return entry ? entry.slice('--working-directory='.length) : null;
+  };
+  const workdirA = workdirOf(execA);
+  const workdirB = workdirOf(execB);
+  assert.ok(execA.includes('systemd-run'), 'agent exec must run inside a transient unit');
+  assert.ok(
+    execA.some((value) => String(value).startsWith('--unit=floki-rsi-agent-')),
+    'run unit must be run-scoped'
+  );
   assert.equal(workdirA, config.persistent_project_workspace_path);
   assert.equal(workdirB, config.persistent_project_workspace_path);
   assert.equal(

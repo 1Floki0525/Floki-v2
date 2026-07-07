@@ -11,6 +11,13 @@ ARG BROWSER_DEB_URL
 ARG BROWSER_COMMAND_PATH
 
 ENV DEBIAN_FRONTEND=noninteractive
+STOPSIGNAL SIGRTMIN+3
+
+# FLOKI_RSI_FULL_UBUNTU_WORKSTATION_V1
+# Prevent package post-install scripts from starting services while the
+# immutable bootstrap image is assembled. The named workstation boots systemd.
+RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d \
+    && chmod 0755 /usr/sbin/policy-rc.d
 
 RUN test -n "${APT_PACKAGES}" \
     && test -n "${CONTEXT7_PACKAGE}" \
@@ -21,6 +28,7 @@ RUN test -n "${APT_PACKAGES}" \
     && test -n "${BROWSER_DEB_URL}" \
     && test -n "${BROWSER_COMMAND_PATH}" \
     && apt-get update \
+    && apt-get dist-upgrade -y \
     && apt-get install -y --no-install-recommends ${APT_PACKAGES} \
     && rm -rf /var/lib/apt/lists/*
 
@@ -67,6 +75,45 @@ RUN set -eux; \
 
 RUN npm install --global "${CONTEXT7_PACKAGE}@${CONTEXT7_VERSION}"
 
+# The real UID-0 account is named floki. passwd, group, HOME, hostname, and the
+# persistent working directory all agree; this is not a spoofed prompt.
+# The stock D-Bus policy only lets the user literally named "root" own
+# org.freedesktop.systemd1; without this override PID 1 (uid 0 = floki) cannot
+# join the system bus and transient systemd-run units for run-scoped RSI,
+# night-training, and REM process ownership time out.
+RUN set -eux; \
+    rm -f /usr/sbin/policy-rc.d; \
+    mkdir -p /etc/dbus-1/system.d; \
+    printf '%s\n' \
+      '<?xml version="1.0"?>' \
+      '<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"' \
+      ' "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">' \
+      '<busconfig>' \
+      '  <policy user="floki">' \
+      '    <allow own="org.freedesktop.systemd1"/>' \
+      '    <allow own="org.freedesktop.login1"/>' \
+      '    <allow send_destination="org.freedesktop.systemd1"/>' \
+      '    <allow receive_sender="org.freedesktop.systemd1"/>' \
+      '  </policy>' \
+      '</busconfig>' \
+      > /etc/dbus-1/system.d/floki-uid0-systemd.conf; \
+    sed -ri 's#^root:x:0:0:[^:]*:/root:/bin/bash$#floki:x:0:0:Floki:/home/floki:/bin/bash#' /etc/passwd; \
+    sed -ri 's/^root:/floki:/' /etc/shadow; \
+    sed -ri 's/^root:x:0:/floki:x:0:/' /etc/group; \
+    if [ -f /etc/gshadow ]; then sed -ri 's/^root:/floki:/' /etc/gshadow; fi; \
+    mkdir -p /home/floki/Floki-v2 /home/floki/.cache/npm /home/floki/.cache/pip; \
+    printf '%s\n' \
+      "export HOME=/home/floki" \
+      "export USER=floki" \
+      "export LOGNAME=floki" \
+      "export PS1='\\u@\\h:\\w\\$ '" \
+      > /home/floki/.bashrc; \
+    chown -R 0:0 /home/floki
+
+ENV HOME=/home/floki
+ENV USER=floki
+ENV LOGNAME=floki
+
 COPY agent.cjs /opt/floki-self-improvement/agent.cjs
-WORKDIR ${WORKSPACE_PATH}
-ENTRYPOINT ["node", "/opt/floki-self-improvement/agent.cjs"]
+WORKDIR /home/floki/Floki-v2
+ENTRYPOINT ["/sbin/init"]

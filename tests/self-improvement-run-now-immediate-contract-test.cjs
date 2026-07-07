@@ -27,7 +27,10 @@ const {
   loadSelfImprovementConfig
 } = require('../src/self-improvement/config.cjs');
 const {
-  stopCurrentContainer
+  dependencySeedFingerprint,
+  inspectPersistentContainer,
+  stopActiveRunProcess,
+  stopWorkstationContainer
 } = require('../src/self-improvement/sandbox.cjs');
 
 function wait(ms) {
@@ -45,11 +48,109 @@ async function waitFor(predicate, timeoutMs, pollMs, label) {
   throw new Error('timed out waiting for ' + label);
 }
 
+function writeJson(file, value, spacing = 2) {
+  fs.writeFileSync(file, JSON.stringify(value, null, spacing) + '\n');
+}
+
+function verifyDependencyCacheIdentity() {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'floki-dependency-cache-identity-')
+  );
+  try {
+    const packageFile = path.join(root, 'package.json');
+    const lockFile = path.join(root, 'package-lock.json');
+    const manifest = {
+      name: 'cache-contract',
+      description: 'metadata must not control dependency cache identity',
+      scripts: { test: 'node first.js' },
+      packageManager: 'npm@11.0.0',
+      dependencies: { alpha: '1.0.0' },
+      devDependencies: { beta: '2.0.0' }
+    };
+    const lock = {
+      name: 'cache-contract',
+      version: '1.0.0',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'cache-contract',
+          version: '1.0.0',
+          dependencies: { alpha: '1.0.0' },
+          devDependencies: { beta: '2.0.0' }
+        },
+        'node_modules/alpha': {
+          version: '1.0.0',
+          resolved: 'https://registry.invalid/alpha-1.0.0.tgz',
+          integrity: 'sha512-alpha'
+        },
+        'node_modules/beta': {
+          version: '2.0.0',
+          resolved: 'https://registry.invalid/beta-2.0.0.tgz',
+          integrity: 'sha512-beta',
+          dev: true
+        }
+      }
+    };
+    writeJson(packageFile, manifest);
+    writeJson(lockFile, lock);
+    const base = dependencySeedFingerprint(root, 'sha256');
+
+    manifest.description = 'changed unrelated metadata';
+    manifest.scripts.test = 'node second.js';
+    writeJson(packageFile, manifest, 4);
+    const unrelated = dependencySeedFingerprint(root, 'sha256');
+    assert.equal(
+      unrelated,
+      base,
+      'unrelated package.json metadata and script changes must preserve cache identity'
+    );
+
+    manifest.dependencies.alpha = '1.0.1';
+    writeJson(packageFile, manifest);
+    const dependencyChanged = dependencySeedFingerprint(root, 'sha256');
+    assert.notEqual(
+      dependencyChanged,
+      base,
+      'a real dependency change must invalidate cache identity'
+    );
+
+    manifest.dependencies.alpha = '1.0.0';
+    writeJson(packageFile, manifest);
+    lock.packages['node_modules/alpha'].version = '1.0.1';
+    writeJson(lockFile, lock);
+    const lockChanged = dependencySeedFingerprint(root, 'sha256');
+    assert.notEqual(
+      lockChanged,
+      base,
+      'a package-lock dependency resolution change must invalidate cache identity'
+    );
+
+    return Object.freeze({
+      base,
+      unrelated,
+      dependency_changed: dependencyChanged,
+      lock_changed: lockChanged
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function readAuditRows(config) {
+  const file = paths(config).auditFile;
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, 'utf8')
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
 function podmanInspect(config, container) {
   const result = spawnSync(config.sandbox_engine, [
     'inspect',
     '--format',
-    '{{.Name}} {{.State.Running}} {{.State.StartedAt}}',
+    '{{.Id}} {{.Name}} {{.State.Running}} {{.State.StartedAt}}',
     container
   ], {
     encoding: 'utf8',
@@ -60,15 +161,6 @@ function podmanInspect(config, container) {
     status: result.status,
     stdout: String(result.stdout || '').trim(),
     stderr: String(result.stderr || '').trim()
-  });
-}
-
-function removeContainer(config, container) {
-  if (!container) return;
-  spawnSync(config.sandbox_engine, ['rm', '-f', container], {
-    encoding: 'utf8',
-    timeout: config.container_stop_command_timeout_ms,
-    maxBuffer: config.podman_output_buffer_bytes
   });
 }
 
@@ -112,7 +204,53 @@ function modelEndpointReady(config) {
 
 async function main() {
   const nodeMajor = Number(process.versions.node.split('.')[0]);
-assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or newer is required');
+  assert.equal(
+    Number.isInteger(nodeMajor) && nodeMajor >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
+
+  const cacheIdentity = verifyDependencyCacheIdentity();
+  const sandboxSource = fs.readFileSync(
+    path.join(__dirname, '..', 'src/self-improvement/sandbox.cjs'),
+    'utf8'
+  );
+  for (const phase of [
+    'workstation_starting',
+    'workstation_ready',
+    'dependency_cache_check',
+    'dependency_seeding',
+    'project_sync',
+    'agent_sync',
+    'transient_unit_starting',
+    'sandbox_starting',
+    'sandbox_acknowledged'
+  ]) {
+    assert.ok(
+      sandboxSource.includes("'" + phase + "'"),
+      'sandbox preparation phase is missing: ' + phase
+    );
+  }
+  assert.match(
+    sandboxSource,
+    /persistent_config_host_root/,
+    'test-shaped runtime state must be decoupled from the workstation config mount'
+  );
+  assert.match(
+    sandboxSource,
+    /failureTailSuffix/,
+    'startup failures must include the real sandbox error tail'
+  );
+
+  if (process.env.FLOKI_RUN_NOW_STATIC_ONLY === '1') {
+    console.log(JSON.stringify({
+      ok: true,
+      marker: 'FLOKI_V2_RSI_RUN_NOW_STATIC_REPAIR_CONTRACT_PASS',
+      dependency_cache_identity: cacheIdentity,
+      live_integration_skipped: true
+    }, null, 2));
+    return;
+  }
 
   const configured = loadSelfImprovementConfig();
   assert.equal(
@@ -123,6 +261,18 @@ assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or n
     0,
     'real Podman sandbox engine must be available'
   );
+  const workstationBefore = inspectPersistentContainer(configured);
+  const workstationIdentityBefore = podmanInspect(
+    configured,
+    configured.persistent_container_name
+  );
+  assert.equal(workstationIdentityBefore.status, 0);
+  assert.equal(
+    workstationBefore.found,
+    true,
+    'permanent RSI workstation must already exist'
+  );
+
   if (!(await modelEndpointReady(configured))) {
     if (isCiRunner()) {
       console.log(JSON.stringify({
@@ -211,11 +361,22 @@ assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or n
     cooldown_seconds: Math.max(3600, configured.cooldown_seconds),
     minimum_available_memory_mb: 0,
     nightly_training_enabled: false,
-    workspace_root: path.join(root, 'workspaces'),
+    // The permanent workstation's bind mounts are immutable container
+    // authority. Keep mounted workspace/outbox/model-proxy roots production-
+    // accurate while isolating worker status, token, and candidate state.
+    workspace_root: configured.workspace_root,
     candidate_root: path.join(root, 'candidates'),
-    outbox_root: path.join(root, 'outbox'),
+    outbox_root: configured.outbox_root,
     runtime_root: runtimeRoot,
-    model_proxy_root: path.join(root, 'model-proxy'),
+    model_proxy_root: configured.model_proxy_root,
+    persistent_self_context_host_root: path.join(
+      configured.runtime_root,
+      'persistent-self-context'
+    ),
+    persistent_config_host_root: path.join(
+      configured.runtime_root,
+      'persistent-config'
+    ),
     chat_runtime_root: chatRuntimeRoot
   };
 
@@ -289,9 +450,10 @@ assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or n
     assert.equal(result.bypass_idle_timer, true);
     assert.equal(result.sandbox_started, true);
     assert.match(result.run_id, /^rsi-\d{8}-\d{6}-[a-f0-9]+$/);
-    assert.ok(
-      result.container.startsWith(config.container_name_prefix + '-'),
-      'container name must use the YAML-configured prefix'
+    assert.equal(
+      result.container,
+      config.persistent_container_name,
+      'Run Now must use the existing permanent RSI workstation'
     );
     assert.notEqual(result.run_id, 'test-run');
     assert.notEqual(result.container, 'test-sandbox');
@@ -314,11 +476,68 @@ assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or n
     assert.equal(acknowledged.current_run_id, result.run_id);
     assert.equal(acknowledged.current_container, result.container);
     assert.equal(fs.existsSync(paths(config).runRequestFile), false);
-  } finally {
-    if (result?.container) {
-      stopCurrentContainer('run_now_contract_cleanup', config);
-      removeContainer(config, result.container);
+
+    const currentRun = JSON.parse(
+      fs.readFileSync(paths(config).currentContainerFile, 'utf8')
+    );
+    assert.equal(currentRun.run_id, result.run_id);
+    assert.equal(currentRun.name, result.container);
+    assert.match(currentRun.unit, /^floki-rsi-agent-.+\.service$/);
+    assert.ok(Number(currentRun.unit_main_pid) > 0);
+
+    const unitInspect = spawnSync(config.sandbox_engine, [
+      'exec',
+      config.persistent_container_name,
+      'systemctl',
+      'show',
+      currentRun.unit,
+      '--property=ActiveState',
+      '--property=MainPID'
+    ], {
+      encoding: 'utf8',
+      timeout: config.run_unit_stop_timeout_ms,
+      maxBuffer: config.podman_output_buffer_bytes
+    });
+    assert.equal(
+      unitInspect.status,
+      0,
+      'transient run unit must be inspectable: ' +
+        String(unitInspect.stderr || unitInspect.stdout || '').trim()
+    );
+    assert.match(String(unitInspect.stdout || ''), /ActiveState=active/);
+    assert.match(String(unitInspect.stdout || ''), /MainPID=[1-9]\d*/);
+
+    const auditRows = readAuditRows(config);
+    const preparationPhases = auditRows
+      .filter((row) =>
+        row.type === 'sandbox_preparation_phase' &&
+        row.detail?.run_id === result.run_id
+      )
+      .map((row) => row.detail.phase);
+    for (const phase of [
+      'workstation_starting',
+      'workstation_ready',
+      'dependency_cache_check',
+      'project_sync',
+      'agent_sync',
+      'transient_unit_starting',
+      'sandbox_starting',
+      'sandbox_acknowledged'
+    ]) {
+      assert.ok(
+        preparationPhases.includes(phase),
+        'live Run Now audit did not record preparation phase: ' + phase
+      );
     }
+    assert.ok(
+      auditRows.some((row) =>
+        row.type === 'dependency_cache_summary' &&
+        row.detail?.run_id === result.run_id
+      ),
+      'live Run Now audit must record the dependency cache hit/seed summary'
+    );
+  } finally {
+    stopActiveRunProcess('run_now_contract_cleanup', config);
     abortController.abort();
     if (workerPromise) {
       await Promise.race([
@@ -328,6 +547,30 @@ assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or n
         })
       ]);
     }
+    if (workstationBefore.found && workstationBefore.running !== true) {
+      const stopped = stopWorkstationContainer(
+        'run_now_contract_restore_initial_state',
+        config
+      );
+      assert.equal(stopped.ok, true);
+    }
+    const workstationAfter = inspectPersistentContainer(configured);
+    const workstationIdentityAfter = podmanInspect(
+      configured,
+      configured.persistent_container_name
+    );
+    assert.equal(workstationIdentityAfter.status, 0);
+    assert.equal(
+      workstationIdentityAfter.stdout.split(/\s+/)[0],
+      workstationIdentityBefore.stdout.split(/\s+/)[0],
+      'Run Now contract must preserve the workstation container ID'
+    );
+    assert.equal(workstationAfter.found, true);
+    assert.equal(
+      workstationAfter.running,
+      workstationBefore.running,
+      'Run Now contract must restore the workstation running state'
+    );
     fs.rmSync(root, { recursive: true, force: true });
   }
 
@@ -378,6 +621,10 @@ assert.equal(Number.isInteger(nodeMajor) && nodeMajor >= 24, true, 'Node 24 or n
     real_run_id: result.run_id,
     real_podman_container: result.container,
     durable_acknowledgement: true,
+    permanent_workstation_preserved: true,
+    workstation_running_state_restored: true,
+    workstation_container_id_preserved: true,
+    dependency_cache_identity: cacheIdentity,
     podman_inspect: inspected.stdout
   }, null, 2));
 }

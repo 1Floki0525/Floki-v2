@@ -98,21 +98,20 @@ assert.ok(/finally\s*\{\s*if \(!stopped\) timer = setTimeout\(poll, terminalPoll
 
 console.log('PASS: Defect 4C — Stale polling response rejection');
 
-// --- Defect 5: classifyNoCandidateReason ---
+// --- Defect 5 (superseded 2026-07-04): explicit run outcomes ---
+// Log-text classification of no-candidate reasons was retired: a run without
+// a candidate must carry a validated evidence-backed record, and every other
+// non-candidate ending is a preemption or a real persisted failure.
 
 const workerSource = fs.readFileSync(
   path.join(root, 'src/self-improvement/worker.cjs'), 'utf8'
 );
-assert.ok(workerSource.includes('function classifyNoCandidateReason'), 'classifyNoCandidateReason must exist');
-assert.ok(workerSource.includes("'iteration_limit'"), 'Must classify iteration_limit');
-assert.ok(workerSource.includes("'wall_clock_limit'"), 'Must classify wall_clock_limit');
-assert.ok(workerSource.includes("'no_source_change'"), 'Must classify no_source_change');
-assert.ok(workerSource.includes("'model_request_failure'"), 'Must classify model_request_failure');
-assert.ok(workerSource.includes("'focused_test_failure'"), 'Must classify focused_test_failure');
-assert.ok(workerSource.includes('classifyNoCandidateReason(completionSummary)'), 'Must use classifier in audit');
-assert.ok(workerSource.includes('classifyNoCandidateReason(message)'), 'Must use classifier in error path');
+assert.ok(!workerSource.includes('classifyNoCandidateReason'), 'log-text no-candidate classification must stay retired');
+assert.ok(workerSource.includes('readNoSafeCandidateRecord'), 'evidence-backed record is the only no-candidate path');
+assert.ok(workerSource.includes('readRunFailureRecord'), 'real failures surface the persisted failure record');
+assert.ok(workerSource.includes('zero_exit_without_outcome'), 'exit 0 without an outcome is a real failure');
 
-console.log('PASS: Defect 5 — classifyNoCandidateReason surfaces exact reasons');
+console.log('PASS: Defect 5 — explicit run outcomes replace log-text classification');
 
 // --- Defect 6: Public API routing contract ---
 

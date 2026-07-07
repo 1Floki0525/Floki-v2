@@ -89,7 +89,7 @@ for (const source of [agent, sandbox, configSource, template]) {
   );
 }
 assert.match(agent, /runAutonomousSelectionTransaction/);
-assert.match(agent, /format:\s*selectExperimentSchema/);
+assert.match(agent, /format:\s*selectionDecisionSchema/);
 assert.match(agent, /protocol:\s*'ollama_json_schema'/);
 assert.match(agent, /executeTool\('select_experiment', args\)/);
 assert.match(agent, /requestPayload\.format = options\.format/);

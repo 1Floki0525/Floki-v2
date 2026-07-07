@@ -19,8 +19,7 @@ const requiredBooleanKeys = [
   'general_web_enabled',
   'context7_enabled',
   'allow_existing_test_changes',
-  'ollama_stream',
-  'failure_requires_new_activity'
+  'ollama_stream'
 ];
 
 const requiredNumberKeys = [
@@ -103,7 +102,9 @@ const requiredNumberKeys = [
   'agent_ollama_request_max_attempts',
   'agent_ollama_request_retry_backoff_ms',
   'worker_heartbeat_stale_ms',
-  'agent_run_wall_clock_budget_ms',
+  'workstation_systemd_ready_timeout_ms',
+  'workstation_systemd_ready_poll_ms',
+  'run_unit_stop_timeout_ms',
   'model_turn_deadline_ms',
   'implementation_write_deadline_ms',
   'implementation_no_progress_deadline_ms',
@@ -127,6 +128,14 @@ const requiredStringKeys = [
   'container_hostname',
   'container_name_prefix',
   'persistent_project_workspace_path',
+  'workstation_persistence_proof_path',
+  'workstation_proof_record_file_name',
+  'run_unit_prefix_agent',
+  'run_unit_prefix_training',
+  'run_unit_prefix_rem',
+  'no_safe_candidate_file_name',
+  'no_safe_candidate_dir_name',
+  'run_failure_file_name',
   'persistent_source_mirror_directory_name',
   'workspace_mount_path',
   'outbox_mount_path',

@@ -994,6 +994,9 @@ class FlokiAdapter {
     if (hasBridge()) return bridge().denySelfImprovement(id, reason);
     return runtimeHttpRequest('POST', '/self-improvement/deny', { id: String(id), reason: String(reason) });
   }
+  async startSelfImprovement() {
+    return this.controlModule('rsi', 'start');
+  }
   async pauseSelfImprovement() {
     if (hasBridge()) return bridge().pauseSelfImprovement();
     return runtimeHttpRequest('POST', '/self-improvement/pause', {});

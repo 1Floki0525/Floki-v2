@@ -15,7 +15,7 @@ const {
   resume,
   runNow
 } = require('./promotion.cjs');
-const { stopCurrentContainer } = require('./sandbox.cjs');
+const { stopActiveRunProcess } = require('./sandbox.cjs');
 const { buildSelfImprovementUiStatus } = require('./ui-status.cjs');
 const { assertApprovalToken, appendAudit } = require('./store.cjs');
 
@@ -57,7 +57,7 @@ function createSelfImprovementApi() {
       );
     },
     preempt(reason) {
-      return stopCurrentContainer(reason, config);
+      return stopActiveRunProcess(reason, config);
     }
   });
 }

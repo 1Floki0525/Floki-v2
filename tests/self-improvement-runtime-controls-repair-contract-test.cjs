@@ -26,7 +26,11 @@ assert.match(snapshot, /writeSanitizedNpmrc/);
 assert.match(snapshot, /snapshot_sanitized_npmrc_lines/);
 
 const worker = text('src/self-improvement/worker.cjs');
-assert.match(worker, /failure_waiting_for_new_activity/);
+assert.doesNotMatch(
+  worker,
+  /failure_waiting_for_new_activity/,
+  'a latched failure must not require unrelated new activity'
+);
 assert.match(worker, /failure_latched_at/);
 assert.match(worker, /execution\.read_error_tail/);
 assert.match(worker, /last_no_candidate_error/);
@@ -83,7 +87,6 @@ for (const key of [
   'snapshot_sanitized_npmrc_lines',
   'sandbox_log_file_name',
   'sandbox_error_tail_chars',
-  'failure_requires_new_activity',
   'run_now_ack_timeout_ms',
   'run_now_ack_poll_ms',
   'service_stop_command_timeout_seconds'
@@ -116,33 +119,37 @@ const runtime = {
   started_at: activity,
   client_ready_at: activity
 };
+// The failure latch no longer blocks new cycles: a latched failure must not
+// require unrelated new activity before the next eligible cycle runs.
 const status = {
   paused: false,
   failure_latched_at: new Date(Date.now() + 1000).toISOString()
 };
 const config = {
   minimum_available_memory_mb: 0,
-  idle_seconds: 0,
-  failure_requires_new_activity: true
+  idle_seconds: 0
 };
-assert.deepEqual(
-  idleEligibility(runtime, status, config, false),
-  { eligible: false, reason: 'failure_waiting_for_new_activity' }
-);
+assert.equal(idleEligibility(runtime, status, config, false).eligible, true);
 assert.equal(idleEligibility(runtime, status, config, true).eligible, true);
 
 const {
-  noCandidateStatusPatch
+  noSafeCandidateStatusPatch
 } = require('../src/self-improvement/worker.cjs');
-assert.equal(
-  noCandidateStatusPatch(
-    'agent iteration limit reached without a verified candidate',
-    { log_file: '/tmp/sandbox.log' },
-    new Date().toISOString()
-  ).failure_latched_at,
-  null,
-  'no-candidate cycles must not become failure_waiting_for_new_activity'
+const noSafePatch = noSafeCandidateStatusPatch(
+  {
+    run_id: 'rsi-contract-test',
+    detailed_reason: 'evidence-backed decision fixture',
+    evidence_findings: ['a', 'b', 'c'],
+    considered_alternatives: [
+      { alternative: 'x', rejection_reason: 'r1' },
+      { alternative: 'y', rejection_reason: 'r2' }
+    ]
+  },
+  { log_file: '/tmp/sandbox.log' },
+  new Date().toISOString()
 );
+assert.equal(noSafePatch.failure_latched_at, null);
+assert.equal(noSafePatch.phase, 'no_safe_candidate');
 
 console.log(JSON.stringify({
   ok: true,

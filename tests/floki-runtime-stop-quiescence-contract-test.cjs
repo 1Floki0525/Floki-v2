@@ -20,7 +20,7 @@ for (const required of [
   "yolo-worker.py",
   "grounding-dino-worker.py",
   "floki-neural-interface",
-  "chat-vision-ssh-tunnel.sock",
+  "chat-vision-local.sock",
   "mainthread",
   "/dev/video",
   "os.killpg",

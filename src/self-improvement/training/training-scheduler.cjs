@@ -113,11 +113,13 @@ function nightlyTrainingDecision(input = {}) {
   const enabled = input.enabled === true;
   const within = input.within_sleep_window === true;
   const manualNap = manualNapProductionActive(input);
+  const rsiPaused = input.rsi_paused === true;
   if (!enabled) {
     return Object.freeze({
       action: 'disabled',
       train_now: false,
       pause_for_manual_nap: false,
+      pause_for_rsi_pause: false,
       restore_for_wake: false
     });
   }
@@ -126,6 +128,16 @@ function nightlyTrainingDecision(input = {}) {
       action: 'manual_nap_ollama',
       train_now: false,
       pause_for_manual_nap: true,
+      pause_for_rsi_pause: false,
+      restore_for_wake: false
+    });
+  }
+  if (within && rsiPaused) {
+    return Object.freeze({
+      action: 'rsi_paused_wall_clock_rem',
+      train_now: false,
+      pause_for_manual_nap: false,
+      pause_for_rsi_pause: true,
       restore_for_wake: false
     });
   }
@@ -134,6 +146,7 @@ function nightlyTrainingDecision(input = {}) {
       action: 'nightly_training',
       train_now: true,
       pause_for_manual_nap: false,
+      pause_for_rsi_pause: false,
       restore_for_wake: false
     });
   }
@@ -141,6 +154,7 @@ function nightlyTrainingDecision(input = {}) {
     action: 'wake_restoration',
     train_now: false,
     pause_for_manual_nap: false,
+    pause_for_rsi_pause: false,
     restore_for_wake: true
   });
 }
@@ -337,7 +351,11 @@ function createNightlyTrainingCoordinator(options = {}) {
     loadConfig: options.load_config || loadFreshSelfImprovementConfig,
     audit: options.audit || ((type, detail) => appendAudit(type, detail, config)),
     status: options.status || ((patch) => updateStatus(patch, config)),
-    readStatus: options.read_status || (() => readStatus(config)), observe: options.observe_training_reality || observeTrainingReality
+    readStatus: options.read_status || (() => readStatus(config)), observe: options.observe_training_reality || observeTrainingReality,
+    // Injectable wall clock so the daytime night-cycle simulation can drive
+    // the whole epoch -> REM -> resume loop on simulated timestamps without
+    // touching the system clock. Production always uses the real clock.
+    nowProvider: options.now_provider || (() => new Date())
   };
 
   async function ensureResource(session, reason) {
@@ -381,27 +399,27 @@ function createNightlyTrainingCoordinator(options = {}) {
     }, config);
   }
 
-  async function pauseForManualNap(session) {
+  async function pauseTrainingForHandoff(session, handoff) {
     let current = session;
     if (current && current.current_container) {
       const checkpoint = await deps.checkpointSession(current, {
         config,
-        reason: 'manual_nap_ollama_handoff'
+        reason: handoff.reason
       });
       current = checkpoint.session || current;
     }
     if (current && current.resource_entered === true) {
-      current = await restoreResource(current, 'manual_nap_ollama_handoff');
+      current = await restoreResource(current, handoff.reason);
     }
     if (current) {
       current = deps.writeSession({
         ...current,
-        status: 'paused_for_manual_nap',
+        status: handoff.session_status,
         updated_at: nowIso()
       }, config);
     }
     deps.status({
-      phase: 'nightly_training_paused_for_manual_nap',
+      phase: handoff.status_phase,
       current_container: null,
       training_resource_mode: 'idle',
       gpu_owner: null
@@ -409,8 +427,45 @@ function createNightlyTrainingCoordinator(options = {}) {
     return current;
   }
 
+  async function pauseForManualNap(session) {
+    return pauseTrainingForHandoff(session, {
+      reason: 'manual_nap_ollama_handoff',
+      session_status: 'paused_for_manual_nap',
+      status_phase: 'nightly_training_paused_for_manual_nap'
+    });
+  }
+
+  async function pauseForRsiPause(session) {
+    return pauseTrainingForHandoff(session, {
+      reason: 'rsi_paused_wall_clock_rem',
+      session_status: 'paused_for_rsi_pause',
+      status_phase: 'nightly_training_paused_for_rsi_pause'
+    });
+  }
+
+  function rsiPausedNow(context = {}) {
+    if (Object.prototype.hasOwnProperty.call(context, 'rsi_paused')) {
+      return context.rsi_paused === true;
+    }
+    // The pause sentinel file is the canonical pause state (store.readStatus
+    // derives its `paused` flag from this same file).
+    if (
+      typeof config.runtime_root === 'string' &&
+      typeof config.pause_file_name === 'string'
+    ) {
+      try {
+        return fs.existsSync(
+          path.join(config.runtime_root, config.pause_file_name)
+        );
+      } catch (_error) {
+        return false;
+      }
+    }
+    return false;
+  }
+
   async function reconcile(context = {}) {
-    const observedAt = nowDate(context.now);
+    const observedAt = context.now ? nowDate(context.now) : deps.nowProvider();
     const enabled = automaticTrainingEnabled(config);
     const sleepWindow = deps.getSleepWindow(observedAt);
     const within = deps.isWithinSleepWindow(observedAt);
@@ -418,7 +473,8 @@ function createNightlyTrainingCoordinator(options = {}) {
     const decision = nightlyTrainingDecision({
       enabled,
       within_sleep_window: within,
-      manual_nap_active: manualNap && manualNap.active === true
+      manual_nap_active: manualNap && manualNap.active === true,
+      rsi_paused: rsiPausedNow(context)
     });
     let session = deps.readSession(config);
 
@@ -429,6 +485,18 @@ function createNightlyTrainingCoordinator(options = {}) {
     if (decision.pause_for_manual_nap) {
       if (session && (session.resource_entered || session.current_container)) {
         session = await pauseForManualNap(session);
+      }
+      return Object.freeze({ ok: true, action: decision.action, session });
+    }
+
+    if (decision.pause_for_rsi_pause) {
+      if (session && (session.resource_entered || session.current_container)) {
+        session = await pauseForRsiPause(session);
+      } else {
+        const owner = deps.gpu.currentOwner(config);
+        if (owner === 'hf_training' || owner === 'hf_rem_inference') {
+          deps.gpu.release(owner, config);
+        }
       }
       return Object.freeze({ ok: true, action: decision.action, session });
     }
@@ -452,6 +520,7 @@ function createNightlyTrainingCoordinator(options = {}) {
           if (dueNightlyRemNow(observedAt, session)) {
             await runNightlyRem({
               now: observedAt,
+              env: context.env,
               rem_cycle_number: Number(session.rem_cycles_completed || 0) + 1,
               wake_boundary_completion: true
             });
@@ -529,6 +598,7 @@ function createNightlyTrainingCoordinator(options = {}) {
     if (dueNightlyRemNow(observedAt, session)) {
       const rem = await runNightlyRem({
         now: observedAt,
+        env: context.env,
         rem_cycle_number: Number(session.rem_cycles_completed || 0) + 1
       });
       session = deps.readSession(config);
@@ -539,6 +609,36 @@ function createNightlyTrainingCoordinator(options = {}) {
         sleep_date: sleepWindow.sleep_date,
         session,
         rem
+      });
+    }
+
+    if (session && session.training_failed === true && !session.current_container) {
+      if (session.resource_entered === true) {
+        session = await restoreResource(
+          session,
+          'nightly_training_failed_wall_clock_rem'
+        );
+      } else {
+        const owner = deps.gpu.currentOwner(config);
+        if (owner === 'hf_training' || owner === 'hf_rem_inference') {
+          deps.gpu.release(owner, config);
+        }
+      }
+      deps.status({
+        state: 'failed',
+        phase: 'nightly_training_failed_wall_clock_rem_active',
+        current_container: null,
+        training_resource_mode: 'idle',
+        gpu_owner: null,
+        nightly_training_error:
+          session.training_error || 'nightly training failed'
+      });
+      return Object.freeze({
+        ok: true,
+        action: 'nightly_training_failed_wall_clock_rem',
+        within_sleep_window: within,
+        sleep_date: sleepWindow.sleep_date,
+        session
       });
     }
 
@@ -592,6 +692,7 @@ function createNightlyTrainingCoordinator(options = {}) {
     } catch (error) {
       let restorationError = null;
       try {
+        session = deps.readSession(config) || session;
         if (session && session.resource_entered === true) {
           session = await restoreResource(session, 'nightly_training_launch_failure');
         } else {
@@ -625,7 +726,7 @@ function createNightlyTrainingCoordinator(options = {}) {
       lock_owner: deps.gpu.currentOwner(config),
       release_owner: (owner) => deps.gpu.release(owner, config),
       reconcile_stale_owner: true,
-      now_ms: Date.now()
+      now_ms: deps.nowProvider().getTime()
     });
     if (observation.reconciliation_error) {
       throw new Error(observation.reconciliation_error);
@@ -661,7 +762,10 @@ function createNightlyTrainingCoordinator(options = {}) {
     const providers = resolveNightlyProviders(config);
 
     let session = deps.readSession(config);
-    const sleepWindow = deps.getSleepWindow(nowDate(dreamOptions.now));
+    const remObservedAt = dreamOptions.now
+      ? nowDate(dreamOptions.now)
+      : deps.nowProvider();
+    const sleepWindow = deps.getSleepWindow(remObservedAt);
     const sleepDate = session && session.sleep_date || sleepWindow.sleep_date;
     if (!dueNightlyRemNow(dreamOptions.now, session)) {
       return Object.freeze({
@@ -696,10 +800,10 @@ function createNightlyTrainingCoordinator(options = {}) {
     let remResult = null;
     let remError = null;
     const manualNapAtStart = deps.readManualNap({
-      now: nowDate(dreamOptions.now)
+      now: remObservedAt
     });
     let shouldResume =
-      deps.isWithinSleepWindow(nowDate(dreamOptions.now)) &&
+      deps.isWithinSleepWindow(remObservedAt) &&
       !(manualNapAtStart && manualNapAtStart.active === true);
 
     try {
@@ -791,8 +895,20 @@ function createNightlyTrainingCoordinator(options = {}) {
         checkpoint_error: checkpointError
       });
 
+      // The dream engine is guarded by FLOKI_ALLOW_DREAM_ENGINE. The
+      // scheduler tick env (context.env) carries the Maker's dream-engine
+      // control decision; when this dispatch runs without a tick env (the
+      // coordinator only fires after a REAL completed epoch inside the sleep
+      // window) the sanctioned nightly allowance is applied explicitly, the
+      // same way the manual-nap REM path does. Without this the first
+      // epoch-triggered REM in history dies with FLOKI_V2_DREAM_ENGINE_BLOCKED
+      // (found by the daytime night-cycle simulation on 2026-07-06).
       remResult = await deps.runDreamEngine({
         ...dreamOptions,
+        env: dreamOptions.env || {
+          ...process.env,
+          FLOKI_ALLOW_DREAM_ENGINE: '1'
+        },
         sleep_kind: 'nightly_sleep',
         fake_generator_counts_as_model: true,
         dream_generator: async ({ prompt, context, schema }) => deps.runHfGeneration({
@@ -839,8 +955,8 @@ function createNightlyTrainingCoordinator(options = {}) {
         nightly_rem_error: null,
         last_nightly_rem_completed_at: nowIso()
       });
-      const manualNapAfterRem = deps.readManualNap();
-      shouldResume = deps.isWithinSleepWindow(new Date()) &&
+      const manualNapAfterRem = deps.readManualNap({ now: deps.nowProvider() });
+      shouldResume = deps.isWithinSleepWindow(deps.nowProvider()) &&
         !(manualNapAfterRem && manualNapAfterRem.active === true);
       return Object.freeze({
         ...remResult,
@@ -941,6 +1057,28 @@ function createNightlyTrainingCoordinator(options = {}) {
     );
   }
 
+  // Decides how REM cycles are scheduled for the current tick:
+  // 'epoch_triggered' — REM fires after each completed training epoch;
+  // 'wall_clock' — the fixed 10-minute schedule owns REM (RSI paused,
+  // training terminally failed for this sleep date, or session closed).
+  function remMode(context = {}) {
+    if (!automaticTrainingEnabled(config)) return 'wall_clock';
+    if (rsiPausedNow(context)) return 'wall_clock';
+    const session = deps.readSession(config);
+    if (!session) return 'epoch_triggered';
+    const sleepWindow = deps.getSleepWindow(
+      context.now ? nowDate(context.now) : deps.nowProvider()
+    );
+    if (session.sleep_date !== sleepWindow.sleep_date) {
+      return 'epoch_triggered';
+    }
+    if (session.training_failed === true) return 'wall_clock';
+    if (session.finalized === true || session.aborted === true) {
+      return 'wall_clock';
+    }
+    return 'epoch_triggered';
+  }
+
   async function shutdown(context = {}) {
     let session = deps.readSession(config);
     if (!session || session.finalized === true) return session;
@@ -971,6 +1109,7 @@ function createNightlyTrainingCoordinator(options = {}) {
     afterTick: reconcile,
     beforeTick: reconcile,
     reconcile,
+    remMode,
     runNightlyRem,
     shutdown
   });

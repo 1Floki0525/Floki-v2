@@ -150,20 +150,14 @@ assert.doesNotMatch(
   policySource,
   /model_failed_to_select_experiment_after_forced_selection/
 );
-const {
-  isNoCandidateStopReason
-} = require(path.join(ROOT, 'src/self-improvement/worker.cjs'));
-for (const preciseReason of [
-  'implementation_write_deadline_exceeded',
-  'model_turn_deadline_exceeded',
-  'agent_run_wall_clock_budget_exceeded'
-]) {
-  assert.equal(
-    isNoCandidateStopReason(preciseReason),
-    true,
-    'worker must classify precise no-candidate stop reason: ' + preciseReason
-  );
-}
+// Contract updated 2026-07-04 (condition-driven execution): no stop-reason
+// list may convert deadlines or stalls into a successful no-candidate exit.
+const workerSource = require('node:fs').readFileSync(
+  path.join(ROOT, 'src/self-improvement/worker.cjs'),
+  'utf8'
+);
+assert.doesNotMatch(workerSource, /NO_CANDIDATE_STOP_REASONS/);
+assert.doesNotMatch(workerSource, /isNoCandidateStopReason/);
 
 console.log(JSON.stringify({
   ok: true,

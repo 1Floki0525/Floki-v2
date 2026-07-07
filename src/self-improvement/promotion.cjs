@@ -19,7 +19,7 @@ const {
   updateStatus,
   validId
 } = require('./store.cjs');
-const { stopCurrentContainer } = require('./sandbox.cjs');
+const { stopActiveRunProcess } = require('./sandbox.cjs');
 const { writeDenialMemory, writeApprovalMemory } = require('./memory-writer.cjs');
 const { normalizeRunKind, candidateTypeForKind } = require('./run-kinds.cjs');
 const {
@@ -71,7 +71,7 @@ function pause(token, config = loadSelfImprovementConfig()) {
   assertApprovalToken(token, config);
   const p = ensureLayout(config);
   fs.writeFileSync(p.pauseFile, nowIso() + '\n', { mode: 0o600 });
-  stopCurrentContainer('maker_paused', config);
+  stopActiveRunProcess('maker_paused', config);
   updateStatus({ state: 'paused', phase: null, paused: true }, config);
   appendAudit('maker_paused_worker', {}, config);
   return readStatus(config);
@@ -162,8 +162,19 @@ function resume(token, config = loadSelfImprovementConfig()) {
   assertApprovalToken(token, config);
   const p = ensureLayout(config);
   fs.rmSync(p.pauseFile, { force: true });
-  updateStatus({ state: 'waiting_for_idle', phase: 'resumed', paused: false }, config);
-  appendAudit('maker_resumed_worker', {}, config);
+  updateStatus({
+    state: 'waiting_for_idle',
+    phase: 'resumed',
+    paused: false
+  }, config);
+  let workerWoken = false;
+  try {
+    signalWorkerRunNow(p.pidFile);
+    workerWoken = true;
+  } catch (_error) {
+    workerWoken = false;
+  }
+  appendAudit('maker_resumed_worker', { worker_woken: workerWoken }, config);
   return readStatus(config);
 }
 
@@ -341,7 +352,7 @@ async function waitForCycleClear(
 ) {
   const read = options.read_status || readStatus;
   const stop =
-    options.stop_current_container || stopCurrentContainer;
+    options.stop_active_run_process || stopActiveRunProcess;
   const waitFn = options.wait || wait;
   const reason = String(
     options.reason || 'maker_cancelled_active_cycle'
@@ -420,7 +431,7 @@ async function preemptCodeCycleForTraining(
     options.remove_file ||
     ((file) => fs.rmSync(file, { force: true }));
   const stop =
-    options.stop_current_container || stopCurrentContainer;
+    options.stop_active_run_process || stopActiveRunProcess;
   const update = options.update_status || updateStatus;
   const audit = options.append_audit || appendAudit;
   const wake = options.signal_worker || signalWorkerRunNow;
@@ -524,7 +535,7 @@ async function abortActiveRun(
   const read = options.read_status || readStatus;
   const update = options.update_status || updateStatus;
   const audit = options.append_audit || appendAudit;
-  const stop = options.stop_current_container || stopCurrentContainer;
+  const stop = options.stop_active_run_process || stopActiveRunProcess;
   const removeFile = options.remove_file || ((file) => fs.rmSync(file, { force: true }));
 
   const current = read(config);

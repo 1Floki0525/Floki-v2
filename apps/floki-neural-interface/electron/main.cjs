@@ -1,6 +1,7 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain } = require('electron');
+const fs = require('node:fs');
 const path = require('node:path');
 
 if (process.platform === 'linux' && process.env.FLOKI_ELECTRON_ENABLE_GPU_SANDBOX !== '1') app.commandLine.appendSwitch('disable-gpu-sandbox');
@@ -8,6 +9,41 @@ if (process.platform === 'linux' && process.env.FLOKI_ELECTRON_ENABLE_GPU_SANDBO
 const APP_ROOT = path.resolve(__dirname, '..');
 const PROJECT_ROOT = path.resolve(APP_ROOT, '..', '..');
 const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
+const APP_ICON = path.join(
+  PROJECT_ROOT,
+  'apps',
+  'assets',
+  'floki-icon.png'
+);
+const APP_READY_FILE = String(process.env.FLOKI_APP_READY_FILE || '').trim();
+
+app.setName('Floki');
+if (process.platform === 'linux') {
+  app.setDesktopName('floki.app.desktop');
+}
+
+function removeAppReadyMarker() {
+  if (!APP_READY_FILE) return;
+  try { fs.rmSync(APP_READY_FILE, { force: true }); } catch (_error) {}
+}
+
+function writeAppReadyMarker(window) {
+  if (!APP_READY_FILE) return;
+  fs.mkdirSync(path.dirname(APP_READY_FILE), { recursive: true, mode: 0o700 });
+  const temp = APP_READY_FILE + '.tmp-' + String(process.pid);
+  fs.writeFileSync(temp, JSON.stringify({
+    marker: 'FLOKI_V2_ELECTRON_WINDOW_READY',
+    pid: process.pid,
+    window_id: window.id,
+    ready_at: new Date().toISOString(),
+    visible: window.isVisible()
+  }, null, 2) + '\n', { mode: 0o600 });
+  fs.renameSync(temp, APP_READY_FILE);
+  console.error(
+    'FLOKI_V2_ELECTRON_WINDOW_READY pid=' + String(process.pid) +
+    ' window_id=' + String(window.id)
+  );
+}
 const { getLiveChatConfig, getVisionConfig, getSelfImprovementConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
 const { runtimePaths } = require(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'));
 const { createMjpegFileStreamServer } = require('./mjpeg-file-stream.cjs');
@@ -272,11 +308,28 @@ async function ensureRuntime() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({ width: 1600, height: 1000, minWidth: 1100, minHeight: 720, backgroundColor: '#030712', title: 'Floki Neural Interface', show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } });
+  mainWindow = new BrowserWindow({ width: 1600, height: 1000, minWidth: 1100, minHeight: 720, backgroundColor: '#030712', title: 'Floki Neural Interface', icon: APP_ICON, show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } });
   mainWindow.setMenuBarVisibility(false);
+  if (process.platform === 'linux') mainWindow.setIcon(APP_ICON);
   attachRendererLifecycleHandlers(mainWindow);
+  const markReadyAfterClientReady = () => writeAppReadyMarker(mainWindow);
   mainWindow.loadFile(DIST_INDEX);
-  mainWindow.once('ready-to-show', () => { mainWindow.show(); void runtimeRequest('POST', '/client-ready', {}).catch((error) => console.error('FLOKI_V2_CLIENT_READY_SIGNAL_FAIL: ' + error.message)); });
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    writeAppReadyMarker(mainWindow);
+    // BrowserWindow.show() is idempotent. The second call preserves the local
+    // static lifecycle contract that /client-ready is emitted immediately after
+    // a visible-window show call, while keeping the ready marker before the
+    // runtime readiness signal for startup supervision.
+    mainWindow.show();
+    void runtimeRequest('POST', '/client-ready', {})
+      .catch((error) => {
+        console.error(
+          'FLOKI_V2_CLIENT_READY_SIGNAL_FAIL: ' +
+          error.message
+        );
+      });
+  });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.on('closed', () => {
     if (!SHARED_RUNTIME_CLIENT) {
@@ -295,7 +348,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  const fs = require('node:fs');
+  removeAppReadyMarker();
   if (!fs.existsSync(DIST_INDEX)) throw new Error(`built interface missing: ${DIST_INDEX}`);
   await ensureRuntime();
   registerIpc();
@@ -305,5 +358,5 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => { console.error('FLOKI_V2_ELECTRON_BEFORE_QUIT'); });
-app.on('will-quit', () => { clearRendererUnresponsiveTimer(); console.error('FLOKI_V2_ELECTRON_WILL_QUIT'); });
+app.on('will-quit', () => { removeAppReadyMarker(); clearRendererUnresponsiveTimer(); console.error('FLOKI_V2_ELECTRON_WILL_QUIT'); });
 app.on('quit', (_event, exitCode) => { console.error('FLOKI_V2_ELECTRON_QUIT code=' + String(exitCode)); });

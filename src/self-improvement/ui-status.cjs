@@ -26,6 +26,30 @@ function safeRead(label, fn, fallback, errors) {
   }
 }
 
+// Surface the latest night-cycle-simulation snapshot for the UI. Only snapshots
+// explicitly marked `simulation: true` are returned so isolated rehearsals can
+// never be mistaken for production night state. The snapshot path is scoped to
+// the caller's project_root, matching the writer in night-cycle-simulation.cjs.
+function readNightCycleSimulationStatus(config = loadSelfImprovementConfig()) {
+  const root = config && typeof config.project_root === 'string' && config.project_root
+    ? config.project_root
+    : loadSelfImprovementConfig().project_root;
+  const latestFile = path.join(
+    root, 'state', 'floki', 'night-cycle-sim', 'latest.json'
+  );
+  if (!fs.existsSync(latestFile)) return null;
+  let snapshot;
+  try {
+    snapshot = JSON.parse(fs.readFileSync(latestFile, 'utf8'));
+  } catch (_error) {
+    return null;
+  }
+  if (!snapshot || typeof snapshot !== 'object' || snapshot.simulation !== true) {
+    return null;
+  }
+  return Object.freeze(snapshot);
+}
+
 function latestApprovedAdapter(adapters) {
   const rows = (Array.isArray(adapters) ? adapters : [])
     .filter((row) => row && (
@@ -534,7 +558,16 @@ function buildSelfImprovementUiStatus(options = {}) {
       can_abort_training: trainingRunActive,
       can_abort: activeRun,
       training_preempts_code_sandbox: true,
-      can_pause: base.worker_running === true,
+      can_pause:
+        base.worker_running === true &&
+        base.paused !== true,
+      can_resume:
+        base.paused === true,
+      can_start:
+        base.worker_running !== true &&
+        !activeRun,
+      worker_service_running:
+        base.worker_running === true,
       chat_available:
         nightlyPolicy.chat_available === true,
       run_now_block_reason:
@@ -547,5 +580,6 @@ module.exports = {
   buildSelfImprovementUiStatus,
   latestApprovedAdapter,
   loadedModelsForOwner,
-  nextNightlyRem
+  nextNightlyRem,
+  readNightCycleSimulationStatus
 };

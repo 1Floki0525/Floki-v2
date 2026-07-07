@@ -57,7 +57,8 @@ for (let iteration = 9; iteration <= 13; iteration += 1) {
 policy.beginIteration(14);
 assert.equal(
   policy.endIteration(),
-  'implementation_not_started_after_selection_grace'
+  null,
+  'selection grace exhaustion steers with advisories but never terminates'
 );
 
 const implementationPolicy = createConvergencePolicy(config);

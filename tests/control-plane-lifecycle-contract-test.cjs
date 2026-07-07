@@ -100,9 +100,17 @@ async function run() {
     let text = fs.readFileSync(tempConfigPath, 'utf8');
     const pubKeyPath = path.join(testRoot, 'supervisor.pub').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const runtimeRoot = testRoot.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    // FLOKI_CONTROL_PLANE_SIGNED_TCP_FALLBACK_TEST_V2
+    const missingSocketPath = JSON.stringify(
+      path.join(testRoot, 'missing-supervisor.sock')
+    ).slice(1, -1);
     text = text.replace(/chat_runtime_root: [^\n]+/, 'chat_runtime_root: "' + runtimeRoot + '"');
     text = text.replace(/runtime_port: [^\n]+/, 'runtime_port: ' + runtimePort);
     text = text.replace(/supervisor_port: [^\n]+/, 'supervisor_port: ' + supervisorPort);
+    text = text.replace(
+      /supervisor_local_socket_path: [^\n]+/,
+      'supervisor_local_socket_path: "' + missingSocketPath + '"'
+    );
     if (!text.includes('supervisor_public_key_path:')) {
       text = text.replace(/lifecycle_verify_poll_ms: 500/, 'lifecycle_verify_poll_ms: 500\n  supervisor_public_key_path: "' + pubKeyPath + '"');
     } else {
@@ -364,6 +372,10 @@ async function run() {
     assert.equal(visionStop.json.ok, true);
     assert.equal(visionStop.json.module, 'vision');
     assert.equal(visionStop.json.action, 'stop');
+    assert.equal(
+      visionStop.json.transport,
+      'signed_ed25519_tcp'
+    );
     assert.equal(supervisorOperations.some((op) => op.module === 'vision' && op.action === 'stop'), true);
 
     // 4. Unknown module returns safe 404.
@@ -691,7 +703,9 @@ async function run() {
     assert.equal(mobileReset.json.health.runtime_pid_preserved, true);
     assert.equal(mobileReset.json.health.enabled, true);
     assert.equal(mobileReset.json.health.healthy_client_count, 0);
-    assert.equal(mobileReset.json.status, 'degraded');
+    assert.equal(mobileReset.json.health.client_presence, 'idle');
+    assert.equal(mobileReset.json.health.connection_required_for_health, false);
+    assert.equal(mobileReset.json.status, 'running');
     assert.ok(mobileReset.json.generation > beforeMobile.controlGeneration);
 
     const freshMobileHeartbeat = await httpRequest(runtimePort, '/interface/client-app/heartbeat', {

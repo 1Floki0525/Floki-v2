@@ -179,14 +179,16 @@ export default function DreamsDashboard({ flokiStatus }) {
                 </p>
                 <p className="mt-1 text-[11px] text-muted-foreground font-mono">
                   {isNightly
-                    ? 'One complete HF training epoch, then one REM dream, repeating until 07:00 America/Toronto. One adapter candidate is compiled for review at wake.'
+                    ? (nightlyCycle?.rem_mode === 'wall_clock'
+                      ? `Wall-clock REM: one dream every 10 minutes until 07:00 America/Toronto${nightlyCycle?.rsi_paused ? ' (RSI paused — no training tonight)' : nightlyCycle?.training_failed ? ' (nightly training failed — dreams continue)' : ''}.`
+                      : 'One complete HF training epoch, then one REM dream, repeating until 07:00 America/Toronto. One adapter candidate is compiled for review at wake.')
                     : activeSession.status === 'dreaming'
                       ? `REM cycle ${activeSession.currentRemCycle || '—'} is generating a full first-person dream now.`
                       : 'Manual 30-minute nap: REM at +10 and +20 minutes, wake at +30 minutes.'}
                 </p>
                 <p className="mt-1 text-[10px] text-muted-foreground/70 font-mono">
                   {isNightly
-                    ? `Completed epochs: ${Number(nightlyCycle?.completed_epochs || 0)} · Completed dreams: ${Number(nightlyCycle?.completed_rem_cycles || 0)} · Next: ${nightlyCycle?.next_action || 'training epoch'}`
+                    ? `Completed epochs: ${Number(nightlyCycle?.completed_epochs || 0)} · Completed dreams: ${nightlyCycle?.rem_mode === 'wall_clock' ? completedCycles : Number(nightlyCycle?.completed_rem_cycles || 0)} · Next: ${nightlyCycle?.next_action || 'training epoch'}`
                     : `REM cycles: ${completedCycles}/${totalCycles} complete`}
                 </p>
                 {activeSession.lastError && (
@@ -254,7 +256,9 @@ export default function DreamsDashboard({ flokiStatus }) {
                 <div className="rounded-md border border-border/50 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Dreams complete</p>
                   <p className="text-lg font-semibold text-foreground">
-                    {Number(nightlyCycle?.completed_rem_cycles || 0)}
+                    {nightlyCycle?.rem_mode === 'wall_clock'
+                      ? completedCycles
+                      : Number(nightlyCycle?.completed_rem_cycles || 0)}
                   </p>
                 </div>
                 <div className="rounded-md border border-border/50 px-3 py-2">

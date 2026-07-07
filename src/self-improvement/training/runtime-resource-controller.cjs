@@ -191,13 +191,25 @@ function resolveNightlyRestorePolicy(
   const wakeRestoration =
     reason === 'nightly_wake_restoration' ||
     reason === 'wake_restoration';
+  // Wall-clock fallback moments: training is paused, failed, or could not
+  // launch/resume, so the night falls back to wall-clock dreams. Those dreams
+  // need live cognition immediately, so the Ollama reload must NOT defer to
+  // wake even though we are still inside the sleep window. Ordinary mid-night
+  // REM handoffs (nightly_rem_cycle_N) keep deferring under the wake_only policy.
+  const wallClockFallback =
+    reason === 'rsi_paused_wall_clock_rem' ||
+    reason === 'nightly_training_failed_wall_clock_rem' ||
+    reason === 'nightly_training_launch_failure' ||
+    reason === 'nightly_training_resume_after_rem_failed';
+  const forceImmediateRestore = wakeRestoration || wallClockFallback;
   const withinNight = isWithin(observedAt);
   const deferUntilWake =
-    policy === 'wake_only' && withinNight && !wakeRestoration;
+    policy === 'wake_only' && withinNight && !forceImmediateRestore;
   return Object.freeze({
     policy,
     within_night: withinNight,
     wake_restoration: wakeRestoration,
+    wall_clock_fallback: wallClockFallback,
     defer_until_wake: deferUntilWake,
     reload_ollama: !deferUntilWake,
     restore_daytime_services: !deferUntilWake

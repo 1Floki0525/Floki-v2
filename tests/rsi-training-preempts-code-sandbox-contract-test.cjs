@@ -90,7 +90,7 @@ async function main() {
         append_audit: (type, detail) => {
           audits.push({ type, detail });
         },
-        stop_current_container: (reason) => {
+        stop_active_run_process: (reason) => {
           stops.push(reason);
           return true;
         },

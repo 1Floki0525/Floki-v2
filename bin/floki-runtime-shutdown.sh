@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME_SERVICE="floki-chat-local-runtime.service"
-TUNNEL_SERVICE="floki-omen-reverse-tunnel.service"
 
 fail() {
   echo "FLOKI_RUNTIME_SHUTDOWN_FAIL: $1" >&2
@@ -104,7 +103,6 @@ echo "self_improvement_worker_stopped=true"
 echo "sleep_scheduler_stopped=true"
 echo "runtime_service_stopped=true"
 echo "vision_stop_requested=true"
-echo "omen_tunnel_stopped=true"
 echo "ollama_stopped=false"
 echo "dreams_deleted=false"
 echo "memories_deleted=false"

@@ -40,6 +40,10 @@ async function run() {
         FLOKI_ALLOW_DREAM_ENGINE: '1'
       },
       now: '2026-06-18T04:31:00.000Z',
+      // This scenario dispatches cycle 1 long after its wall-clock slot; opt
+      // out of the 2026-07-06 truthful catch-up policy (which would mark it
+      // 'missed') so the no-failed-state contract itself is exercised.
+      rem_catchup_grace_minutes: 600,
       state_file: stateFile,
       events_file: eventsFile,
       write_report: false,

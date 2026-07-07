@@ -310,9 +310,10 @@ assert.match(
   sandbox,
   /research_corpus_catalog_relative_path:\s*config\.research_corpus_catalog_relative_path/
 );
-assert.match(
+assert.doesNotMatch(
   sandbox,
-  /iteration_wall_clock_budget_ms:\s*\n?\s*config\.iteration_wall_clock_budget_ms/
+  /iteration_wall_clock_budget_ms/,
+  'run-level wall-clock budgets were removed by the condition-driven execution contract'
 );
 assert.match(
   sandbox,
@@ -343,7 +344,6 @@ const generatedAgentConfig = agentConfig(
   resolvedConfig
 );
 for (const key of [
-  'iteration_wall_clock_budget_ms',
   'environment_check_command_timeout_ms',
   'shell_command_progress_interval_ms',
   'model_thinking_enabled',

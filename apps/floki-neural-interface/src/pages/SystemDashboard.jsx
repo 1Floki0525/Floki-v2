@@ -85,8 +85,11 @@ export default function SystemDashboard({ onNavigate }) {
     setBusyAction(busyKey)
     try {
       const result = await flokiAdapter.controlModule(service.key, action)
-      if (result?.ok === true) toast.success(result.message || `${label} accepted`)
-      else toast.error(`${label} failed${result?.error ? `: ${result.error}` : ''}`)
+      if (result?.ok === true && result?.verified === true) {
+        toast.success(result.message || `${label} verified`)
+      } else {
+        toast.error(`${label} failed${result?.error ? `: ${result.error}` : ': lifecycle was not verified'}`)
+      }
       await refresh()
     } catch (error) {
       toast.error(`${label} failed: ${error.message}`)

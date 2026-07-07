@@ -159,7 +159,11 @@ for (const cmd of validCommands) {
 
   policy.beginIteration(7);
   const stall = policy.endIteration();
-  assert.equal(stall, 'implementation_progress_stalled_before_verification', 'stalls only after write+guidance period exhausted');
+  assert.equal(
+    stall,
+    null,
+    'post-write verification pressure steers with advisories but never terminates'
+  );
 }
 
 // Test 6: shell status 127 from focused test counts as focused_verification_failed

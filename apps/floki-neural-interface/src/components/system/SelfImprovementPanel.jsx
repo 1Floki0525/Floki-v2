@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
-  Beaker,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -182,11 +181,35 @@ export default function SelfImprovementPanel() {
     }
   }, [busy, refresh, selectedId])
 
+  const ensureRsiWorkerReadyForAction = useCallback(async (label) => {
+    let current = await refresh()
+    if (current?.paused === true) {
+      throw new Error('RSI is paused. Press Resume before ' + label + '.')
+    }
+    if (current?.worker_running === true && current?.model_proxy_ready === true) {
+      return current
+    }
+
+    const started = await flokiAdapter.startSelfImprovement()
+    if (started?.ok === false) {
+      throw new Error(started.error || started.safeError || 'RSI worker start failed')
+    }
+
+    current = await refresh()
+    if (current?.worker_running !== true || current?.model_proxy_ready !== true) {
+      throw new Error('RSI worker did not become ready after Start RSI')
+    }
+    return current
+  }, [refresh])
+
   const runCode = useCallback(() => {
     const trimmedObjective = makerObjective.trim()
     act(
       'Run improvement cycle',
-      () => flokiAdapter.runSelfImprovementNow(trimmedObjective),
+      async () => {
+        await ensureRsiWorkerReadyForAction('Run now')
+        return flokiAdapter.runSelfImprovementNow(trimmedObjective)
+      },
       (nextStatus, result) => {
         if (
           result?.ok === true &&
@@ -207,13 +230,16 @@ export default function SelfImprovementPanel() {
         throw new Error('Run now did not start the sandbox immediately')
       }
     )
-  }, [act, makerObjective])
+  }, [act, makerObjective, ensureRsiWorkerReadyForAction])
 
   const runTraining = useCallback(() => {
     const trimmedObjective = makerObjective.trim()
     act(
       'Run training',
-      () => flokiAdapter.runSelfImprovementNow(trimmedObjective, 'training'),
+      async () => {
+        await ensureRsiWorkerReadyForAction('Run training')
+        return flokiAdapter.runSelfImprovementNow(trimmedObjective, 'training')
+      },
       (nextStatus, result) => {
         if (
           result?.ok === true &&
@@ -228,7 +254,7 @@ export default function SelfImprovementPanel() {
         throw new Error('Run training did not start the production training path')
       }
     )
-  }, [act, makerObjective])
+  }, [act, makerObjective, ensureRsiWorkerReadyForAction])
 
   const abortSandbox = useCallback(() => {
     act(
@@ -293,6 +319,16 @@ export default function SelfImprovementPanel() {
   const canAbort = status?.controls?.can_abort === true
   const canStopCode = status?.controls?.can_stop_code === true
   const canAbortTraining = status?.controls?.can_abort_training === true
+  const workerServiceRunning =
+    status?.controls?.worker_service_running === true ||
+    status?.worker_running === true
+  const workerStopped =
+    Boolean(status) &&
+    workerServiceRunning !== true &&
+    status?.active_run !== true
+  const rsiPaused = status?.paused === true
+  const codeActionAvailable = canRunCode || workerStopped
+  const trainingActionAvailable = canRunTraining || workerStopped
   const codeSandboxActive = canStopCode || (
     canAbort && status?.current_run_kind === 'code'
   )
@@ -304,6 +340,9 @@ export default function SelfImprovementPanel() {
   const progressPercent = Number(progress.percent || progress.progress_percent || 0)
   const nextRem = status?.rem_coordination?.next_rem
   const errors = Array.isArray(status?.surfaced_errors) ? status.surfaced_errors : []
+  const pauseResumeAvailable = status?.paused
+    ? status?.controls?.can_resume
+    : status?.controls?.can_pause
   const isAdapter = detail?.candidate_type === 'model_adapter'
 
   return (
@@ -328,8 +367,31 @@ export default function SelfImprovementPanel() {
             </button>
             <button
               type="button"
-              onClick={() => status?.paused
-                ? act(
+              onClick={() => {
+                if (!workerServiceRunning) {
+                  act(
+                    'Start RSI worker',
+                    () => flokiAdapter.startSelfImprovement(),
+                    (nextStatus, result) => {
+                      if (
+                        result?.ok === true &&
+                        (
+                          result?.verified === true ||
+                          result?.status === 'running' ||
+                          result?.lifecycleState === 'running' ||
+                          result?.status?.worker_running === true
+                        ) &&
+                        nextStatus?.worker_running === true &&
+                        nextStatus?.model_proxy_ready === true
+                      ) return true
+                      throw new Error('Start RSI verification failed')
+                    }
+                  )
+                  return
+                }
+
+                if (rsiPaused) {
+                  act(
                     'Resume worker',
                     () => flokiAdapter.resumeSelfImprovement(),
                     (nextStatus) => {
@@ -337,19 +399,30 @@ export default function SelfImprovementPanel() {
                       throw new Error('Resume verification failed')
                     }
                   )
-                : act(
-                    'Pause worker',
-                    () => flokiAdapter.pauseSelfImprovement(),
-                    (nextStatus) => {
-                      if (nextStatus?.paused === true) return true
-                      throw new Error('Pause verification failed')
-                    }
-                  )}
-              disabled={Boolean(busy) || !status?.controls?.can_pause}
+                  return
+                }
+
+                act(
+                  'Pause worker',
+                  () => flokiAdapter.pauseSelfImprovement(),
+                  (nextStatus) => {
+                    if (nextStatus?.paused === true) return true
+                    throw new Error('Pause verification failed')
+                  }
+                )
+              }}
+              disabled={
+                Boolean(busy) ||
+                (
+                  workerServiceRunning
+                    ? (rsiPaused ? status?.controls?.can_resume !== true : status?.controls?.can_pause !== true)
+                    : status?.controls?.can_start === false
+                )
+              }
               className="px-2.5 py-1.5 text-xs rounded border border-border hover:border-neon-cyan/40 disabled:opacity-40 flex items-center gap-1.5"
             >
-              {status?.paused ? <CirclePlay className="w-3.5 h-3.5" /> : <CirclePause className="w-3.5 h-3.5" />}
-              {status?.paused ? 'Resume' : 'Pause'}
+              {!workerServiceRunning || rsiPaused ? <CirclePlay className="w-3.5 h-3.5" /> : <CirclePause className="w-3.5 h-3.5" />}
+              {!workerServiceRunning ? 'Start RSI' : rsiPaused ? 'Resume' : 'Pause'}
             </button>
             {codeSandboxActive && (
               <button type="button" onClick={abortSandbox} disabled={Boolean(busy)} className="px-2.5 py-1.5 text-xs rounded border border-red-500/40 bg-red-500/10 text-red-200 disabled:opacity-40 flex items-center gap-1.5">
@@ -377,7 +450,7 @@ export default function SelfImprovementPanel() {
               value={makerObjective}
               onChange={(event) => setMakerObjective(event.target.value)}
               rows={2}
-              disabled={Boolean(busy) || makerCycleQueued || (!canRunCode && !canRunTraining)}
+              disabled={Boolean(busy) || makerCycleQueued || (!codeActionAvailable && !trainingActionAvailable)}
               placeholder="Leave empty for Floki to inspect himself and choose an experiment. Enter an objective to require Floki to conduct that experiment."
               className="w-full resize-none rounded border border-border bg-background/80 px-3 py-2 text-xs outline-none focus:border-neon-cyan/50 disabled:opacity-40"
             />
@@ -444,6 +517,24 @@ export default function SelfImprovementPanel() {
           </div>
 
           <div className="rounded border border-border/60 p-3 text-[11px]">
+            <div className="flex items-center gap-2 font-semibold mb-2"><Moon className="w-3.5 h-3.5 text-indigo-300" /> Night cycle</div>
+            <StatusRow
+              name="RSI"
+              value={status?.nightly_cycle?.rsi_paused ? 'Paused' : 'Enabled'}
+              accent={status?.nightly_cycle?.rsi_paused ? 'text-amber-300' : 'text-emerald-300'}
+            />
+            <StatusRow name="REM mode" value={label(status?.nightly_cycle?.rem_mode)} />
+            <StatusRow name="Epoch phase" value={label(status?.nightly_cycle?.epoch_state)} />
+            <StatusRow name="Next action" value={status?.nightly_cycle?.next_action} />
+            <StatusRow name="Epochs done" value={status?.nightly_cycle?.completed_epochs} />
+            <StatusRow name="REM done" value={status?.nightly_cycle?.completed_rem_cycles} />
+            <StatusRow name="Wake at" value={status?.nightly_cycle?.wake_at ? when(status.nightly_cycle.wake_at) : null} />
+            {status?.nightly_cycle?.error ? (
+              <div className="text-[10px] text-red-200 whitespace-pre-wrap break-words mt-1">{String(status.nightly_cycle.error).slice(0, 400)}</div>
+            ) : null}
+          </div>
+
+          <div className="rounded border border-border/60 p-3 text-[11px]">
             <div className="flex items-center gap-2 font-semibold mb-2"><Moon className="w-3.5 h-3.5 text-indigo-300" /> REM coordination</div>
             <StatusRow name="Current REM" value={status?.rem_coordination?.current_cycle} />
             <StatusRow name="Next REM" value={nextRem ? `#${nextRem.cycle_number} · ${when(nextRem.scheduled_at)}` : null} />
@@ -452,6 +543,24 @@ export default function SelfImprovementPanel() {
             <StatusRow name="Claims complete" value={status?.rem_coordination?.completed_claims} />
             <StatusRow name="Claim failures" value={status?.rem_coordination?.failed_claims} />
           </div>
+
+          {status?.night_cycle_simulation ? (
+            <div className="rounded border border-cyan-500/30 bg-cyan-500/5 p-3 text-[11px]">
+              <div className="flex items-center gap-2 font-semibold mb-2 text-neon-cyan"><Moon className="w-3.5 h-3.5" /> Night cycle test (simulation)</div>
+              <StatusRow name="Run" value={status.night_cycle_simulation.run_id} />
+              <StatusRow name="Mode" value={label(status.night_cycle_simulation.mode)} />
+              <StatusRow
+                name="Result"
+                value={status.night_cycle_simulation.proof?.ok === true ? 'PASS' : status.night_cycle_simulation.proof ? 'FAIL' : 'Running'}
+                accent={status.night_cycle_simulation.proof?.ok === true ? 'text-emerald-300' : 'text-amber-300'}
+              />
+              <StatusRow name="Epochs done" value={status.night_cycle_simulation.session?.completed_epochs} />
+              <StatusRow name="REM done" value={status.night_cycle_simulation.session?.rem_cycles_completed ?? status.night_cycle_simulation.rem_cycles_completed} />
+              <StatusRow name="Missed REM" value={status.night_cycle_simulation.rem_cycles_missed} />
+              <StatusRow name="Candidates" value={(status.night_cycle_simulation.candidate_ids || []).length} />
+              <div className="text-[10px] text-muted-foreground mt-1">Isolated state · production night schedule untouched</div>
+            </div>
+          ) : null}
 
           <div className="rounded border border-border/60 p-3 text-[11px]">
             <div className="flex items-center gap-2 font-semibold mb-2"><Database className="w-3.5 h-3.5 text-emerald-300" /> Loaded models & lineage</div>
@@ -522,7 +631,7 @@ export default function SelfImprovementPanel() {
                   <div className="rounded border border-border/60 p-3"><ShieldCheck className="w-4 h-4 text-emerald-400 mb-1" /><div className="text-[10px]">Tests</div><div className="text-xs text-muted-foreground">{detail.test_results?.filter((row) => row.ok).length || 0}/{detail.test_results?.length || 0}</div></div>
                   <div className="rounded border border-border/60 p-3"><Code2 className="w-4 h-4 text-neon-cyan mb-1" /><div className="text-[10px]">Files</div><div className="text-xs text-muted-foreground">{detail.changed_files?.length || 0}</div></div>
                   <div className="rounded border border-border/60 p-3"><Cpu className="w-4 h-4 text-violet-300 mb-1" /><div className="text-[10px]">Adapter</div><div className="text-xs text-muted-foreground break-all">{detail.adapter_id || detail.lineage?.adapter_id || 'N/A'}</div></div>
-                  <div className="rounded border border-border/60 p-3"><Database className="w-4 h-4 text-indigo-300 mb-1" /><div className="text-[10px]">Version</div><div className="text-xs text-muted-foreground">{detail.version || detail.lineage?.version || 'N/A'}</div></div>
+                  <div className="rounded border border-border/60 p-3"><Database className="w-4 h-4 text-indigo-300 mb-1" /><div className="text-[10px]">Version</div><div className="text-xs text-muted-foreground">{detail.version || detail.lineage?.version || (detail.base_commit ? String(detail.base_commit).slice(0, 12) : 'N/A')}</div></div>
                 </div>
 
                 <div className="rounded border border-border/60 overflow-hidden">

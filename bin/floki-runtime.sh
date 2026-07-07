@@ -21,8 +21,7 @@ const path = require('node:path');
 const {
   PROJECT_ROOT,
   getLiveChatConfig,
-  getPathConfig,
-  getVisionConfig
+  getPathConfig
 } = require('./src/config/floki-config.cjs');
 const {
   loadSelfImprovementConfig
@@ -30,7 +29,6 @@ const {
 const live = getLiveChatConfig('chat');
 const paths = getPathConfig('chat');
 const self = loadSelfImprovementConfig();
-const vision = getVisionConfig('chat');
 const required = {
   runtime_host: live.runtime_host,
   runtime_port: live.runtime_port,
@@ -41,8 +39,7 @@ const required = {
   training_container_name_prefix: self.training_container_name_prefix,
   hf_rem_container_name_prefix: self.hf_rem_container_name_prefix,
   nightly_training_container_stop_timeout_seconds:
-    self.nightly_training_container_stop_timeout_seconds,
-  vlm_ssh_tunnel_target: vision.vlm_ssh_tunnel_target
+    self.nightly_training_container_stop_timeout_seconds
 };
 for (const [key, value] of Object.entries(required)) {
   if (value === undefined || value === null || value === '') {
@@ -57,13 +54,12 @@ process.stdout.write([
   String(self.sandbox_engine),
   String(self.training_container_name_prefix),
   String(self.hf_rem_container_name_prefix),
-  String(self.nightly_training_container_stop_timeout_seconds),
-  String(vision.vlm_ssh_tunnel_target)
+  String(self.nightly_training_container_stop_timeout_seconds)
 ].join('\n'));
 NODE
 ) || fail "could not resolve runtime settings from YAML"
 
-[ "${#CONFIG_VALUES[@]}" -eq 9 ] || fail "runtime settings were incomplete"
+[ "${#CONFIG_VALUES[@]}" -eq 8 ] || fail "runtime settings were incomplete"
 RUNTIME_ROOT="${CONFIG_VALUES[0]}"
 STATUS_URL="${CONFIG_VALUES[1]}"
 START_TIMEOUT_MS="${CONFIG_VALUES[2]}"
@@ -72,8 +68,8 @@ SANDBOX_ENGINE="${CONFIG_VALUES[4]}"
 TRAINING_PREFIX="${CONFIG_VALUES[5]}"
 REM_PREFIX="${CONFIG_VALUES[6]}"
 CONTAINER_STOP_SECONDS="${CONFIG_VALUES[7]}"
-VISION_TUNNEL_TARGET="${CONFIG_VALUES[8]}"
 APP_PID_FILE="$RUNTIME_ROOT/floki-app.pid"
+LOCAL_VISION_SOCKET_MARKER="chat-vision-local.sock"
 mkdir -p "$RUNTIME_ROOT"
 
 runtime_ready() {
@@ -185,7 +181,6 @@ ALL_MARKERS = (
     "floki-chat-local-start.sh",
     "floki-app.sh",
     "floki-neural-interface",
-    "chat-vision-ssh-tunnel.sock",
 )
 APP_MARKERS = (
     "floki-chat-local-start.sh",
@@ -322,7 +317,7 @@ def floki_owned(record, pids):
     if record['pid'] in pids and (in_root or root_text in lower):
         return True
     if any(marker in lower for marker in ALL_MARKERS):
-        if in_root or root_text in lower or 'chat-vision-ssh-tunnel.sock' in lower:
+        if in_root or root_text in lower:
             return True
     if in_root and record['comm'].lower() == 'mainthread':
         return True
@@ -331,8 +326,6 @@ def floki_owned(record, pids):
     if in_root and exe in {'python', 'python3'} and any(
         marker in lower for marker in ('multiprocessing', 'yolo', 'dino', 'vision')
     ):
-        return True
-    if in_root and exe == 'ssh' and 'chat-vision-ssh-tunnel.sock' in lower:
         return True
     if camera_devices(record['pid']) and (in_root or root_text in lower):
         return True
@@ -477,12 +470,6 @@ records = snapshot()
 remaining = discover(records, app_only=False)
 camera_holders = all_camera_holders(records)
 tunnel_sockets = []
-try:
-    tunnel_sockets = [
-        str(path) for path in runtime_root.glob('*vision*ssh*tunnel*.sock') if path.exists()
-    ]
-except Exception:
-    pass
 
 if mode == 'all':
     print(json.dumps({
@@ -504,29 +491,20 @@ def verify_snapshot():
         row for row in all_camera_holders(records)
         if row['pid'] in remaining or floki_owned(records[row['pid']], known_pids)
     ]
-    tunnel_procs = describe(records, {
-        pid for pid, record in records.items()
-        if pid in remaining and 'chat-vision-ssh-tunnel.sock' in record['cmdline']
-    })
+    local_vision_processes = []
     electron_procs = describe(records, {
         pid for pid in remaining if pid in records and app_owned(records[pid])
     })
-    sockets = []
-    try:
-        sockets = [
-            str(path) for path in runtime_root.glob('*vision*ssh*tunnel*.sock') if path.exists()
-        ]
-    except Exception:
-        pass
-    quiescent = not remaining and not holders and not tunnel_procs
+    local_vision_sockets = []
+    quiescent = not remaining and not holders
     return {
         'quiescent': quiescent,
         'records': records,
         'remaining': remaining,
         'camera_holders': holders,
-        'tunnel_processes': tunnel_procs,
+        'local_vision_processes': local_vision_processes,
         'electron_processes': electron_procs,
-        'sockets': sockets,
+        'local_vision_sockets': local_vision_sockets,
     }
 
 
@@ -552,9 +530,9 @@ payload = {
     'residual_process_count': len(result['remaining']),
     'remaining_floki_processes': describe(result['records'], result['remaining']),
     'camera_holders': result['camera_holders'],
-    'vision_tunnel_processes': result['tunnel_processes'],
+    'local_vision_processes': result['local_vision_processes'],
     'electron_processes': result['electron_processes'],
-    'vision_tunnel_sockets': result['sockets'],
+    'local_vision_sockets': result['local_vision_sockets'],
 }
 print(json.dumps(payload, indent=2))
 raise SystemExit(0 if payload['ok'] else 1)
@@ -663,12 +641,9 @@ post_stop_report() {
     containers="$("$SANDBOX_ENGINE" ps --format '{{.Names}}' 2>/dev/null | grep -E "^(${TRAINING_PREFIX}|${REM_PREFIX})-" | paste -sd, - || true)"
     [ -n "$containers" ] || containers="none"
   fi
-  local remote_gpu="unreachable"
-  remote_gpu="$(timeout 12 ssh -o BatchMode=yes -o ConnectTimeout=6 "$VISION_TUNNEL_TARGET" \
-    nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ' || true)"
-  [ -n "$remote_gpu" ] || remote_gpu="unreachable"
-  printf 'FLOKI_RUNTIME_POST_STOP_VERIFICATION runtime_containers=%s remote_gpu_utilization=%s remote_target=%s\n' \
-    "$containers" "$remote_gpu" "$VISION_TUNNEL_TARGET"
+  printf 'FLOKI_RUNTIME_POST_STOP_VERIFICATION runtime_containers=%s local_vision_only=true omen_web_only=true
+' \
+    "$containers"
 }
 
 print_status() {
@@ -708,6 +683,8 @@ case "$ACTION" in
       start_runtime_owner
       wait_for_runtime || fail "runtime did not become ready within the configured timeout"
     fi
+    bash "$ROOT/bin/floki-hf-cognition-service.sh" start || fail "HF cognition service did not become warm"
+    run_helper_if_present "floki-chat-vision-start.sh"
     run_helper_if_present "floki-sleep-scheduler-start.sh"
     run_helper_if_present "floki-self-improvement-start.sh"
     runtime_ready || fail "runtime is not ready after startup"
@@ -725,6 +702,7 @@ case "$ACTION" in
     run_stop_helper "floki-chat-stop.sh"
     run_stop_helper "floki-self-improvement-stop.sh"
     run_stop_helper "floki-sleep-scheduler-stop.sh"
+    bash "$ROOT/bin/floki-hf-cognition-service.sh" stop || true
     run_stop_helper "floki-chat-vision-stop.sh"
     stop_managed_units
     stop_project_processes || STOP_HELPER_FAILURES+=("stop_project_processes")

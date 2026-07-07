@@ -25,7 +25,8 @@ const REPAIR_ALLOWED_TOOLS = Object.freeze([
   'write_file',
   'show_diff',
   'git_status',
-  'run_focused_test'
+  'run_focused_test',
+  'report_no_safe_candidate'
 ]);
 
 // Tools explicitly withheld during repair. Generic shell is withheld so the
@@ -55,7 +56,12 @@ function selectActiveTools(snapshot, surfaces) {
     return isRepairPhase(snap.phase) ? s.repairTools : s.allTools;
   }
   if (snap.phase === 'selection_required') {
-    return s.selectExperimentTool ? [s.selectExperimentTool] : [];
+    // Selection pressure offers both structured decisions: one bounded
+    // experiment or an evidence-backed no-safe-candidate declaration.
+    return [
+      s.selectExperimentTool,
+      s.reportNoSafeCandidateTool
+    ].filter(Boolean);
   }
   return s.preSelectionTools;
 }

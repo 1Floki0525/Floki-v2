@@ -394,7 +394,7 @@ function createConvergencePolicy(config, emit = () => {}) {
   }
 
   function authorize(name, args = {}) {
-    if (name === 'select_experiment') {
+    if (name === 'select_experiment' || name === 'report_no_safe_candidate') {
       const readiness = snapshot();
       if (
         !state.selectedExperiment &&
@@ -425,7 +425,7 @@ function createConvergencePolicy(config, emit = () => {}) {
       state.phase === SELECTION_REQUIRED_PHASE
     ) {
       return block('selection_required', name, {
-        allowed_next_tools: ['select_experiment']
+        allowed_next_tools: ['select_experiment', 'report_no_safe_candidate']
       });
     }
 
@@ -730,6 +730,12 @@ function createConvergencePolicy(config, emit = () => {}) {
     return null;
   }
 
+  // Iteration boundaries only steer; they never terminate. The cycle is
+  // condition-driven: it ends through candidate finalization, an accepted
+  // evidence-backed no-safe-candidate decision, Maker pause/abort, runtime
+  // stop/reset, or a real failure. Wall-clock stall guards (owned by the
+  // agent) convert persistent stalls into real failures after one explicit
+  // corrective turn — never into a fabricated no-candidate success.
   function endIteration() {
     if (!state.selectedExperiment) {
       if (state.noToolTurns > 0) {
@@ -741,17 +747,6 @@ function createConvergencePolicy(config, emit = () => {}) {
     }
 
     if (!state.implementationStarted) {
-      if (
-        state.selectedExperimentAtIteration !== null &&
-        state.iteration - state.selectedExperimentAtIteration >=
-          limits.maxNoChangeIterations
-      ) {
-        advise(
-          'implementation_not_started_after_selection_grace',
-          'end_iteration'
-        );
-        return 'implementation_not_started_after_selection_grace';
-      }
       advise('implementation_not_started_after_selection', 'end_iteration', {
         recoverable: true
       });
@@ -759,9 +754,6 @@ function createConvergencePolicy(config, emit = () => {}) {
     }
 
     if (state.writeCount === 0) {
-      // A no-write implementation gets one explicit correction turn at grace
-      // exhaustion; boundedness is owned by the agent's YAML wall-clock
-      // implementation_write_deadline_ms, never by an iteration-count exit.
       if (
         state.implementationStartedAtIteration !== null &&
         state.iteration - state.implementationStartedAtIteration >=
@@ -779,18 +771,6 @@ function createConvergencePolicy(config, emit = () => {}) {
     }
 
     if (
-      state.focusedVerificationFailures >=
-        limits.focusedVerificationFailureLimit
-    ) {
-      advise('focused_verification_failed_repeatedly', 'end_iteration', {
-        focused_verification_failures: state.focusedVerificationFailures,
-        focused_verification_failure_limit:
-          limits.focusedVerificationFailureLimit
-      });
-      return 'focused_verification_failed_repeatedly';
-    }
-
-    if (
       state.phase === 'repairing' &&
       state.focusedVerificationFailures > 0 &&
       state.lastFocusedFailureIteration !== null
@@ -801,15 +781,9 @@ function createConvergencePolicy(config, emit = () => {}) {
       );
       const repairIdleIterations =
         state.iteration - latestRepairProgressIteration;
-      if (repairIdleIterations >= limits.focusedRepairNoProgressLimit) {
-        advise('focused_repair_progress_stalled', 'end_iteration', {
-          focused_verification_failures: state.focusedVerificationFailures,
-          focused_repair_idle_iterations: repairIdleIterations,
-          focused_repair_no_progress_iteration_limit:
-            limits.focusedRepairNoProgressLimit
-        });
-        return 'focused_repair_progress_stalled';
-      }
+      // Repeated legitimate repair attempts never terminate the run; the
+      // advisory keeps the agent on the fix-then-rerun contract while the
+      // wall-clock stall guard owns unrecoverable-stall failure.
       advise('focused_repair_must_fix_then_rerun', 'end_iteration', {
         focused_verification_failures: state.focusedVerificationFailures,
         focused_repair_idle_iterations: repairIdleIterations
@@ -829,11 +803,9 @@ function createConvergencePolicy(config, emit = () => {}) {
         state.postWriteGuidanceIssuedAtIteration === state.iteration
       ) {
         state.postWriteGuidanceIssuedAtIteration = state.iteration;
-        advise('implementation_verification_required_before_stop', 'end_iteration');
-        return null;
       }
-      advise('implementation_progress_stalled_before_verification', 'end_iteration');
-      return 'implementation_progress_stalled_before_verification';
+      advise('implementation_verification_required_before_stop', 'end_iteration');
+      return null;
     }
 
     if (

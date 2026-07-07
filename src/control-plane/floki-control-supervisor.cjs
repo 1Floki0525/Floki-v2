@@ -84,16 +84,84 @@ function log(level, message, extra = {}) {
   return line;
 }
 
+
+function nonEmptyString(value, fallback) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text ? text : fallback;
+}
+
+function resolveProjectPath(value, fallback) {
+  const selected = nonEmptyString(value, fallback);
+  if (!selected) {
+    throw new Error('missing path config value and fallback');
+  }
+  return path.isAbsolute(selected)
+    ? selected
+    : path.resolve(PROJECT_ROOT, selected);
+}
+
+function resolveRuntimePath(runtimeRoot, value, fallback) {
+  const selected = nonEmptyString(value, fallback);
+  if (!selected) {
+    throw new Error('missing runtime path config value and fallback');
+  }
+  return path.isAbsolute(selected)
+    ? selected
+    : path.resolve(runtimeRoot, selected);
+}
+
 function loadConfig() {
   clearConfigCache();
-  const config = getControlPlaneConfig('chat');
-  const paths = getPathConfig('chat');
-  const liveChat = getLiveChatConfig('chat');
-  const runtimeRoot = path.resolve(PROJECT_ROOT, paths.chat_runtime_root);
-  const logDir = path.resolve(runtimeRoot, config.supervisor_log_subdir);
-  const moduleLogDir = path.resolve(runtimeRoot, config.module_log_subdir);
-  const supervisorPidFile = path.resolve(runtimeRoot, config.supervisor_pid_file_name);
-  const logFile = path.resolve(logDir, config.supervisor_log_file_name);
+  const rawConfig = getControlPlaneConfig('chat') || {};
+  const paths = getPathConfig('chat') || {};
+  const liveChat = getLiveChatConfig('chat') || {};
+
+  const runtimeRoot = resolveProjectPath(
+    paths.chat_runtime_root,
+    'state/floki/chat/runtime'
+  );
+
+  const config = Object.freeze({
+    ...rawConfig,
+    supervisor_host: nonEmptyString(rawConfig.supervisor_host, '127.0.0.1'),
+    supervisor_port: Number(rawConfig.supervisor_port || 17371),
+    supervisor_operation_timeout_ms:
+      Number(rawConfig.supervisor_operation_timeout_ms || 360000),
+    supervisor_log_subdir:
+      nonEmptyString(rawConfig.supervisor_log_subdir, 'control-plane'),
+    module_log_subdir:
+      nonEmptyString(rawConfig.module_log_subdir, 'control-plane/modules'),
+    supervisor_pid_file_name:
+      nonEmptyString(rawConfig.supervisor_pid_file_name, 'floki-control-supervisor.pid'),
+    supervisor_log_file_name:
+      nonEmptyString(rawConfig.supervisor_log_file_name, 'floki-control-supervisor.jsonl'),
+    supervisor_private_key_path:
+      rawConfig.supervisor_private_key_path || null,
+    supervisor_public_key_path:
+      rawConfig.supervisor_public_key_path || null
+  });
+
+  const logDir = resolveRuntimePath(
+    runtimeRoot,
+    config.supervisor_log_subdir,
+    'control-plane'
+  );
+  const moduleLogDir = resolveRuntimePath(
+    runtimeRoot,
+    config.module_log_subdir,
+    'control-plane/modules'
+  );
+  const supervisorPidFile = resolveRuntimePath(
+    runtimeRoot,
+    config.supervisor_pid_file_name,
+    'floki-control-supervisor.pid'
+  );
+  const logFile = resolveRuntimePath(
+    logDir,
+    config.supervisor_log_file_name,
+    'floki-control-supervisor.jsonl'
+  );
+
   return Object.freeze({
     ...config,
     runtime_root: runtimeRoot,
@@ -101,8 +169,8 @@ function loadConfig() {
     module_log_dir: moduleLogDir,
     supervisor_pid_file: supervisorPidFile,
     log_file: logFile,
-    runtime_host: liveChat.runtime_host,
-    runtime_port: liveChat.runtime_port
+    runtime_host: nonEmptyString(liveChat.runtime_host, '127.0.0.1'),
+    runtime_port: Number(liveChat.runtime_port || 17370)
   });
 }
 
@@ -412,6 +480,7 @@ function createSupervisor(options = {}) {
       now: nowIso(),
       bound_host: config.supervisor_host,
       bound_port: config.supervisor_port,
+      local_socket_path: config.supervisor_local_socket_path,
       nonce_cache_size: nonceCache.size(),
       locked_modules: Array.from(moduleLocks.keys()).filter(isLocked)
     });
@@ -420,6 +489,7 @@ function createSupervisor(options = {}) {
   function buildResult(moduleKey, action, previousStatus, statusValue, changed, message, safeError, operationId) {
     return Object.freeze({
       ok: true,
+      verified: true,
       module: moduleKey,
       action,
       changed,
@@ -538,6 +608,7 @@ function createSupervisor(options = {}) {
     try {
       const parsed = JSON.parse(result.stdout || '{}');
       if (parsed.ok === true && parsed.active === true) return 'running';
+      if (parsed.ok === true && parsed.status && parsed.status.worker_running === true) return 'running';
       if (parsed.active === false) return 'stopped';
       if (parsed.ok === false) return 'stopped';
       return parsed.runtime && parsed.runtime.api_ready ? 'running' : 'stopped';
@@ -553,7 +624,7 @@ function createSupervisor(options = {}) {
     }
     const previous = await statusForModule(moduleKey);
     if (previous === 'running') {
-      return { ok: true, changed: false, previousStatus: previous, status: 'running', message: moduleKey + ' is already running' };
+      return { ok: true, verified: true, changed: false, previousStatus: previous, status: 'running', message: moduleKey + ' is already running' };
     }
     const result = await runScript(scripts.start, config.supervisor_operation_timeout_ms);
     if (!result.ok) {
@@ -575,10 +646,14 @@ function createSupervisor(options = {}) {
       ? 'running'
       : 'degraded';
     return {
-      ok: true,
+      ok: verification.verified === true,
+      verified: verification.verified === true,
       changed: true,
       previousStatus: previous,
       status: statusValue,
+      error: verification.verified === true
+        ? null
+        : moduleKey + ' start could not be verified',
       message:
         moduleKey +
         ' start accepted; verified=' +
@@ -595,7 +670,7 @@ function createSupervisor(options = {}) {
     }
     const previous = await statusForModule(moduleKey);
     if (previous === 'stopped') {
-      return { ok: true, changed: false, previousStatus: previous, status: 'stopped', message: moduleKey + ' is already stopped' };
+      return { ok: true, verified: true, changed: false, previousStatus: previous, status: 'stopped', message: moduleKey + ' is already stopped' };
     }
     const result = await runScript(scripts.stop, config.supervisor_operation_timeout_ms);
     if (!result.ok) {
@@ -617,10 +692,14 @@ function createSupervisor(options = {}) {
       ? 'stopped'
       : 'degraded';
     return {
-      ok: true,
+      ok: verification.verified === true,
+      verified: verification.verified === true,
       changed: true,
       previousStatus: previous,
       status: statusValue,
+      error: verification.verified === true
+        ? null
+        : moduleKey + ' stop could not be verified',
       message:
         moduleKey +
         ' stop accepted; verified=' +
@@ -703,7 +782,9 @@ function createSupervisor(options = {}) {
     });
   }
 
-  async function route(req, res) {
+  async function route(req, res, routeOptions = {}) {
+    // FLOKI_CONTROL_SUPERVISOR_LOCAL_SOCKET_V1
+    const trustedLocal = routeOptions.trusted_local === true;
     const url = new URL(req.url, 'http://' + config.supervisor_host + ':' + String(config.supervisor_port));
     const requestPath = decodeURIComponent(url.pathname);
 
@@ -726,14 +807,28 @@ function createSupervisor(options = {}) {
     const moduleKey = lifecycleMatch[1];
     const action = lifecycleMatch[2];
     const body = await readBody(req);
-    const verified = await verifyRequest(req, body);
+    const verified = trustedLocal
+      ? Object.freeze({
+          ok: true,
+          module: moduleKey,
+          action,
+          timestamp: Date.now(),
+          nonce: 'local-unix-socket',
+          body_hash: bodyHash(body),
+          auth_mode: 'local_unix_socket'
+        })
+      : await verifyRequest(req, body);
     if (!verified.ok) {
-      sendJson(res, 401, { ok: false, error: verified.reason });
+      sendJson(res, 401, { ok: false, verified: false, error: verified.reason });
       return;
     }
 
     if (verified.module !== moduleKey || verified.action !== action) {
-      sendJson(res, 403, { ok: false, error: 'signed module/action does not match route' });
+      sendJson(res, 403, {
+        ok: false,
+        verified: false,
+        error: 'authorized module/action does not match route'
+      });
       return;
     }
 
@@ -742,19 +837,53 @@ function createSupervisor(options = {}) {
       action,
       nonce: verified.nonce,
       timestamp: verified.timestamp,
-      body_hash: verified.body_hash
+      body_hash: verified.body_hash,
+      auth_mode: verified.auth_mode || 'signed_ed25519_tcp'
     }));
 
-    const result = await handleLifecycle(moduleKey, action);
+    const lifecycleHandler = typeof routeOptions.handle_lifecycle === 'function'
+      ? routeOptions.handle_lifecycle
+      : handleLifecycle;
+    const result = await lifecycleHandler(moduleKey, action);
     sendJson(res, result.ok ? 200 : 500, result);
   }
 
-  function createServer() {
+  function createServer(serverOptions = {}) {
     return http.createServer((req, res) => {
-      route(req, res).catch((error) => {
+      route(req, res, serverOptions).catch((error) => {
         appendToLog(config, log('error', 'route error', { error: error.message }));
         sendJson(res, 500, { ok: false, error: 'internal error' });
       });
+    });
+  }
+
+  function createLocalServer(serverOptions = {}) {
+    return createServer({ ...serverOptions, trusted_local: true });
+  }
+
+  function removeStaleSocket() {
+    const socketPath = config.supervisor_local_socket_path;
+    fs.mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+    try {
+      const current = fs.lstatSync(socketPath);
+      if (!current.isSocket()) {
+        throw new Error('refusing to replace non-socket path: ' + socketPath);
+      }
+      fs.unlinkSync(socketPath);
+    } catch (error) {
+      if (!error || error.code !== 'ENOENT') throw error;
+    }
+  }
+
+  function listen(server, target, host = null) {
+    return new Promise((resolve, reject) => {
+      server.once('error', reject);
+      const ready = () => {
+        server.removeListener('error', reject);
+        resolve();
+      };
+      if (host === null) server.listen(target, ready);
+      else server.listen(target, host, ready);
     });
   }
 
@@ -762,21 +891,38 @@ function createSupervisor(options = {}) {
     if (config.supervisor_host !== '127.0.0.1') {
       throw new Error('supervisor must bind to 127.0.0.1');
     }
-
-    const server = createServer();
-    await new Promise((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(config.supervisor_port, config.supervisor_host, () => {
-        server.removeListener('error', reject);
-        resolve();
-      });
-    });
-
+    removeStaleSocket();
+    const localServer = createLocalServer();
+    const tcpServer = createServer();
+    await listen(localServer, config.supervisor_local_socket_path);
+    fs.chmodSync(config.supervisor_local_socket_path, 0o600);
+    try {
+      await listen(tcpServer, config.supervisor_port, config.supervisor_host);
+    } catch (error) {
+      await new Promise((resolve) => localServer.close(resolve));
+      fs.rmSync(config.supervisor_local_socket_path, { force: true });
+      throw error;
+    }
     appendToLog(config, log('info', 'supervisor listening', {
       host: config.supervisor_host,
-      port: config.supervisor_port
+      port: config.supervisor_port,
+      local_socket_path: config.supervisor_local_socket_path
     }));
-    return server;
+    return Object.freeze({
+      tcp_server: tcpServer,
+      local_server: localServer,
+      close(callback) {
+        let remaining = 2;
+        const done = () => {
+          remaining -= 1;
+          if (remaining > 0) return;
+          fs.rmSync(config.supervisor_local_socket_path, { force: true });
+          if (typeof callback === 'function') callback();
+        };
+        tcpServer.close(done);
+        localServer.close(done);
+      }
+    });
   }
 
   return Object.freeze({
@@ -785,6 +931,7 @@ function createSupervisor(options = {}) {
     verifyRequest,
     handleLifecycle,
     createServer,
+    createLocalServer,
     startServer,
     nonceCache,
     isLocked

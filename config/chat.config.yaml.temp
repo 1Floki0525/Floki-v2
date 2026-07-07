@@ -3,21 +3,41 @@ mode: chat
 
 models:
   cognition:
-    provider: ollama
-    model: floki-qwen3.5:4b-32k
+    provider: huggingface
+    model: /absolute/path/outside/repository/Qwen3.5-4B
     endpoint_env: FLOKI_COGNITION_ENDPOINT
-    endpoint_default: http://127.0.0.1:11434
+    endpoint_default: http://127.0.0.1:11436
     mode_scope: chat_cognition
     temperature: 0.55
     top_p: 0.9
-    timeout_ms: 120000
-    keep_alive: 24h
-
+    timeout_ms: 300000
+    keep_alive: "24h"
+    hf_device: auto
+    hf_load_in_4bit: true
+    hf_dtype: auto
+    hf_gpu_index: 0
+    hf_gpu_max_memory: "10GiB"
+    hf_cpu_max_memory: "32GiB"
+    hf_max_new_tokens: 2048
+    hf_repetition_penalty: 1.05
+    hf_warmup_attempts: 300
+    hf_tokenizers_parallelism: false
+    hf:
+      gpu_memory_limit_gib: 10
+      gpu_memory_target_gib: 10
+      gpu_memory_enforce_limit: true
+      gpu_index: 0
+      gpu_max_memory: 10GiB
+      multimodal_enabled: true
+      vision_input_mode: image
+      video_input_mode: frame_or_short_clip
   vision:
-    provider: ollama
-    model: qwen3-vl:4b
+    provider: huggingface
+    model: /absolute/path/outside/repository/Qwen3.5-4B
     endpoint_env: FLOKI_VISION_ENDPOINT
-    endpoint_default: http://127.0.0.1:11435
+    endpoint_default: http://127.0.0.1:11436
+    local_endpoint_env: FLOKI_HF_VISION_ENDPOINT
+    local_endpoint_default: http://127.0.0.1:7711
     enabled_now: false
     mode_scope: chat_world_only
     temperature: 0.2
@@ -25,6 +45,13 @@ models:
     timeout_ms: 300000
     keep_alive: 24h
 
+    startup_ready_timeout_ms: 300000
+    startup_ready_poll_ms: 1000
+    generate_max_new_tokens: 64
+    startup_probe_max_new_tokens: 32
+    multimodal_enabled: true
+    vision_input_mode: image
+    video_input_mode: frame_or_short_clip
 modules:
   thalamus:
     enabled: true
@@ -102,14 +129,6 @@ vision:
   private_observation_log_enabled: true
   webcam_capture_allow_env: FLOKI_ALLOW_WEBCAM_CAPTURE
   chat_vision_allow_env: FLOKI_ALLOW_CHAT_VISION
-  vlm_ssh_tunnel_enabled: true
-  vlm_ssh_tunnel_target: chris-mccoll
-  vlm_ssh_tunnel_local_host: 127.0.0.1
-  vlm_ssh_tunnel_local_port: 11435
-  vlm_ssh_tunnel_remote_host: 127.0.0.1
-  vlm_ssh_tunnel_remote_port: 11434
-  vlm_ssh_tunnel_socket_name: chat-vision-ssh-tunnel.sock
-  vlm_ssh_tunnel_check_timeout_ms: 8000
   vision_question_max_age_ms: 8000
   vision_question_wait_ms: 2500
   cognition_scene_max_detected_objects: 32
@@ -151,6 +170,9 @@ vision:
     phrase_07: look around and tell me what you see
 
 detection:
+  yolo_device: cpu
+  grounding_dino_device: cpu
+  person_verifier_device: cpu
   person_verifier_uncertain_ttl_ms: 3000
 
   hybrid_detector_enabled: true
@@ -184,7 +206,8 @@ detection:
   grounding_dino_box_threshold: 0.25
   grounding_dino_text_threshold: 0.25
   grounding_dino_timeout_ms: 60000
-  grounding_dino_require_cuda: true
+  grounding_dino_require_cuda: false
+
   grounding_dino_prompts:
     prompt_01: a human person
     prompt_02: a standing person
@@ -344,6 +367,8 @@ sleep:
   end_hhmm: 07:00
   idle_resume_seconds: 120
   rem_interval_minutes: 10
+  rem_catchup_grace_minutes: 10
+  rem_max_dispatch_per_tick: 1
   lifecycle_status_poll_ms: 1000
   scheduler_tick_ms: 30000
   scheduler_heartbeat_refresh_ms: 30000
@@ -777,6 +802,23 @@ self_improvement:
   persistent_source_mirror_directory_name: "_persistent-source-mirror"
   persistent_workspace_root_mount_path: "/opt/floki-rsi/host/workspaces"
   persistent_container_idle_command: "exec sleep infinity"
+  workstation_storage_mount_path: "/var/lib/floki-rsi/workstation-storage"
+  workstation_persistence_proof_path: "/home/floki/.floki-rsi-workstation-persistence-proof"
+  workstation_proof_record_file_name: "workstation-persistence-proof.json"
+  workstation_systemd_ready_poll_ms: 1000
+  run_unit_prefix_agent: "floki-rsi-agent"
+  run_unit_prefix_training: "floki-night-training"
+  run_unit_prefix_rem: "floki-rem"
+  run_unit_stop_timeout_ms: 30000
+  no_safe_candidate_file_name: "no-safe-candidate.json"
+  no_safe_candidate_dir_name: "no-safe-candidate"
+  run_failure_file_name: "run-failure.json"
+  terminal_stream_file_name: "terminal.pty"
+  terminal_stream_max_bytes: 16777216
+  terminal_sentinel_grace_ms: 5000
+  terminal_interrupt_grace_ms: 5000
+  pty_rows: 32
+  pty_cols: 120
   workspace_mount_path: "/workspace"
   outbox_mount_path: "/outbox"
   self_context_mount_path: "/self-context"
@@ -916,6 +958,7 @@ self_improvement:
   default_objective: "Inspect the Floki-v2 source across the ENTIRE repository (src/, apps/floki-neural-interface/, brain/, bin/, config/, containers/, tests/) and select exactly one real, concrete improvement that changes actual behavior, adds a new capability, or fixes a real bug. The improvement must be in architecture, cognition, memory, sensory processing, autonomous agency, recursive self-improvement, performance, reliability, AI/AGI research integration, self-modeling, metacognition, continual learning, or digital-being continuity. Do NOT pick experiments that only add count/length assertions, enum completeness checks, or type-only verifications without changing real behavior. The change must be verifiable with a focused behavioral test and safe to deploy."
   service_start_attempts: 40
   service_start_poll_seconds: 0.25
+  workstation_systemd_ready_timeout_ms: 120000
   service_start_log_tail_lines: 80
   service_stop_attempts: 40
   service_stop_poll_seconds: 0.25
@@ -1111,6 +1154,7 @@ self_improvement:
   training_gpu_probe_command: "nvidia-smi"
   training_cdi_generate_args: "--feature-flag|no-additional-gids-for-device-nodes"
   training_cdi_podman_spec_version: "0.6.0"
+  training_engine_min_major: 5
   training_cdi_generated_spec_path: "/var/run/cdi/nvidia.yaml"
   training_gpu_runtime_mode: "cdi"
   training_cdi_device_name: "nvidia.com/gpu=all"

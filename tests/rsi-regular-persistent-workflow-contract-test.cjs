@@ -25,7 +25,7 @@ const config = loadSelfImprovementConfig();
 //        sha256 fingerprint that drives cache-hit detection are all intact.
 {
   assert.equal(config.persistent_container_enabled, true, 'persistent container stays enabled');
-  assert.equal(config.persistent_container_name, 'floki-rsi-sandbox');
+  assert.equal(config.persistent_container_name, 'floki-rsi-workstation');
   assert.ok(config.persistent_dependency_cache_root, 'dependency cache root configured');
   assert.ok(config.persistent_dependency_cache_marker_file, 'dependency cache marker configured');
   assert.equal(config.dependency_fingerprint_algorithm, 'sha256', 'cache fingerprint stays sha256');

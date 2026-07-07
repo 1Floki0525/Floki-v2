@@ -41,19 +41,21 @@ const worker = fs.readFileSync(
 );
 assert.match(agent, /model_turn_failure/);
 assert.match(agent, /consecutiveModelTurnFailures \+= 1/);
-assert.match(agent, /retryable: isRetryableModelError\(error\)/);
+assert.match(agent, /retryable: turnDeadlineTripped \|\| isRetryableModelError\(error\)/);
 assert.match(agent, /EUPSTREAM_PARSE/);
 assert.match(agent, /Ollama returned invalid JSON/);
 assert.match(agent, /continue from the current convergence/);
-assert.match(agent, /FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_NO_CANDIDATE/);
-assert.match(agent, /finishWithoutCandidate/);
-assert.match(worker, /exit\.code === 0 && isNoCandidateSandboxFailure/);
-assert.match(worker, /FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_NO_CANDIDATE/i);
+// Exhausted model transport retries are a real persisted failure, never a
+// fabricated no-candidate success. Zero exits require an explicit outcome.
+assert.match(agent, /finishWithFailure\('model_transport_failure', error\)/);
+assert.doesNotMatch(agent, /finishWithoutCandidate/);
+assert.match(worker, /readNoSafeCandidateRecord\(snapshot\.run_id, config\)/);
+assert.match(worker, /zero_exit_without_outcome/);
 
 console.log(JSON.stringify({
   ok: true,
   marker: 'FLOKI_V2_RSI_MODEL_TIMEOUT_RECOVERY_CONTRACT_PASS',
   retryable_http_statuses: [502, 503, 504],
   retryable_codes: ['EAI_AGAIN', 'ECONNRESET', 'ETIMEDOUT'],
-  controlled_no_candidate_exit: true
+  model_transport_exhaustion_is_real_failure: true
 }, null, 2));

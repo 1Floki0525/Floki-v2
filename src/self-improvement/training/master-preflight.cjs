@@ -8,6 +8,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const { loadSelfImprovementConfig } = require('../config.cjs');
 
@@ -69,4 +70,63 @@ function assertHfMasterReady(config = loadSelfImprovementConfig()) {
   return pre;
 }
 
-module.exports = { preflightHfMaster, assertHfMasterReady, splitPipeList };
+// Container-engine preflight for GPU training. Podman 4.x cannot parse the
+// NVIDIA CDI spec v0.7.0 ("unresolvable CDI devices nvidia.com/gpu=all"),
+// which silently killed the whole 2026-07-05 nightly training window. The
+// engine's --version output is parsed and compared to
+// training_engine_min_major; engines that do not report a parseable version
+// (contract-test fakes) skip the check rather than fail it.
+function preflightTrainingEngine(config = loadSelfImprovementConfig(), options = {}) {
+  const execute = options.spawnSync || spawnSync;
+  const result = {
+    marker: 'FLOKI_V2_TRAINING_ENGINE_PREFLIGHT',
+    engine: config.sandbox_engine,
+    min_major: Number(config.training_engine_min_major),
+    version: null,
+    major: null,
+    version_parseable: false,
+    checked: false,
+    ok: true
+  };
+  let probe;
+  try {
+    probe = execute(config.sandbox_engine, ['--version'], {
+      encoding: 'utf8',
+      timeout: Number(config.podman_command_timeout_ms),
+      maxBuffer: Number(config.podman_output_buffer_bytes)
+    });
+  } catch (_error) {
+    return Object.freeze(result);
+  }
+  if (!probe || probe.error || probe.status !== 0) return Object.freeze(result);
+  const match = String(probe.stdout || '').match(/version\s+(\d+)(?:\.(\d+))?(?:\.(\d+))?/i);
+  if (!match) return Object.freeze(result);
+  result.version = match[0].replace(/^version\s+/i, '');
+  result.major = Number(match[1]);
+  result.version_parseable = true;
+  result.checked = true;
+  result.ok = result.major >= result.min_major;
+  return Object.freeze(result);
+}
+
+function assertTrainingEngineReady(config = loadSelfImprovementConfig(), options = {}) {
+  const pre = preflightTrainingEngine(config, options);
+  if (!pre.ok) {
+    throw new Error(
+      'FLOKI_V2_TRAINING_ENGINE_CDI_INCAPABLE: ' + pre.engine +
+      ' reports version ' + pre.version + ' but GPU training requires major >= ' +
+      String(pre.min_major) + ' to parse the NVIDIA CDI spec (nvidia.com/gpu=all). ' +
+      'Point self_improvement.sandbox_engine at a CDI-capable podman (e.g. ' +
+      '~/.local/bin/floki-rsi-podman -> podman 6).'
+    );
+  }
+  return pre;
+}
+
+module.exports = {
+  preflightHfMaster,
+  assertHfMasterReady,
+  preflightTrainingEngine,
+  assertTrainingEngineReady,
+  splitPipeList
+};

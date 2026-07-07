@@ -34,17 +34,32 @@ function run() {
   assert.equal(args.includes('-frames:v'), false);
   assert.equal(args.includes('image2pipe'), true);
   assert.equal(args.includes('mjpeg'), true);
+  assert.equal(args.includes('-vf'), true, 'ffmpeg must set an explicit video filter');
+  assert.equal(args.includes('scale=in_range=pc:out_range=pc,format=yuv420p'), true, 'ffmpeg must set explicit swscale range and non-deprecated pixel format');
+  assert.equal(args.includes('-color_range'), true, 'ffmpeg must declare full color range for MJPEG');
+  assert.equal(args.includes('pc'), true, 'ffmpeg MJPEG color range must be full/pc');
   assert.equal(args.join(' ').includes('screenshot'), false);
   assert.equal(args.join(' ').includes('xwd'), false);
   assert.ok(typeof models.vision.model === 'string' && models.vision.model.trim().length > 0, 'configured chat vision model must be non-empty');
   const tunnel = chatVisionTunnelConfig({ runtime_dir: '/tmp/floki-chat-webcam-contract-runtime' });
   assert.equal(tunnel.enabled, true);
-  assert.equal(tunnel.target, vision.vlm_ssh_tunnel_target);
-  assert.equal(tunnel.local_endpoint, 'http://' + vision.vlm_ssh_tunnel_local_host + ':' + vision.vlm_ssh_tunnel_local_port);
-  assert.equal(tunnel.remote_endpoint, 'http://' + vision.vlm_ssh_tunnel_remote_host + ':' + vision.vlm_ssh_tunnel_remote_port);
+  assert.equal(tunnel.active, true);
+  assert.equal(tunnel.local_only, true);
+  assert.equal(tunnel.web_host_only, true);
+  assert.equal(tunnel.provider, 'huggingface');
+  assert.equal(tunnel.backend, 'hf');
+  assert.equal(tunnel.target, undefined);
+  assert.equal(tunnel.local_endpoint, 'http://127.0.0.1:7711');
+  assert.equal(tunnel.remote_endpoint, null);
   assert.equal(tunnel.required_model, models.vision.model);
+  assert.equal(tunnel.model, models.vision.model);
   assert.equal(Object.prototype.hasOwnProperty.call(vision, 'vlm_ssh_tunnel_required_model'), false);
-  assert.equal(tunnel.check_timeout_ms, vision.vlm_ssh_tunnel_check_timeout_ms);
+  assert.equal(Object.prototype.hasOwnProperty.call(vision, 'vlm_ssh_tunnel_target'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(vision, 'vlm_ssh_tunnel_local_host'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(vision, 'vlm_ssh_tunnel_local_port'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(vision, 'vlm_ssh_tunnel_remote_host'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(vision, 'vlm_ssh_tunnel_remote_port'), false);
+  assert.equal(tunnel.check_timeout_ms, 8000);
 
   const jpeg = Buffer.from([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]);
   const parsed = extractJpegFrames(Buffer.concat([jpeg, jpeg]));
@@ -94,13 +109,13 @@ function run() {
   const strictBase = {
     ...status,
     heartbeat_fresh: true,
-    tunnel_status: { active: true },
+    tunnel_status: { active: true, local_only: true, web_host_only: true },
     detection_heartbeat_fresh: true
   };
   assert.equal(statusReadyForChat(strictBase), true, 'strict base status must be ready');
 
   assert.equal(statusReadyForChat({ ...strictBase, heartbeat_fresh: false }), false, 'stale heartbeat must block readiness');
-  assert.equal(statusReadyForChat({ ...strictBase, tunnel_status: { active: false } }), false, 'inactive tunnel must block readiness');
+  assert.equal(statusReadyForChat({ ...strictBase, tunnel_status: { active: false } }), false, 'inactive local HF vision model status must block readiness');
   assert.equal(statusReadyForChat({ ...strictBase, detection_heartbeat_fresh: false }), false, 'stale detection heartbeat must block readiness');
 
   const serviceSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'vision', 'chat-webcam-vision-service.cjs'), 'utf8');
@@ -142,7 +157,34 @@ function run() {
   assert.equal(serviceSource.includes('function readyTimeoutMs'), true, 'ready timeout must be config-driven');
   assert.equal(serviceSource.includes('getTimeoutConfig'), true, 'ready timeout must come from floki-config');
 
-  console.log(JSON.stringify({
+  
+  // FLOKI_CHAT_WEBCAM_DIRECT_IMAGE_VLM_ASSERTS_V2
+  const callBlock = serviceSource.match(/async function callVisionModel\(frameBuffer, options = \{\}\) \{[\s\S]*?\n\}\n\nfunction isAbortError/);
+  assert.ok(callBlock, 'callVisionModel block must be present before isAbortError');
+  assert.equal(callBlock[0].includes('FLOKI_CONFIG_ONLY_TEXT_VISION_BRIDGE_V1'), false);
+  assert.ok(callBlock[0].includes("frameBuffer.toString('base64')"));
+  assert.ok(callBlock[0].includes("'data:' + mimeType + ';base64,'"));
+  assert.ok(callBlock[0].includes("type: 'image'"));
+  assert.ok(callBlock[0].includes('image: imageDataUrl'));
+  assert.ok(callBlock[0].includes("config.endpoint + '/api/chat'"));
+  assert.ok(callBlock[0].includes('direct_vlm_call: true'));
+  assert.ok(callBlock[0].includes('config_only_text_vision_bridge: false'));
+  assert.ok(callBlock[0].includes('image_sent_to_language_model: true'));
+  assert.ok(callBlock[0].includes('chat_template_kwargs: { enable_thinking: false }'));
+
+  // Webcam observations must be concise non-thinking vision observations.
+  // This is request-scoped and must not disable cognition/RSI thinking globally.
+  assert.ok(callBlock[0].includes('chat_template_kwargs: { enable_thinking: false }'), 'vision disables thinking per request');
+  assert.ok(callBlock[0].includes('enable_thinking: false'), 'vision request must opt out of thinking');
+
+  assert.ok(callBlock[0].includes('enable_thinking: false'));
+  assert.ok(callBlock[0].includes('sanitizeVisionObservationText'));
+  assert.ok(callBlock[0].includes('vision language endpoint fetch failed for'));
+  assert.equal(callBlock[0].includes('Local vision facts:'), false);
+  assert.equal(callBlock[0].includes('image_sent_to_language_model: false'), false);
+
+
+console.log(JSON.stringify({
     ok: true,
     marker: 'FLOKI_V2_CHAT_WEBCAM_SERVICE_CONTRACT_PASS',
     node_24_required: true,
@@ -151,7 +193,7 @@ function run() {
     first_real_frame_required: true,
     first_vlm_observation_required: true,
     configured_vision_model_from_yaml: true,
-    ssh_tunnel_settings_from_yaml: true,
+    local_hf_vision_path: true,
     public_transcript_isolated: true,
     private_observation_context_available: true,
     target_fps_met: status.target_fps_met,

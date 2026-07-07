@@ -8,7 +8,7 @@ const { loadSelfImprovementConfig } = require('../src/self-improvement/config.cj
 
 const config = loadSelfImprovementConfig();
 assert.equal(config.persistent_container_enabled, true);
-assert.equal(config.persistent_container_name, 'floki-rsi-sandbox');
+assert.equal(config.persistent_container_name, 'floki-rsi-workstation');
 assert.equal(config.persistent_container_user, '0:0');
 
 const createArgs = sandbox.buildPersistentSandboxCreateArgs({ config });
@@ -35,7 +35,10 @@ for (let i = 0; i < createArgs.length; i += 1) {
   if (createArgs[i] === '-v') mounts.push(createArgs[i + 1]);
 }
 assert.equal(mounts.length, 3, 'persistent sandbox has exactly three stable mounts');
-assert.ok(mounts.some((m) => m.includes(config.persistent_workspace_root_mount_path) && /rw/.test(m)));
+// The host workspace root is mounted read-only: the agent's writable
+// project lives on the workstation's own filesystem at
+// persistent_project_workspace_path.
+assert.ok(mounts.some((m) => m.includes(config.persistent_workspace_root_mount_path) && /ro/.test(m)));
 assert.ok(mounts.some((m) => m.includes(config.outbox_mount_path) && /rw/.test(m)));
 assert.ok(mounts.some((m) => m.includes(config.model_proxy_mount_path) && /ro/.test(m)));
 
@@ -56,11 +59,14 @@ const execJoined = execArgs.join(' ');
 assert.equal(execArgs[0], 'exec');
 assert.ok(!execArgs.includes('--rm'));
 assert.ok(execJoined.includes('/opt/floki-self-improvement/agent.cjs'));
-assert.ok(execArgs.includes('--workdir'));
-assert.equal(
-  execArgs[execArgs.indexOf('--workdir') + 1],
-  config.persistent_project_workspace_path
+assert.ok(execArgs.includes('systemd-run'), 'agent must run inside a transient unit');
+assert.ok(
+  execArgs.some((value) => String(value).startsWith('--unit=floki-rsi-agent-')),
+  'agent unit must be run-scoped'
 );
+assert.ok(execArgs.includes(
+  '--working-directory=' + config.persistent_project_workspace_path
+));
 assert.ok(!execJoined.includes('rm -rf /workspace'));
 assert.ok(!execJoined.includes('ln -s'));
 assert.ok(execJoined.includes(config.self_context_mount_path));
