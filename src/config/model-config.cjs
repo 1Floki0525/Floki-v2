@@ -31,13 +31,15 @@ function getModelConfig(mode) {
       temperature: cognition.temperature,
       top_p: cognition.top_p,
       timeout_ms: cognition.timeout_ms,
-      keep_alive: cognition.keep_alive
+      keep_alive: cognition.keep_alive,
+      hf: cognition.hf || null
     }),
 
     vision: Object.freeze({
       provider: vision.provider,
       model: vision.model,
       endpoint: vision.endpoint,
+      local_endpoint: vision.local_endpoint || null,
       enabled_in_current_stage: false,
       wire_in_batch: 'future_static_png_then_live_minecraft_eyes',
       allow_thinking: false,

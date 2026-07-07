@@ -311,7 +311,9 @@ async function handleTypedText(runtime, text, options = {}) {
   const livingTurn = beginLivingTurn({
     text,
     source: options.source || 'live_chat_interface',
-    input_modality: options.input_modality || 'text'
+    input_modality: options.input_modality || 'text',
+    memory_enabled: options.memory_enabled !== false,
+    emotion_enabled: options.emotion_enabled !== false
   });
 
   let displayedText = null;
@@ -322,6 +324,9 @@ async function handleTypedText(runtime, text, options = {}) {
     persistent_chat_memory: livingTurn.persistent_chat_memory,
     emotional_reinforcement: livingTurn.emotional_reinforcement,
     soul_context: livingTurn.soul_context,
+    memory_enabled: options.memory_enabled !== false,
+    emotion_enabled: options.emotion_enabled !== false,
+    model_config: options.model_config,
     signal: options.signal,
     latency_trace: trace,
     streaming_enabled: options.streaming_enabled,
@@ -383,7 +388,9 @@ async function handleTypedText(runtime, text, options = {}) {
     result,
     reply,
     source: options.source || 'live_chat_interface',
-    input_modality: options.input_modality || 'text'
+    input_modality: options.input_modality || 'text',
+    memory_enabled: options.memory_enabled !== false,
+    emotion_enabled: options.emotion_enabled !== false
   });
 
   const assistantTranscript = appendChatTranscriptTurn({
@@ -418,7 +425,7 @@ async function runLiveChatInterface(options = {}) {
   const knowledgeAutoloadStatus = startKnowledgeAutoload();
   const chatWebcamVisionStatus = readChatWebcamVisionStatus();
   if (chatWebcamVisionStatus.ready_for_chat !== true) {
-    throw new Error('chat webcam vision is not ready; start chat through bin/floki-start.sh chat');
+    throw new Error('chat webcam vision is not ready; start chat through bin/floki-runtime.sh start');
   }
   const startStatus = startSpeechLoop({ no_speech: noSpeech });
   const paths = getTranscriptPaths();

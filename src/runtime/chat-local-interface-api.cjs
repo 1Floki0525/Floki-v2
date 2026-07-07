@@ -10,10 +10,16 @@ const { buildFlokiLifecycleStatus } = require('../chat/floki-lifecycle-status.cj
 const { buildDreamTimeline } = require('../chat/dream-timeline.cjs');
 const { readChatWebcamVisionStatus, readLatestPrivateObservation, runtimePaths } = require('../vision/chat-webcam-vision-service.cjs');
 const { buildVisionStatus } = require('../vision/vision-status.cjs');
-const { readLatestDetection } = require('../vision/yolo-detection-service.cjs');
-const { classifyVerifiedDetectionForDisplay } = require('../vision/person-presence-verifier.cjs');
+const { readLatestDetection, getDetectionConfig } = require('../vision/yolo-detection-service.cjs');
+const { createInitialDetectionFrameState, reduceDetectionFrameState, splitDisplayDetections } = require('../vision/detection-frame-contract.cjs');
 const { loadAffectState } = require('../../brain/emotions_base/index.cjs');
 const { loadSelfImprovementConfig } = require('../self-improvement/config.cjs');
+const { getAllModuleConfigs, DISPLAY_NAMES } = require('../control-plane/module-registry.cjs');
+const { getCurrentWeekFile } = require('../control-plane/module-logging.cjs');
+const {
+  ensureCurrentWeekWorkspace,
+  readLogWorkspace
+} = require('../control-plane/log-workspace.cjs');
 
 const AFFECT_HISTORY_MAX = 360;
 
@@ -92,8 +98,8 @@ const INTERFACE_TAB_CONTRACT = Object.freeze({
   chat: Object.freeze({ reads: Object.freeze(['status', 'transcript']), writes: Object.freeze(['sendMessage', 'clearTranscript', 'interrupt']), live_events: Object.freeze(['transcript.entry', 'transcript.remove', 'status.update']) }),
   dreams: Object.freeze({ reads: Object.freeze(['dreamTimeline', 'sleep']), writes: Object.freeze(['requestSleep', 'wake']), live_events: Object.freeze(['status.update', 'inner-stream.entry']) }),
   neural: Object.freeze({ reads: Object.freeze(['neuralEvents']), writes: Object.freeze([]), live_events: Object.freeze(['inner-stream.entry']) }),
-  rsi_lab: Object.freeze({ reads: Object.freeze(['selfImprovementStatus', 'selfImprovementCandidates', 'selfImprovementActivity']), writes: Object.freeze(['runSelfImprovementNow', 'pauseSelfImprovement', 'resumeSelfImprovement', 'approveSelfImprovement', 'denySelfImprovement']), live_events: Object.freeze(['status.update']) }),
-  system: Object.freeze({ reads: Object.freeze(['services', 'visionFrame', 'visionObservation', 'emotion', 'affectHistory', 'sleep', 'logPath']), writes: Object.freeze(['startChat', 'stopChat', 'restartChat', 'wake', 'requestSleep', 'pauseSleep', 'resumeSleep', 'restartVision', 'restartHearing', 'restartSpeech', 'interrupt', 'pushToTalk']), live_events: Object.freeze(['status.update']) }),
+  rsi_lab: Object.freeze({ reads: Object.freeze(['selfImprovementStatus', 'selfImprovementCandidates', 'selfImprovementTerminal']), writes: Object.freeze(['runSelfImprovementNow', 'pauseSelfImprovement', 'resumeSelfImprovement', 'approveSelfImprovement', 'denySelfImprovement', 'abortSelfImprovement']), live_events: Object.freeze(['status.update']) }),
+  system: Object.freeze({ reads: Object.freeze(['services', 'visionFrame', 'visionObservation', 'emotion', 'affectHistory', 'sleep', 'logPath']), writes: Object.freeze(['startChat', 'stopChat', 'restartChat', 'wake', 'requestSleep', 'pauseSleep', 'resumeSleep', 'restartVision', 'restartHearing', 'restartSpeech', 'controlModule', 'interrupt', 'pushToTalk']), live_events: Object.freeze(['status.update']) }),
   settings: Object.freeze({ reads: Object.freeze(['settings']), writes: Object.freeze(['updateSettings', 'resetSettings', 'importSettings']), live_events: Object.freeze(['status.update']) })
 });
 
@@ -187,10 +193,11 @@ function createChatLocalInterfaceApi(options = {}) {
   const startedAt = Number(options.started_at || Date.now());
   const sessionId = options.session_id || null;
   let lastRecordedAffectSignature = '';
-  const visionTracks = { objects: [], persons: [] };
+  let visionFrameState = createInitialDetectionFrameState();
   const visionConfig = getVisionConfig('chat');
   const visionPaths = runtimePaths({ runtime_dir: runtimeDir });
   const selfImprovementConfig = loadSelfImprovementConfig();
+  ensureCurrentWeekWorkspace();
   const frameFreshnessMs = Math.max(
     100,
     Number(visionConfig.frame_retention_seconds || 0) * 1000 +
@@ -218,46 +225,6 @@ function createChatLocalInterfaceApi(options = {}) {
       }
       throw error;
     }
-  }
-
-  function detectionBox(detection) {
-    const box = detection && detection.bbox || {};
-    return { x: Number(box.x || 0), y: Number(box.y || 0), width: Number(box.width || 0), height: Number(box.height || 0) };
-  }
-
-  function detectionIou(leftDetection, rightDetection) {
-    const left = detectionBox(leftDetection);
-    const right = detectionBox(rightDetection);
-    const width = Math.max(0, Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x));
-    const height = Math.max(0, Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y));
-    const intersection = width * height;
-    const union = left.width * left.height + right.width * right.height - intersection;
-    return union > 0 ? intersection / union : 0;
-  }
-
-  function retainVisionDetections(kind, detections, now = Date.now()) {
-    const tracks = visionTracks[kind];
-    const ttlMs = Number(getInterfaceSettings('chat').vision.detectionDisplayTtlMs);
-    for (const detection of Array.isArray(detections) ? detections : []) {
-      const label = String(detection.label || detection.class || detection.name || kind).toLowerCase();
-      let bestTrack = null;
-      let bestIou = 0;
-      for (const track of tracks) {
-        if (track.label !== label) continue;
-        const overlap = detectionIou(track.detection, detection);
-        if (overlap > bestIou) { bestIou = overlap; bestTrack = track; }
-      }
-      if (bestTrack && bestIou >= 0.20) {
-        bestTrack.detection = detection;
-        bestTrack.lastSeenAt = now;
-      } else {
-        tracks.push({ label, detection, lastSeenAt: now });
-      }
-    }
-    for (let index = tracks.length - 1; index >= 0; index -= 1) {
-      if (now - tracks[index].lastSeenAt > ttlMs) tracks.splice(index, 1);
-    }
-    return tracks.map((track) => track.detection);
   }
 
   function recordAffectHistory() {
@@ -305,22 +272,15 @@ function createChatLocalInterfaceApi(options = {}) {
     const service = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
     const observation = readLatestPrivateObservation({ runtime_dir: runtimeDir });
     const latestDetection = readLatestDetection({ runtime_dir: runtimeDir });
+    const detectionConfig = getDetectionConfig();
     const frame = latestFrameState(now);
     const cameraActive = service.capture_live === true;
     const liveFrame = cameraActive && frame.available === true && frame.fresh === true;
-    const currentObjects = [];
-    const currentPersons = [];
     const rawDetections = liveFrame && latestDetection.available === true && latestDetection.fresh === true && latestDetection.detection
       ? (Array.isArray(latestDetection.detection.detections) ? latestDetection.detection.detections : [])
       : [];
-    for (const detection of rawDetections) {
-      const disposition = classifyVerifiedDetectionForDisplay(detection);
-      if (disposition.bucket === 'persons') currentPersons.push(disposition.detection);
-      if (disposition.bucket === 'objects') currentObjects.push(disposition.detection);
-    }
     if (!liveFrame) {
-      visionTracks.objects.length = 0;
-      visionTracks.persons.length = 0;
+      visionFrameState = createInitialDetectionFrameState();
     }
     const settings = getInterfaceSettings('chat').vision;
     const showObjects = settings.showObjectBoxes !== false;
@@ -330,11 +290,28 @@ function createChatLocalInterfaceApi(options = {}) {
     const showLabels = settings.showLabels !== false;
     const showConfidence = settings.showConfidence !== false;
     const showSceneRecognition = settings.showSceneRecognition !== false;
-    const rawObjects = liveFrame ? retainVisionDetections('objects', currentObjects, now) : [];
-    const rawPersons = liveFrame ? retainVisionDetections('persons', currentPersons, now) : [];
+    const display = liveFrame && latestDetection.available === true && latestDetection.fresh === true && latestDetection.detection
+      ? splitDisplayDetections(latestDetection.detection, {
+          now_ms: now,
+          max_age_ms: detectionConfig.maxAgeMs
+        })
+      : null;
+    if (display) {
+      const reduced = reduceDetectionFrameState(visionFrameState, latestDetection.detection, {
+        now_ms: now,
+        max_age_ms: detectionConfig.maxAgeMs,
+        accept_new_session: true
+      });
+      visionFrameState = reduced.state;
+    } else if (!liveFrame || latestDetection.stale === true) {
+      visionFrameState = createInitialDetectionFrameState();
+    }
+    const rawObjects = liveFrame && display ? display.objects : [];
+    const rawPersons = liveFrame && display ? display.persons : [];
+    const rawFaces = liveFrame && display ? display.faces : [];
     const objects = showObjects ? rawObjects : [];
     const persons = showPersons ? rawPersons : [];
-    const faces = showFaceBoxes ? [] : [];
+    const faces = showFaceBoxes ? rawFaces : [];
     const recognizedNames = showRecognizedNames ? [] : [];
     const sceneAvailable = Boolean(
       liveFrame &&
@@ -370,12 +347,26 @@ function createChatLocalInterfaceApi(options = {}) {
         fresh: liveFrame && latestDetection.fresh === true,
         stale: !liveFrame || latestDetection.stale === true,
         ageMs: latestDetection.age_ms,
+        maxAgeMs: detectionConfig.maxAgeMs,
+        frameId: latestDetection.detection ? latestDetection.detection.frame_id || null : null,
+        frameSequence: latestDetection.detection ? latestDetection.detection.frame_sequence ?? null : null,
+        resultSequence: latestDetection.detection ? latestDetection.detection.result_sequence ?? null : null,
+        streamSessionId: latestDetection.detection ? latestDetection.detection.stream_session_id || null : null,
+        capturedAt: latestDetection.detection ? latestDetection.detection.captured_at || null : null,
+        detectedAt: latestDetection.detection ? latestDetection.detection.detected_at || null : null,
+        dropped: latestDetection.detection ? latestDetection.detection.dropped_detections || null : null,
+        overlayDropCounts: visionFrameState.dropCounts || null,
         error: latestDetection.error || service.last_yolo_error || null,
         rawCount: rawDetections.length,
         objectCount,
         personCount
       },
-      frame,
+      frame: Object.freeze({
+        ...frame,
+        width: latestDetection.detection ? latestDetection.detection.image_width || null : null,
+        height: latestDetection.detection ? latestDetection.detection.image_height || null : null
+      }),
+      streamSessionId: latestDetection.detection ? latestDetection.detection.stream_session_id || null : null,
       timestamp: frame.mtimeMs || now,
       frameRate: liveFrame ? Number(service.measured_capture_fps || 0) : 0,
       connectionStatus: liveFrame ? 'active' : (cameraActive ? 'warming' : 'offline'),
@@ -392,41 +383,140 @@ function createChatLocalInterfaceApi(options = {}) {
   }
 
   function buildServices() {
-    const paths = getPathConfig('chat');
-    const stateRoot = path.resolve(ROOT, paths.state_root || 'state/floki');
     const current = runtimeStatus();
-    const webcam = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
     const lifecycle = buildFlokiLifecycleStatus();
-    const schedulerPidFile = path.join(runtimeDir, 'sleep-cycle-scheduler.pid');
-    const visionPidFile = path.join(runtimeDir, 'chat-webcam-vision.pid');
-    const runtimePidFile = path.join(runtimeDir, 'chat-local-runtime.pid');
-    const schedulerHeartbeat = path.join(runtimeDir, 'sleep-cycle-scheduler.heartbeat.json');
-    const visionHeartbeat = path.join(runtimeDir, 'chat-webcam-vision.heartbeat.json');
-    const runtimeLog = path.join(runtimeDir, 'chat-local-runtime.log');
-    const schedulerRunning = processAlive(readPidFile(schedulerPidFile));
-    const visionRunning = processAlive(readPidFile(visionPidFile));
-    const runtimeRunning = processAlive(readPidFile(runtimePidFile));
-    const sleeping = current.lifecycle && current.lifecycle.is_awake === false || current.state === 'sleeping';
-    const hearingError = current.hearing && (current.hearing.last_error || current.hearing.last_wake_gate_error) || current.hearing_start_error || null;
-    const visionError = webcam.last_fatal_error || webcam.last_yolo_error || webcam.last_vlm_error || current.vision_start_error || null;
-    const now = Date.now();
-    let emotionHealthy = false;
-    try { emotionHealthy = Boolean(loadAffectState({ persist_diagnostics: false })); } catch (_error) { emotionHealthy = false; }
-    const memoryHealthy = current.memory_loaded === true && current.knowledge_ready === true && fs.existsSync(stateRoot);
-    const knowledge = current.knowledge_autoload || {};
-    return Object.freeze([
-      { name: 'Floki Core', status: runtimeRunning && current.brain_loaded === true ? 'Running' : 'Stopped', lastHeartbeat: safeFileTime(runtimeLog), uptime: runtimeRunning ? Number(current.uptime_ms || uptimeFromFile(runtimePidFile)) : 0, latency: 0, lastError: current.last_error || null, detail: 'The authoritative chat.local runtime owns cognition, memory, hearing, sight, sleep, dreams, and interface data.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Floki Core' },
-      { name: 'Cognition', status: current.brain_loaded === true ? 'Running' : 'Stopped', lastHeartbeat: now, uptime: Number(current.uptime_ms || 0), latency: 0, lastError: current.last_error || null, detail: `Configured model: ${getModelConfig('chat').cognition.model}; runtime session ${current.session_id || 'unknown'}.`, restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Cognition' },
-      { name: 'Vision', status: webcam.capture_live === true ? 'Running' : (visionRunning || webcam.active === true ? 'Degraded' : 'Stopped'), lastHeartbeat: safeFileTime(visionHeartbeat), uptime: uptimeFromFile(visionPidFile), latency: 0, lastError: visionError, detail: `Eyes ${webcam.capture_live === true ? 'live' : (webcam.camera_open === true ? 'warming' : 'closed')} · ${Number(webcam.measured_capture_fps || 0).toFixed(1)} FPS · detector ${webcam.detection_live === true ? 'live' : 'stale'} · scene ${webcam.scene_live === true ? 'available' : 'refreshing'}.`, restartAvailable: true, logAvailable: true, controlAction: 'restartVision', logKey: 'Vision' },
-      { name: 'Hearing', status: sleeping ? 'Stopped' : (current.hearing_ready === true && !hearingError ? 'Running' : (runtimeRunning ? 'Degraded' : 'Stopped')), lastHeartbeat: Date.parse(current.hearing && current.hearing.last_heartbeat_at || '') || safeFileTime(runtimeLog), uptime: uptimeFromFile(runtimePidFile), latency: 0, lastError: hearingError, detail: sleeping ? 'Ears are intentionally closed while asleep.' : 'Continuous microphone, VAD, Whisper, and wake continuation are owned by the authoritative runtime.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Hearing' },
-      { name: 'Speech', status: sleeping ? 'Stopped' : (current.hearing && current.hearing.piper_ready === true && current.hearing.playback_ready === true && !hearingError ? 'Running' : 'Degraded'), lastHeartbeat: Date.parse(current.hearing && current.hearing.last_heartbeat_at || '') || safeFileTime(runtimeLog), uptime: uptimeFromFile(runtimePidFile), latency: 0, lastError: hearingError, detail: sleeping ? 'Voice is inactive while asleep.' : 'Piper playback and self-echo locking are owned by the authoritative runtime.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Speech' },
-      { name: 'Memory', status: memoryHealthy && current.knowledge_refreshing !== true && !current.knowledge_refresh_error ? 'Running' : 'Degraded', lastHeartbeat: safeFileTime(stateRoot), uptime: now - startedAt, latency: 0, lastError: current.knowledge_refresh_error || (memoryHealthy ? null : 'Persistent memory or transcript knowledge is not ready'), detail: 'Persistent memory and transcript knowledge are attached to the authoritative brain runtime. Knowledge status: ' + String(knowledge.marker || 'not loaded') + '; phase ' + String(knowledge.phase || 'unknown') + '; sources ' + String(knowledge.source_count || 0) + '; chunks ' + String(knowledge.chunk_count || 0) + '.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Memory' },
-      { name: 'Emotion', status: emotionHealthy ? 'Running' : 'Degraded', lastHeartbeat: now, uptime: now - startedAt, latency: 0, lastError: emotionHealthy ? null : 'Affect state could not be loaded', detail: 'Persistent affect state is attached to cognition and the interface.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Emotion' },
-      { name: 'Sleep Scheduler', status: schedulerRunning ? 'Running' : 'Stopped', lastHeartbeat: safeFileTime(schedulerHeartbeat), uptime: uptimeFromFile(schedulerPidFile), latency: 0, lastError: null, detail: lifecycle.sleep_cycle_scheduler_note || 'Sleep scheduler state unavailable.', restartAvailable: true, logAvailable: true, controlAction: schedulerRunning ? 'pauseSleep' : 'resumeSleep', logKey: 'Sleep Scheduler' },
-      { name: 'Dream Engine', status: schedulerRunning || lifecycle.is_dreaming ? 'Running' : 'Stopped', lastHeartbeat: Number(Date.parse(lifecycle.last_transition_at || '')) || now, uptime: schedulerRunning ? uptimeFromFile(schedulerPidFile) : 0, latency: 0, lastError: null, detail: lifecycle.is_dreaming ? 'REM dream generation is active.' : 'Dream generation is scheduled by the sleep runtime.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Dream Engine' },
-      { name: 'Authoritative API', status: current.api_ready === true ? 'Running' : 'Stopped', lastHeartbeat: now, uptime: Number(current.uptime_ms || 0), latency: 0, lastError: current.last_error || null, detail: 'All interface tabs use this single chat.local backend.', restartAvailable: false, logAvailable: true, controlAction: null, logKey: 'Authoritative API' },
-      { name: 'Live Event Stream', status: current.websocket_ready === true ? 'Running' : 'Stopped', lastHeartbeat: now, uptime: Number(current.uptime_ms || 0), latency: 0, lastError: null, detail: 'Transcript, inner experience, status, sleep, and sensory updates are delivered from the authoritative runtime.', restartAvailable: false, logAvailable: false, controlAction: null, logKey: null }
+
+    const exclusiveTraining = ['entering', 'active', 'restoring'].includes(
+      String(current.training_resource_mode || '')
+    );
+    const exclusiveTrainingDetail =
+      selfImprovementConfig.training_exclusive_status_label;
+    const trainingControlPlaneNames = new Set([
+      'authoritative_api',
+      'live_event_stream',
+      'rsi'
     ]);
+
+    const modules = getAllModuleConfigs();
+    const rows = modules.map((module) => {
+      const app = module.client_app_status || null;
+      const heartbeat = app && app.last_heartbeat_at
+        ? Date.parse(app.last_heartbeat_at)
+        : module.heartbeat_file ? safeFileTime(module.heartbeat_file) : Date.now();
+      const uptime = app ? app.session_uptime_ms : module.uptime_file ? uptimeFromFile(module.uptime_file) : 0;
+      const detail = buildModuleDetail(module.key, current, lifecycle, module);
+      const dependencyWarning = buildDependencyWarning(module.key, modules, module.status);
+
+      return Object.freeze({
+        key: module.key,
+        name: module.name,
+        status: formatDisplayStatus(module.status),
+        lifecycleState: module.status,
+        startAvailable: true,
+        stopAvailable: true,
+        resetAvailable: true,
+        restartAvailable: true,
+        logAvailable: module.log_available === true,
+        logKey: module.log_key,
+        requiresConfirmation: module.requires_confirmation,
+        dependencyWarning,
+        lastHeartbeat: heartbeat,
+        uptime,
+        latency: 0,
+        detail,
+        lastError: app ? app.last_reported_error : null,
+        clientApp: module.client_app === true,
+        enabled: app ? app.enabled : module.status !== 'stopped',
+        connectedClientCount: app ? app.connected_client_count : null,
+        healthyClientCount: app ? app.healthy_client_count : null,
+        connectedSince: app ? app.connected_since : null,
+        transportType: app ? app.transport_type : null,
+        controlGeneration: app ? app.control_generation : null,
+        staleClientCount: app ? app.stale_client_count : null
+      });
+    });
+
+    if (!exclusiveTraining) return Object.freeze(rows);
+
+    return Object.freeze(rows.map((row) => {
+      if (trainingControlPlaneNames.has(row.key)) {
+        if (row.key === 'rsi') return row;
+        return Object.freeze({
+          ...row,
+          detail: row.detail + ' Exclusive-training control plane remains online.'
+        });
+      }
+      return Object.freeze({
+        ...row,
+        status: 'Stopped',
+        lifecycleState: 'stopped',
+        startAvailable: true,
+        stopAvailable: true,
+        resetAvailable: true,
+        lastError: null,
+        detail: exclusiveTrainingDetail
+      });
+    }));
+  }
+
+  function formatDisplayStatus(status) {
+    if (!status) return 'Unknown';
+    return String(status).replace(/^\w/, (c) => c.toUpperCase());
+  }
+
+  function buildDependencyWarning(moduleKey, allModules, moduleStatus) {
+    const module = allModules.find((m) => m.key === moduleKey);
+    if (!module || !module.dependencies || module.dependencies.length === 0) return '';
+    const missing = module.dependencies
+      .map((depKey) => allModules.find((m) => m.key === depKey))
+      .filter((dep) => dep && dep.status !== 'running')
+      .map((dep) => dep.name);
+    if (missing.length === 0) return '';
+    return `Requires ${missing.join(', ')}`;
+  }
+
+  function buildModuleDetail(moduleKey, current, lifecycle, module) {
+    const webcam = readChatWebcamVisionStatus({ runtime_dir: runtimeDir });
+    const model = getModelConfig('chat').cognition;
+    const knowledge = current.knowledge_autoload || {};
+    switch (moduleKey) {
+      case 'floki_core':
+        return 'The authoritative chat.local runtime owns cognition, memory, hearing, sight, sleep, dreams, and interface data.';
+      case 'cognition':
+        return `Configured model: ${model.model}; runtime session ${current.session_id || 'unknown'}.`;
+      case 'vision':
+        return `Eyes ${webcam.capture_live === true ? 'live' : (webcam.camera_open === true ? 'warming' : 'closed')} · ${Number(webcam.measured_capture_fps || 0).toFixed(1)} FPS · detector ${webcam.detection_live === true ? 'live' : 'stale'} · scene ${webcam.scene_live === true ? 'available' : 'refreshing'}.`;
+      case 'hearing':
+        return lifecycle && lifecycle.is_awake === false ? 'Ears are intentionally closed while asleep.' : 'Continuous microphone, VAD, Whisper, and wake continuation are owned by the authoritative runtime.';
+      case 'speech':
+        return lifecycle && lifecycle.is_awake === false ? 'Voice is inactive while asleep.' : 'Piper playback and self-echo locking are owned by the authoritative runtime.';
+      case 'memory':
+        return 'Persistent memory and transcript knowledge are attached to the authoritative brain runtime. Knowledge status: ' + String(knowledge.marker || 'not loaded') + '; phase ' + String(knowledge.phase || 'unknown') + '; sources ' + String(knowledge.source_count || 0) + '; chunks ' + String(knowledge.chunk_count || 0) + '.';
+      case 'emotion':
+        return 'Persistent affect state is attached to cognition and the interface.';
+      case 'sleep_scheduler':
+        return lifecycle.sleep_cycle_scheduler_note || 'Sleep scheduler state unavailable.';
+      case 'dream_engine':
+        return lifecycle.is_dreaming ? 'REM dream generation is active.' : 'Dream generation is scheduled by the sleep runtime.';
+      case 'authoritative_api':
+        return 'All interface tabs use this single chat.local backend.';
+      case 'live_event_stream':
+        return 'Transcript, inner experience, status, sleep, and sensory updates are delivered from the authoritative runtime.';
+      case 'web_app':
+      case 'mobile_app': {
+        const app = module.client_app_status || {};
+        const connected = Number(app.connected_client_count || 0);
+        const healthy = Number(app.healthy_client_count || 0);
+        const transport = app.transport_type || 'none';
+        const generation = Number(app.control_generation || 1);
+        const enabled = app.enabled === true ? 'enabled' : 'disabled';
+        return `${module.name} connection service is ${enabled}; ${healthy}/${connected} healthy clients over ${transport}; generation ${generation}.`;
+      }
+      case 'rsi':
+        return 'Recursive self-improvement worker and sandbox lifecycle.';
+      default:
+        return 'Module controlled through authoritative registry.';
+    }
   }
 
   function naturalInnerText(value) {
@@ -440,11 +530,27 @@ function createChatLocalInterfaceApi(options = {}) {
   function buildNeuralEvents(limit = 250) {
     const settings = getInterfaceSettings('chat').neuralStream;
     const seen = new Set();
-    const entries = readPrivateThoughtTail(Math.max(Number(limit || 250) * 4, 250), transcriptOptions)
-      .filter((entry) => settings.sessionOnly !== true || !sessionId || entry.session_id === sessionId)
-      .filter((entry) => naturalInnerText(entry.text))
+    const allEntries = readPrivateThoughtTail(
+      Math.max(Number(limit || 250) * 4, 250),
+      transcriptOptions
+    ).filter((entry) => naturalInnerText(entry.text));
+    const currentSessionEntries = sessionId
+      ? allEntries.filter((entry) => entry.session_id === sessionId)
+      : allEntries;
+    // sessionOnly prioritizes the current living session, but it must never
+    // turn a real persistent inner history into a blank Neural Stream. Until
+    // the current session has authentic entries, expose the newest safe
+    // persisted summaries as historical continuity.
+    const selectedEntries =
+      settings.sessionOnly === true &&
+      sessionId &&
+      currentSessionEntries.length > 0
+        ? currentSessionEntries
+        : allEntries;
+    const entries = selectedEntries
       .filter((entry) => {
-        const key = String(entry.category || 'reflection') + ':' + normalizePrivateThoughtText(entry.text);
+        const key = String(entry.category || 'reflection') + ':' +
+          normalizePrivateThoughtText(entry.text);
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -453,10 +559,19 @@ function createChatLocalInterfaceApi(options = {}) {
     return entries.map((entry) => Object.freeze({
       id: entry.id,
       timestamp: Date.parse(entry.created_at || '') || Date.now(),
-      module: String(entry.category || 'reflection').replace(/(^|_)([a-z])/g, (_m, _p, c) => c.toUpperCase()),
+      module: String(entry.category || 'reflection').replace(
+        /(^|_)([a-z])/g,
+        (_m, _p, c) => c.toUpperCase()
+      ),
       category: entry.category || 'reflection',
       summary: entry.text,
-      severity: entry.severity || 'info'
+      severity: entry.severity || 'info',
+      session_id: entry.session_id || null,
+      historical: Boolean(
+        sessionId &&
+        entry.session_id &&
+        entry.session_id !== sessionId
+      )
     }));
   }
 
@@ -513,23 +628,35 @@ function createChatLocalInterfaceApi(options = {}) {
   }
 
   function logPath(service) {
+    return readLogWorkspace(service);
+  }
+
+  function legacyLogPath(key) {
     const diagnostics = path.join(ROOT, 'state/floki/diagnostics.jsonl');
     const candidates = {
-      'Floki Core': path.join(runtimeDir, 'chat-local-runtime.log'),
-      Cognition: diagnostics,
-      Vision: path.join(runtimeDir, 'chat-webcam-vision.log'),
-      Hearing: path.join(runtimeDir, 'chat-local-runtime.log'),
-      Speech: path.join(runtimeDir, 'chat-local-runtime.log'),
-      Memory: diagnostics,
-      Emotion: diagnostics,
-      'Sleep Scheduler': path.join(runtimeDir, 'sleep-cycle-scheduler.log'),
-      'Dream Engine': path.join(runtimeDir, 'sleep-cycle-scheduler.log'),
-      'Authoritative API': path.join(runtimeDir, 'chat-local-runtime.log'),
-      'Self-Improvement Worker': selfImprovementWorkerLog(),
-      'Self-Improvement Sandbox': selfImprovementSandboxLog()
+      floki_core: path.join(runtimeDir, 'chat-local-runtime.log'),
+      cognition: diagnostics,
+      vision: path.join(runtimeDir, 'chat-webcam-vision.log'),
+      hearing: path.join(runtimeDir, 'chat-local-runtime.log'),
+      speech: path.join(runtimeDir, 'chat-local-runtime.log'),
+      memory: diagnostics,
+      emotion: diagnostics,
+      sleep_scheduler: path.join(runtimeDir, 'sleep-cycle-scheduler.log'),
+      dream_engine: path.join(runtimeDir, 'sleep-cycle-scheduler.log'),
+      authoritative_api: path.join(runtimeDir, 'chat-local-runtime.log'),
+      live_event_stream: path.join(runtimeDir, 'chat-local-runtime.log'),
+      web_app: null,
+      mobile_app: null,
+      rsi: selfImprovementWorkerLog() || selfImprovementSandboxLog()
     };
-    const filePath = candidates[String(service || '')] || null;
-    return Object.freeze({ service: String(service || ''), path: filePath, exists: Boolean(filePath && fs.existsSync(filePath)) });
+    const displayMap = Object.fromEntries(
+      Object.entries(DISPLAY_NAMES || {}).map(([k, name]) => [name, k])
+    );
+    const moduleKey = candidates[key] ? key : displayMap[key];
+    const filePath = moduleKey ? candidates[moduleKey] : null;
+    return filePath
+      ? Object.freeze({ service: key, path: filePath, exists: fs.existsSync(filePath) })
+      : Object.freeze({ service: key, path: null, exists: false });
   }
 
   return Object.freeze({

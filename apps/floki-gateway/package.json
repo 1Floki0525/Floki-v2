@@ -1,0 +1,1 @@
+{"name":"floki-gateway","version":"1.1.0","type":"module","private":true,"dependencies":{"express":"^5.1.0","http-proxy-middleware":"^3.0.5"}}

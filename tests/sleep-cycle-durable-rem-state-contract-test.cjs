@@ -23,6 +23,11 @@ async function runCompletionCase(baseDir) {
   const pending = runSleepCycleTick({
     env: { FLOKI_ALLOW_SLEEP_CYCLE: '1' },
     now: '2026-06-18T04:31:00.000Z',
+    // This durability scenario deliberately dispatches cycle 1 long after its
+    // wall-clock slot; opt out of the 2026-07-06 truthful catch-up policy
+    // (which would mark it 'missed') so the durable-state contract itself is
+    // what gets exercised.
+    rem_catchup_grace_minutes: 600,
     state_file: stateFile,
     events_file: eventsFile,
     dream_runner: async function() {
@@ -63,6 +68,8 @@ async function runFailureCase(baseDir) {
   await assert.rejects(runSleepCycleTick({
     env: { FLOKI_ALLOW_SLEEP_CYCLE: '1' },
     now: '2026-06-18T04:31:00.000Z',
+    // Opt out of the truthful catch-up policy (see runCompletionCase).
+    rem_catchup_grace_minutes: 600,
     state_file: stateFile,
     events_file: eventsFile,
     dream_runner: async function() {

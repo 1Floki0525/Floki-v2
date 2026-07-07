@@ -5,14 +5,115 @@ ARG APT_PACKAGES
 ARG CONTEXT7_PACKAGE
 ARG CONTEXT7_VERSION
 ARG WORKSPACE_PATH
+ARG NODE_VERSION
+ARG NODE_DIST_BASE_URL
+ARG BROWSER_DEB_URL
+ARG BROWSER_COMMAND_PATH
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ${APT_PACKAGES} \
-  && rm -rf /var/lib/apt/lists/*
+STOPSIGNAL SIGRTMIN+3
+
+# FLOKI_RSI_FULL_UBUNTU_WORKSTATION_V1
+# Prevent package post-install scripts from starting services while the
+# immutable bootstrap image is assembled. The named workstation boots systemd.
+RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d \
+    && chmod 0755 /usr/sbin/policy-rc.d
+
+RUN test -n "${APT_PACKAGES}" \
+    && test -n "${CONTEXT7_PACKAGE}" \
+    && test -n "${CONTEXT7_VERSION}" \
+    && test -n "${WORKSPACE_PATH}" \
+    && test -n "${NODE_VERSION}" \
+    && test -n "${NODE_DIST_BASE_URL}" \
+    && test -n "${BROWSER_DEB_URL}" \
+    && test -n "${BROWSER_COMMAND_PATH}" \
+    && apt-get update \
+    && apt-get dist-upgrade -y \
+    && apt-get install -y --no-install-recommends ${APT_PACKAGES} \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    test "$(dpkg --print-architecture)" = 'amd64'; \
+    curl --fail --location --retry 3 --output /tmp/floki-browser.deb "${BROWSER_DEB_URL}"; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends /tmp/floki-browser.deb; \
+    rm -f /tmp/floki-browser.deb; \
+    rm -rf /var/lib/apt/lists/*; \
+    test -x "${BROWSER_COMMAND_PATH}"; \
+    ln -sf "${BROWSER_COMMAND_PATH}" /usr/local/bin/chromium; \
+    chromium --version
+
+RUN set -eux; \
+    deb_arch="$(dpkg --print-architecture)"; \
+    case "${deb_arch}" in \
+      amd64) node_arch='x64' ;; \
+      arm64) node_arch='arm64' ;; \
+      *) echo "unsupported Node architecture: ${deb_arch}" >&2; exit 1 ;; \
+    esac; \
+    case "${NODE_VERSION}" in \
+      *.*.*) resolved_node_version="${NODE_VERSION}" ;; \
+      *) \
+        resolved_node_version="$(curl --fail --location --retry 3 "${NODE_DIST_BASE_URL}/index.tab" \
+          | awk -F '\t' 'NR > 1 && index($1, "v'"${NODE_VERSION}"'.") == 1 { sub(/^v/, "", $1); print $1; exit }')"; \
+        test -n "${resolved_node_version}" ;; \
+    esac; \
+    archive="node-v${resolved_node_version}-linux-${node_arch}.tar.xz"; \
+    curl --fail --location --retry 3 --output "/tmp/${archive}" \
+      "${NODE_DIST_BASE_URL}/v${resolved_node_version}/${archive}"; \
+    curl --fail --location --retry 3 --output /tmp/SHASUMS256.txt \
+      "${NODE_DIST_BASE_URL}/v${resolved_node_version}/SHASUMS256.txt"; \
+    cd /tmp; \
+    grep "  ${archive}$" SHASUMS256.txt | sha256sum --check --strict -; \
+    tar --extract --xz --file "/tmp/${archive}" --directory /usr/local --strip-components=1; \
+    rm -f "/tmp/${archive}" /tmp/SHASUMS256.txt; \
+    node --version; \
+    npm --version; \
+    case "${NODE_VERSION}" in \
+      *.*.*) test "$(node --version)" = "v${resolved_node_version}" ;; \
+      *) case "$(node --version)" in v${NODE_VERSION}.*) ;; *) exit 1 ;; esac ;; \
+    esac
 
 RUN npm install --global "${CONTEXT7_PACKAGE}@${CONTEXT7_VERSION}"
 
+# The real UID-0 account is named floki. passwd, group, HOME, hostname, and the
+# persistent working directory all agree; this is not a spoofed prompt.
+# The stock D-Bus policy only lets the user literally named "root" own
+# org.freedesktop.systemd1; without this override PID 1 (uid 0 = floki) cannot
+# join the system bus and transient systemd-run units for run-scoped RSI,
+# night-training, and REM process ownership time out.
+RUN set -eux; \
+    rm -f /usr/sbin/policy-rc.d; \
+    mkdir -p /etc/dbus-1/system.d; \
+    printf '%s\n' \
+      '<?xml version="1.0"?>' \
+      '<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"' \
+      ' "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">' \
+      '<busconfig>' \
+      '  <policy user="floki">' \
+      '    <allow own="org.freedesktop.systemd1"/>' \
+      '    <allow own="org.freedesktop.login1"/>' \
+      '    <allow send_destination="org.freedesktop.systemd1"/>' \
+      '    <allow receive_sender="org.freedesktop.systemd1"/>' \
+      '  </policy>' \
+      '</busconfig>' \
+      > /etc/dbus-1/system.d/floki-uid0-systemd.conf; \
+    sed -ri 's#^root:x:0:0:[^:]*:/root:/bin/bash$#floki:x:0:0:Floki:/home/floki:/bin/bash#' /etc/passwd; \
+    sed -ri 's/^root:/floki:/' /etc/shadow; \
+    sed -ri 's/^root:x:0:/floki:x:0:/' /etc/group; \
+    if [ -f /etc/gshadow ]; then sed -ri 's/^root:/floki:/' /etc/gshadow; fi; \
+    mkdir -p /home/floki/Floki-v2 /home/floki/.cache/npm /home/floki/.cache/pip; \
+    printf '%s\n' \
+      "export HOME=/home/floki" \
+      "export USER=floki" \
+      "export LOGNAME=floki" \
+      "export PS1='\\u@\\h:\\w\\$ '" \
+      > /home/floki/.bashrc; \
+    chown -R 0:0 /home/floki
+
+ENV HOME=/home/floki
+ENV USER=floki
+ENV LOGNAME=floki
+
 COPY agent.cjs /opt/floki-self-improvement/agent.cjs
-WORKDIR ${WORKSPACE_PATH}
-ENTRYPOINT ["node", "/opt/floki-self-improvement/agent.cjs"]
+WORKDIR /home/floki/Floki-v2
+ENTRYPOINT ["/sbin/init"]

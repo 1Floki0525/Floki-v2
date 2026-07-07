@@ -1,0 +1,301 @@
+{
+  "marker": "FLOKI_V2_RSI_SKILLS_MANIFEST",
+  "schema_version": 1,
+  "generated_purpose": "Progressive RSI skill index; skills load only when their triggers match the active task.",
+  "skills": [
+    {
+      "id": "config-transport-repair",
+      "name": "Configuration transport repair",
+      "description": "Add or fix a YAML-driven setting end to end through the chat config layer.",
+      "instruction_file": "config-transport-repair/SKILL.md",
+      "triggers": [
+        "config",
+        "yaml",
+        "setting",
+        "transport",
+        "getSelfImprovementConfig",
+        "chat.config",
+        "hardcoded"
+      ],
+      "references": [
+        "config/chat.config.yaml.temp",
+        "src/config/floki-config.cjs",
+        "src/self-improvement/config.cjs",
+        "tests/no-hardcoded-runtime-config-contract-test.cjs"
+      ]
+    },
+    {
+      "id": "runtime-crash-investigation",
+      "name": "Runtime crash investigation",
+      "description": "Diagnose a chat-local runtime crash or watchdog failure from logs and ownership.",
+      "instruction_file": "runtime-crash-investigation/SKILL.md",
+      "triggers": [
+        "crash",
+        "runtime",
+        "watchdog",
+        "exit",
+        "restart",
+        "supervisor",
+        "sentinel",
+        "ENOENT"
+      ],
+      "references": [
+        "src/runtime/chat-local-runtime.cjs",
+        "src/runtime/chat-local-supervisor-lease.cjs",
+        "src/runtime/chat-local-cleanup-ownership.cjs",
+        "tests/chat-local-runtime-watchdog-resilience-contract-test.cjs"
+      ]
+    },
+    {
+      "id": "denied-candidate-revision",
+      "name": "Denied candidate revision",
+      "description": "Revise a denied RSI candidate so it satisfies the denial requirements and its eval.",
+      "instruction_file": "denied-candidate-revision/SKILL.md",
+      "triggers": [
+        "denied",
+        "denial",
+        "revision",
+        "rejected",
+        "compare_to_denial",
+        "duplicate"
+      ],
+      "references": [
+        "src/self-improvement/promotion.cjs",
+        "src/self-improvement/store.cjs",
+        "src/self-improvement/memory-writer.cjs"
+      ]
+    },
+    {
+      "id": "behavioral-test-design",
+      "name": "Behavioral test design",
+      "description": "Design a focused test that executes real production logic and asserts behavior change.",
+      "instruction_file": "behavioral-test-design/SKILL.md",
+      "triggers": [
+        "test",
+        "contract",
+        "behavioral",
+        "assert",
+        "focused",
+        "verification"
+      ],
+      "references": [
+        "tests/self-improvement-contract-test.cjs",
+        "tests/self-improvement-run-now-immediate-contract-test.cjs"
+      ]
+    },
+    {
+      "id": "react-layout-repair",
+      "name": "React layout repair",
+      "description": "Fix RSI UI layout so the page is fixed to the viewport with bounded scrolling panels.",
+      "instruction_file": "react-layout-repair/SKILL.md",
+      "triggers": [
+        "react",
+        "ui",
+        "layout",
+        "scroll",
+        "viewport",
+        "panel",
+        "RSILab",
+        "SelfImprovementPanel"
+      ],
+      "references": [
+        "apps/floki-neural-interface/src/pages/RSILab.jsx",
+        "apps/floki-neural-interface/src/components/system/SelfImprovementPanel.jsx"
+      ]
+    },
+    {
+      "id": "node-process-ownership",
+      "name": "Node process ownership",
+      "description": "Reason about which process owns the runtime, worker, and sandbox to avoid double backends.",
+      "instruction_file": "node-process-ownership/SKILL.md",
+      "triggers": [
+        "process",
+        "ownership",
+        "pid",
+        "lease",
+        "singleton",
+        "SIGUSR1",
+        "SIGTERM",
+        "worker"
+      ],
+      "references": [
+        "src/self-improvement/worker.cjs",
+        "src/runtime/chat-local-supervisor-lease.cjs",
+        "tests/chat-local-supervisor-ownership-contract-test.cjs"
+      ]
+    },
+    {
+      "id": "memory-schema-repair",
+      "name": "Memory schema repair",
+      "description": "Fix structured memory records (engineering/personal) and durable learning writes.",
+      "instruction_file": "memory-schema-repair/SKILL.md",
+      "triggers": [
+        "memory",
+        "schema",
+        "hippocampus",
+        "capsule",
+        "engineering memory",
+        "learning record"
+      ],
+      "references": [
+        "src/self-improvement/memory-writer.cjs",
+        "brain/hippocampus/index.cjs"
+      ]
+    },
+    {
+      "id": "audio-pipeline-debugging",
+      "name": "Audio pipeline debugging",
+      "description": "Debug hearing/speech (Whisper/VAD/Piper) without breaking the chat loop.",
+      "instruction_file": "audio-pipeline-debugging/SKILL.md",
+      "triggers": [
+        "audio",
+        "whisper",
+        "vad",
+        "piper",
+        "hearing",
+        "speech",
+        "microphone",
+        "voice"
+      ],
+      "references": [
+        "src/senses/whisper-transcription-smoke.cjs",
+        "src/senses/vad-speech-detection.cjs",
+        "src/senses/chat-hearing-loop.cjs"
+      ]
+    },
+    {
+      "id": "vision-readiness-repair",
+      "name": "Vision readiness repair",
+      "description": "Repair webcam/YOLO/vision readiness and suspend/restore around GPU training.",
+      "instruction_file": "vision-readiness-repair/SKILL.md",
+      "triggers": [
+        "vision",
+        "webcam",
+        "yolo",
+        "camera",
+        "eyes",
+        "readiness",
+        "grounding dino"
+      ],
+      "references": [
+        "src/vision",
+        "src/runtime/vision-reconciler.cjs",
+        "tests/vision-status-contract-test.cjs"
+      ]
+    },
+    {
+      "id": "candidate-review",
+      "name": "Candidate review",
+      "description": "Independently review an RSI candidate at the sandbox/production boundary.",
+      "instruction_file": "candidate-review/SKILL.md",
+      "triggers": [
+        "candidate",
+        "review",
+        "critic",
+        "promotion",
+        "approval",
+        "evidence"
+      ],
+      "references": [
+        "src/self-improvement/promoter.cjs",
+        "src/self-improvement/promotion.cjs"
+      ]
+    },
+    {
+      "id": "research-to-experiment",
+      "name": "Research to experiment",
+      "description": "Translate external research into a concrete, locally verifiable experiment.",
+      "instruction_file": "research-to-experiment/SKILL.md",
+      "triggers": [
+        "research",
+        "arxiv",
+        "crossref",
+        "paper",
+        "context7",
+        "experiment",
+        "provenance"
+      ],
+      "references": [
+        "src/self-improvement/research-corpus.cjs",
+        "config/rsi-research-corpus.json"
+      ]
+    },
+    {
+      "id": "training-dataset-design",
+      "name": "Training dataset design",
+      "description": "Build attributable QLoRA datasets from bounded approved local sources.",
+      "instruction_file": "training-dataset-design/SKILL.md",
+      "triggers": [
+        "dataset",
+        "training data",
+        "manifest",
+        "provenance",
+        "sha256",
+        "corpus",
+        "qlora"
+      ],
+      "references": [
+        "SOUL.md",
+        "brain/hippocampus/index.cjs"
+      ]
+    },
+    {
+      "id": "qlora-training",
+      "name": "QLoRA training",
+      "description": "Run QLoRA training from the immutable HF master to a versioned candidate adapter.",
+      "instruction_file": "qlora-training/SKILL.md",
+      "triggers": [
+        "qlora",
+        "lora",
+        "training",
+        "adapter",
+        "safetensors",
+        "huggingface",
+        "checkpoint",
+        "gpu"
+      ],
+      "references": [
+        "containers/self-improvement-training/Containerfile",
+        "containers/self-improvement-training/train_qlora.py"
+      ]
+    },
+    {
+      "id": "adapter-evaluation",
+      "name": "Adapter evaluation",
+      "description": "Independently evaluate a candidate adapter before any activation.",
+      "instruction_file": "adapter-evaluation/SKILL.md",
+      "triggers": [
+        "eval",
+        "evaluation",
+        "adapter",
+        "benchmark",
+        "forgetting",
+        "promotion gate"
+      ],
+      "references": [
+        "src/self-improvement/promoter.cjs"
+      ]
+    },
+    {
+      "id": "nightly-gpu-scheduling",
+      "name": "Nightly GPU scheduling",
+      "description": "Coordinate nightly training with REM cycles and GPU ownership exclusivity.",
+      "instruction_file": "nightly-gpu-scheduling/SKILL.md",
+      "triggers": [
+        "nightly",
+        "rem",
+        "sleep",
+        "gpu",
+        "schedule",
+        "ownership",
+        "wake",
+        "checkpoint"
+      ],
+      "references": [
+        "src/chat/sleep-cycle.cjs",
+        "src/chat/dream-engine.cjs",
+        "tests/nightly-rem-runtime-integration-contract-test.cjs"
+      ]
+    }
+  ]
+}

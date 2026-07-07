@@ -28,7 +28,11 @@ function walk(directory, callback) {
 }
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
 
   for (const name of ['chat.config.yaml', 'game.config.yaml']) {
     const file = path.join(CONFIG_DIR, name);

@@ -194,18 +194,18 @@ async function main() {
 
   assert.match(
     mainSource,
-    /ipcMain\.handle\('floki:open-log'[\s\S]*shell\.showItemInFolder\(result\.path\)/
-  );
-
-  assert.match(
-    mainSource,
-    /void shell\.openPath\(result\.path\)/
+    /ipcMain\.handle\('floki:open-log'[\s\S]*text:\s*String\(result\.text \|\| ''\)/
   );
 
   assert.doesNotMatch(
     mainSource,
-    /await shell\.openPath\(result\.path\)/,
-    'log opening must not block the IPC reply on desktop opener completion'
+    /shell\.openPath/
+  );
+
+  assert.doesNotMatch(
+    mainSource,
+    /shell\.showItemInFolder/,
+    'Electron log opening must use in-app workspace content, not host filesystem openers'
   );
 
   // Run Now must use a client timeout derived from the server sandbox-start

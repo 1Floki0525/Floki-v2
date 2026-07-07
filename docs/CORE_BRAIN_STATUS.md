@@ -6,11 +6,11 @@ This is read-only introspection. It does not call qwen. It does not call whisper
 
 Command:
 
-bash bin/floki-start.sh brain-status chat
+bash bin/floki-node24-run.sh node src/brain/core-brain-status.cjs chat
 
 or:
 
-bash bin/floki-start.sh brain-status game
+bash bin/floki-node24-run.sh node src/brain/core-brain-status.cjs game
 
 Proof:
 

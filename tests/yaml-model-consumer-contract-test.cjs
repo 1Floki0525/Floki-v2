@@ -20,9 +20,9 @@ const DEPRECATED_CONSUMER_PATTERNS = [
   [/\bsection\.model_default\b/, 'section.model_default'],
   [/\bvision\.vision_model_env\b/, 'vision.vision_model_env'],
   [/\bstatus\.vision_model_env\b/, 'status.vision_model_env'],
-  [/\bvision\.vlm_ssh_tunnel_required_model\b/, 'vision.vlm_ssh_tunnel_required_model'],
-  [/\bchatConfigYaml\.vision\.vlm_ssh_tunnel_required_model\b/, 'chatConfigYaml.vision.vlm_ssh_tunnel_required_model'],
-  [/\bgameConfigYaml\.vision\.vlm_ssh_tunnel_required_model\b/, 'gameConfigYaml.vision.vlm_ssh_tunnel_required_model'],
+  [/\bvision\.vision_required_model\b/, 'vision.vision_required_model'],
+  [/\bchatConfigYaml\.vision\.vision_required_model\b/, 'chatConfigYaml.vision.vision_required_model'],
+  [/\bgameConfigYaml\.vision\.vision_required_model\b/, 'gameConfigYaml.vision.vision_required_model'],
   [/\bresolveConfiguredModel\s*\(/, 'resolveConfiguredModel()'],
   [/\bresolvedYamlValue\s*\(/, 'resolvedYamlValue()'],
   [/resolveEnvOrDefault\(section,\s*['"]model_env['"]/, 'model environment resolver'],
@@ -64,7 +64,7 @@ function assertYamlShape() {
       assert.equal(Object.prototype.hasOwnProperty.call(section, 'model_default'), false);
     }
     assert.equal(Object.prototype.hasOwnProperty.call(raw.vision || {}, 'vision_model_env'), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(raw.vision || {}, 'vlm_ssh_tunnel_required_model'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(raw.vision || {}, 'vision_required_model'), false);
   }
 }
 
@@ -98,7 +98,11 @@ function assertEnvironmentCannotSelectModels() {
 }
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
   assertYamlShape();
   assertEnvironmentCannotSelectModels();
 
@@ -108,7 +112,7 @@ function run() {
   const status = buildVisionStatus({ active_mode: 'chat' });
 
   assert.equal(tunnel.required_model, models.vision.model);
-  assert.equal(Object.prototype.hasOwnProperty.call(vision, 'vlm_ssh_tunnel_required_model'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(vision, 'vision_required_model'), false);
   assert.equal(status.vision_model, models.vision.model);
   assert.equal(status.vision_model_source, 'config_yaml');
   assert.equal(Object.prototype.hasOwnProperty.call(status, 'vision_model_env'), false);

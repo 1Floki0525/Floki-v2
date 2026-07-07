@@ -77,7 +77,7 @@ function parseYaml(text) {
       throw new Error('Invalid YAML line ' + (lineNumber + 1) + ': ' + original);
     }
 
-    const key = match[1].trim();
+    const key = String(parseScalar(match[1].trim()));
     const rest = match[2];
 
     if (!key) {

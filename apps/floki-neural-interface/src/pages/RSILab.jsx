@@ -1,456 +1,378 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ChevronDown, FlaskConical, Terminal, AlertTriangle } from 'lucide-react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { FlaskConical } from 'lucide-react'
 import SelfImprovementPanel from '@/components/system/SelfImprovementPanel'
+import ReadOnlyXtermTerminal from '@/components/rsi/ReadOnlyXtermTerminal'
 import flokiAdapter from '@/integrations/floki/adapter'
 
-const SENSITIVE_PATTERN = /(?:api[_-]?key|token|secret|password|auth[_-]?header|authorization|cookie|credential)["\s:=]+["']?[A-Za-z0-9+/=_\-]{8,}/gi;
+// Seed values used only until the first status response delivers the
+// YAML-authoritative ui_limits (rsi_terminal_* keys in chat.config.yaml).
+const TERMINAL_BOOTSTRAP_LIMITS = Object.freeze({
+  chunk_bytes: 64 * 1024,
+  window_bytes: 2 * 1024 * 1024,
+  poll_ms: 1000
+})
 
-function redactSensitive(text) {
-  return String(text || '').replace(SENSITIVE_PATTERN, '[REDACTED]');
+// before_cursor is clamped to the file size by the backend, so the largest
+// safe integer always requests the newest bounded tail of the stream.
+const TERMINAL_TAIL_CURSOR = Number.MAX_SAFE_INTEGER
+
+function terminalLimit(uiLimits, key, bootstrap) {
+  const configured = Number(uiLimits?.[key])
+  return Number.isFinite(configured) && configured > 0 ? configured : bootstrap
 }
 
-function safeStr(v, max = 200) {
-  return String(v || '').slice(0, max);
+function terminalPollMs(uiLimits) {
+  return terminalLimit(
+    uiLimits,
+    'terminal_poll_ms',
+    terminalLimit(
+      uiLimits,
+      'terminal_bootstrap_poll_ms',
+      TERMINAL_BOOTSTRAP_LIMITS.poll_ms
+    )
+  )
 }
 
-// Split text into display lines, capped at maxLines, each line capped at maxLen chars
-function outputLines(text, maxLines = 25, maxLen = 160) {
-  if (!text) return [];
-  const lines = String(text).split(/\r?\n/);
-  const kept = lines.filter(l => l.trim() !== '' || lines.indexOf(l) < 3).slice(0, maxLines);
-  const result = kept.map(l => l.slice(0, maxLen));
-  if (lines.length > maxLines) result.push(`  … (${lines.length - maxLines} more lines)`);
-  return result;
+function terminalChunkBytes(uiLimits) {
+  return terminalLimit(
+    uiLimits,
+    'terminal_chunk_bytes',
+    TERMINAL_BOOTSTRAP_LIMITS.chunk_bytes
+  )
 }
 
-// Faithful code/diff rendering: keep every line (including blanks) so the
-// terminal shows exactly what Floki wrote, like a real editor view.
-function codeLines(text, maxLines = 400, maxLen = 240) {
-  if (!text) return [];
-  const lines = String(text).split(/\r?\n/);
-  const kept = lines.slice(0, maxLines).map(l => l.slice(0, maxLen));
-  if (lines.length > maxLines) kept.push(`  … (${lines.length - maxLines} more lines)`);
-  return kept;
+function terminalWindowBytes(uiLimits) {
+  return terminalLimit(
+    uiLimits,
+    'terminal_window_bytes',
+    TERMINAL_BOOTSTRAP_LIMITS.window_bytes
+  )
 }
 
-// Expand one API event item into one or more display items
-function expandToDisplayItems(item) {
-  const { source, index, record } = item;
-  const type = String(record?.type || '');
-  const de = record?.detail || {};
-  const ts = record?.created_at || null;
-  const baseId = `${source}-${index}`;
-
-  function main(text, color) {
-    return [{ id: baseId, source, ts, text: redactSensitive(text), color, isOutput: false }];
-  }
-  function withOutput(headerText, headerColor, lines, lineColor) {
-    const items = [{ id: baseId, source, ts, text: redactSensitive(headerText), color: headerColor, isOutput: false }];
-    lines.forEach((l, i) => {
-      items.push({ id: `${baseId}-out-${i}`, source: null, ts: null, text: redactSensitive(l), color: lineColor, isOutput: true });
-    });
-    return items;
-  }
-
-  if (type === 'model_turn') {
-    const thinking = Number(de.thinking_chars || 0);
-    const tools = Number(de.tool_call_count || 0);
-    const thinkStr = thinking > 0 ? ` | ${thinking} chars thinking` : '';
-    return main(`[agent] ${tools} tool call${tools !== 1 ? 's' : ''}${thinkStr}`, 'text-violet-400');
-  }
-
-  if (type === 'shell_end') {
-    const identity = safeStr(de.identity);
-    // Show the REAL command Floki ran, not just its internal label.
-    const cmd = safeStr(de.command, 400) || identity;
-    const exitCode = de.status;
-    const ms = de.duration_ms != null ? ` (${de.duration_ms}ms)` : '';
-    const isFocused = identity === 'focused_test';
-    const prefix = isFocused ? '[test]' : '[shell]';
-    const tag = identity && identity !== cmd ? ` ${identity}:` : '';
-    const ok = exitCode === 0;
-    const headerColor = ok ? 'text-foreground/80' : 'text-orange-300';
-    const header = `${prefix}${tag} $ ${cmd} → exit ${exitCode}${ms}`;
-
-    if (ok) {
-      const stdout = safeStr(de.stdout, 12000);
-      const lines = outputLines(stdout, 40, 200);
-      if (lines.length === 0) return main(header, headerColor);
-      return withOutput(header, headerColor, lines, 'text-foreground/50');
-    } else {
-      // On failure: stderr takes priority, fallback to stdout
-      const errText = safeStr(de.stderr, 12000) || safeStr(de.stdout, 12000);
-      const lines = outputLines(errText, 50, 200);
-      if (lines.length === 0) return main(header, headerColor);
-      return withOutput(header, headerColor, lines, 'text-orange-200/70');
+// Raw PTY sources deliver base64 bytes; plain log sources deliver utf8 text.
+// Both become a Uint8Array written to xterm without any sanitization.
+function decodeTerminalBytes(payload) {
+  if (payload?.encoding === 'base64' && payload.data_base64) {
+    const binary = atob(String(payload.data_base64))
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index)
     }
+    return bytes
   }
+  return new TextEncoder().encode(String(payload?.text || ''))
+}
 
-  if (type === 'shell_progress') {
-    const identity = safeStr(de.identity);
-    const cmd = safeStr(de.command, 400) || identity;
-    const tag = identity && identity !== cmd ? ` ${identity}:` : '';
-    const elapsed = de.elapsed_ms != null ? ` (${Math.round(de.elapsed_ms / 1000)}s)` : '';
-    return main(`[shell]${tag} $ ${cmd}${elapsed} …`, 'text-foreground/50');
+function chunkFromPayload(payload, bytes) {
+  return Object.freeze({
+    start: Number(payload.cursor || 0),
+    end: Number(payload.next_cursor || 0),
+    bytes
+  })
+}
+
+function windowByteTotal(chunks) {
+  return chunks.reduce((sum, chunk) => sum + chunk.bytes.length, 0)
+}
+
+// Bound the replay window from the oldest side as the append poll grows it.
+function boundChunksFromStart(chunks, maxBytes) {
+  let total = windowByteTotal(chunks)
+  let index = 0
+  while (index < chunks.length - 1 && total > maxBytes) {
+    total -= chunks[index].bytes.length
+    index += 1
   }
+  return { chunks: index > 0 ? chunks.slice(index) : chunks, dropped: index > 0 }
+}
 
-  if (type === 'write_file') {
-    const filePath = safeStr(de.path);
-    const bytes = de.bytes != null ? ` (${de.bytes} bytes)` : '';
-    const lc = de.line_count != null ? `, ${de.line_count} lines` : '';
-    const changed = de.workspace_changed ? '' : ' [noop]';
-    const header = `[write] ${filePath}${bytes ? bytes.replace(')', lc + ')') : ''}${changed}`;
-    // Bounded preview field (content_preview); fall back to legacy `content`.
-    const preview = de.content_preview != null ? de.content_preview : de.content;
-    const lines = codeLines(preview);
-    if (de.content_truncated) lines.push('  … (content truncated — preview only)');
-    if (lines.length === 0) return main(header, 'text-sky-400/80');
-    return withOutput(header, 'text-sky-400/80', lines, 'text-sky-200/50');
+// Bound the replay window from the newest side when Load Older grows it; any
+// dropped tail bytes are re-fetched by the append poll from the new end
+// cursor, so no output is lost.
+function boundChunksFromEnd(chunks, maxBytes) {
+  let total = windowByteTotal(chunks)
+  let endIndex = chunks.length
+  while (endIndex > 1 && total > maxBytes) {
+    total -= chunks[endIndex - 1].bytes.length
+    endIndex -= 1
   }
-
-  if (type === 'apply_patch') {
-    const filePath = safeStr(
-      de.path || de.file || (Array.isArray(de.paths) ? de.paths.join(', ') : '')
-    );
-    const header = `[patch] ${filePath}`;
-    // Bounded diff preview (patch_preview); fall back to legacy `patch`.
-    const patchText = safeStr(de.patch_preview != null ? de.patch_preview : de.patch, 60000);
-    const raw = codeLines(patchText);
-    if (de.patch_truncated) raw.push('  … (diff truncated — preview only)');
-    if (raw.length === 0) return main(header, 'text-sky-400/80');
-    const items = [{ id: baseId, source, ts, text: redactSensitive(header), color: 'text-sky-400/80', isOutput: false }];
-    raw.forEach((l, i) => {
-      let color = 'text-foreground/45';
-      if (l.startsWith('+') && !l.startsWith('+++')) color = 'text-emerald-300/70';
-      else if (l.startsWith('-') && !l.startsWith('---')) color = 'text-red-300/70';
-      else if (l.startsWith('@@')) color = 'text-neon-cyan/60';
-      items.push({ id: `${baseId}-p-${i}`, source: null, ts: null, text: redactSensitive(l), color, isOutput: true });
-    });
-    return items;
+  return {
+    chunks: endIndex < chunks.length ? chunks.slice(0, endIndex) : chunks,
+    dropped: endIndex < chunks.length
   }
+}
 
-  if (type === 'write_memory') {
-    const stream = safeStr(de.stream || 'episodic');
-    const summary = safeStr(de.summary, 120);
-    return main(`[memory:${stream}] ${summary}`, 'text-indigo-300/80');
+function emptyTerminalState(revision = 0) {
+  return {
+    sourceId: /** @type {string | null} */ (null),
+    sourceKind: /** @type {string | null} */ (null),
+    runId: /** @type {string | null} */ (null),
+    startCursor: 0,
+    endCursor: 0,
+    fileSize: 0,
+    hasOlder: false,
+    active: false,
+    revision,
+    revisionKind: /** @type {string} */ ('reset'),
+    chunks: /** @type {Array<{ start: number, end: number, bytes: Uint8Array }>} */ ([])
   }
-
-  if (type === 'convergence_state') {
-    const s = de;
-    const obj = s?.selected_experiment?.objective
-      ? ` — "${String(s.selected_experiment.objective).slice(0, 80)}"`
-      : '';
-    return main(
-      `[state] ${s?.phase || '?'} iter=${s?.iteration || '?'} writes=${s?.write_count || 0} verif=${s?.verification_runs || 0}${obj}`,
-      'text-muted-foreground/50'
-    );
-  }
-
-  if (type === 'convergence_phase') {
-    return main(`[phase→] ${de.phase || ''} (${de.reason || ''})`, 'text-neon-cyan/60');
-  }
-
-  if (type === 'convergence_block') {
-    const tool = de.tool || '';
-    const need = (de.allowed_next_tools || []).join(', ');
-    return main(`[BLOCKED] ${tool} — next: ${need}`, 'text-orange-400');
-  }
-
-  if (type === 'convergence_advisory') {
-    return main(`[advisory] ${de.reason || ''}`, 'text-muted-foreground/50');
-  }
-
-  if (type === 'select_experiment_rejected') {
-    const errText = safeStr(de.error, 2000);
-    const lines = errText.split('\n').filter(Boolean).slice(0, 10).map(l => l.slice(0, 150));
-    const header = `[select REJECTED] ${(lines[0] || '').slice(0, 140)}`;
-    const rest = lines.slice(1);
-    if (rest.length === 0) return main(header, 'text-orange-400');
-    return withOutput(header, 'text-orange-400', rest, 'text-orange-300/60');
-  }
-
-  if (type === 'experiment_selected') {
-    const obj = safeStr(de.experiment?.objective, 200);
-    const focusedTest = safeStr(de.experiment?.focused_test, 120);
-    const lines = focusedTest ? [`focused_test: ${focusedTest}`] : [];
-    return withOutput(`[SELECTED] ${obj}`, 'text-emerald-400', lines, 'text-emerald-300/60');
-  }
-
-  if (type === 'implementation_started') {
-    return main(`[impl] ${safeStr(de.experiment?.objective, 120)}`, 'text-emerald-300/80');
-  }
-
-  if (type === 'no_candidate') {
-    return main(`[no candidate] ${de.reason || ''}`, 'text-yellow-400');
-  }
-
-  if (type === 'candidate_finalized' || type === 'candidate_auto_finalized_after_verification') {
-    return main(`[CANDIDATE READY] ${safeStr(de.objective, 120)}`, 'text-emerald-300 font-bold');
-  }
-
-  if (type === 'sandbox_started') {
-    return main(`[sandbox] started — ${de.run_id || ''}`, 'text-neon-cyan');
-  }
-
-  if (type === 'cycle_no_candidate') {
-    return main(`[cycle end] no candidate — ${de.reason || ''}`, 'text-yellow-400');
-  }
-
-  if (type === 'cycle_failed') {
-    const errText = safeStr(de.error, 2000);
-    const lines = outputLines(errText, 10, 150);
-    const header = `[cycle FAILED] ${(lines[0] || de.reason || '').slice(0, 120)}`;
-    return withOutput(header, 'text-red-400', lines.slice(1), 'text-red-300/60');
-  }
-
-  if (type === 'cycle_preempted') {
-    return main(`[preempted] ${de.reason || ''}`, 'text-muted-foreground/60');
-  }
-
-  if (type === 'fatal') {
-    return main(`[FATAL] ${safeStr(de.error, 150)}`, 'text-red-400 font-bold');
-  }
-
-  if (type === 'parse_error') {
-    return main(`[parse error] ${safeStr(record.raw, 100)}`, 'text-red-400/60');
-  }
-
-  if (type === 'selection_anchor_reminder') {
-    return main(`[reminder] select_experiment — iter ${de.iteration || '?'}`, 'text-muted-foreground/40');
-  }
-
-  if (type === 'context_compacted') {
-    return main(
-      `[compact] ${de.before_chars || '?'} → ${de.after_chars || '?'} chars (kept ${de.retained_messages || '?'} msgs)`,
-      'text-muted-foreground/40'
-    );
-  }
-
-  if (type === 'git') {
-    const args = Array.isArray(de.args) ? de.args.join(' ') : safeStr(de.args);
-    const status = de.status != null ? ` → ${de.status}` : '';
-    if (!args) return main(`[git]`, 'text-muted-foreground/30');
-    return main(`[git] git ${args.slice(0, 80)}${status}`, 'text-muted-foreground/40');
-  }
-
-  if (type === 'candidate_imported') {
-    return main(`[imported] candidate ${de.candidate_id || ''}`, 'text-emerald-400');
-  }
-
-  if (type === 'candidate_denied_by_maker') {
-    return main(`[DENIED] ${safeStr(de.reason, 150)}`, 'text-red-400');
-  }
-
-  if (type === 'candidate_approved_by_maker') {
-    return main(`[APPROVED] ${de.candidate_id || ''}`, 'text-emerald-400 font-bold');
-  }
-
-  if (type === 'worker_started') return main('[worker] started', 'text-neon-cyan/60');
-  if (type === 'worker_cycle_start') return main('[worker] cycle starting', 'text-neon-cyan/60');
-
-  // Skip extremely noisy low-value events entirely
-  if (['finalize_git_add', 'sandbox_heartbeat', 'worker_heartbeat'].includes(type)) return [];
-
-  return main(type.replaceAll('_', ' '), 'text-foreground/40');
 }
 
 function RSITerminal() {
-  const [events, setEvents] = useState([])
-  const [error, setError] = useState(null)
-  const [phase, setPhase] = useState(null)
-  const [runId, setRunId] = useState(null)
-  const [atBottom, setAtBottom] = useState(true)
-  const [pendingCount, setPendingCount] = useState(0)
-
-  const auditCursorRef = useRef(null)
-  const sandboxCursorRef = useRef(0)
-  const sandboxLogFileRef = useRef(null)
-  const runIdRef = useRef(null)
-  const atBottomRef = useRef(true)
-  const pendingEventsRef = useRef([])
-  const containerRef = useRef(null)
-  const activeRef = useRef(false)
-
-  atBottomRef.current = atBottom;
-
-  const flushPending = useCallback(() => {
-    if (pendingEventsRef.current.length > 0) {
-      setEvents(prev => [...prev, ...pendingEventsRef.current].slice(-3000));
-      pendingEventsRef.current = [];
-      setPendingCount(0);
-    }
-  }, []);
-
-  const appendEvents = useCallback((newItems) => {
-    if (newItems.length === 0) return;
-    if (atBottomRef.current) {
-      setEvents(prev => [...prev, ...newItems].slice(-3000));
-    } else {
-      pendingEventsRef.current = [...pendingEventsRef.current, ...newItems];
-      setPendingCount(pendingEventsRef.current.length);
-    }
-  }, []);
-
-  const jumpToBottom = useCallback(() => {
-    setAtBottom(true);
-    flushPending();
-    if (containerRef.current) containerRef.current.scrollTop = containerRef.current.scrollHeight;
-  }, [flushPending]);
-
-  const handleScroll = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const nowAtBottom = distFromBottom < 60;
-    if (nowAtBottom && !atBottomRef.current) { setAtBottom(true); flushPending(); }
-    else if (!nowAtBottom && atBottomRef.current) { setAtBottom(false); }
-  }, [flushPending]);
-
-  // Pin to the bottom BEFORE the browser paints so backfilled/streamed lines
-  // never flash at the top and then jump — the view stays a smooth live tail.
-  useLayoutEffect(() => {
-    if (atBottom && containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  }, [events, atBottom]);
+  const [terminal, setTerminal] = useState(() => emptyTerminalState());
+  const [status, setStatus] = useState(null);
+  const [error, setError] = useState('');
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [aborting, setAborting] = useState(false);
+  const [following, setFollowing] = useState(true);
+  const terminalRef = useRef(terminal);
+  const uiLimitsRef = useRef(null);
+  const xtermRef = useRef(null);
 
   useEffect(() => {
-    activeRef.current = true;
-    let timer = null;
+    terminalRef.current = terminal;
+  }, [terminal]);
 
-    const poll = async () => {
-      if (!activeRef.current) return;
-      try {
-        // On first load, backfill the current run from the TOP (cursor 0) so the
-        // terminal reads top-down with full scrollback, exactly like a real
-        // terminal session. Afterwards, tail incrementally from the saved cursor.
-        const isInit = auditCursorRef.current === null;
-        const params = isInit
-          ? { audit_cursor: 0, sandbox_cursor: 0, limit: 500 }
-          : { audit_cursor: auditCursorRef.current, sandbox_cursor: sandboxCursorRef.current, limit: 200 };
-
-        const result = await flokiAdapter.getSelfImprovementActivity(params);
-        if (!activeRef.current) return;
-
-        if (result?.ok) {
-          const newRunId = result.run_id || null;
-          const newSandboxFile = result.sandbox_log_file || null;
-
-          // A new sandbox run started: clear the view and backfill the new log
-          // from the top on the next poll (cursor reset to 0). Skip appending
-          // this round so we don't mix events read at the old offset.
-          if (!isInit && newSandboxFile !== sandboxLogFileRef.current) {
-            sandboxLogFileRef.current = newSandboxFile;
-            sandboxCursorRef.current = 0;
-            pendingEventsRef.current = [];
-            setPendingCount(0);
-            setEvents([]);
-            setAtBottom(true);
-            if (newRunId !== runIdRef.current) { runIdRef.current = newRunId; setRunId(newRunId); }
-            if (result.phase) setPhase(result.phase);
-            setError(null);
-          } else {
-            if (isInit) {
-              sandboxLogFileRef.current = newSandboxFile;
-              runIdRef.current = newRunId;
-              setRunId(newRunId);
-            } else if (newRunId !== runIdRef.current) {
-              runIdRef.current = newRunId;
-              setRunId(newRunId);
-            }
-
-            auditCursorRef.current = result.next_audit_cursor ?? (auditCursorRef.current ?? 0);
-            sandboxCursorRef.current = result.next_sandbox_cursor ?? (sandboxCursorRef.current ?? 0);
-
-            // Expand each API event into one or more display lines (top-down order)
-            const displayItems = (result.events || []).flatMap(item => {
-              try { return expandToDisplayItems(item); } catch (_) { return []; }
-            });
-            appendEvents(displayItems);
-
-            if (result.phase) setPhase(result.phase);
-            setError(null);
-          }
+  const applyChunk = useCallback((payload, mode = 'append') => {
+    if (!payload || payload.ok !== true) return;
+    setTerminal((current) => {
+      const windowBytes = terminalWindowBytes(uiLimitsRef.current);
+      if (mode === 'reset') {
+        if (!payload.source_id) {
+          // No selectable source: keep showing empty state, but only bump
+          // the revision when an existing source actually disappeared.
+          return current.sourceId
+            ? emptyTerminalState(current.revision + 1)
+            : current;
         }
-      } catch (err) {
-        if (activeRef.current) setError(err.message);
+        const bytes = decodeTerminalBytes(payload);
+        return {
+          sourceId: payload.source_id,
+          sourceKind: payload.source_kind || null,
+          runId: payload.run_id || null,
+          startCursor: Number(payload.cursor || 0),
+          endCursor: Number(payload.next_cursor || 0),
+          fileSize: Number(payload.file_size || 0),
+          hasOlder: payload.has_older === true,
+          active: payload.active === true,
+          revision: current.revision + 1,
+          revisionKind: 'reset',
+          chunks: bytes.length > 0 ? [chunkFromPayload(payload, bytes)] : []
+        };
       }
-      if (activeRef.current) timer = setTimeout(poll, 2000);
-    };
+      if (!current.sourceId || payload.source_id !== current.sourceId) {
+        return current;
+      }
+      if (mode === 'older') {
+        const bytes = decodeTerminalBytes(payload);
+        if (bytes.length === 0) {
+          return { ...current, hasOlder: payload.has_older === true };
+        }
+        const grown = [chunkFromPayload(payload, bytes), ...current.chunks];
+        const bounded = boundChunksFromEnd(grown, windowBytes);
+        const lastChunk = bounded.chunks[bounded.chunks.length - 1];
+        return {
+          ...current,
+          startCursor: Number(payload.cursor || 0),
+          endCursor: lastChunk ? lastChunk.end : Number(payload.next_cursor || 0),
+          fileSize: Number(payload.file_size || current.fileSize),
+          hasOlder: payload.has_older === true,
+          active: payload.active === true,
+          revision: current.revision + 1,
+          revisionKind: 'older',
+          chunks: bounded.chunks
+        };
+      }
+      if (Number(payload.cursor) !== current.endCursor) {
+        return current;
+      }
+      const bytes = decodeTerminalBytes(payload);
+      if (bytes.length === 0) {
+        return {
+          ...current,
+          fileSize: Number(payload.file_size || current.fileSize),
+          hasOlder: current.hasOlder || payload.has_older === true,
+          active: payload.active === true
+        };
+      }
+      const grown = [...current.chunks, chunkFromPayload(payload, bytes)];
+      const bounded = boundChunksFromStart(grown, windowBytes);
+      return {
+        ...current,
+        sourceKind: payload.source_kind || current.sourceKind,
+        runId: payload.run_id || current.runId,
+        startCursor: bounded.chunks[0] ? bounded.chunks[0].start : current.startCursor,
+        endCursor: Number(payload.next_cursor || current.endCursor),
+        fileSize: Number(payload.file_size || current.fileSize),
+        hasOlder: current.hasOlder || bounded.dropped || payload.has_older === true,
+        active: payload.active === true,
+        chunks: bounded.chunks
+      };
+    });
+  }, []);
 
-    poll();
+  useEffect(() => {
+    let stopped = false;
+    let timer = null;
+    const poll = async () => {
+      try {
+        const current = terminalRef.current;
+        const request = current.sourceId
+          ? { cursor: current.endCursor, max_bytes: terminalChunkBytes(uiLimitsRef.current) }
+          : { before_cursor: TERMINAL_TAIL_CURSOR, max_bytes: terminalChunkBytes(uiLimitsRef.current) };
+        let [payload, nextStatus] = await Promise.all([
+          flokiAdapter.getSelfImprovementTerminal(request),
+          flokiAdapter.getSelfImprovementStatus()
+        ]);
+        if (stopped) return;
+        let mode = current.sourceId ? 'append' : 'reset';
+        const sourceSwitched = Boolean(
+          current.sourceId &&
+          payload?.source_id &&
+          payload.source_id !== current.sourceId
+        );
+        const cursorDiscontinuity = Boolean(
+          mode === 'append' &&
+          !sourceSwitched &&
+          payload?.ok === true &&
+          Number(payload.cursor) !== current.endCursor
+        );
+        if (sourceSwitched || cursorDiscontinuity) {
+          // Reset and reload the newest bounded tail: either the backend
+          // switched sources or the byte stream is no longer continuous
+          // (for example the file was truncated in place).
+          payload = await flokiAdapter.getSelfImprovementTerminal({
+            before_cursor: TERMINAL_TAIL_CURSOR,
+            max_bytes: terminalChunkBytes(uiLimitsRef.current)
+          });
+          if (stopped) return;
+          mode = 'reset';
+        }
+        applyChunk(payload, mode);
+        if (nextStatus?.ui_limits) uiLimitsRef.current = nextStatus.ui_limits;
+        setStatus(nextStatus);
+        setError('');
+      } catch (pollError) {
+        if (!stopped) setError(pollError?.message || String(pollError));
+      } finally {
+        if (!stopped) timer = setTimeout(poll, terminalPollMs(uiLimitsRef.current));
+      }
+    };
+    void poll();
     return () => {
-      activeRef.current = false;
+      stopped = true;
       if (timer) clearTimeout(timer);
     };
-  }, [appendEvents]);
+  }, [applyChunk]);
+
+  const loadOlder = useCallback(async () => {
+    if (!terminalRef.current.hasOlder || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const current = terminalRef.current;
+      const payload = await flokiAdapter.getSelfImprovementTerminal({
+        before_cursor: current.startCursor,
+        max_bytes: terminalChunkBytes(uiLimitsRef.current),
+        source_id: current.sourceId
+      });
+      applyChunk(payload, 'older');
+      setError('');
+    } catch (loadError) {
+      setError(loadError?.message || String(loadError));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [applyChunk, loadingOlder]);
+
+  const abortTraining = useCallback(async () => {
+    setAborting(true);
+    try {
+      const result = await flokiAdapter.abortSelfImprovement(
+        'training',
+        'maker_abort_training'
+      );
+      if (!result || result.verified !== true) {
+        throw new Error(result?.error || 'Training abort was not verified');
+      }
+      setStatus(await flokiAdapter.getSelfImprovementStatus());
+      setError('');
+    } catch (abortError) {
+      setError(abortError?.message || String(abortError));
+    } finally {
+      setAborting(false);
+    }
+  }, []);
+
+  const trainingAbortAvailable = Boolean(
+    status &&
+    (status.active_run_kind || status.active_kind) === 'training' &&
+    !['aborted', 'completed', 'inactive'].includes(String(status.observed_state || ''))
+  );
 
   return (
-    <div className="flex flex-col rounded-lg border border-neon-cyan/20 bg-black/40 overflow-hidden h-full" data-testid="rsi-terminal">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-black/20 flex-none">
-        <div className="flex items-center gap-2 min-w-0">
-          <Terminal className="w-4 h-4 text-neon-cyan flex-none" />
-          <span className="text-xs font-mono text-neon-cyan tracking-wide flex-none">RSI TERMINAL</span>
-          {phase && <span className="text-[10px] font-mono text-muted-foreground ml-1 flex-none">{phase.replaceAll('_', ' ')}</span>}
-          {runId && <span className="text-[10px] font-mono text-muted-foreground/60 ml-1 truncate">{runId}</span>}
+    <section className="flex w-full min-w-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-black/70">
+      <header className="flex flex-none flex-wrap items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
+        <div>
+          <p className="text-xs font-bold text-foreground">RSI Terminal</p>
+          <p className="text-[10px] font-mono text-muted-foreground">
+            {terminal.sourceKind || 'waiting for source'}
+            {terminal.runId ? ` · ${terminal.runId}` : ''}
+            {` · bytes ${terminal.startCursor}-${terminal.endCursor}/${terminal.fileSize}`}
+          </p>
         </div>
-        {!atBottom && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={jumpToBottom}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono border transition-colors flex-none ml-2"
-            style={{
-              borderColor: pendingCount > 0 ? 'rgba(0,255,255,0.3)' : 'rgba(255,255,255,0.15)',
-              color: pendingCount > 0 ? 'rgb(0,255,255)' : 'inherit',
-              background: pendingCount > 0 ? 'rgba(0,255,255,0.08)' : 'transparent'
-            }}
+            type="button"
+            className="rounded border border-border px-2 py-1 text-xs disabled:opacity-50"
+            onClick={loadOlder}
+            disabled={!terminal.hasOlder || loadingOlder}
           >
-            <ChevronDown className="w-3 h-3" />
-            {pendingCount > 0 ? `${pendingCount} new` : 'bottom'}
+            {loadingOlder ? 'Loading…' : 'Load older output'}
           </button>
-        )}
-      </div>
-
-      {error && (
-        <div className="px-3 py-1.5 bg-red-500/10 border-b border-red-500/20 flex items-center gap-2 text-red-400 text-xs flex-none">
-          <AlertTriangle className="w-3 h-3 flex-none" />
-          <span className="font-mono truncate">{error}</span>
+          <button
+            type="button"
+            aria-pressed={following}
+            className={
+              following
+                ? 'rounded border border-emerald-400/70 bg-emerald-500/20 px-2 py-1 text-xs text-emerald-200'
+                : 'rounded border border-border px-2 py-1 text-xs text-muted-foreground'
+            }
+            onClick={() => xtermRef.current?.followOutput()}
+          >
+            {following ? 'Following output' : 'Follow output'}
+          </button>
+          {trainingAbortAvailable && (
+            <button
+              type="button"
+              className="rounded border border-red-500/60 px-2 py-1 text-xs text-red-300 disabled:opacity-50"
+              onClick={abortTraining}
+              disabled={aborting}
+            >
+              {aborting ? 'Aborting…' : 'Abort Training'}
+            </button>
+          )}
         </div>
+      </header>
+      {error && (
+        <p className="flex-none border-b border-red-500/30 px-3 py-2 text-xs text-red-300">{error}</p>
       )}
-
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto font-mono text-[11px] leading-snug p-3 min-h-0"
-        data-testid="rsi-terminal-output"
-      >
-        {events.length === 0 && !error && (
-          <div className="text-muted-foreground/40 italic">No activity yet — waiting for RSI sandbox...</div>
-        )}
-        {events.map((item) => (
-          item.isOutput ? (
-            <div key={item.id} className={`pl-[5.5rem] py-px whitespace-pre-wrap break-words ${item.color}`}>
-              {item.text}
-            </div>
-          ) : (
-            <div key={item.id} className={`flex gap-2 py-px ${item.color}`}>
-              <span className="text-muted-foreground/25 flex-none w-[4.5rem] text-right overflow-hidden text-ellipsis whitespace-nowrap">
-                {item.ts ? new Date(item.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--'}
-              </span>
-              <span className="flex-none text-[9px] uppercase px-1 rounded border border-current/20 bg-current/5 leading-tight self-start mt-0.5">
-                {item.source === 'controller' ? 'ctrl' : item.source === 'sandbox' ? 'sbox' : '    '}
-              </span>
-              <span className="break-words min-w-0 whitespace-pre-wrap">{item.text}</span>
-            </div>
-          )
-        ))}
+      {/* Fixed, clamped terminal body: log length can never change the card
+          height, and all terminal scrolling happens inside xterm's own
+          viewport. The xterm host fills this box absolutely. */}
+      <div className="relative flex-none min-w-0 overflow-hidden h-[clamp(280px,34vh,430px)] min-h-[260px] max-h-[430px]">
+        <ReadOnlyXtermTerminal
+          ref={xtermRef}
+          revision={terminal.revision}
+          revisionKind={terminal.revisionKind}
+          chunks={terminal.chunks}
+          hasSource={Boolean(terminal.sourceId)}
+          scrollbackLines={status?.ui_limits?.terminal_event_limit}
+          atBottomThresholdPx={status?.ui_limits?.terminal_at_bottom_threshold_px}
+          onFollowingChange={setFollowing}
+        />
       </div>
-
-      <div className="px-3 py-1 border-t border-border/30 text-[10px] font-mono text-muted-foreground/40 flex justify-between flex-none">
-        <span>{events.length} lines</span>
-        <span>{atBottom ? '● live' : '○ scrolled'}</span>
-      </div>
-    </div>
-  )
+    </section>
+  );
 }
 
 export default function RSILab({ flokiStatus }) {
@@ -470,16 +392,15 @@ export default function RSILab({ flokiStatus }) {
           terminal off-screen, and overflow-y-auto scrolls its contents
           INTERNALLY (the panel's own left list / right detail / objective +
           actions stay usable without any page-level scroll). */}
-      <div className="flex-[3] min-h-0 overflow-y-auto px-6">
+      <div className="flex-[3] min-h-0 overflow-hidden min-w-0 px-6">
         <SelfImprovementPanel />
       </div>
 
-      {/* RSI terminal — anchored at the bottom with a stable flex ratio
-          (flex-[2]) and a readable floor (min-h-[16rem]) so it survives short
-          viewports like 1366x768. overflow-hidden bounds the region; the
-          RSITerminal's own flex-1 body handles internal scrolling while its
-          header/footer stay visible. */}
-      <div className="flex-[2] min-h-[16rem] overflow-hidden px-6 pb-5 pt-3">
+      {/* RSI terminal — anchored at the bottom. The card owns a fixed,
+          clamped height (see RSITerminal), so terminal content can never
+          expand the page vertically or horizontally; xterm scrolls
+          internally and FitAddon fits the cell grid to the box. */}
+      <div className="flex-none min-w-0 overflow-hidden px-6 pb-5 pt-3">
         <RSITerminal />
       </div>
     </div>

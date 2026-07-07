@@ -1,0 +1,1630 @@
+- generic [ref=f77e8]:
+  - generic [ref=f77e13]:
+    - complementary [ref=f77e15]:
+      - generic [ref=f77e17]:
+        - generic [ref=f77e19]:
+          - link [ref=f77e20] [cursor=pointer]:
+            - /url: /
+            - img [ref=f77e22]
+          - generic [ref=f77e1502]: Msrabbitrescue@gmail.com's Account
+        - navigation [ref=f77e28]:
+          - generic [ref=f77e30]:
+            - generic:
+              - generic:
+                - generic:
+                  - button:
+                    - generic:
+                      - generic:
+                        - img
+                        - generic: Quick search...
+                        - generic: Ctrl K
+                - list:
+                  - listitem:
+                    - link:
+                      - /url: /69f481da4c258c9641fcd4b7491de4b2/home
+                      - generic:
+                        - img
+                        - generic:
+                          - generic: Account home
+                  - listitem:
+                    - generic:
+                      - button:
+                        - generic:
+                          - img
+                          - generic:
+                            - generic: Recents
+                            - img
+                      - list:
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com
+                            - generic:
+                              - generic: galactic-family-hub.com
+                              - generic:
+                                - generic: Domains
+                          - generic:
+                            - button:
+                              - generic:
+                                - img
+                                - img
+                  - listitem:
+                    - generic:
+                      - button:
+                        - generic:
+                          - img
+                          - generic:
+                            - generic: Domains
+                            - img
+                      - list:
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/domains/overview
+                            - generic:
+                              - generic: Overview
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/domains/registrations
+                            - generic:
+                              - generic: Registrations
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/domains/transfers
+                            - generic:
+                              - generic: Transfers
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic: Observe
+                    - list:
+                      - listitem:
+                        - generic:
+                          - button:
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Investigate
+                                - img
+                          - list:
+                            - generic:
+                              - listitem:
+                                - button:
+                                  - generic:
+                                    - generic: Log Explorer
+                                    - img
+                              - list:
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/log-explorer/log-search
+                                    - generic:
+                                      - generic: Log search
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/trace
+                                - generic:
+                                  - generic: Trace
+                                  - generic:
+                                    - generic: Beta
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/logs
+                                - generic:
+                                  - generic: Logpush
+                      - listitem:
+                        - generic:
+                          - button:
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Analytics
+                                - img
+                          - list:
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/dashboards
+                                - generic:
+                                  - generic: Dashboards
+                                  - generic:
+                                    - generic: New
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/analytics
+                                - generic:
+                                  - generic: Account analytics
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/web-analytics
+                                - generic:
+                                  - generic: Web analytics
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic: Build
+                    - list:
+                      - listitem:
+                        - generic:
+                          - button:
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Compute
+                                - img
+                          - list:
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers-and-pages
+                                - generic:
+                                  - generic: Workers & Pages
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/observability
+                                - generic:
+                                  - generic: Observability
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers-for-platforms
+                                - generic:
+                                  - generic: Workers for Platforms
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers/containers
+                                - generic:
+                                  - generic: Containers
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers/durable-objects
+                                - generic:
+                                  - generic: Durable Objects
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers/queues
+                                - generic:
+                                  - generic: Queues
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers/workflows
+                                - generic:
+                                  - generic: Workflows
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers/browser-run
+                                - generic:
+                                  - generic: Browser Run
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers/vpc
+                                - generic:
+                                  - generic: VPC
+                                  - generic:
+                                    - generic: Beta
+                            - generic:
+                              - listitem:
+                                - button:
+                                  - generic:
+                                    - generic: Email Service
+                                    - img
+                              - list:
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/email-service/sending
+                                    - generic:
+                                      - generic: Email Sending
+                                      - generic:
+                                        - generic: Beta
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/email-service/routing
+                                    - generic:
+                                      - generic: Email Routing
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers/plans
+                                - generic:
+                                  - generic: Workers plans
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/flagship
+                                - generic:
+                                  - generic: Flagship
+                                  - generic:
+                                    - generic: Beta
+                      - listitem:
+                        - generic:
+                          - button:
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: AI
+                                - img
+                          - list:
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/ai/models
+                                - generic:
+                                  - generic: Models
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/ai/workers-ai
+                                - generic:
+                                  - generic: Workers AI
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/ai/ai-gateway
+                                - generic:
+                                  - generic: AI Gateway
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/ai/vectorize
+                                - generic:
+                                  - generic: Vectorize
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/ai/ai-search
+                                - generic:
+                                  - generic: AI Search
+                                  - generic:
+                                    - generic: Beta
+                      - listitem:
+                        - generic:
+                          - button:
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Storage & databases
+                                - img
+                          - list:
+                            - generic:
+                              - listitem:
+                                - button:
+                                  - generic:
+                                    - generic: R2 Object Storage
+                                    - img
+                              - list:
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/r2/overview
+                                    - generic:
+                                      - generic: Overview
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/r2/slurper
+                                    - generic:
+                                      - generic: Data migration
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/data-catalog
+                                - generic:
+                                  - generic: R2 Data Catalog
+                                  - generic:
+                                    - generic: Beta
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers/hyperdrive
+                                - generic:
+                                  - generic: Postgres & MySQL (Hyperdrive)
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers/kv/namespaces
+                                - generic:
+                                  - generic: Workers KV
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers/d1
+                                - generic:
+                                  - generic: D1 SQLite Database
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/workers/analytics-engine
+                                - generic:
+                                  - generic: Analytics Engine
+                            - generic:
+                              - listitem:
+                                - button:
+                                  - generic:
+                                    - generic: Pipelines
+                                    - generic:
+                                      - generic: Beta
+                                    - img
+                              - list:
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/pipelines/overview
+                                    - generic:
+                                      - generic: Pipelines
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/secrets-store
+                                - generic:
+                                  - generic: Secrets Store
+                                  - generic:
+                                    - generic: New
+                      - listitem:
+                        - generic:
+                          - button:
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Media
+                                - img
+                          - list:
+                            - generic:
+                              - listitem:
+                                - button:
+                                  - generic:
+                                    - generic: Stream
+                                    - img
+                              - list:
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/stream/plans
+                                    - generic:
+                                      - generic: Plans
+                            - generic:
+                              - listitem:
+                                - button:
+                                  - generic:
+                                    - generic: Images
+                                    - img
+                              - list:
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/images/transformations
+                                    - generic:
+                                      - generic: Transformations
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/images/hosted
+                                    - generic:
+                                      - generic: Hosted images
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/images/plans
+                                    - generic:
+                                      - generic: Plans
+                            - generic:
+                              - listitem:
+                                - button:
+                                  - generic:
+                                    - generic: Realtime
+                                    - img
+                              - list:
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/realtime/kit
+                                    - generic:
+                                      - generic: RealtimeKit
+                                      - generic:
+                                        - generic: Beta
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/realtime/turn
+                                    - generic:
+                                      - generic: TURN Server
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/realtime/sfu
+                                    - generic:
+                                      - generic: Serverless SFU
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/realtime/moq
+                                    - generic:
+                                      - generic: MoQ Relay
+                                      - generic:
+                                        - generic: Beta
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic: Protect & Connect
+                    - list:
+                      - listitem:
+                        - generic:
+                          - button:
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Application security
+                                - img
+                          - list:
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/security-center
+                                - generic:
+                                  - generic: Security insights
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/application-security/waf
+                                - generic:
+                                  - generic: WAF
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/application-security/investigate
+                                - generic:
+                                  - generic: Investigate
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/security-center/inventory
+                                - generic:
+                                  - generic: Infrastructure
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/turnstile
+                                - generic:
+                                  - generic: Turnstile
+                      - listitem:
+                        - link:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/zero-trust/landing-page
+                          - generic:
+                            - img
+                            - generic:
+                              - generic: Zero Trust
+                      - listitem:
+                        - generic:
+                          - button:
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Networking
+                                - img
+                          - list:
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/magic-networks/overview
+                                - generic:
+                                  - generic: Overview
+                                  - generic:
+                                    - generic: New
+                            - generic:
+                              - listitem:
+                                - button:
+                                  - generic:
+                                    - generic: Insights
+                                    - img
+                              - list:
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/networking-insights/analytics/network-analytics/flow-analytics
+                                    - generic:
+                                      - generic: Network flow
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/tunnels
+                                - generic:
+                                  - generic: Tunnels
+                                  - generic:
+                                    - generic: New
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/mesh
+                                - generic:
+                                  - generic: Mesh
+                                  - generic:
+                                    - generic: Beta
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/magic-networks/routes
+                                - generic:
+                                  - generic: Routes
+                            - generic:
+                              - listitem:
+                                - button:
+                                  - generic:
+                                    - generic: IP addresses
+                                    - img
+                              - list:
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/ip-addresses/address-space
+                                    - generic:
+                                      - generic: Address space
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/ip-addresses/proxy-ips
+                                    - generic:
+                                      - generic: Address maps
+                      - listitem:
+                        - generic:
+                          - button:
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Delivery & performance
+                                - img
+                          - list:
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/bulk-redirects
+                                - generic:
+                                  - generic: Bulk redirects
+                            - listitem:
+                              - link:
+                                - /url: /69f481da4c258c9641fcd4b7491de4b2/load-balancing
+                                - generic:
+                                  - generic: Load Balancing
+                            - generic:
+                              - listitem:
+                                - button:
+                                  - generic:
+                                    - generic: Web tag management
+                                    - img
+                              - list:
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/tag-management/zaraz
+                                    - generic:
+                                      - generic: Tag setup
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/tag-management/consent
+                                    - generic:
+                                      - generic: Consent
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/tag-management/history
+                                    - generic:
+                                      - generic: History
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/tag-management/monitoring
+                                    - generic:
+                                      - generic: Monitoring
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/tag-management/settings
+                                    - generic:
+                                      - generic: Settings
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/tag-management/plans
+                                    - generic:
+                                      - generic: Zaraz plans
+                                - listitem:
+                                  - link:
+                                    - /url: /69f481da4c258c9641fcd4b7491de4b2/tag-management/google-tag-gateway
+                                    - generic:
+                                      - generic: Google Tag Gateway
+                  - listitem:
+                    - generic:
+                      - button:
+                        - generic:
+                          - img
+                          - generic:
+                            - generic: Manage account
+                            - img
+                      - list:
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/members
+                            - generic:
+                              - generic: Members
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/billing
+                            - generic:
+                              - generic: Billing
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/api-tokens
+                            - generic:
+                              - generic: Account API tokens
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/oauth-clients
+                            - generic:
+                              - generic: OAuth clients
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/audit-log
+                            - generic:
+                              - generic: Audit logs
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/notifications
+                            - generic:
+                              - generic: Notifications
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/shared-configurations
+                            - generic:
+                              - generic: Shared config
+                              - generic:
+                                - generic: Alpha
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/blocked-content
+                            - generic:
+                              - generic: Blocked content
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/abuse-reports
+                            - generic:
+                              - generic: Abuse reports
+                              - generic:
+                                - generic: Beta
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/carbon
+                            - generic:
+                              - generic: Carbon Impact Report
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/configurations
+                            - generic:
+                              - generic: Configurations
+                        - listitem:
+                          - link:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/tags
+                            - generic:
+                              - generic: Tagged Resources
+                              - generic:
+                                - generic: Beta
+            - generic [ref=f77e32]:
+              - button [ref=f77e1503] [cursor=pointer]:
+                - generic [ref=f77e36]:
+                  - img [ref=f77e37]
+                  - generic [ref=f77e39]: Quick search...
+                  - generic [ref=f77e40]: Ctrl K
+              - link [ref=f77e1504] [cursor=pointer]:
+                - /url: /69f481da4c258c9641fcd4b7491de4b2/domains/overview
+                - generic [ref=f77e43]:
+                  - img [ref=f77e44]
+                  - generic [ref=f77e46]: Back to Domains
+              - list [ref=f77e49]:
+                - listitem [ref=f77e50]:
+                  - link [ref=f77e1505] [cursor=pointer]:
+                    - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/
+                    - generic [ref=f77e52]:
+                      - img [ref=f77e53]
+                      - generic [ref=f77e57]: Overview
+                - listitem [ref=f77e58]:
+                  - generic [ref=f77e59]:
+                    - button [ref=f77e1506] [cursor=pointer]:
+                      - generic [ref=f77e61]:
+                        - img [ref=f77e62]
+                        - generic [ref=f77e65]:
+                          - generic [ref=f77e66]: Recents
+                          - img [ref=f77e67]
+                    - list [ref=f77e69]:
+                      - listitem [ref=f77e71]:
+                        - link [ref=f77e72] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com
+                          - generic [ref=f77e73]:
+                            - generic [ref=f77e74]: galactic-family-hub.com
+                            - generic [ref=f77e76]: Domains
+                        - button [ref=f77e78] [cursor=pointer]:
+                          - generic [ref=f77e79]:
+                            - img [ref=f77e80]
+                            - img [ref=f77e85]
+                - listitem [ref=f77e87]:
+                  - generic [ref=f77e88]:
+                    - button [ref=f77e1507] [cursor=pointer]:
+                      - generic [ref=f77e90]:
+                        - img [ref=f77e91]
+                        - generic [ref=f77e94]:
+                          - generic [ref=f77e95]: AI Crawl Control
+                          - img [ref=f77e96]
+                    - list [ref=f77e98]:
+                      - listitem [ref=f77e100]:
+                        - link [ref=f77e101] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/ai/overview
+                          - generic [ref=f77e103]: Overview
+                      - listitem [ref=f77e104]:
+                        - link [ref=f77e105] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/ai/metrics
+                          - generic [ref=f77e107]: Metrics
+                      - listitem [ref=f77e108]:
+                        - link [ref=f77e109] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/ai/security
+                          - generic [ref=f77e111]: Security
+                      - listitem [ref=f77e112]:
+                        - link [ref=f77e113] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/ai/optimization
+                          - generic [ref=f77e114]:
+                            - generic [ref=f77e115]: Optimization
+                            - generic [ref=f77e117]: New
+                      - listitem [ref=f77e118]:
+                        - link [ref=f77e119] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/ai/signals
+                          - generic [ref=f77e121]: Signals
+                - listitem [ref=f77e122]:
+                  - generic [ref=f77e123]:
+                    - button [ref=f77e1508] [cursor=pointer]:
+                      - generic [ref=f77e125]:
+                        - img [ref=f77e126]
+                        - generic [ref=f77e129]:
+                          - generic [ref=f77e130]: Investigate
+                          - img [ref=f77e131]
+                    - list [ref=f77e133]:
+                      - generic [ref=f77e135]:
+                        - listitem [ref=f77e136]:
+                          - button [ref=f77e137] [cursor=pointer]:
+                            - generic [ref=f77e138]:
+                              - generic [ref=f77e139]: Log Explorer
+                              - img [ref=f77e140]
+                        - list [ref=f77e142]:
+                          - listitem [ref=f77e144]:
+                            - link [ref=f77e145] [cursor=pointer]:
+                              - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/log-explorer/log-search
+                              - generic [ref=f77e147]: Log search
+                      - listitem [ref=f77e148]:
+                        - link [ref=f77e149] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/rules/trace/search
+                          - generic [ref=f77e150]:
+                            - generic [ref=f77e151]: Trace
+                            - generic [ref=f77e153]: Beta
+                      - listitem [ref=f77e154]:
+                        - link [ref=f77e155] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/analytics/logs
+                          - generic [ref=f77e157]: Logpush
+                - listitem [ref=f77e158]:
+                  - generic [ref=f77e159]:
+                    - button [ref=f77e1509] [cursor=pointer]:
+                      - generic [ref=f77e161]:
+                        - img [ref=f77e162]
+                        - generic [ref=f77e165]:
+                          - generic [ref=f77e166]: Analytics
+                          - img [ref=f77e167]
+                    - list [ref=f77e169]:
+                      - listitem [ref=f77e171]:
+                        - link [ref=f77e172] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/dashboards
+                          - generic [ref=f77e173]:
+                            - generic [ref=f77e174]: Dashboards
+                            - generic [ref=f77e176]: New
+                      - listitem [ref=f77e177]:
+                        - link [ref=f77e178] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/analytics/traffic
+                          - generic [ref=f77e180]: HTTP Traffic
+                      - listitem [ref=f77e181]:
+                        - link [ref=f77e182] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/analytics/performance
+                          - generic [ref=f77e184]: Performance
+                      - listitem [ref=f77e185]:
+                        - link [ref=f77e186] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/analytics/workers
+                          - generic [ref=f77e188]: Workers
+                - listitem [ref=f77e189]:
+                  - generic [ref=f77e190]:
+                    - button [expanded] [ref=f77e1510] [cursor=pointer]:
+                      - generic [ref=f77e192]:
+                        - img [ref=f77e193]
+                        - generic [ref=f77e195]:
+                          - generic [ref=f77e196]: DNS
+                          - img [ref=f77e197]
+                    - region [ref=f77e199]:
+                      - list [ref=f77e201]:
+                        - listitem [ref=f77e203]:
+                          - link [ref=f77e1511] [cursor=pointer]:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/dns/records
+                            - generic [ref=f77e206]: Records
+                        - listitem [ref=f77e207]:
+                          - link [ref=f77e1512] [cursor=pointer]:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/dns/analytics
+                            - generic [ref=f77e210]: Analytics
+                        - listitem [ref=f77e211]:
+                          - link [ref=f77e1513] [cursor=pointer]:
+                            - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/dns/settings
+                            - generic [ref=f77e214]: Settings
+                - listitem [ref=f77e215]:
+                  - generic [ref=f77e216]:
+                    - button [ref=f77e1514] [cursor=pointer]:
+                      - generic [ref=f77e218]:
+                        - img [ref=f77e219]
+                        - generic [ref=f77e223]:
+                          - generic [ref=f77e224]: Email
+                          - img [ref=f77e225]
+                    - list [ref=f77e227]:
+                      - listitem [ref=f77e229]:
+                        - link [ref=f77e230] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/email/routing
+                          - generic [ref=f77e232]: Email Routing
+                      - listitem [ref=f77e233]:
+                        - link [ref=f77e234] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/email/dmarc-management
+                          - generic [ref=f77e236]: DMARC Management
+                      - listitem [ref=f77e237]:
+                        - link [ref=f77e238] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/email/security
+                          - generic [ref=f77e240]: Email Security
+                - listitem [ref=f77e241]:
+                  - generic [ref=f77e242]:
+                    - button [ref=f77e1515] [cursor=pointer]:
+                      - generic [ref=f77e244]:
+                        - img [ref=f77e245]
+                        - generic [ref=f77e248]:
+                          - generic [ref=f77e249]: SSL/TLS
+                          - img [ref=f77e250]
+                    - list [ref=f77e252]:
+                      - listitem [ref=f77e254]:
+                        - link [ref=f77e255] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/ssl-tls
+                          - generic [ref=f77e257]: Overview
+                      - listitem [ref=f77e258]:
+                        - link [ref=f77e259] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/ssl-tls/edge-certificates
+                          - generic [ref=f77e261]: Edge Certificates
+                      - listitem [ref=f77e262]:
+                        - link [ref=f77e263] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/ssl-tls/client-certificates
+                          - generic [ref=f77e265]: Client Certificates
+                      - listitem [ref=f77e266]:
+                        - link [ref=f77e267] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/ssl-tls/origin
+                          - generic [ref=f77e269]: Origin Server
+                      - listitem [ref=f77e270]:
+                        - link [ref=f77e271] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/ssl-tls/custom-hostnames
+                          - generic [ref=f77e273]: Custom Hostnames
+                - listitem [ref=f77e274]:
+                  - generic [ref=f77e275]:
+                    - button [ref=f77e1516] [cursor=pointer]:
+                      - generic [ref=f77e277]:
+                        - img [ref=f77e278]
+                        - generic [ref=f77e280]:
+                          - generic [ref=f77e281]: Security
+                          - img [ref=f77e282]
+                    - list [ref=f77e284]:
+                      - listitem [ref=f77e286]:
+                        - link [ref=f77e287] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/security/overview
+                          - generic [ref=f77e289]: Overview
+                      - listitem [ref=f77e290]:
+                        - link [ref=f77e291] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/security/analytics
+                          - generic [ref=f77e293]: Analytics
+                      - listitem [ref=f77e294]:
+                        - link [ref=f77e295] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/security/web-assets
+                          - generic [ref=f77e297]: Web assets
+                      - listitem [ref=f77e298]:
+                        - link [ref=f77e299] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/security/security-rules
+                          - generic [ref=f77e301]: Security rules
+                      - listitem [ref=f77e302]:
+                        - link [ref=f77e303] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/security/settings
+                          - generic [ref=f77e305]: Settings
+                - listitem [ref=f77e306]:
+                  - link [ref=f77e1517] [cursor=pointer]:
+                    - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/access
+                    - generic [ref=f77e308]:
+                      - img [ref=f77e309]
+                      - generic [ref=f77e313]: Access
+                - listitem [ref=f77e314]:
+                  - generic [ref=f77e315]:
+                    - button [ref=f77e1518] [cursor=pointer]:
+                      - generic [ref=f77e317]:
+                        - img [ref=f77e318]
+                        - generic [ref=f77e320]:
+                          - generic [ref=f77e321]: Speed
+                          - img [ref=f77e322]
+                    - list [ref=f77e324]:
+                      - listitem [ref=f77e326]:
+                        - link [ref=f77e327] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/speed
+                          - generic [ref=f77e328]:
+                            - generic [ref=f77e329]: Observatory
+                            - generic [ref=f77e331]: Beta
+                      - listitem [ref=f77e332]:
+                        - link [ref=f77e333] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/speed/origin-analytics
+                          - generic [ref=f77e335]: Origin Analytics
+                      - listitem [ref=f77e336]:
+                        - link [ref=f77e337] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/speed/test
+                          - generic [ref=f77e338]:
+                            - generic [ref=f77e339]: Synthetic monitoring
+                            - generic [ref=f77e341]: Beta
+                      - listitem [ref=f77e342]:
+                        - link [ref=f77e343] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/speed/optimization
+                          - generic [ref=f77e345]: Settings
+                      - listitem [ref=f77e346]:
+                        - link [ref=f77e347] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/speed/smart-shield
+                          - generic [ref=f77e349]: Smart Shield
+                - listitem [ref=f77e350]:
+                  - generic [ref=f77e351]:
+                    - button [ref=f77e1519] [cursor=pointer]:
+                      - generic [ref=f77e353]:
+                        - img [ref=f77e354]
+                        - generic [ref=f77e359]:
+                          - generic [ref=f77e360]: Caching
+                          - img [ref=f77e361]
+                    - list [ref=f77e363]:
+                      - listitem [ref=f77e365]:
+                        - link [ref=f77e366] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/caching
+                          - generic [ref=f77e368]: Overview
+                      - listitem [ref=f77e369]:
+                        - link [ref=f77e370] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/caching/configuration
+                          - generic [ref=f77e372]: Configuration
+                      - listitem [ref=f77e373]:
+                        - link [ref=f77e374] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/caching/cache-rules
+                          - generic [ref=f77e376]: Cache Rules
+                      - listitem [ref=f77e377]:
+                        - link [ref=f77e378] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/caching/tiered-cache
+                          - generic [ref=f77e380]: Tiered Cache
+                      - listitem [ref=f77e381]:
+                        - link [ref=f77e382] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/caching/cache-reserve
+                          - generic [ref=f77e384]: Cache Reserve
+                - listitem [ref=f77e385]:
+                  - link [ref=f77e1520] [cursor=pointer]:
+                    - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/workers
+                    - generic [ref=f77e387]:
+                      - img [ref=f77e388]
+                      - generic [ref=f77e393]: Workers Routes
+                - listitem [ref=f77e394]:
+                  - generic [ref=f77e395]:
+                    - button [ref=f77e1521] [cursor=pointer]:
+                      - generic [ref=f77e397]:
+                        - img [ref=f77e398]
+                        - generic [ref=f77e401]:
+                          - generic [ref=f77e402]: Rules
+                          - img [ref=f77e403]
+                    - list [ref=f77e405]:
+                      - listitem [ref=f77e407]:
+                        - link [ref=f77e408] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/rules/overview
+                          - generic [ref=f77e410]: Overview
+                      - listitem [ref=f77e411]:
+                        - link [ref=f77e412] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/rules/snippets
+                          - generic [ref=f77e414]: Snippets
+                      - listitem [ref=f77e415]:
+                        - link [ref=f77e416] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/rules/cloud-connector
+                          - generic [ref=f77e417]:
+                            - generic [ref=f77e418]: Cloud Connector
+                            - generic [ref=f77e420]: Beta
+                      - listitem [ref=f77e421]:
+                        - link [ref=f77e422] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/rules/page-rules
+                          - generic [ref=f77e424]: Page Rules
+                      - listitem [ref=f77e425]:
+                        - link [ref=f77e426] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/rules/settings
+                          - generic [ref=f77e428]: Settings
+                - listitem [ref=f77e429]:
+                  - link [ref=f77e1522] [cursor=pointer]:
+                    - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/error-pages
+                    - generic [ref=f77e431]:
+                      - img [ref=f77e432]
+                      - generic [ref=f77e435]:
+                        - generic [ref=f77e436]: Error Pages
+                        - generic [ref=f77e438]: New
+                - listitem [ref=f77e439]:
+                  - link [ref=f77e1523] [cursor=pointer]:
+                    - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/network
+                    - generic [ref=f77e441]:
+                      - img [ref=f77e442]
+                      - generic [ref=f77e446]: Network
+                - listitem [ref=f77e447]:
+                  - generic [ref=f77e448]:
+                    - button [ref=f77e1524] [cursor=pointer]:
+                      - generic [ref=f77e450]:
+                        - img [ref=f77e451]
+                        - generic [ref=f77e453]:
+                          - generic [ref=f77e454]: Traffic
+                          - img [ref=f77e455]
+                    - list [ref=f77e457]:
+                      - listitem [ref=f77e459]:
+                        - link [ref=f77e460] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/traffic
+                          - generic [ref=f77e462]: Argo Smart Routing
+                      - listitem [ref=f77e463]:
+                        - link [ref=f77e464] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/traffic/load-balancing
+                          - generic [ref=f77e466]: Load Balancing
+                      - listitem [ref=f77e467]:
+                        - link [ref=f77e468] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/traffic/load-balancing-analytics
+                          - generic [ref=f77e470]: Load Balancing Analytics
+                      - listitem [ref=f77e471]:
+                        - link [ref=f77e472] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/traffic/health-checks
+                          - generic [ref=f77e474]: Health Checks
+                      - listitem [ref=f77e475]:
+                        - link [ref=f77e476] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/traffic/waiting-rooms
+                          - generic [ref=f77e478]: Waiting Room
+                - listitem [ref=f77e479]:
+                  - link [ref=f77e1525] [cursor=pointer]:
+                    - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/web3
+                    - generic [ref=f77e481]:
+                      - img [ref=f77e482]
+                      - generic [ref=f77e486]: Web3
+                - listitem [ref=f77e489]:
+                  - generic [ref=f77e490]:
+                    - button [ref=f77e1526] [cursor=pointer]:
+                      - generic [ref=f77e492]:
+                        - img [ref=f77e493]
+                        - generic [ref=f77e496]:
+                          - generic [ref=f77e497]: Manage account
+                          - img [ref=f77e498]
+                    - list [ref=f77e500]:
+                      - listitem [ref=f77e502]:
+                        - link [ref=f77e503] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/members
+                          - generic [ref=f77e505]: Members
+                      - listitem [ref=f77e506]:
+                        - link [ref=f77e507] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/billing
+                          - generic [ref=f77e509]: Billing
+                      - listitem [ref=f77e510]:
+                        - link [ref=f77e511] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/api-tokens
+                          - generic [ref=f77e513]: Account API tokens
+                      - listitem [ref=f77e514]:
+                        - link [ref=f77e515] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/audit-log
+                          - generic [ref=f77e517]: Audit logs
+                      - listitem [ref=f77e518]:
+                        - link [ref=f77e519] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/notifications
+                          - generic [ref=f77e521]: Notifications
+                      - listitem [ref=f77e522]:
+                        - link [ref=f77e523] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/shared-configurations
+                          - generic [ref=f77e524]:
+                            - generic [ref=f77e525]: Shared config
+                            - generic [ref=f77e527]: Alpha
+                      - listitem [ref=f77e528]:
+                        - link [ref=f77e529] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/blocked-content
+                          - generic [ref=f77e531]: Blocked content
+                      - listitem [ref=f77e532]:
+                        - link [ref=f77e533] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/abuse-reports
+                          - generic [ref=f77e534]:
+                            - generic [ref=f77e535]: Abuse reports
+                            - generic [ref=f77e537]: Beta
+                      - listitem [ref=f77e538]:
+                        - link [ref=f77e539] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/carbon
+                          - generic [ref=f77e541]: Carbon Impact Report
+                      - listitem [ref=f77e542]:
+                        - link [ref=f77e543] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/configurations
+                          - generic [ref=f77e545]: Configurations
+                      - listitem [ref=f77e546]:
+                        - link [ref=f77e547] [cursor=pointer]:
+                          - /url: /69f481da4c258c9641fcd4b7491de4b2/tags
+                          - generic [ref=f77e548]:
+                            - generic [ref=f77e549]: Tagged Resources
+                            - generic [ref=f77e551]: Beta
+        - button [expanded] [ref=f77e1527] [cursor=pointer]:
+          - img [ref=f77e557]
+    - generic [ref=f77e559]:
+      - banner [ref=f77e560]:
+        - generic [ref=f77e561]:
+          - button [ref=f77e1528] [cursor=pointer]:
+            - img [ref=f77e563]
+          - generic [ref=f77e566] [cursor=pointer]:
+            - generic [ref=f77e567]:
+              - paragraph [ref=f77e568]: galactic-family-hub.com
+              - button [ref=f77e1529]:
+                - generic [ref=f77e570]: free
+            - img [ref=f77e571]
+        - generic [ref=f77e573]:
+          - button [ref=f77e1530] [cursor=pointer]:
+            - img [ref=f77e575]
+            - generic [ref=f77e578]: Ask AI
+          - link [ref=f77e1531] [cursor=pointer]:
+            - /url: /?to=/:account/support
+            - img [ref=f77e580]
+            - generic [ref=f77e582]: Support
+          - button [ref=f77e1532] [cursor=pointer]:
+            - img [ref=f77e584]
+      - generic [ref=f77e587]:
+        - banner [ref=f77e588]:
+          - generic [ref=f77e589]:
+            - generic [ref=f77e590]:
+              - heading [level=1] [ref=f77e1533]: DNS records for galactic-family-hub.com
+              - paragraph [ref=f77e593]: Manage how the Internet finds your web content, verifies services, and routes traffic.
+            - generic [ref=f77e594]:
+              - generic [ref=f77e596]:
+                - text: "DNS Setup:"
+                - generic [ref=f77e597]: Full
+              - link [ref=f77e1534] [cursor=pointer]:
+                - /url: https://developers.cloudflare.com/dns/get-started/
+                - img [ref=f77e599]
+                - text: DNS documentation
+        - generic [ref=f77e601]:
+          - generic [ref=f77e602]:
+            - generic [ref=f77e604]:
+              - img [ref=f77e606]
+              - generic [ref=f77e610]:
+                - text: galactic-family-hub.com is
+                - strong [ref=f77e611]: pending
+                - text: until you complete the instructions on the
+                - link [ref=f77e1535] [cursor=pointer]:
+                  - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com
+                  - generic [ref=f77e613]: Overview page
+                - text: and we are able to verify ownership. Learn more about
+                - link [ref=f77e1536] [cursor=pointer]:
+                  - /url: https://developers.cloudflare.com/dns/zone-setups/reference/domain-status/#pending
+                  - generic [ref=f77e615]: pending domains.
+            - generic [ref=f77e616]:
+              - button [ref=f77e1537] [cursor=pointer]:
+                - generic [ref=f77e619]:
+                  - generic [ref=f77e621]:
+                    - paragraph [ref=f77e622]: Recommendations
+                    - generic [ref=f77e623]: "1"
+                  - img [ref=f77e624]
+              - generic [ref=f77e632]:
+                - generic [ref=f77e633]: Block fake emails sent from @galactic-family-hub.com addresses
+                - generic [ref=f77e634]:
+                  - link [ref=f77e1538] [cursor=pointer]:
+                    - /url: /69f481da4c258c9641fcd4b7491de4b2/galactic-family-hub.com/email/dmarc-management
+                    - text: Add a DMARC record
+                  - text: so your email provider can stop fake emails from reaching inboxes.
+          - generic [ref=f77e637]:
+            - generic [ref=f77e638]:
+              - generic [ref=f77e639]:
+                - img [ref=f77e640]
+                - searchbox [ref=f77e1539]
+              - button [ref=f77e1540] [cursor=pointer]:
+                - generic [ref=f77e644]:
+                  - img [ref=f77e645]
+                  - text: Filters
+              - button [ref=f77e1541] [cursor=pointer]:
+                - img [ref=f77e648]
+                - text: Display options
+            - generic [ref=f77e651]:
+              - button [ref=f77e1542] [cursor=pointer]:
+                - generic [ref=f77e653]:
+                  - img [ref=f77e654]
+                  - text: Import
+              - button [ref=f77e1543] [cursor=pointer]:
+                - generic [ref=f77e657]:
+                  - img [ref=f77e658]
+                  - text: Export
+              - button [ref=f77e1544] [cursor=pointer]:
+                - img [ref=f77e661]
+                - text: Add record
+          - generic [ref=f77e663]:
+            - paragraph [ref=f77e667]: 10 records
+            - table [ref=f77e1545]:
+              - rowgroup [ref=f77e671]:
+                - row [ref=f77e1546]:
+                  - columnheader [ref=f77e1547]:
+                    - checkbox [ref=f77e1548] [cursor=pointer]
+                    - checkbox [ref=f77e675]
+                  - columnheader [ref=f77e676]:
+                    - img [ref=f77e679]
+                  - columnheader [ref=f77e681]:
+                    - img [ref=f77e684]
+                  - columnheader [ref=f77e1549]:
+                    - generic [ref=f77e687]:
+                      - generic [ref=f77e688]:
+                        - generic [ref=f77e689]: Name
+                        - img [ref=f77e691]
+                      - button [ref=f77e1550] [cursor=pointer]:
+                        - img [ref=f77e694]
+                    - button [ref=f77e1551]
+                  - columnheader [ref=f77e1552]:
+                    - generic [ref=f77e699]:
+                      - generic [ref=f77e700]:
+                        - generic [ref=f77e701]: Type
+                        - img [ref=f77e703]
+                      - button [ref=f77e1553] [cursor=pointer]:
+                        - img [ref=f77e706]
+                  - columnheader [ref=f77e1554]:
+                    - generic [ref=f77e709]:
+                      - generic [ref=f77e710]:
+                        - generic [ref=f77e711]: Content
+                        - img [ref=f77e713]
+                      - button [ref=f77e1555] [cursor=pointer]:
+                        - img [ref=f77e716]
+                    - button [ref=f77e1556]
+                  - columnheader [ref=f77e1557]:
+                    - generic [ref=f77e721]:
+                      - generic [ref=f77e722]:
+                        - generic [ref=f77e723]: Proxy status
+                        - img [ref=f77e725]
+                      - button [ref=f77e1558] [cursor=pointer]:
+                        - img [ref=f77e728]
+                  - columnheader [ref=f77e1559]:
+                    - generic [ref=f77e731]:
+                      - generic [ref=f77e732]:
+                        - generic [ref=f77e733]: TTL
+                        - img [ref=f77e735]
+                      - button [ref=f77e1560] [cursor=pointer]:
+                        - img [ref=f77e738]
+                  - columnheader [ref=f77e1561]:
+                    - generic [ref=f77e743]: Tags
+                    - button [ref=f77e1562]
+                  - columnheader [ref=f77e1563]:
+                    - generic [ref=f77e749]: Comment
+                    - button [ref=f77e1564]
+                  - columnheader [ref=f77e1565]:
+                    - generic [ref=f77e755]: Details
+                    - button [ref=f77e1566]
+                  - columnheader [ref=f77e758]
+              - rowgroup [ref=f77e760]:
+                - row [ref=f77e1567]:
+                  - cell [ref=f77e1568]:
+                    - checkbox [ref=f77e1569] [cursor=pointer]
+                    - checkbox [ref=f77e764]
+                  - cell [ref=f77e1570]:
+                    - button [ref=f77e1571] [cursor=pointer]:
+                      - img [ref=f77e767]
+                  - cell [ref=f77e769]
+                  - cell [ref=f77e1572]:
+                    - generic [ref=f77e1573]: galactic-family-hub.com
+                  - cell [ref=f77e1574]:
+                    - generic [ref=f77e774]: A
+                  - cell [ref=f77e1576]:
+                    - generic [ref=f77e1577]: 74.208.236.46
+                  - cell [ref=f77e1578]:
+                    - generic [ref=f77e779]:
+                      - img [ref=f77e780]
+                      - generic [ref=f77e782]: Proxied
+                  - cell [ref=f77e1579]:
+                    - generic [ref=f77e784]: Auto
+                  - cell [ref=f77e1580]:
+                    - generic [ref=f77e786]: —
+                  - cell [ref=f77e1581]:
+                    - generic [ref=f77e788]: —
+                  - cell [ref=f77e1582]:
+                    - generic [ref=f77e790]: —
+                  - cell [ref=f77e1583]:
+                    - button [ref=f77e1584] [cursor=pointer]: Edit
+                - row [ref=f77e1585]:
+                  - cell [ref=f77e1586]:
+                    - checkbox [ref=f77e1587] [cursor=pointer]
+                    - checkbox [ref=f77e797]
+                  - cell [ref=f77e1588]:
+                    - button [ref=f77e1589] [cursor=pointer]:
+                      - img [ref=f77e800]
+                  - cell [ref=f77e802]
+                  - cell [ref=f77e1590]:
+                    - generic [ref=f77e1591]:
+                      - text: www
+                      - generic [ref=f77e805]: .galactic-family-hub.com
+                  - cell [ref=f77e1592]:
+                    - generic [ref=f77e808]: A
+                  - cell [ref=f77e1594]:
+                    - generic [ref=f77e1595]: 74.208.236.46
+                  - cell [ref=f77e1596]:
+                    - generic [ref=f77e813]:
+                      - img [ref=f77e814]
+                      - generic [ref=f77e816]: Proxied
+                  - cell [ref=f77e1597]:
+                    - generic [ref=f77e818]: Auto
+                  - cell [ref=f77e1598]:
+                    - generic [ref=f77e820]: —
+                  - cell [ref=f77e1599]:
+                    - generic [ref=f77e822]: —
+                  - cell [ref=f77e1600]:
+                    - generic [ref=f77e824]: —
+                  - cell [ref=f77e1601]:
+                    - button [ref=f77e1602] [cursor=pointer]: Edit
+                - row [ref=f77e1603]:
+                  - cell [ref=f77e1604]:
+                    - checkbox [ref=f77e1605] [cursor=pointer]
+                    - checkbox [ref=f77e831]
+                  - cell [ref=f77e1606]:
+                    - button [ref=f77e1607] [cursor=pointer]:
+                      - img [ref=f77e834]
+                  - cell [ref=f77e836]
+                  - cell [ref=f77e1608]:
+                    - generic [ref=f77e1609]: galactic-family-hub.com
+                  - cell [ref=f77e1610]:
+                    - generic [ref=f77e841]: AAAA
+                  - cell [ref=f77e1612]:
+                    - generic [ref=f77e1613]: 2607:f1c0:100f:f000::200
+                  - cell [ref=f77e1614]:
+                    - generic [ref=f77e846]:
+                      - img [ref=f77e847]
+                      - generic [ref=f77e849]: Proxied
+                  - cell [ref=f77e1615]:
+                    - generic [ref=f77e851]: Auto
+                  - cell [ref=f77e1616]:
+                    - generic [ref=f77e853]: —
+                  - cell [ref=f77e1617]:
+                    - generic [ref=f77e855]: —
+                  - cell [ref=f77e1618]:
+                    - generic [ref=f77e857]: —
+                  - cell [ref=f77e1619]:
+                    - button [ref=f77e1620] [cursor=pointer]: Edit
+                - row [ref=f77e1621]:
+                  - cell [ref=f77e1622]:
+                    - checkbox [ref=f77e1623] [cursor=pointer]
+                    - checkbox [ref=f77e864]
+                  - cell [ref=f77e1624]:
+                    - button [ref=f77e1625] [cursor=pointer]:
+                      - img [ref=f77e867]
+                  - cell [ref=f77e869]
+                  - cell [ref=f77e1626]:
+                    - generic [ref=f77e1627]:
+                      - text: www
+                      - generic [ref=f77e872]: .galactic-family-hub.com
+                  - cell [ref=f77e1628]:
+                    - generic [ref=f77e875]: AAAA
+                  - cell [ref=f77e1630]:
+                    - generic [ref=f77e1631]: 2607:f1c0:100f:f000::200
+                  - cell [ref=f77e1632]:
+                    - generic [ref=f77e880]:
+                      - img [ref=f77e881]
+                      - generic [ref=f77e883]: Proxied
+                  - cell [ref=f77e1633]:
+                    - generic [ref=f77e885]: Auto
+                  - cell [ref=f77e1634]:
+                    - generic [ref=f77e887]: —
+                  - cell [ref=f77e1635]:
+                    - generic [ref=f77e889]: —
+                  - cell [ref=f77e1636]:
+                    - generic [ref=f77e891]: —
+                  - cell [ref=f77e1637]:
+                    - button [ref=f77e1638] [cursor=pointer]: Edit
+                - row [ref=f77e1639]:
+                  - cell [ref=f77e1640]:
+                    - checkbox [ref=f77e1641] [cursor=pointer]
+                    - checkbox [ref=f77e898]
+                  - cell [ref=f77e1642]:
+                    - button [ref=f77e1643] [cursor=pointer]:
+                      - img [ref=f77e901]
+                  - cell [ref=f77e903]
+                  - cell [ref=f77e1644]:
+                    - generic [ref=f77e1645]:
+                      - text: autodiscover
+                      - generic [ref=f77e906]: .galactic-family-hub.com
+                  - cell [ref=f77e1646]:
+                    - generic [ref=f77e909]: CNAME
+                  - cell [ref=f77e1648]:
+                    - generic [ref=f77e1649]: adsredir.ionos.info
+                  - cell [ref=f77e1650]:
+                    - generic [ref=f77e914]:
+                      - img [ref=f77e915]
+                      - generic [ref=f77e917]: Proxied
+                  - cell [ref=f77e1651]:
+                    - generic [ref=f77e919]: Auto
+                  - cell [ref=f77e1652]:
+                    - generic [ref=f77e921]: —
+                  - cell [ref=f77e1653]:
+                    - generic [ref=f77e923]: —
+                  - cell [ref=f77e1654]:
+                    - generic [ref=f77e925]: —
+                  - cell [ref=f77e1655]:
+                    - button [ref=f77e1656] [cursor=pointer]: Edit
+                - row [ref=f77e1657]:
+                  - cell [ref=f77e1658]:
+                    - checkbox [ref=f77e1659] [cursor=pointer]
+                    - checkbox [ref=f77e932]
+                  - cell [ref=f77e1660]:
+                    - button [ref=f77e1661] [cursor=pointer]:
+                      - img [ref=f77e935]
+                  - cell [ref=f77e937]
+                  - cell [ref=f77e1662]:
+                    - generic [ref=f77e1663]:
+                      - text: _dmarc
+                      - generic [ref=f77e940]: .galactic-family-hub.com
+                  - cell [ref=f77e1664]:
+                    - generic [ref=f77e943]: CNAME
+                  - cell [ref=f77e1666]:
+                    - generic [ref=f77e1667]: dmarc.ionos.com
+                  - cell [ref=f77e1668]:
+                    - generic [ref=f77e948]:
+                      - img [ref=f77e949]
+                      - generic [ref=f77e951]: Proxied
+                  - cell [ref=f77e1669]:
+                    - generic [ref=f77e953]: Auto
+                  - cell [ref=f77e1670]:
+                    - generic [ref=f77e955]: —
+                  - cell [ref=f77e1671]:
+                    - generic [ref=f77e957]: —
+                  - cell [ref=f77e1672]:
+                    - generic [ref=f77e959]: —
+                  - cell [ref=f77e1673]:
+                    - button [ref=f77e1674] [cursor=pointer]: Edit
+                - row [ref=f77e1675]:
+                  - cell [ref=f77e1676]:
+                    - checkbox [ref=f77e1677] [cursor=pointer]
+                    - checkbox [ref=f77e966]
+                  - cell [ref=f77e1678]:
+                    - button [ref=f77e1679] [cursor=pointer]:
+                      - img [ref=f77e969]
+                  - cell [ref=f77e971]
+                  - cell [ref=f77e1680]:
+                    - generic [ref=f77e1681]:
+                      - text: _domainconnect
+                      - generic [ref=f77e974]: .galactic-family-hub.com
+                  - cell [ref=f77e1682]:
+                    - generic [ref=f77e977]: CNAME
+                  - cell [ref=f77e1684]:
+                    - generic [ref=f77e1685]: _domainconnect.ionos.com
+                  - cell [ref=f77e1686]:
+                    - generic [ref=f77e982]:
+                      - img [ref=f77e983]
+                      - generic [ref=f77e985]: Proxied
+                  - cell [ref=f77e1687]:
+                    - generic [ref=f77e987]: Auto
+                  - cell [ref=f77e1688]:
+                    - generic [ref=f77e989]: —
+                  - cell [ref=f77e1689]:
+                    - generic [ref=f77e991]: —
+                  - cell [ref=f77e1690]:
+                    - generic [ref=f77e993]: —
+                  - cell [ref=f77e1691]:
+                    - button [ref=f77e1692] [cursor=pointer]: Edit
+                - row [ref=f77e1693]:
+                  - cell [ref=f77e1694]:
+                    - checkbox [ref=f77e1695] [cursor=pointer]
+                    - checkbox [ref=f77e1000]
+                  - cell [ref=f77e1696]:
+                    - button [ref=f77e1697] [cursor=pointer]:
+                      - img [ref=f77e1003]
+                  - cell [ref=f77e1005]
+                  - cell [ref=f77e1698]:
+                    - generic [ref=f77e1699]: galactic-family-hub.com
+                  - cell [ref=f77e1700]:
+                    - generic [ref=f77e1010]: MX
+                  - cell [ref=f77e1702]:
+                    - generic [ref=f77e1703]: mx01.ionos.com
+                  - cell [ref=f77e1704]:
+                    - generic [ref=f77e1016]: DNS only
+                  - cell [ref=f77e1705]:
+                    - generic [ref=f77e1018]: Auto
+                  - cell [ref=f77e1706]:
+                    - generic [ref=f77e1020]: —
+                  - cell [ref=f77e1707]:
+                    - generic [ref=f77e1022]: —
+                  - cell [ref=f77e1708]:
+                    - generic [ref=f77e1026] [cursor=pointer]:
+                      - img [ref=f77e1027]
+                      - text: "10"
+                  - cell [ref=f77e1709]:
+                    - button [ref=f77e1710] [cursor=pointer]: Edit
+                - row [ref=f77e1711]:
+                  - cell [ref=f77e1712]:
+                    - checkbox [ref=f77e1713] [cursor=pointer]
+                    - checkbox [ref=f77e1038]
+                  - cell [ref=f77e1714]:
+                    - button [ref=f77e1715] [cursor=pointer]:
+                      - img [ref=f77e1041]
+                  - cell [ref=f77e1043]
+                  - cell [ref=f77e1716]:
+                    - generic [ref=f77e1717]: galactic-family-hub.com
+                  - cell [ref=f77e1718]:
+                    - generic [ref=f77e1048]: MX
+                  - cell [ref=f77e1720]:
+                    - generic [ref=f77e1721]: mx00.ionos.com
+                  - cell [ref=f77e1722]:
+                    - generic [ref=f77e1054]: DNS only
+                  - cell [ref=f77e1723]:
+                    - generic [ref=f77e1056]: Auto
+                  - cell [ref=f77e1724]:
+                    - generic [ref=f77e1058]: —
+                  - cell [ref=f77e1725]:
+                    - generic [ref=f77e1060]: —
+                  - cell [ref=f77e1726]:
+                    - generic [ref=f77e1064] [cursor=pointer]:
+                      - img [ref=f77e1065]
+                      - text: "10"
+                  - cell [ref=f77e1727]:
+                    - button [ref=f77e1728] [cursor=pointer]: Edit
+                - row [ref=f77e1729]:
+                  - cell [ref=f77e1730]:
+                    - checkbox [ref=f77e1731] [cursor=pointer]
+                    - checkbox [ref=f77e1076]
+                  - cell [ref=f77e1732]:
+                    - button [ref=f77e1733] [cursor=pointer]:
+                      - img [ref=f77e1079]
+                  - cell [ref=f77e1081]
+                  - cell [ref=f77e1734]:
+                    - generic [ref=f77e1735]: galactic-family-hub.com
+                  - cell [ref=f77e1736]:
+                    - generic [ref=f77e1086]: TXT
+                  - cell [ref=f77e1738]:
+                    - generic [ref=f77e1739]: "\"v=spf1 include:_spf-us.ionos.com ~all\""
+                  - cell [ref=f77e1740]:
+                    - generic [ref=f77e1092]: DNS only
+                  - cell [ref=f77e1741]:
+                    - generic [ref=f77e1094]: Auto
+                  - cell [ref=f77e1742]:
+                    - generic [ref=f77e1096]: —
+                  - cell [ref=f77e1743]:
+                    - generic [ref=f77e1098]: —
+                  - cell [ref=f77e1744]:
+                    - generic [ref=f77e1100]: —
+                  - cell [ref=f77e1745]:
+                    - button [ref=f77e1746] [cursor=pointer]: Edit
+            - generic [ref=f77e1106]: Showing 1-10 of 10
+      - contentinfo [ref=f77e1107]:
+        - list [ref=f77e1109]:
+          - listitem [ref=f77e1110]:
+            - link [ref=f77e1747] [cursor=pointer]:
+              - /url: https://support.cloudflare.com
+              - text: Support
+          - listitem [ref=f77e1112]:
+            - link [ref=f77e1748] [cursor=pointer]:
+              - /url: https://www.cloudflarestatus.com
+              - text: System status
+          - listitem [ref=f77e1114]:
+            - link [ref=f77e1749] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/careers/
+              - text: Careers
+          - listitem [ref=f77e1116]:
+            - link [ref=f77e1750] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/website-terms/
+              - text: Terms of Use
+          - listitem [ref=f77e1118]:
+            - link [ref=f77e1751] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/disclosure/
+              - text: Report Security Issues
+          - listitem [ref=f77e1120]:
+            - link [ref=f77e1752] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/privacypolicy/
+              - text: Privacy Policy
+          - listitem [ref=f77e1122]:
+            - button [ref=f77e1753] [cursor=pointer]:
+              - img [ref=f77e1754]
+              - text: Cookie Preferences
+          - listitem [ref=f77e1125]:
+            - generic [ref=f77e1126]: © 2026 Cloudflare, Inc.
+  - generic:
+    - region "Notifications"
+  - generic [ref=f77e1146]:
+    - generic [ref=f77e1147]:
+      - heading [level=3] [ref=f77e1755]: Enable Agent Lee access
+      - paragraph [ref=f77e1149]: Agent Lee needs a read-only API token to access your account.
+      - button [ref=f77e1756] [cursor=pointer]:
+        - text: Read more
+        - img [ref=f77e1153]
+    - button [ref=f77e1757] [cursor=pointer]: Create Token
+  - dialog "Add record" [ref=f77e1761]:
+    - generic [ref=f77e1762]:
+      - generic [ref=f77e1763]:
+        - heading "Add record" [level=2] [ref=f77e1764]
+        - button "Close" [active] [ref=f77e1765] [cursor=pointer]:
+          - img [ref=f77e1766]
+      - generic [ref=f77e1769]:
+        - generic [ref=f77e1770]:
+          - generic [ref=f77e1771]: "[name]"
+          - text: points to
+          - generic [ref=f77e1772]: "[IPv4 address]"
+          - text: and has its traffic proxied through Cloudflare.
+        - generic [ref=f77e1773]:
+          - generic [ref=f77e1775]:
+            - generic [ref=f77e1777]: Type
+            - generic [ref=f77e1779]:
+              - combobox "Type" [ref=f77e1780] [cursor=pointer]:
+                - generic [ref=f77e1781]: A
+                - img [ref=f77e1783]
+              - textbox [ref=f77e1785]: A
+          - generic [ref=f77e1788]:
+            - generic [ref=f77e1790]: Name
+            - textbox "Name" [ref=f77e1791]:
+              - /placeholder: Use @ for root
+          - generic [ref=f77e1794]:
+            - generic [ref=f77e1796]: IPv4 address
+            - textbox "IPv4 address" [ref=f77e1797]
+          - generic [ref=f77e1799]:
+            - generic [ref=f77e1800]: Proxy status
+            - generic [ref=f77e1803]:
+              - switch "Proxy status" [checked] [ref=f77e1804] [cursor=pointer]
+              - checkbox [checked] [ref=f77e1806]
+              - img [ref=f77e1807]
+              - generic [ref=f77e1809]: Proxied
+          - generic [ref=f77e1811]:
+            - generic [ref=f77e1813]: TTL
+            - generic [ref=f77e1815]:
+              - combobox "TTL" [disabled] [ref=f77e1816]:
+                - generic [ref=f77e1817]: Auto
+                - img [ref=f77e1819]
+              - textbox [disabled] [ref=f77e1821]: "1"
+        - generic [ref=f77e1823]:
+          - button "Record Attributes" [ref=f77e1824] [cursor=pointer]:
+            - img [ref=f77e1825]
+            - text: Record Attributes
+          - link "View documentation" [ref=f77e1827] [cursor=pointer]:
+            - /url: https://developers.cloudflare.com/dns/manage-dns-records/reference/record-attributes/
+            - img [ref=f77e1829]
+        - generic [ref=f77e1831]:
+          - button "Save" [disabled] [ref=f77e1832]
+          - button "Cancel" [ref=f77e1833] [cursor=pointer]

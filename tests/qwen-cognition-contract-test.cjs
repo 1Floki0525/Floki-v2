@@ -19,7 +19,7 @@ async function run() {
   const diagnosticsPath = statePath('test/cognition/' + unique + '/diagnostics.jsonl');
 
   const event = makeUserTextEvent(
-    'Hey Floki, think about why memory, trust, and hope matter to your chat-mode self.',
+    'Hey Floki, reflect on why memory, trust, and hope matter to your self as part of your ongoing identity continuity process.',
     { trace_id: unique }
   );
 
@@ -68,7 +68,7 @@ async function run() {
   const personalityOut = personality.updateFromMemory(memory.payload.record);
   const identityOut = pineal.updateFromMemory(memory.payload.record, personalityOut.payload.current);
   const recall = hippocampus.recall({
-    text: 'memory trust hope chat self',
+    text: 'memory trust hope self identity continuity',
     streams: ['short_term'],
     limit: 5
   });

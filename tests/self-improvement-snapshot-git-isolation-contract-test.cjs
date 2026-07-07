@@ -44,15 +44,15 @@ try {
     path.join(ROOT, 'src/self-improvement/snapshot.cjs'),
     'utf8'
   );
-  assert.match(
+  assert.doesNotMatch(
     snapshotSource,
-    /removeInheritedGitMetadata\(repoDir\)[\s\S]*git', \['init', '-q'\]/,
-    'copied Git metadata must be removed before the isolated git init'
+    /path\.join\(runRoot,\s*['"]repo['"]\)/,
+    'snapshot creation must not create a per-run source repository'
   );
   assert.match(
     snapshotSource,
-    /initializedGitPath[\s\S]*isDirectory\(\)/,
-    'snapshot creation must verify that .git is a local directory'
+    /persistent_project_workspace_path:\s*config\.persistent_project_workspace_path/,
+    'snapshot metadata must point at the persistent sandbox project workspace'
   );
 
   const agentSource = fs.readFileSync(
@@ -65,24 +65,52 @@ try {
     'the RSI agent must capture the sandbox environment check and fail closed on a non-zero status'
   );
 
-  const environmentCheckIndex = agentSource.indexOf(
+  const mainIndex = agentSource.indexOf('async function main()');
+  assert.ok(mainIndex >= 0, 'the RSI agent main function must exist');
+
+  const mainSource = agentSource.slice(mainIndex);
+  const environmentCheckIndex = mainSource.indexOf(
     'const environmentCheckResult = await shell('
   );
-  const rootInstallIndex = agentSource.indexOf('const rootInstall =');
-  const modelLoopIndex = agentSource.indexOf(
-    'for (let iteration = 0; iteration < MAX_ITERATIONS'
-  );
+  const rootInstallIndex = mainSource.indexOf('const rootInstall =');
+
   assert.ok(
     environmentCheckIndex >= 0,
-    'the environment check result assignment must exist'
+    'the environment check result assignment must exist inside main'
   );
   assert.ok(
     rootInstallIndex > environmentCheckIndex,
     'the sandbox environment check must complete before dependency installation'
   );
+
+  const beforeEnvironmentCheck = mainSource.slice(0, environmentCheckIndex);
+  const modelIterationSignals = [
+    'OLLAMA_CHAT_PATH',
+    'convergencePolicy.beginIteration(',
+    'selectionAnchorMessage()',
+    'const iterationStartedAt = Date.now()',
+    'const messages = ['
+  ];
+
+  for (const signal of modelIterationSignals) {
+    assert.equal(
+      beforeEnvironmentCheck.includes(signal),
+      false,
+      `model-iteration signal must not occur before the sandbox environment check: ${signal}`
+    );
+  }
+
+  const modelIterationStartIndexes = modelIterationSignals
+    .map((signal) => mainSource.indexOf(signal))
+    .filter((index) => index >= 0);
+
   assert.ok(
-    modelLoopIndex > environmentCheckIndex,
-    'the sandbox environment check must complete before any model iteration starts'
+    modelIterationStartIndexes.length > 0,
+    'the RSI agent must expose at least one model-iteration control-flow signal inside main'
+  );
+  assert.ok(
+    Math.min(...modelIterationStartIndexes) > environmentCheckIndex,
+    'the sandbox environment check must complete before model-iteration setup or execution starts'
   );
 
   for (const file of [
@@ -104,6 +132,7 @@ try {
     marker: 'FLOKI_V2_RSI_SNAPSHOT_GIT_ISOLATION_CONTRACT_PASS',
     worktree_pointer_removed: true,
     git_directory_removed: true,
+    per_run_source_repository_removed: true,
     environment_check_fails_closed: true
   }, null, 2));
 } finally {

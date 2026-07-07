@@ -96,6 +96,21 @@ function prepareConfig(templateFile, outputFile, values) {
     source = replaceScalar(source, key, value);
   }
 
+  // FLOKI_CI_REPLACES_PUBLIC_MODEL_PLACEHOLDER_PATHS
+  // Public templates may contain generic placeholder paths. Before writing a
+  // temporary CI config, replace any remaining public model placeholder with
+  // the runner-local HF master path passed by prepareCiConfig().
+  if (values.hf_master_path) {
+    source = source.replace(
+      /\/absolute\/path\/outside\/repository\/Qwen3\.5-4B/g,
+      values.hf_master_path
+    );
+    source = source.replace(
+      /\/absolute\/path\/outside\/repository\/placeholder/g,
+      values.hf_master_path
+    );
+  }
+
   if (source.includes('/absolute/path/')) {
     throw new Error(
       'public placeholder path remains in ' + path.basename(outputFile)
@@ -165,7 +180,11 @@ function prepareCiConfig(options = {}) {
     media_root: layout.mediaRoot,
     text_root: layout.textRoot,
     youtube_transcript_root: layout.youtubeRoot,
-    youtube_cookies_file: layout.cookieFile
+    youtube_cookies_file: layout.cookieFile,
+    // The HF training master is not present on CI runners; point it at a runner
+    // path so the public placeholder is replaced (training preflight tests use
+    // deterministic boundary doubles rather than the real checkpoint).
+    hf_master_path: path.join(layout.externalRoot, 'Qwen3.5-4B')
   });
 
   prepareConfig(layout.gameTemplate, layout.gameConfig, {

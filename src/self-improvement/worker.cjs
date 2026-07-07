@@ -19,8 +19,13 @@ const {
   updateStatus
 } = require('./store.cjs');
 const { createSourceSnapshot } = require('./snapshot.cjs');
-const { runSandbox, stopCurrentContainer } = require('./sandbox.cjs');
+const { runSandbox, stopActiveRunProcess } = require('./sandbox.cjs');
 const { createModelProxy } = require('./model-proxy.cjs');
+const { normalizeRunKind, candidateTypeForKind } = require('./run-kinds.cjs');
+const {
+  evaluateNightlyPolicy
+} = require('./nightly-policy.cjs');
+const { runTrainingCycle } = require('./training/training-runner.cjs');
 const {
   writeCycleMemory,
   flushAgentMemoryOutbox
@@ -28,7 +33,8 @@ const {
 
 const ACTIVE_RUN_PREEMPT_REASONS = new Set([
   'foreground_turn_active',
-  'memory_pressure'
+  'memory_pressure',
+  'nightly_hf_cycle'
 ]);
 
 function shouldPreemptActiveRun(reason) {
@@ -63,26 +69,88 @@ function classifySandboxExit(exit, stopRequest, preemptReason) {
   });
 }
 
-function isNoCandidateSandboxFailure(message) {
-  const text = String(message || '').toLowerCase();
-  return (
-    text.includes('agent iteration limit reached without a verified candidate') ||
-    text.includes('agent iteration wall-clock budget exceeded') ||
-    text.includes('convergence policy ended the cycle without a verified candidate') ||
-    text.includes('floki_v2_self_improvement_sandbox_no_candidate')
+// A run may end without a candidate ONLY through the agent's evidence-backed
+// no-safe-candidate decision record. Safety-limit trips, deadlines, stall
+// counters, and transport failures are real failures, never fabricated
+// no-candidate successes.
+function readNoSafeCandidateRecord(runId, config) {
+  const file = path.join(
+    config.outbox_root,
+    String(runId),
+    config.no_safe_candidate_file_name
   );
+  const record = safeJson(file, null);
+  if (
+    !record ||
+    record.marker !== 'FLOKI_V2_SELF_IMPROVEMENT_NO_SAFE_CANDIDATE' ||
+    record.run_id !== runId ||
+    typeof record.detailed_reason !== 'string' ||
+    record.detailed_reason.trim() === '' ||
+    !Array.isArray(record.evidence_findings) ||
+    record.evidence_findings.length < 3 ||
+    !Array.isArray(record.considered_alternatives) ||
+    record.considered_alternatives.length < 2 ||
+    record.considered_alternatives.some(
+      (row) =>
+        !row ||
+        typeof row.alternative !== 'string' ||
+        row.alternative.trim() === '' ||
+        typeof row.rejection_reason !== 'string' ||
+        row.rejection_reason.trim() === ''
+    ) ||
+    record.evidence_readiness_complete !== true
+  ) {
+    return null;
+  }
+  return record;
 }
 
-function noCandidateStatusPatch(message, execution, completedAt = nowIso()) {
+function readRunFailureRecord(runId, config) {
+  const file = path.join(
+    config.outbox_root,
+    String(runId),
+    config.run_failure_file_name
+  );
+  return safeJson(file, null);
+}
+
+function persistNoSafeCandidateDecision(record, config) {
+  const dir = path.join(
+    config.runtime_root,
+    config.no_safe_candidate_dir_name
+  );
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const file = path.join(dir, String(record.run_id) + '.json');
+  fs.writeFileSync(file, JSON.stringify(record, null, 2) + '\n', {
+    mode: 0o600
+  });
+  return file;
+}
+
+function noSafeCandidateStatusPatch(record, execution, completedAt = nowIso()) {
   return Object.freeze({
     state: 'waiting_for_idle',
-    phase: 'no_verified_candidate',
+    phase: 'no_safe_candidate',
     current_run_id: null,
     current_container: null,
     last_error: null,
     failure_latched_at: null,
     last_no_candidate_at: completedAt,
-    last_no_candidate_error: String(message || ''),
+    last_no_candidate_error: Object.freeze({
+      run_id: record.run_id,
+      reason: 'no_safe_candidate',
+      detailed_reason: record.detailed_reason,
+      evidence_findings: record.evidence_findings,
+      considered_alternatives: record.considered_alternatives,
+      phase: record.phase || null,
+      selected_experiment: record.selected_experiment || null,
+      target_files: record.target_files || [],
+      focused_test_state: record.focused_test_state || null,
+      verification_state: record.verification_state || null,
+      elapsed_ms: record.elapsed_ms ?? null,
+      terminal_log_file: execution?.log_file || null,
+      timestamp: completedAt
+    }),
     last_sandbox_log_file: execution?.log_file || null,
     last_cycle_completed_at: completedAt
   });
@@ -176,6 +244,131 @@ function latestActivityMs(runtime) {
   );
 }
 
+function automaticNightCycleOwnsWorker(
+  config,
+  now = new Date(),
+  options = {}
+) {
+  if (
+    config.training_enabled !== true ||
+    config.nightly_training_enabled !== true
+  ) {
+    return false;
+  }
+
+  const isWithin =
+    options.is_within_sleep_window ||
+    require('../chat/sleep-cycle.cjs').isWithinSleepWindow;
+
+  if (isWithin(now)) return true;
+
+  const readSession =
+    options.read_nightly_session ||
+    require(
+      './training/nightly-training-session.cjs'
+    ).readNightlySession;
+
+  const current = readSession(config);
+  return Boolean(
+    current &&
+    current.active === true &&
+    current.finalized !== true
+  );
+}
+
+async function pauseNightlyTrainingForManualCode(
+  config,
+  options = {}
+) {
+  const sessionModule =
+    options.session_module ||
+    require('./training/nightly-training-session.cjs');
+  const runtimeClient =
+    options.runtime_client ||
+    require('./training/runtime-client.cjs');
+
+  let current = sessionModule.readNightlySession(config);
+  if (!current || current.finalized === true) {
+    return Object.freeze({
+      ok: true,
+      paused: false,
+      reason: 'no_active_nightly_session',
+      session: current
+    });
+  }
+
+  if (current.current_container) {
+    const checkpoint =
+      await sessionModule.checkpointNightlyTraining(
+        current,
+        {
+          config,
+          reason: 'manual_code_run_now_override',
+          require_epoch_boundary: true,
+          sleep_window_end: current.sleep_window_end
+        }
+      );
+    if (!checkpoint || checkpoint.ok !== true) {
+      throw new Error(
+        checkpoint && checkpoint.error
+          ? checkpoint.error
+          : 'nightly training did not reach a full epoch boundary'
+      );
+    }
+    current = checkpoint.session || current;
+  }
+
+  if (current.resource_entered === true) {
+    const restored =
+      await runtimeClient.exitTrainingResource(
+        'manual_code_run_now_override',
+        config
+      );
+    if (!restored || restored.ok !== true) {
+      throw new Error(
+        'nightly training resource could not be released ' +
+        'for manual code Run Now'
+      );
+    }
+    current = sessionModule.setSessionResourceEntered(
+      current,
+      false,
+      config
+    );
+  }
+
+  current = sessionModule.writeSession({
+    ...current,
+    status: 'paused_for_manual_code_run_now',
+    manual_code_override_active: true,
+    manual_code_override_started_at: nowIso(),
+    updated_at: nowIso()
+  }, config);
+
+  updateStatus({
+    state: 'starting',
+    phase: 'manual_code_run_now_override',
+    current_container: null,
+    training_resource_mode: 'idle',
+    gpu_owner: null
+  }, config);
+
+  appendAudit('nightly_training_paused_for_manual_code', {
+    run_id: current.run_id,
+    completed_epochs:
+      Number(current.completed_epochs || 0),
+    rem_cycles_completed:
+      Number(current.rem_cycles_completed || 0)
+  }, config);
+
+  return Object.freeze({
+    ok: true,
+    paused: true,
+    reason: 'manual_code_run_now_override',
+    session: current
+  });
+}
+
 function idleEligibility(runtime, status, config, force = false) {
   if (!runtime || runtime.api_ready !== true) {
     return { eligible: false, reason: 'chat_runtime_not_ready' };
@@ -194,15 +387,6 @@ function idleEligibility(runtime, status, config, force = false) {
   }
 
   const lastActivity = latestActivityMs(runtime);
-  const failureAt = Date.parse(status.failure_latched_at || '') || 0;
-  if (
-    !force &&
-    config.failure_requires_new_activity === true &&
-    failureAt > 0 &&
-    lastActivity <= failureAt
-  ) {
-    return { eligible: false, reason: 'failure_waiting_for_new_activity' };
-  }
   if (!force && Date.now() - lastActivity < config.idle_seconds * 1000) {
     return { eligible: false, reason: 'idle_threshold_not_reached' };
   }
@@ -267,7 +451,9 @@ function resolveManualRunRequest(fileRequest, status, config) {
       requested_at:
         status.manual_run_requested_at || status.queued_at || null,
       force: true,
-      objective: status.current_objective || config.default_objective
+      objective: status.current_objective || config.default_objective,
+      kind: status.current_run_kind || config.default_rsi_run_kind,
+      candidate_type: status.current_candidate_type || null
     });
   }
   return fileRequest;
@@ -287,12 +473,94 @@ async function runCycle(options = {}) {
     };
   }
 
+  const runKind = normalizeRunKind(options.kind, config);
+  const candidateType = candidateTypeForKind(runKind, config);
+  if (runKind === 'training') {
+    // training_cycle_runner_injection_precedes_night_routing
+    if (typeof options.training_cycle_runner === 'function') {
+      return options.training_cycle_runner({
+        ...options,
+        config,
+        kind: runKind,
+        candidate_type: candidateType
+      });
+    }
+    const { isWithinSleepWindow } = require('../chat/sleep-cycle.cjs');
+    if (isWithinSleepWindow(new Date())) {
+      const {
+        getProductionNightlyTrainingCoordinator
+      } = require('./training/training-scheduler.cjs');
+      const coordinator = getProductionNightlyTrainingCoordinator();
+      const result = await coordinator.reconcile({ now: new Date() });
+      updateStatus({
+        state: 'training',
+        phase: 'training_request_joined_nightly_session',
+        current_run_kind: 'training',
+        current_candidate_type: candidateType,
+        current_objective: options.objective || config.nightly_training_default_objective,
+        manual_run_pending: false,
+        manual_run_request_id: options.manual_request_id || null,
+        manual_run_acknowledged_at: options.manual_request_id ? nowIso() : null
+      }, config);
+      appendAudit('training_request_joined_nightly_session', {
+        request_id: options.manual_request_id || null,
+        objective: options.objective || null,
+        session_run_id: result && result.session && result.session.run_id || null,
+        action: result && result.action || null
+      }, config);
+      return Object.freeze({
+        ok: true,
+        joined_nightly_session: true,
+        candidate_created: false,
+        action: result && result.action || null,
+        session_run_id: result && result.session && result.session.run_id || null
+      });
+    }
+    return (options.training_cycle_runner || runTrainingCycle)({
+      ...options,
+      config,
+      kind: runKind,
+      candidate_type: candidateType
+    });
+  }
+  if (
+    options.force !== true &&
+    automaticNightCycleOwnsWorker(
+      config,
+      options.now || new Date(),
+      options
+    )
+  ) {
+    updateStatus({
+      state: 'training',
+      phase: 'automatic_night_code_cycle_blocked',
+      current_run_id: null,
+      current_container: null,
+      current_run_kind: 'training',
+      current_candidate_type: 'model_adapter',
+      current_objective:
+        config.nightly_training_default_objective,
+      last_error: null
+    }, config);
+    appendAudit('automatic_night_code_cycle_blocked', {
+      requested_kind: runKind,
+      requested_objective: options.objective || null
+    }, config);
+    return Object.freeze({
+      ok: false,
+      skipped: true,
+      reason: 'automatic_night_training_only'
+    });
+  }
+
   const snapshot = createSourceSnapshot({ config });
   updateStatus({
     state: 'researching',
     phase: 'snapshot_ready',
     current_run_id: snapshot.run_id,
     current_objective: options.objective || null,
+    current_run_kind: runKind,
+    current_candidate_type: candidateType,
     last_cycle_started_at: nowIso(),
     last_error: null,
     failure_latched_at: null
@@ -301,7 +569,8 @@ async function runCycle(options = {}) {
 
   const execution = runSandbox(snapshot, {
     config,
-    objective: options.objective
+    objective: options.objective,
+    kind: runKind
   });
   let preemptReason = null;
   const cycleStartMs = Date.now();
@@ -330,40 +599,69 @@ async function runCycle(options = {}) {
     execution.cleanup();
     throw error;
   }
+  // The run has no wall-clock or iteration budget: it continues until a
+  // candidate is verified, an evidence-backed no-safe-candidate decision is
+  // accepted, the Maker pauses or aborts, runtime stop/reset occurs, or a
+  // real failure occurs. Preemption here covers only genuine external
+  // conditions (night handoff, foreground turns, memory pressure, pause).
   const preemptTimer = setInterval(() => {
+    const nowMs = Date.now();
+    if (
+      options.force !== true &&
+      automaticNightCycleOwnsWorker(
+        config,
+        new Date()
+      )
+    ) {
+      preemptReason = 'automatic_code_crossed_into_night';
+      stopActiveRunProcess(
+        'automatic_code_crossed_into_night',
+        config
+      );
+      return;
+    }
+
     const status = readStatus(config);
     updateStatus({}, config);
     touchWorkerHeartbeat(config);
     touchSandboxHeartbeat(config, snapshot.run_id);
     const lastSandboxHeartbeat = readSandboxHeartbeat(config);
     const lastSandboxMs = lastSandboxHeartbeat ? Date.parse(lastSandboxHeartbeat.observed_at || '') : null;
-    const stallMs = lastSandboxMs ? (Date.now() - lastSandboxMs) : 0;
+    const stallMs = lastSandboxMs ? (nowMs - lastSandboxMs) : 0;
     const stalled =
       stallMs > config.shell_command_stalled_threshold_ms;
     const runtime = readRuntimeStatus(config);
-    const eligibility = idleEligibility(
-      runtime,
-      status,
-      config,
-      options.force === true
-    );
+    const activeNightlyPolicy =
+      evaluateNightlyPolicy(config);
+    const eligibility =
+      activeNightlyPolicy.code_sandbox_allowed
+        ? idleEligibility(
+            runtime,
+            status,
+            config,
+            options.force === true
+          )
+        : {
+            eligible: false,
+            reason: 'nightly_hf_cycle'
+          };
     if (
       !eligibility.eligible &&
       shouldPreemptActiveRun(eligibility.reason)
     ) {
       preemptReason = eligibility.reason;
-      stopCurrentContainer(eligibility.reason, config);
+      stopActiveRunProcess(eligibility.reason, config);
     }
     if (status.paused === true) {
       preemptReason = 'paused';
-      stopCurrentContainer('paused', config);
+      stopActiveRunProcess('paused', config);
     }
     if (stalled) {
       appendAudit('command_stalled', { run_id: snapshot.run_id, stall_ms: stallMs }, config);
     }
     const next = {
       last_real_progress_at: new Date(Math.max(cycleStartMs, lastSandboxMs || cycleStartMs)).toISOString(),
-      current_command_elapsed_ms: Date.now() - cycleStartMs,
+      current_command_elapsed_ms: nowMs - cycleStartMs,
       stalled
     };
     updateStatus(next, config);
@@ -383,6 +681,10 @@ async function runCycle(options = {}) {
   const stopRequest = execution.read_stop_request();
   const classification = classifySandboxExit(exit, stopRequest, preemptReason);
   execution.cleanup();
+  const executionStatus = {
+    log_file: execution.log_file,
+    run_id: snapshot.run_id
+  };
 
   if (classification.preempted) {
     updateStatus({
@@ -422,40 +724,8 @@ async function runCycle(options = {}) {
 
   const cycleObjective = options.objective || null;
 
-  if (exit.code !== 0 && exit.code !== 137) {
-    const summary = execution.read_error_tail();
-    const base = exit.error
-      ? exit.error.message
-      : 'sandbox exited with status ' + exit.code +
-        (exit.signal ? ' signal ' + exit.signal : '');
-    const message = summary ? base + '\n\n' + summary : base;
+  function failCycle(message, auditType = 'cycle_failed', extra = {}) {
     const failedAt = nowIso();
-    if (isNoCandidateSandboxFailure(message)) {
-      updateStatus(noCandidateStatusPatch(message, execution, failedAt), config);
-      appendAudit(
-        'cycle_no_candidate',
-        {
-          run_id: snapshot.run_id,
-          exit_code: exit.code,
-          signal: exit.signal,
-          reason: 'no_verified_candidate',
-          error: message,
-          sandbox_log_file: execution.log_file
-        },
-        config
-      );
-      try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
-      try {
-        writeCycleMemory({
-          run_id: snapshot.run_id,
-          objective: cycleObjective,
-          outcome: 'no_candidate',
-          reason: message.slice(0, 400),
-          importance: 0.55
-        });
-      } catch (_) {}
-      return { ok: false, no_candidate: true, error: message };
-    }
     updateStatus({
       state: 'failed',
       phase: classification.phase,
@@ -466,43 +736,67 @@ async function runCycle(options = {}) {
       last_sandbox_log_file: execution.log_file,
       last_cycle_completed_at: failedAt
     }, config);
-    appendAudit(
-      classification.killed ? 'cycle_killed_137' : 'cycle_failed',
-      {
-        run_id: snapshot.run_id,
-        exit_code: exit.code,
-        signal: exit.signal,
-        reason: classification.reason,
-        error: message,
-        sandbox_log_file: execution.log_file
-      },
-      config
-    );
+    appendAudit(auditType, {
+      run_id: snapshot.run_id,
+      exit_code: exit.code,
+      signal: exit.signal,
+      reason: classification.reason,
+      error: message,
+      sandbox_log_file: execution.log_file,
+      ...extra
+    }, config);
     try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
     try {
       writeCycleMemory({
         run_id: snapshot.run_id,
         objective: cycleObjective,
         outcome: 'cycle_failed',
-        reason: message.slice(0, 400),
+        reason: String(message || '').slice(0, 400),
         importance: 0.50
       });
     } catch (_) {}
     return { ok: false, error: message };
   }
 
-  const completionSummary = execution.read_error_tail();
-  if (exit.code === 0 && isNoCandidateSandboxFailure(completionSummary)) {
+  if (exit.code !== 0 && exit.code !== 137) {
+    // A non-zero sandbox exit is always a real, persisted failure. The agent
+    // writes a structured failure record with the actual error; the log tail
+    // is the fallback evidence.
+    const failureRecord = readRunFailureRecord(snapshot.run_id, config);
+    const summary = execution.read_error_tail();
+    const base = failureRecord
+      ? String(failureRecord.reason || 'run_failed') +
+        (failureRecord.error ? ': ' + String(failureRecord.error) : '')
+      : exit.error
+        ? exit.error.message
+        : 'sandbox exited with status ' + exit.code +
+          (exit.signal ? ' signal ' + exit.signal : '');
+    const message = summary ? base + '\n\n' + summary : base;
+    return failCycle(
+      message,
+      classification.killed ? 'cycle_killed_137' : 'cycle_failed',
+      failureRecord ? { failure_record: failureRecord } : {}
+    );
+  }
+
+  // Exit code zero is not success by itself. The run must have produced
+  // exactly one explicit outcome: a pending-review candidate or an
+  // evidence-backed no-safe-candidate decision.
+  const noSafeCandidate = readNoSafeCandidateRecord(snapshot.run_id, config);
+  if (noSafeCandidate) {
     const completedAt = nowIso();
+    const persistedFile = persistNoSafeCandidateDecision(noSafeCandidate, config);
     updateStatus(
-      noCandidateStatusPatch(completionSummary, execution, completedAt),
+      noSafeCandidateStatusPatch(noSafeCandidate, executionStatus, completedAt),
       config
     );
-    appendAudit('cycle_no_candidate', {
+    appendAudit('cycle_no_safe_candidate', {
       run_id: snapshot.run_id,
-      exit_code: exit.code,
-      signal: exit.signal,
-      reason: 'controlled_no_verified_candidate',
+      detailed_reason: noSafeCandidate.detailed_reason,
+      evidence_finding_count: noSafeCandidate.evidence_findings.length,
+      considered_alternative_count:
+        noSafeCandidate.considered_alternatives.length,
+      persisted_file: persistedFile,
       sandbox_log_file: execution.log_file
     }, config);
     try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
@@ -510,21 +804,31 @@ async function runCycle(options = {}) {
       writeCycleMemory({
         run_id: snapshot.run_id,
         objective: cycleObjective,
-        outcome: 'no_candidate',
-        reason: 'controlled_no_verified_candidate',
+        outcome: 'no_safe_candidate',
+        reason: String(noSafeCandidate.detailed_reason || '').slice(0, 400),
         importance: 0.55
       });
     } catch (_) {}
     return {
       ok: false,
       no_candidate: true,
-      controlled: true,
-      error: completionSummary
+      evidence_backed: true,
+      reason: 'no_safe_candidate'
     };
   }
 
   try { flushAgentMemoryOutbox(config.outbox_root, snapshot.run_id); } catch (_) {}
-  const candidate = importOutbox(snapshot.run_id, config);
+  let candidate;
+  try {
+    candidate = importOutbox(snapshot.run_id, config);
+  } catch (error) {
+    return failCycle(
+      'sandbox exited 0 without a verified candidate or an evidence-backed ' +
+      'no-safe-candidate decision: ' + error.message,
+      'cycle_failed',
+      { zero_exit_without_outcome: true }
+    );
+  }
   try {
     writeCycleMemory({
       run_id: snapshot.run_id,
@@ -561,7 +865,7 @@ async function serviceLoop(options = {}) {
   const requestStop = (reason = 'worker_shutdown') => {
     if (stopping) return;
     stopping = true;
-    stopCurrentContainer(reason, config);
+    stopActiveRunProcess(reason, config);
     wakeController.wake(reason);
   };
   const signalNames = options.process_signal_names || ['SIGTERM', 'SIGINT'];
@@ -595,6 +899,7 @@ async function serviceLoop(options = {}) {
     state: config.enabled ? 'waiting_for_idle' : 'disabled',
     phase: null,
     worker_running: true,
+    worker_pid: process.pid,
     model_proxy_ready: true,
     started_at: nowIso(),
     last_error: null,
@@ -624,7 +929,14 @@ async function serviceLoop(options = {}) {
       continue;
     }
     if (status.paused) {
-      updateStatus({ state: 'paused', phase: null }, config);
+      updateStatus({
+        state: 'paused',
+        phase: null,
+        worker_running: true,
+        worker_pid: process.pid,
+        model_proxy_ready: true,
+        worker_alive_at: nowIso()
+      }, config);
       await wakeController.wait(config.poll_ms);
       continue;
     }
@@ -637,11 +949,140 @@ async function serviceLoop(options = {}) {
       continue;
     }
 
+    // single_night_scheduler_owns_worker_loop
+    const queuedNightRequestForScheduler = readRunRequest(config);
+    const manualNightOverrideQueued =
+      queuedNightRequestForScheduler?.force === true;
+    if (
+      !manualNightOverrideQueued &&
+      automaticNightCycleOwnsWorker(config, new Date())
+    ) {
+      if (!(
+        status.current_run_kind === 'training' &&
+        typeof status.phase === 'string' &&
+        status.phase.startsWith('nightly_')
+      )) {
+        updateStatus({
+          state: 'training',
+          phase: 'nightly_scheduler_owns_worker_loop',
+          current_run_kind: 'training',
+          current_candidate_type: 'model_adapter',
+          current_objective: config.nightly_training_default_objective,
+          current_container: null
+        }, config);
+      }
+      await wakeController.wait(config.poll_ms);
+      continue;
+    }
+
+
+    // automatic_night_cycle_before_general_rsi
+    const queuedNightRequest = readRunRequest(config);
+    const queuedManualOverride =
+      queuedNightRequest?.force === true;
+
+    if (
+      !queuedManualOverride &&
+      automaticNightCycleOwnsWorker(
+        config,
+        new Date()
+      )
+    ) {
+      try {
+        const {
+          getProductionNightlyTrainingCoordinator
+        } = require(
+          './training/training-scheduler.cjs'
+        );
+        const coordinator =
+          getProductionNightlyTrainingCoordinator();
+        await coordinator.reconcile({
+          now: new Date()
+        });
+      } catch (error) {
+        const message =
+          error && error.stack
+            ? error.stack
+            : String(error && error.message || error);
+        updateStatus({
+          state: 'failed',
+          phase: 'nightly_training_coordinator_failed',
+          current_container: null,
+          nightly_training_error: message,
+          last_error: message,
+          failure_latched_at: nowIso()
+        }, config);
+        appendAudit(
+          'nightly_training_coordinator_failed',
+          { error: message },
+          config
+        );
+      }
+
+      await wakeController.wait(config.poll_ms);
+      continue;
+    }
+
+    const nightlyPolicy = evaluateNightlyPolicy(config);
+    if (!nightlyPolicy.code_sandbox_allowed) {
+      const blockedRequest = readRunRequest(config);
+
+      if (blockedRequest) {
+        clearRunRequest(config);
+        appendAudit(
+          'run_now_blocked_nightly_hf_cycle',
+          {
+            request_id: blockedRequest.request_id || null,
+            kind: blockedRequest.kind || null,
+            sleep_date: nightlyPolicy.sleep_date
+          },
+          config
+        );
+      }
+
+      const nightlyPatch = {
+        code_sandbox_available: false,
+        run_now_block_reason: 'nightly_hf_cycle',
+        manual_run_pending: false
+      };
+
+      if (!status.current_run_id && !status.current_container) {
+        Object.assign(nightlyPatch, {
+          state: 'waiting_for_idle',
+          phase: 'nightly_hf_cycle',
+          current_objective: null,
+          current_run_kind: null,
+          current_candidate_type: null
+        });
+      }
+
+      updateStatus(nightlyPatch, config);
+      await wakeController.wait(config.poll_ms);
+      continue;
+    }
+
+    updateStatus({
+      code_sandbox_available: true,
+      run_now_block_reason: null
+    }, config);
+
     const fileRequest = readRunRequest(config);
     const request = resolveManualRunRequest(
       fileRequest,
       status,
       config
+    );
+
+    const manualNightCodeOverride = Boolean(
+      request?.force === true &&
+      normalizeRunKind(
+        request.kind || config.default_rsi_run_kind,
+        config
+      ) === 'code' &&
+      automaticNightCycleOwnsWorker(
+        config,
+        new Date()
+      )
     );
 
     // Let the pending-review queue grow up to max_pending_review_candidates so
@@ -688,12 +1129,17 @@ async function serviceLoop(options = {}) {
       }, config);
     }
 
+    if (manualNightCodeOverride) {
+      await pauseNightlyTrainingForManualCode(config);
+    }
+
     clearRunRequest(config);
     try {
       await runCycle({
         config,
         force: request?.force === true,
         objective: request?.objective || '',
+        kind: request?.kind || config.default_rsi_run_kind,
         manual_request_id:
           request?.force === true ? request.request_id || null : null,
         manual_requested_at:
@@ -717,6 +1163,15 @@ async function serviceLoop(options = {}) {
       );
     }
     if (stopping) break;
+    // manualNightCodeOverride_resume_nightly_immediately
+    if (manualNightCodeOverride) {
+      continue;
+    }
+    // Explicit Maker-requested cycles have no cooldown; the cooldown applies
+    // only between automatic idle-scheduled cycles.
+    if (request?.force === true) {
+      continue;
+    }
     await wakeController.wait(config.cooldown_seconds * 1000);
   }
 
@@ -732,6 +1187,7 @@ async function serviceLoop(options = {}) {
     state: 'stopped',
     phase: null,
     worker_running: false,
+    worker_pid: null,
     model_proxy_ready: false
   }, config);
   appendAudit('worker_stopped', { pid: process.pid }, config);
@@ -750,16 +1206,32 @@ async function main() {
 
 if (require.main === module) {
   main().catch((error) => {
+    const detail = error && error.stack ? error.stack : String(error && error.message || error);
+    try {
+      const config = loadSelfImprovementConfig();
+      updateStatus({
+        state: 'stopped',
+        phase: 'worker_start_failed',
+        worker_running: false,
+        worker_pid: null,
+        model_proxy_ready: false,
+        last_error: detail,
+        failure_latched_at: nowIso()
+      }, config);
+      appendAudit('worker_start_failed', { pid: process.pid, error: detail }, config);
+    } catch (_statusError) {}
     console.error(JSON.stringify({
       ok: false,
       marker: 'FLOKI_V2_SELF_IMPROVEMENT_WORKER_FAIL',
-      error: error.stack || error.message
+      error: detail
     }, null, 2));
     process.exit(1);
   });
 }
 
 module.exports = {
+  pauseNightlyTrainingForManualCode,
+  automaticNightCycleOwnsWorker,
   createServiceWakeController,
   idleEligibility,
   latestActivityMs,
@@ -771,8 +1243,10 @@ module.exports = {
   readRuntimeStatus,
   resolveManualRunRequest,
   classifySandboxExit,
-  isNoCandidateSandboxFailure,
-  noCandidateStatusPatch,
+  readNoSafeCandidateRecord,
+  readRunFailureRecord,
+  persistNoSafeCandidateDecision,
+  noSafeCandidateStatusPatch,
   runCycle,
   serviceLoop,
   shouldPreemptActiveRun

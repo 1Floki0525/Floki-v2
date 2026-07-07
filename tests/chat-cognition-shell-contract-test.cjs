@@ -16,7 +16,7 @@ function parseJsonFromStdout(stdout) {
 }
 
 function run() {
-  const result = spawnSync('bash', ['bin/floki-start.sh', 'chat-smoke'], {
+  const result = spawnSync(process.execPath, ['src/chat/floki-chat.cjs', '--smoke'], {
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 240000

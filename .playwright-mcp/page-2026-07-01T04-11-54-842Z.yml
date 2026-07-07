@@ -1,0 +1,280 @@
+- generic [ref=f26e2]:
+  - navigation "Main menu":
+    - link "Skip to main content" [ref=f26e3] [cursor=pointer]:
+      - /url: "#wpbody-content"
+    - link "Skip to toolbar" [ref=f26e4] [cursor=pointer]:
+      - /url: "#wp-toolbar"
+    - list [ref=f26e7]:
+      - listitem [ref=f26e8]:
+        - link "Dashboard" [ref=f26e9] [cursor=pointer]:
+          - /url: index.php
+          - generic [ref=f26e10]: 
+          - generic [ref=f26e11]: Dashboard
+        - list [ref=f26e12]:
+          - listitem [ref=f26e13]:
+            - link "Home" [ref=f26e14] [cursor=pointer]:
+              - /url: index.php
+          - listitem [ref=f26e15]:
+            - link "Updates 10" [ref=f26e16] [cursor=pointer]:
+              - /url: update-core.php
+              - text: Updates
+              - generic [ref=f26e17]: "10"
+      - listitem [ref=f26e18]
+      - listitem [ref=f26e20]:
+        - link "Posts" [ref=f26e21] [cursor=pointer]:
+          - /url: edit.php
+          - generic [ref=f26e22]: 
+          - generic [ref=f26e23]: Posts
+        - list [ref=f26e24]:
+          - listitem [ref=f26e25]:
+            - link "All Posts" [ref=f26e26] [cursor=pointer]:
+              - /url: edit.php
+          - listitem [ref=f26e27]:
+            - link "Add Post" [ref=f26e28] [cursor=pointer]:
+              - /url: post-new.php
+          - listitem [ref=f26e29]:
+            - link "Categories" [ref=f26e30] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=category
+          - listitem [ref=f26e31]:
+            - link "Tags" [ref=f26e32] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=post_tag
+      - listitem [ref=f26e33]:
+        - link "Media" [ref=f26e34] [cursor=pointer]:
+          - /url: upload.php
+          - generic [ref=f26e35]: 
+          - generic [ref=f26e36]: Media
+        - list [ref=f26e37]:
+          - listitem [ref=f26e38]:
+            - link "Library" [ref=f26e39] [cursor=pointer]:
+              - /url: upload.php
+          - listitem [ref=f26e40]:
+            - link "Add Media File" [ref=f26e41] [cursor=pointer]:
+              - /url: media-new.php
+      - listitem [ref=f26e42]:
+        - link "Pages" [ref=f26e43] [cursor=pointer]:
+          - /url: edit.php?post_type=page
+          - generic [ref=f26e44]: 
+          - generic [ref=f26e45]: Pages
+        - list [ref=f26e46]:
+          - listitem [ref=f26e47]:
+            - link "All Pages" [ref=f26e48] [cursor=pointer]:
+              - /url: edit.php?post_type=page
+          - listitem [ref=f26e49]:
+            - link "Add Page" [ref=f26e50] [cursor=pointer]:
+              - /url: post-new.php?post_type=page
+      - listitem [ref=f26e51]:
+        - link "Comments 1,000 Comments in moderation" [ref=f26e52] [cursor=pointer]:
+          - /url: edit-comments.php
+          - generic [ref=f26e53]: 
+          - generic [ref=f26e54]:
+            - text: Comments
+            - generic [ref=f26e55]:
+              - text: 1,000
+              - generic [ref=f26e56]: 1,000 Comments in moderation
+      - listitem [ref=f26e57]
+      - listitem [ref=f26e59]:
+        - link "Appearance" [ref=f26e60] [cursor=pointer]:
+          - /url: themes.php
+          - generic [ref=f26e61]: 
+          - generic [ref=f26e62]: Appearance
+        - list [ref=f26e63]:
+          - listitem [ref=f26e64]:
+            - link "Themes 5" [ref=f26e65] [cursor=pointer]:
+              - /url: themes.php
+              - text: Themes
+              - generic [ref=f26e66]: "5"
+          - listitem [ref=f26e67]:
+            - link "Patterns" [ref=f26e68] [cursor=pointer]:
+              - /url: site-editor.php?p=/pattern
+          - listitem [ref=f26e69]:
+            - link "Customize" [ref=f26e70] [cursor=pointer]:
+              - /url: customize.php?return=%2Fwp-admin%2Fupdate.php%3Faction%3Dupload-plugin
+          - listitem [ref=f26e71]:
+            - link "Fonts" [ref=f26e72] [cursor=pointer]:
+              - /url: font-library.php
+          - listitem [ref=f26e73]:
+            - link "Theme File Editor" [ref=f26e74] [cursor=pointer]:
+              - /url: theme-editor.php
+      - listitem [ref=f26e75]:
+        - link "Floki Access" [ref=f26e76] [cursor=pointer]:
+          - /url: admin.php?page=floki-access
+          - generic [ref=f26e77]: 
+          - generic [ref=f26e78]: Floki Access
+        - list [ref=f26e79]:
+          - listitem [ref=f26e80]:
+            - link "Floki Access" [ref=f26e81] [cursor=pointer]:
+              - /url: admin.php?page=floki-access
+          - listitem [ref=f26e82]:
+            - link "Applications" [ref=f26e83] [cursor=pointer]:
+              - /url: admin.php?page=floki-access-applications
+      - listitem [ref=f26e84]:
+        - link "Plugins 5" [ref=f26e85] [cursor=pointer]:
+          - /url: plugins.php
+          - generic [ref=f26e86]: 
+          - generic [ref=f26e87]:
+            - text: Plugins
+            - generic [ref=f26e88]: "5"
+        - list [ref=f26e89]:
+          - listitem [ref=f26e90]:
+            - link "Installed Plugins" [ref=f26e91] [cursor=pointer]:
+              - /url: plugins.php
+          - listitem [ref=f26e92]:
+            - link "Add Plugin" [ref=f26e93] [cursor=pointer]:
+              - /url: plugin-install.php
+          - listitem [ref=f26e94]:
+            - link "Plugin File Editor" [ref=f26e95] [cursor=pointer]:
+              - /url: plugin-editor.php
+      - listitem [ref=f26e96]:
+        - link "Users" [ref=f26e97] [cursor=pointer]:
+          - /url: users.php
+          - generic [ref=f26e98]: 
+          - generic [ref=f26e99]: Users
+        - list [ref=f26e100]:
+          - listitem [ref=f26e101]:
+            - link "All Users" [ref=f26e102] [cursor=pointer]:
+              - /url: users.php
+          - listitem [ref=f26e103]:
+            - link "Add User" [ref=f26e104] [cursor=pointer]:
+              - /url: user-new.php
+          - listitem [ref=f26e105]:
+            - link "Profile" [ref=f26e106] [cursor=pointer]:
+              - /url: profile.php
+      - listitem [ref=f26e107]:
+        - link "Tools" [ref=f26e108] [cursor=pointer]:
+          - /url: tools.php
+          - generic [ref=f26e109]: 
+          - generic [ref=f26e110]: Tools
+        - list [ref=f26e111]:
+          - listitem [ref=f26e112]:
+            - link "Available Tools" [ref=f26e113] [cursor=pointer]:
+              - /url: tools.php
+          - listitem [ref=f26e114]:
+            - link "Import" [ref=f26e115] [cursor=pointer]:
+              - /url: import.php
+          - listitem [ref=f26e116]:
+            - link "Export" [ref=f26e117] [cursor=pointer]:
+              - /url: export.php
+          - listitem [ref=f26e118]:
+            - link "Site Health" [ref=f26e119] [cursor=pointer]:
+              - /url: site-health.php
+          - listitem [ref=f26e120]:
+            - link "Export Personal Data" [ref=f26e121] [cursor=pointer]:
+              - /url: export-personal-data.php
+          - listitem [ref=f26e122]:
+            - link "Erase Personal Data" [ref=f26e123] [cursor=pointer]:
+              - /url: erase-personal-data.php
+          - listitem [ref=f26e124]:
+            - link "WP Reset" [ref=f26e125] [cursor=pointer]:
+              - /url: tools.php?page=wp-reset
+      - listitem [ref=f26e126]:
+        - link "Settings" [ref=f26e127] [cursor=pointer]:
+          - /url: options-general.php
+          - generic [ref=f26e128]: 
+          - generic [ref=f26e129]: Settings
+        - list [ref=f26e130]:
+          - listitem [ref=f26e131]:
+            - link "General" [ref=f26e132] [cursor=pointer]:
+              - /url: options-general.php
+          - listitem [ref=f26e133]:
+            - link "Connectors" [ref=f26e134] [cursor=pointer]:
+              - /url: options-connectors.php
+          - listitem [ref=f26e135]:
+            - link "Writing" [ref=f26e136] [cursor=pointer]:
+              - /url: options-writing.php
+          - listitem [ref=f26e137]:
+            - link "Reading" [ref=f26e138] [cursor=pointer]:
+              - /url: options-reading.php
+          - listitem [ref=f26e139]:
+            - link "Discussion" [ref=f26e140] [cursor=pointer]:
+              - /url: options-discussion.php
+          - listitem [ref=f26e141]:
+            - link "Media" [ref=f26e142] [cursor=pointer]:
+              - /url: options-media.php
+          - listitem [ref=f26e143]:
+            - link "Permalinks" [ref=f26e144] [cursor=pointer]:
+              - /url: options-permalink.php
+          - listitem [ref=f26e145]:
+            - link "Privacy" [ref=f26e146] [cursor=pointer]:
+              - /url: options-privacy.php
+      - listitem [ref=f26e147]:
+        - button "Collapse Main menu" [expanded] [ref=f26e148] [cursor=pointer]:
+          - generic [ref=f26e150]: Collapse Menu
+  - generic [ref=f26e151]:
+    - generic [ref=f26e152]:
+      - navigation "Toolbar":
+        - menu:
+          - group [ref=f26e153]:
+            - menuitem "About WordPress" [ref=f26e154] [cursor=pointer]:
+              - generic [ref=f26e156]: About WordPress
+          - group [ref=f26e157]:
+            - menuitem "GalacticFamilyHub" [ref=f26e158] [cursor=pointer]
+          - group [ref=f26e159]:
+            - menuitem "10 updates available" [ref=f26e160] [cursor=pointer]:
+              - generic [ref=f26e162]: "10"
+              - generic [ref=f26e163]: 10 updates available
+          - group [ref=f26e164]:
+            - menuitem "Ctrl+K Open command palette" [ref=f26e165] [cursor=pointer]:
+              - generic [ref=f26e167]:
+                - text: Ctrl+K
+                - generic [ref=f26e168]: Open command palette
+          - group [ref=f26e169]:
+            - menuitem "1,000 Comments in moderation" [ref=f26e170] [cursor=pointer]:
+              - generic [ref=f26e172]: 1,000
+              - generic [ref=f26e173]: 1,000 Comments in moderation
+          - group [ref=f26e174]:
+            - menuitem "New" [ref=f26e175] [cursor=pointer]:
+              - generic [ref=f26e177]: New
+        - menu [ref=f26e178]:
+          - group [ref=f26e179]:
+            - menuitem "Howdy, Galact_Admin" [ref=f26e180] [cursor=pointer]
+    - main [ref=f26e181]:
+      - generic [ref=f26e183]:
+        - 'heading "Installing plugin from uploaded file: floki-neural-web-app-corrected-20260701.zip" [level=1] [ref=f26e184]'
+        - paragraph [ref=f26e185]: Unpacking the package…
+        - paragraph [ref=f26e186]: Installing the plugin…
+        - paragraph [ref=f26e187]: Destination folder already exists. /homepages/36/d4299128106/htdocs/clickandbuilds/GalacticFamilyHub/wp-content/plugins/floki-neural-web-app/
+        - heading "This plugin is already installed." [level=2] [ref=f26e188]
+        - table [ref=f26e189]:
+          - rowgroup [ref=f26e190]:
+            - row "Current Uploaded" [ref=f26e191]:
+              - columnheader [ref=f26e192]
+              - columnheader "Current" [ref=f26e193]
+              - columnheader "Uploaded" [ref=f26e194]
+            - row "Plugin name Floki Neural Web App Floki Neural Web App" [ref=f26e195]:
+              - cell "Plugin name" [ref=f26e196]
+              - cell "Floki Neural Web App" [ref=f26e197]
+              - cell "Floki Neural Web App" [ref=f26e198]
+            - row "Version 2026.07.01.024326 2026.07.01.025300" [ref=f26e199]:
+              - cell "Version" [ref=f26e200]
+              - cell "2026.07.01.024326" [ref=f26e201]
+              - cell "2026.07.01.025300" [ref=f26e202]
+            - row "Author Floki Floki" [ref=f26e203]:
+              - cell "Author" [ref=f26e204]
+              - cell "Floki" [ref=f26e205]
+              - cell "Floki" [ref=f26e206]
+            - row "Required WordPress version - -" [ref=f26e207]:
+              - cell "Required WordPress version" [ref=f26e208]
+              - cell "-" [ref=f26e209]
+              - cell "-" [ref=f26e210]
+            - row "Required PHP version - -" [ref=f26e211]:
+              - cell "Required PHP version" [ref=f26e212]
+              - cell "-" [ref=f26e213]
+              - cell "-" [ref=f26e214]
+        - paragraph [ref=f26e215]:
+          - text: You are updating a plugin. Be sure to
+          - link "back up your database and files" [ref=f26e216] [cursor=pointer]:
+            - /url: https://developer.wordpress.org/advanced-administration/security/backup/
+          - text: first.
+        - paragraph [ref=f26e217]:
+          - link "Replace current with uploaded" [ref=f26e218] [cursor=pointer]:
+            - /url: update.php?action=upload-plugin&package=17&overwrite=update-plugin&_wpnonce=9c4c20d6b5
+          - link "Cancel and go back" [ref=f26e219] [cursor=pointer]:
+            - /url: update.php?action=upload-plugin-cancel-overwrite&package=17&_wpnonce=28fb5cc5f5
+  - contentinfo [ref=f26e220]:
+    - paragraph [ref=f26e221]:
+      - generic [ref=f26e222]:
+        - text: Thank you for creating with
+        - link "WordPress" [ref=f26e223] [cursor=pointer]:
+          - /url: https://wordpress.org/
+        - text: .
+    - paragraph [ref=f26e224]: Version 7.0

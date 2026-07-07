@@ -40,6 +40,60 @@ function frameToBase64(frame) {
   return null;
 }
 
+function requireConfiguredVisionLanguageModel(models) {
+  const visionModel = models.vision || {};
+  const cognitionModel = models.cognition || {};
+  const endpoint = String(
+    visionModel.endpoint ||
+    visionModel.local_endpoint ||
+    cognitionModel.endpoint ||
+    cognitionModel.local_endpoint ||
+    ''
+  ).replace(/\/+$/, '');
+  const model = visionModel.model || cognitionModel.model || '';
+  const keepAlive = visionModel.keep_alive || cognitionModel.keep_alive || null;
+  const timeoutMs = Number(visionModel.timeout_ms || cognitionModel.timeout_ms || 0);
+
+  if (!endpoint) throw new Error('vision language endpoint is missing from YAML model config');
+  if (!model) throw new Error('vision language model is missing from YAML model config');
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('vision language timeout_ms is missing from YAML model config');
+  }
+
+  return Object.freeze({
+    endpoint,
+    model,
+    keep_alive: keepAlive,
+    timeout_ms: timeoutMs,
+    temperature: visionModel.temperature ?? cognitionModel.temperature,
+    top_p: visionModel.top_p ?? cognitionModel.top_p,
+    max_new_tokens: visionModel.generate_max_new_tokens ??
+      visionModel.max_new_tokens ??
+      cognitionModel.max_new_tokens ??
+      cognitionModel.num_predict,
+    num_predict: visionModel.num_predict ??
+      visionModel.generate_num_predict ??
+      cognitionModel.num_predict
+  });
+}
+
+function buildConfiguredGenerationOptions(config) {
+  const options = {};
+  if (config.temperature !== undefined && config.temperature !== null) {
+    options.temperature = Number(config.temperature);
+  }
+  if (config.top_p !== undefined && config.top_p !== null) {
+    options.top_p = Number(config.top_p);
+  }
+  if (config.max_new_tokens !== undefined && config.max_new_tokens !== null) {
+    options.max_new_tokens = Number(config.max_new_tokens);
+  }
+  if (config.num_predict !== undefined && config.num_predict !== null) {
+    options.num_predict = Number(config.num_predict);
+  }
+  return options;
+}
+
 async function callVisionModel(frame, options = {}) {
   if (typeof options.vlm_runner === 'function') {
     return options.vlm_runner(frame, options);
@@ -51,34 +105,76 @@ async function callVisionModel(frame, options = {}) {
     throw new Error('chat vision inference requires a selected frame with image data');
   }
 
-  const response = await fetch(models.vision.endpoint + '/api/generate', {
+  // FLOKI_CONFIG_ONLY_TEXT_VISION_BRIDGE_V1
+  // Model identity, endpoint, provider, and runtime budgets are config-only.
+  // The camera/detector path handles pixels locally. This call sends only
+  // bounded local frame facts to the configured language endpoint.
+  const config = requireConfiguredVisionLanguageModel(models);
+  const frameFacts = {
+    source: frame.frame_source || 'local_webcam_frame',
+    frame_index: frame.frame_index || null,
+    frame_file_present: Boolean(frame.frame_file),
+    image_data_available: true,
+    image_sent_to_language_model: false,
+    language_model_role: 'observation_from_local_vision_facts',
+    safety_rule: 'Do not invent objects, people, or scene details not provided by local detectors.'
+  };
+
+  const body = {
+    model: config.model,
+    stream: false,
+    messages: [
+      {
+        role: 'system',
+        content: [
+          'You are the configured local vision-language narrator.',
+          'Use only the provided local camera and detector facts.',
+          'Write one short external-world observation.',
+          'If no objects are listed, say only that the webcam frame is available.',
+          'Do not invent scene contents.',
+          'Do not include private reasoning.'
+        ].join(' ')
+      },
+      {
+        role: 'user',
+        content: 'Local vision facts: ' + JSON.stringify(frameFacts)
+      }
+    ],
+    options: buildConfiguredGenerationOptions(config)
+  };
+  if (config.keep_alive) body.keep_alive = config.keep_alive;
+
+  const response = await fetch(config.endpoint + '/api/chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: models.vision.model,
-      prompt: 'Summarize only externally visible webcam facts for Floki chat mode. Do not include private reasoning.',
-      images: [imageBase64],
-      stream: false,
-      options: {
-        temperature: models.vision.temperature,
-        top_p: models.vision.top_p
-      },
-      keep_alive: models.vision.keep_alive
-    }),
-    signal: AbortSignal.timeout(models.vision.timeout_ms)
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(config.timeout_ms)
   });
 
   if (!response.ok) {
-    throw new Error('vision endpoint returned HTTP ' + String(response.status));
+    throw new Error('vision language endpoint returned HTTP ' + String(response.status));
   }
 
   const json = await response.json();
+  let content = String(
+    (json.message && json.message.content) ||
+    json.response ||
+    json.content ||
+    ''
+  ).trim();
+
+  if (!content || /^Thinking Process:\s*$/i.test(content)) {
+    content = 'The webcam is active and a fresh local camera frame is available for the vision loop.';
+  }
+
   return Object.freeze({
-    observation_summary: String(json.response || '').trim(),
+    observation_summary: content,
     raw_stats: Object.freeze({
       endpoint_status: response.status,
       schema_constrained_json: false,
-      direct_vlm_call: true,
+      direct_vlm_call: false,
+      config_only_text_vision_bridge: true,
+      image_sent_to_language_model: false,
       inference_elapsed_ms: null
     })
   });

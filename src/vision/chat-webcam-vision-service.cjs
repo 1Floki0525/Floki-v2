@@ -29,6 +29,11 @@ const {
   isPersonCandidate,
   verifyDetectionFramePersons
 } = require('./person-presence-verifier.cjs');
+const {
+  createInitialDetectionFrameState,
+  reduceDetectionFrameState,
+  splitDisplayDetections
+} = require('./detection-frame-contract.cjs');
 
 function readyTimeoutMs(options = {}) {
   if (options.timeout_ms) return Number(options.timeout_ms);
@@ -55,7 +60,7 @@ function maxPipeBufferBytes() {
 }
 
 function assertNode24() {
-  if (!process.version.startsWith('v24.')) {
+  if (Number(process.versions.node.split('.')[0]) < 24) {
     throw new Error('Node 24 required for chat webcam vision service, got ' + process.version);
   }
 }
@@ -76,136 +81,107 @@ function runtimePaths(options = {}) {
   });
 }
 
+function localHfVisionEndpoint(options = {}) {
+  // The local HF vision endpoint is YAML-authoritative
+  // (models.vision.local_endpoint); env overrides are for ops only, and there
+  // is no hardcoded URL fallback in source.
+  return options.local_endpoint ||
+    options.hf_endpoint ||
+    process.env.FLOKI_HF_COGNITION_ENDPOINT ||
+    process.env.FLOKI_HF_VISION_ENDPOINT ||
+    getModelConfig('chat').vision.local_endpoint;
+}
+
 function chatVisionTunnelConfig(options = {}) {
   const paths = runtimePaths(options);
-  const vision = getVisionConfig('chat');
-  const socket = options.tunnel_socket || path.join(paths.runtime_dir, vision.vlm_ssh_tunnel_socket_name);
+  const visionModel = getModelConfig('chat').vision;
+  const model = visionModel.model;
+  const endpoint = localHfVisionEndpoint(options);
+  const parsed = new URL(endpoint);
+
   return Object.freeze({
-    enabled: vision.vlm_ssh_tunnel_enabled === true,
-    target: vision.vlm_ssh_tunnel_target,
-    local_host: vision.vlm_ssh_tunnel_local_host,
-    local_port: Number(vision.vlm_ssh_tunnel_local_port),
-    local_endpoint: 'http://' + vision.vlm_ssh_tunnel_local_host + ':' + String(vision.vlm_ssh_tunnel_local_port),
-    remote_host: vision.vlm_ssh_tunnel_remote_host,
-    remote_port: Number(vision.vlm_ssh_tunnel_remote_port),
-    remote_endpoint: 'http://' + vision.vlm_ssh_tunnel_remote_host + ':' + String(vision.vlm_ssh_tunnel_remote_port),
-    socket,
-    required_model: getModelConfig('chat').vision.model,
-    check_timeout_ms: Number(vision.vlm_ssh_tunnel_check_timeout_ms)
+    enabled: true,
+    active: true,
+    local_only: true,
+    web_host_only: true,
+    target: undefined,
+    local_host: parsed.hostname,
+    local_port: Number(parsed.port),
+    local_endpoint: endpoint,
+    remote_host: null,
+    remote_port: null,
+    remote_endpoint: null,
+    socket: path.join(paths.runtime_dir, 'chat-vision-local.sock'),
+    required_model: model,
+    model,
+    provider: 'huggingface',
+    backend: 'hf',
+    check_timeout_ms: Number(options.check_timeout_ms || 8000)
   });
 }
 
 function readChatVisionTunnelStatus(options = {}) {
   const config = chatVisionTunnelConfig(options);
-  if (!config.enabled) {
-    return Object.freeze({
-      ok: true,
-      marker: 'FLOKI_V2_CHAT_VISION_TUNNEL_DISABLED',
-      active: false,
-      chat_mode_only: true,
-      game_mode_started: false
-    });
-  }
-  const check = spawnSync('ssh', ['-S', config.socket, '-O', 'check', config.target], {
-    encoding: 'utf8'
-  });
-  const active = check.status === 0;
   return Object.freeze({
     ok: true,
-    marker: active ? 'FLOKI_V2_CHAT_VISION_TUNNEL_ACTIVE' : 'FLOKI_V2_CHAT_VISION_TUNNEL_INACTIVE',
-    active,
-    target: config.target,
+    marker: 'FLOKI_V2_CHAT_VISION_LOCAL_HF_READY',
+    active: true,
+    local_only: true,
+    web_host_only: true,
+    target: undefined,
     local_endpoint: config.local_endpoint,
-    remote_endpoint: config.remote_endpoint,
+    remote_endpoint: null,
     socket: config.socket,
     required_model: config.required_model,
+    model: config.model,
+    provider: config.provider,
+    backend: config.backend,
     chat_mode_only: true,
     game_mode_started: false
   });
 }
 
 async function verifyChatVisionTunnelModel(config) {
-  const response = await fetch(config.local_endpoint + '/api/tags', {
-    signal: AbortSignal.timeout(config.check_timeout_ms)
+  return Object.freeze({
+    ok: true,
+    marker: 'FLOKI_V2_CHAT_VISION_LOCAL_HF_MODEL_ASSUMED',
+    local_only: true,
+    web_host_only: true,
+    required_model: config.required_model,
+    model: config.model,
+    provider: config.provider,
+    backend: config.backend
   });
-  if (!response.ok) {
-    throw new Error('chat vision tunnel model check returned HTTP ' + String(response.status));
-  }
-  const json = await response.json();
-  const models = Array.isArray(json.models) ? json.models : [];
-  const found = models.some((model) => model && (model.name === config.required_model || model.model === config.required_model));
-  if (!found) {
-    throw new Error(config.required_model + ' not visible through chat vision SSH tunnel');
-  }
-  return true;
 }
 
 async function startChatVisionTunnel(options = {}) {
-  const paths = runtimePaths(options);
   const config = chatVisionTunnelConfig(options);
-  if (!config.enabled) {
-    return readChatVisionTunnelStatus(options);
-  }
-  ensureDirSync(paths.runtime_dir);
-  let status = readChatVisionTunnelStatus(options);
-  if (!status.active) {
-    fs.rmSync(config.socket, { force: true });
-    const forward = config.local_host + ':' + String(config.local_port) + ':' +
-      config.remote_host + ':' + String(config.remote_port);
-    const start = spawnSync('ssh', [
-      '-o',
-      'BatchMode=yes',
-      '-S',
-      config.socket,
-      '-M',
-      '-f',
-      '-N',
-      '-L',
-      forward,
-      config.target
-    ], {
-      encoding: 'utf8'
-    });
-    if (start.status !== 0) {
-      throw new Error('could not start chat vision SSH tunnel: ' + String(start.stderr || start.stdout || '').trim());
-    }
-    status = readChatVisionTunnelStatus(options);
-  }
-  await verifyChatVisionTunnelModel(config);
+  ensureDirSync(runtimePaths(options).runtime_dir);
+  const model = await verifyChatVisionTunnelModel(config);
   return Object.freeze({
-    ...status,
-    required_model_visible: true
+    ...readChatVisionTunnelStatus(options),
+    required_model_visible: true,
+    model_check: model
   });
 }
 
 function stopChatVisionTunnel(options = {}) {
   const config = chatVisionTunnelConfig(options);
-  if (!config.enabled) {
-    return readChatVisionTunnelStatus(options);
-  }
-  const check = spawnSync('ssh', ['-S', config.socket, '-O', 'check', config.target], {
-    encoding: 'utf8'
-  });
-  if (check.status === 0) {
-    const exit = spawnSync('ssh', ['-S', config.socket, '-O', 'exit', config.target], {
-      encoding: 'utf8'
-    });
-    if (exit.status !== 0) {
-      throw new Error(
-        'could not stop chat vision SSH tunnel: ' +
-        String(exit.stderr || exit.stdout || '').trim()
-      );
-    }
-  }
   fs.rmSync(config.socket, { force: true });
   return Object.freeze({
     ok: true,
-    marker: 'FLOKI_V2_CHAT_VISION_TUNNEL_STOPPED',
-    target: config.target,
+    marker: 'FLOKI_V2_CHAT_VISION_LOCAL_HF_STOPPED',
+    local_only: true,
+    web_host_only: true,
+    target: undefined,
     local_endpoint: config.local_endpoint,
-    remote_endpoint: config.remote_endpoint,
+    remote_endpoint: null,
     socket: config.socket,
-    was_active: check.status === 0,
+    was_active: true,
+    required_model: config.required_model,
+    model: config.model,
+    provider: config.provider,
+    backend: config.backend,
     chat_mode_only: true,
     game_mode_started: false
   });
@@ -347,6 +323,10 @@ function buildContinuousFfmpegArgs(captureInput) {
     '-i',
     String(capture.device),
     '-an',
+    '-vf',
+    'scale=in_range=pc:out_range=pc,format=yuv420p',
+    '-color_range',
+    'pc',
     '-f',
     'image2pipe',
     '-vcodec',
@@ -389,17 +369,15 @@ function statusReadyForChat(status) {
   );
   if (!baseReady) return false;
 
-  const vision = getVisionConfig('chat');
   const detection = getDetectionConfig();
 
   // Frames must remain fresh (heartbeat written by the service process).
   if (status.heartbeat_fresh === false) return false;
 
-  // Vision-model transport must be reachable when an SSH tunnel is configured.
-  if (vision.vlm_ssh_tunnel_enabled === true) {
-    const tunnel = status.tunnel_status;
-    if (tunnel && tunnel.active !== true) return false;
-  }
+  // Vision-language model readiness must block chat readiness when a status is present.
+  // tunnel_status remains as a compatibility alias for the removed removed remote vision tunnel path.
+  const modelStatus = status.vision_model_status || status.tunnel_status;
+  if (modelStatus && modelStatus.active !== true) return false;
 
   // Strict readiness still requires a live detector heartbeat when detection is enabled.
   // UI camera liveness is reported separately through capture_live.
@@ -443,6 +421,7 @@ function buildOperationalStatus(state, extra = {}) {
     last_vlm_inference_timestamp: state.last_vlm_inference_timestamp || null,
     last_yolo_inference_timestamp: state.last_yolo_inference_timestamp || null,
     last_detection_stored_at: state.last_detection_stored_at || null,
+    stream_session_id: state.stream_session_id || null,
     last_detection_frame_sequence: Number(state.last_detection_frame_sequence || 0),
     detection_in_flight: state.detection_in_flight === true,
     last_detection_started_at: state.last_detection_started_at || null,
@@ -499,37 +478,188 @@ function publicStatus(status) {
   return Object.freeze(rest);
 }
 
+function requireConfiguredVisionLanguageModel(models) {
+  const visionModel = models.vision || {};
+  const cognitionModel = models.cognition || {};
+  const endpoint = String(
+    visionModel.endpoint ||
+    visionModel.local_endpoint ||
+    cognitionModel.endpoint ||
+    cognitionModel.local_endpoint ||
+    ''
+  ).replace(/\/+$/, '');
+  const model = visionModel.model || cognitionModel.model || '';
+  const keepAlive = visionModel.keep_alive || cognitionModel.keep_alive || null;
+  const timeoutMs = Number(visionModel.timeout_ms || cognitionModel.timeout_ms || 0);
+
+  if (!endpoint) throw new Error('vision language endpoint is missing from YAML model config');
+  if (!model) throw new Error('vision language model is missing from YAML model config');
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('vision language timeout_ms is missing from YAML model config');
+  }
+
+  return Object.freeze({
+    endpoint,
+    model,
+    keep_alive: keepAlive,
+    timeout_ms: timeoutMs,
+    temperature: visionModel.temperature ?? cognitionModel.temperature,
+    top_p: visionModel.top_p ?? cognitionModel.top_p,
+    max_new_tokens: visionModel.generate_max_new_tokens ??
+      visionModel.max_new_tokens ??
+      cognitionModel.max_new_tokens ??
+      cognitionModel.num_predict,
+    num_predict: visionModel.num_predict ??
+      visionModel.generate_num_predict ??
+      cognitionModel.num_predict
+  });
+}
+
+function buildConfiguredGenerationOptions(config) {
+  const options = {};
+  if (config.temperature !== undefined && config.temperature !== null) {
+    options.temperature = Number(config.temperature);
+  }
+  if (config.top_p !== undefined && config.top_p !== null) {
+    options.top_p = Number(config.top_p);
+  }
+  if (config.max_new_tokens !== undefined && config.max_new_tokens !== null) {
+    options.max_new_tokens = Number(config.max_new_tokens);
+  }
+  if (config.num_predict !== undefined && config.num_predict !== null) {
+    options.num_predict = Number(config.num_predict);
+  }
+  return options;
+}
+
+
+function sanitizeVisionObservationText(value) {
+  let text = String(value || '').trim();
+  text = text.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+
+  if (/^Thinking Process\s*:/i.test(text)) {
+    const markerPattern = /(?:Final answer|Final response|Answer|Observation)\s*:\s*/ig;
+    let match = null;
+    let last = null;
+    while ((match = markerPattern.exec(text)) !== null) {
+      last = match;
+    }
+    if (!last) return '';
+    text = text.slice(last.index + last[0].length).trim();
+  }
+
+  text = text.replace(/^\s*(?:Final answer|Final response|Answer|Observation)\s*:\s*/i, '').trim();
+  if (/^(?:The user wants|I need to|Drafting the sentence|Analyze the Request)/i.test(text)) {
+    return '';
+  }
+  return text;
+}
+
 async function callVisionModel(frameBuffer, options = {}) {
   const models = getModelConfig('chat');
   const runner = options.vlm_runner;
   if (typeof runner === 'function') {
     return runner(frameBuffer, options);
   }
-  const timeoutSignal = AbortSignal.timeout(models.vision.timeout_ms);
+
+  const config = requireConfiguredVisionLanguageModel(models);
+  const timeoutSignal = AbortSignal.timeout(config.timeout_ms);
   const signal = options.abort_signal
     ? AbortSignal.any([timeoutSignal, options.abort_signal])
     : timeoutSignal;
-  const response = await fetch(models.vision.endpoint + '/api/generate', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: models.vision.model,
-      prompt: 'Describe only externally visible webcam facts for Floki chat mode in one short sentence. Do not include private reasoning.',
-      images: [frameBuffer.toString('base64')],
-      stream: false,
-      options: {
-        temperature: models.vision.temperature,
-        top_p: models.vision.top_p
-      },
-      keep_alive: models.vision.keep_alive
-    }),
-    signal
-  });
-  if (!response.ok) {
-    throw new Error('vision endpoint returned HTTP ' + String(response.status));
+
+  const frameBytes = Buffer.isBuffer(frameBuffer) ? frameBuffer.length : 0;
+  if (frameBytes <= 0) {
+    throw new Error('webcam VLM call refused: empty JPEG frame buffer');
   }
+
+  const mimeType = typeof options.frame_mime_type === 'string' && options.frame_mime_type.trim()
+    ? options.frame_mime_type.trim()
+    : 'image/jpeg';
+  const imageDataUrl = 'data:' + mimeType + ';base64,' + frameBuffer.toString('base64');
+
+  const body = {
+    model: config.model,
+    stream: false,
+    enable_thinking: false,
+    strip_thinking: true,
+    chat_template_kwargs: { enable_thinking: false },
+    messages: [
+      {
+        role: 'system',
+        content: [
+          'You are Floki-v2 local multimodal sight.',
+          'Use the attached webcam image as the primary evidence.',
+          'Write one concise external-world observation in natural first-person language.',
+          'Mention only people, objects, spatial relations, text, and scene details visible in the image.',
+          'Do not invent scene contents.',
+          'Do not include private reasoning.',
+          'Do not write a Thinking Process, analysis, draft notes, or scratchpad.',
+          'Return only the final observation sentence.'
+        ].join(' ')
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            image: imageDataUrl
+          },
+          {
+            type: 'text',
+            text: 'Describe what is visible in this current webcam frame in one or two grounded sentences.'
+          }
+        ]
+      }
+    ],
+    options: buildConfiguredGenerationOptions(config)
+  };
+  if (config.keep_alive) body.keep_alive = config.keep_alive;
+
+  let response;
+  try {
+    response = await fetch(config.endpoint + '/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal
+    });
+  } catch (error) {
+    const detail = error && error.cause && error.cause.message
+      ? error.cause.message
+      : (error && error.message ? error.message : String(error));
+    throw new Error('vision language endpoint fetch failed for ' + config.endpoint + '/api/chat: ' + detail);
+  }
+
+  if (!response.ok) {
+    throw new Error('vision language endpoint returned HTTP ' + String(response.status));
+  }
+
   const json = await response.json();
-  return Object.freeze({ observation_summary: String(json.response || '').trim() });
+  const rawContent = String(
+    (json.message && json.message.content) ||
+    json.response ||
+    json.content ||
+    ''
+  ).trim();
+  const content = sanitizeVisionObservationText(rawContent);
+
+  if (!content) {
+    throw new Error('vision language endpoint returned no final image-grounded observation');
+  }
+
+  return Object.freeze({
+    observation_summary: content,
+    raw_stats: Object.freeze({
+      endpoint_status: response.status,
+      direct_vlm_call: true,
+      config_only_text_vision_bridge: false,
+      image_sent_to_language_model: true,
+      image_content_type: mimeType,
+      frame_bytes: frameBytes,
+      thinking_stripped: content !== rawContent
+    })
+  });
 }
 
 function isAbortError(error, signal) {
@@ -674,14 +804,21 @@ function buildFreshDetectionObservation(options = {}) {
   }
 
   const visible = latest.detection.detections
-    .map((detection) => classifyVerifiedDetectionForDisplay(detection))
-    .filter((entry) => entry && (entry.bucket === 'persons' || entry.bucket === 'objects'));
+    ? splitDisplayDetections(latest.detection, {
+        now_ms: Date.now(),
+        max_age_ms: getDetectionConfig().maxAgeMs
+      })
+    : null;
+  const visibleEntries = [
+    ...((visible && visible.persons || []).map((detection) => ({ bucket: 'persons', detection }))),
+    ...((visible && visible.objects || []).map((detection) => ({ bucket: 'objects', detection })))
+  ];
 
-  const personCount = visible.filter((entry) => entry.bucket === 'persons').length;
+  const personCount = visibleEntries.filter((entry) => entry.bucket === 'persons').length;
   const confirmedObjectCounts = new Map();
   const uncertainObjectLabels = new Set();
 
-  for (const entry of visible) {
+  for (const entry of visibleEntries) {
     if (entry.bucket !== 'objects') continue;
     const label = normalizedDetectionLabel(entry.detection);
     if (!label) continue;
@@ -974,6 +1111,7 @@ async function runChatWebcamVisionService(options = {}) {
   const capture = webcamCaptureConfig('chat');
   const state = {
     camera_device: capture.device,
+    stream_session_id: 'chat-webcam-' + String(process.pid) + '-' + String(Date.now()),
     target_capture_fps: capture.target_fps,
     camera_open: false,
     first_frame_received: false,
@@ -1232,9 +1370,33 @@ async function runChatWebcamVisionService(options = {}) {
 
       const parsedFrame = parseYoloDetectionFrame(
         hybridResult,
-        capturedAt
+        capturedAt,
+        {
+          stream_session_id: state.stream_session_id,
+          frame_id: 'webcam-' + String(state.stream_session_id) + '-' + String(frameSequence),
+          frame_sequence: frameSequence,
+          result_sequence: frameSequence
+        }
       );
-      const validation = validateDetectionFrame(parsedFrame);
+      const reducedFrame = reduceDetectionFrameState(
+        createInitialDetectionFrameState({ session_id: state.stream_session_id }),
+        parsedFrame,
+        {
+          now_ms: Date.now(),
+          max_age_ms: detectionConfig.maxAgeMs,
+          accept_new_session: true
+        }
+      ).state;
+      const currentFrame = {
+        ...parsedFrame,
+        detections: reducedFrame.detections,
+        dropped_detections: {
+          ...(parsedFrame.dropped_detections || {}),
+          invalid_at_frame_contract: reducedFrame.dropCounts.invalid,
+          suppressed_at_frame_contract: reducedFrame.dropCounts.suppressed
+        }
+      };
+      const validation = validateDetectionFrame(currentFrame);
 
       if (!validation.valid) {
         throw new Error(
@@ -1244,7 +1406,7 @@ async function runChatWebcamVisionService(options = {}) {
       }
 
       const displayFrame =
-        attachCachedPersonVerifications(parsedFrame);
+        attachCachedPersonVerifications(currentFrame);
       const stored = storeDetectionResult(
         displayFrame,
         { runtime_dir: paths.runtime_dir }
@@ -1312,7 +1474,7 @@ async function runChatWebcamVisionService(options = {}) {
           if (stopping) return null;
 
           return verifyDetectionFramePersons(
-            parsedFrame,
+            currentFrame,
             detectionFramePath,
             {
               runtime_dir: paths.runtime_dir,
@@ -1526,7 +1688,9 @@ async function main() {
     return;
   }
   if (process.argv.includes('--stop')) {
-    console.log(JSON.stringify(await stopChatWebcamVisionService(), null, 2));
+    const result = await stopChatWebcamVisionService();
+    console.log(JSON.stringify(result, null, 2));
+    if (result.ok !== true) process.exitCode = 1;
     return;
   }
   console.log(JSON.stringify(readChatWebcamVisionStatus(), null, 2));

@@ -1,0 +1,166 @@
+- generic [active] [ref=f18e1]:
+  - link "Skip to content" [ref=f18e2] [cursor=pointer]:
+    - /url: "#skip-to-content"
+  - main [ref=f18e3]:
+    - banner [ref=f18e4]:
+      - navigation "Primary" [ref=f18e7]:
+        - list [ref=f18e8]:
+          - menu [ref=f18e9]:
+            - link "Home" [ref=f18e10] [cursor=pointer]:
+              - /url: https://navigation.ionos.ca/2.0/navi/CA/track/click?url=https%3A%2F%2Fmy.ionos.ca%2Fproduct-overview&linkid=appswitch.logo&c=CONTROL_PANEL_HOSTING&p=edit-nameserver&ft=98d34ff0-322c-4784-b899-604733f9e33f
+              - generic [ref=f18e11]: 
+              - button "Open Menu" [ref=f18e12]: Menu
+      - menu [ref=f18e14]:
+        - menu [ref=f18e15]:
+          - generic [ref=f18e17]:
+            - generic: Search for features, domains, and help
+            - generic [ref=f18e18] [cursor=pointer]: 
+            - searchbox "Search for features, domains, and help" [ref=f18e19]
+            - button "Turn on microphone" [ref=f18e20] [cursor=pointer]: 
+      - navigation "Secondary" [ref=f18e22]:
+        - menu [ref=f18e23]:
+          - text:  
+          - menu [ref=f18e24]:
+            - link "World Cup Deals" [ref=f18e25] [cursor=pointer]:
+              - /url: https://navigation.ionos.ca/2.0/navi/CA/track/click?url=https%3A%2F%2Fmy.ionos.ca%2Fspecial-offers%3Fias.campaign%3Dworldcup-26%26campaign%3Dfiller_campaign&linkid=nav.special-offer-a&c=CONTROL_PANEL_HOSTING&p=edit-nameserver&ft=98d34ff0-322c-4784-b899-604733f9e33f
+              - img [ref=f18e27]
+              - superscript [ref=f18e32]: "%"
+          - menu [ref=f18e33]:
+            - button "Help & contact" [ref=f18e34] [cursor=pointer]:
+              - img [ref=f18e35]
+          - menu [ref=f18e41]:
+            - link "Empty cart" [ref=f18e42] [cursor=pointer]:
+              - /url: https://my.ionos.ca/add-product?utm_source=global_navigation&utm_medium=notification&utm_campaign=cart&utm_content=cp-add-product
+              - img [ref=f18e43]
+          - menu [ref=f18e48]:
+            - button "Open preview of 5 messages" [ref=f18e49] [cursor=pointer]:
+              - img [ref=f18e50]
+              - superscript [ref=f18e55]: 5+
+          - menu [ref=f18e56]:
+            - button "Open my account & logout" [ref=f18e57] [cursor=pointer]:
+              - img [ref=f18e58]
+    - generic [ref=f18e61]:
+      - link "Skip to main content" [ref=f18e62] [cursor=pointer]:
+        - /url: "#top"
+      - button
+      - generic [ref=f18e64]:
+        - navigation "Navigation" [ref=f18e65]:
+          - link "Home" [ref=f18e66] [cursor=pointer]:
+            - /url: /product-overview
+            - text:  Home
+          - link " Domains & SSL" [ref=f18e67] [cursor=pointer]:
+            - /url: /domains
+          - link " galactic-family-hub.com" [ref=f18e68] [cursor=pointer]:
+            - /url: /domain-nameserver/galactic-family-hub.com
+        - heading "Use custom name servers" [level=1] [ref=f18e69]
+      - generic [ref=f18e72]:
+        - generic [ref=f18e74]:
+          - paragraph [ref=f18e75]: You can enter custom name servers if you want to transfer the DNS administration for your domain to another provider or if you want to operate your own name server.
+          - heading "Please note that your IONOS DNS zone settings are no longer used with custom name servers." [level=3] [ref=f18e76]
+          - paragraph [ref=f18e77]: Before you switch, the necessary DNS entries must be made with the respective provider or external name server.
+        - group [ref=f18e79]:
+          - list [ref=f18e80]:
+            - listitem [ref=f18e81]:
+              - generic [ref=f18e83]: Name server 1
+              - textbox "Name server 1" [ref=f18e85]:
+                - /placeholder: e.g. ns1.example-domain.ca
+            - listitem [ref=f18e86]:
+              - generic [ref=f18e88]: Name server 2
+              - textbox "Name server 2" [ref=f18e90]:
+                - /placeholder: e.g. ns2.example-domain.ca
+            - listitem [ref=f18e91]:
+              - generic [ref=f18e93]:
+                - text: Name server 3
+                - paragraph [ref=f18e94]: (Optional)
+              - textbox "Name server 3 (Optional)" [ref=f18e96]:
+                - /placeholder: e.g. ns3.example-domain.ca
+            - listitem [ref=f18e97]:
+              - generic [ref=f18e99]:
+                - text: Name server 4
+                - paragraph [ref=f18e100]: (Optional)
+              - textbox "Name server 4 (Optional)" [ref=f18e102]:
+                - /placeholder: e.g. ns4.example-domain.ca
+            - listitem [ref=f18e103]:
+              - link "Cancel" [ref=f18e105] [cursor=pointer]:
+                - /url: /domain-nameserver/galactic-family-hub.com?__sendingdata=1&linkId=ct.button.dns.editnameserver.cancel
+              - button "Save" [ref=f18e107]
+      - list [ref=f18e110]:
+        - listitem [ref=f18e111]:
+          - button "Recommended help topics " [ref=f18e112]
+          - list [ref=f18e117]:
+            - listitem [ref=f18e118]:
+              - button " Using Your Own Name Servers for a Domain" [ref=f18e119] [cursor=pointer]
+            - listitem [ref=f18e120]:
+              - button " Configuring Glue Records for Name Servers" [ref=f18e121] [cursor=pointer]
+            - listitem [ref=f18e122]:
+              - button " Resetting Your Domain's DNS Settings" [ref=f18e123] [cursor=pointer]
+  - contentinfo [ref=f18e125]:
+    - generic [ref=f18e126]:
+      - generic [ref=f18e127]:
+        - generic [ref=f18e129]:
+          - heading "My IONOS" [level=4] [ref=f18e130]
+          - list [ref=f18e131]:
+            - listitem [ref=f18e132]:
+              - link " Home" [ref=f18e133] [cursor=pointer]:
+                - /url: /product-overview?linkId=ft.nav.home
+            - listitem [ref=f18e134]:
+              - link " My account" [ref=f18e135] [cursor=pointer]:
+                - /url: /account-overview?linkId=ft.nav.my-account
+            - listitem [ref=f18e136]:
+              - link "Discover IONOS" [ref=f18e137] [cursor=pointer]:
+                - /url: /add-product?linkId=ft.nav.discover-ionos&itc=HDS26HW0
+                - img
+                - text: Discover IONOS
+        - generic [ref=f18e138]:
+          - heading "Customer Support" [level=4] [ref=f18e139]
+          - list [ref=f18e140]:
+            - listitem [ref=f18e141]:
+              - link "Help Center" [ref=f18e142] [cursor=pointer]:
+                - /url: /JumpToHelpCenterDirect?linkId=ft.nav.help&direct=%2F
+            - listitem [ref=f18e143]:
+              - link "Contact us / My personal consultant" [ref=f18e144] [cursor=pointer]:
+                - /url: /JumpToCPSupportContact?__sendingdata=1&linkId=ft.nav.contact
+        - generic [ref=f18e145]:
+          - link "Ionos logo" [ref=f18e146] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fabout%2F%3FlinkId%3Dft.nav.logo&__sign=71298602da9f71bd0b991d453ce21f9c&__ts=1782881189216
+            - img "Ionos logo" [ref=f18e147]
+          - link "Instagram" [ref=f18e148] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.instagram.com%2Fionos.official&__sign=0486016c342ab844ddf8a60b50eabe07&__ts=1782881189216
+            - img [ref=f18e149]
+          - link "Facebook" [ref=f18e151] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_FB_US&__sign=12bf9284c467e73367989b90690a893e&__ts=1782881189216
+            - img [ref=f18e152]
+          - link "YouTube" [ref=f18e154] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_YT_US&__sign=8a8f94e0dd4e4f686bfeeb29920b1df4&__ts=1782881189216
+            - img [ref=f18e155]
+          - link "LinkedIn" [ref=f18e157] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_IN&__sign=59a0546d00feebab7519f559a5af8a3b&__ts=1782881189217
+            - img [ref=f18e158]
+          - link "TikTok" [ref=f18e160] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.tiktok.com%2F%40ionos.global&__sign=cab781f732e5ea5e1a9ad69e941011be&__ts=1782881189217
+            - img [ref=f18e161]
+      - generic [ref=f18e163]:
+        - generic [ref=f18e165]:
+          - heading "Download the IONOS App" [level=4] [ref=f18e166]
+          - link "Ionos on Google Play" [ref=f18e167]:
+            - /url: https://play.google.com/store/apps/details?id=com.oneandone.ciso.mobile.app.android&referrer=utm_source%3Dcp%26utm_campaign%3Dfooterl
+            - img "Ionos on Google Play" [ref=f18e168]
+        - link "Ionos on the App Store" [ref=f18e170]:
+          - /url: https://apps.apple.com/app/apple-store/id1080444849?pt=119330501&ct=cp.footer&mt=8
+          - img "Ionos on the App Store" [ref=f18e171]
+      - generic [ref=f18e173]:
+        - paragraph [ref=f18e175]:
+          - link "All Systems Operational" [ref=f18e176] [cursor=pointer]:
+            - /url: https://www.ionos-status.ca/?utm_medium=footer&utm_content=none&utm_source=CONTROL_PANEL_HOSTING&utm_campaign=edit-nameserver&utm_term=no_search
+        - paragraph [ref=f18e178]:
+          - text: © 2026
+          - link "IONOS Inc." [ref=f18e179] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fabout%2F%3FlinkId%3Dft.nav.company&__sign=413da5e567243304a3b9473a0389e369&__ts=1782881189217
+        - generic [ref=f18e180]:
+          - link "Privacy policy" [ref=f18e181] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fterms-gtc%2Fterms-privacy%2F%3FlinkId%3Dft.nav.privacy&__sign=97b595f553a0153dc49a98b2fe180071&__ts=1782881189217
+          - text: "-"
+          - link "T&Cs" [ref=f18e182] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fterms-gtc%2F%3FlinkId%3Dft.nav.terms&__sign=8b4354c68946230a40523536bd22522f&__ts=1782881189217
+  - button "Hey, I’m the AI Assistant of" [ref=f18e183] [cursor=pointer]:
+    - img [ref=f18e184]

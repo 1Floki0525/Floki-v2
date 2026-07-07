@@ -3,21 +3,20 @@ mode: game
 
 models:
   cognition:
-    provider: ollama
-    model: floki-qwen3.5:4b-16k
+    provider: huggingface
+    model: disabled
     endpoint_env: FLOKI_COGNITION_ENDPOINT
-    endpoint_default: http://127.0.0.1:11434
-    mode_scope: game_cognition
+    endpoint_default: http://127.0.0.1:11436
+    mode_scope: chat_cognition
     temperature: 0.55
     top_p: 0.9
-    timeout_ms: 120000
-    keep_alive: 24h
-
+    timeout_ms: 300000
+    keep_alive: "24h"
   vision:
-    provider: ollama
-    model: qwen3-vl:4b
+    provider: huggingface
+    model: disabled
     endpoint_env: FLOKI_VISION_ENDPOINT
-    endpoint_default: http://127.0.0.1:11435
+    endpoint_default: http://127.0.0.1:11436
     enabled_now: false
     mode_scope: game_world_first_person_only
     temperature: 0.2

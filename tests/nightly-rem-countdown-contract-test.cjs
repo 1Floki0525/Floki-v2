@@ -78,10 +78,18 @@ const dashboard = fs.readFileSync(
   'utf8'
 );
 assert.match(dashboard, /COUNTDOWN_INTERVAL_MS = 1000/);
-assert.match(dashboard, /Next REM in/);
-assert.match(dashboard, /nextRemCycleNumber/);
-assert.match(dashboard, /Sleep remaining/);
-assert.match(dashboard, /One REM dream every/);
+assert.match(dashboard, /getSelfImprovementStatus/);
+assert.match(dashboard, /nightly_cycle/);
+assert.match(dashboard, /completed_epochs/);
+assert.match(dashboard, /completed_rem_cycles/);
+assert.match(dashboard, /next_action/);
+assert.match(dashboard, /Wake countdown/);
+assert.match(
+  dashboard,
+  /One complete HF training epoch, then one REM dream, repeating until 07:00 America\/Toronto/
+);
+assert.match(dashboard, /One adapter candidate is compiled for review at wake/);
+assert.doesNotMatch(dashboard, /One REM dream every/);
 
 console.log(JSON.stringify({
   ok: true,

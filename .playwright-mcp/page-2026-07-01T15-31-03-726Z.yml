@@ -1,0 +1,318 @@
+- generic [ref=f717e2]:
+  - generic [ref=f717e3]:
+    - navigation "Main navigation" [ref=f717e4]:
+      - generic [ref=f717e6]:
+        - img [ref=f717e8]
+        - generic [ref=f717e10]:
+          - heading "Floki Neural" [level=1] [ref=f717e11]
+          - paragraph [ref=f717e12]: INTERFACE
+      - generic [ref=f717e13]:
+        - generic [ref=f717e18]: Floki Online
+        - generic [ref=f717e22]: chat.local
+        - generic [ref=f717e26]: Vision
+        - generic [ref=f717e30]: Hearing
+        - generic [ref=f717e34]: Awake
+      - generic [ref=f717e35]:
+        - button "Chat Interface" [ref=f717e36] [cursor=pointer]:
+          - img [ref=f717e37]
+          - generic [ref=f717e39]: Chat Interface
+        - button "Dreams" [ref=f717e40] [cursor=pointer]:
+          - img [ref=f717e41]
+          - generic [ref=f717e51]: Dreams
+        - button "Neural Stream" [ref=f717e52] [cursor=pointer]:
+          - img [ref=f717e53]
+          - generic [ref=f717e55]: Neural Stream
+        - button "RSI Lab" [ref=f717e56] [cursor=pointer]:
+          - img [ref=f717e57]
+          - generic [ref=f717e59]: RSI Lab
+        - button "System" [ref=f717e60] [cursor=pointer]:
+          - img [ref=f717e61]
+          - generic [ref=f717e64]: System
+        - button "Settings" [active] [ref=f717e65] [cursor=pointer]:
+          - img [ref=f717e66]
+          - generic [ref=f717e69]: Settings
+      - button "Collapse navigation" [ref=f717e71] [cursor=pointer]:
+        - img [ref=f717e72]
+    - main [ref=f717e74]:
+      - generic [ref=f717e15305]:
+        - generic [ref=f717e15306]:
+          - generic [ref=f717e15307]:
+            - heading "Settings" [level=2] [ref=f717e15308]
+            - paragraph [ref=f717e15309]: Preferences are read from and written to the runtime through the public API gateway.
+          - generic [ref=f717e15310]:
+            - button "Export" [ref=f717e15311] [cursor=pointer]:
+              - img [ref=f717e15312]
+              - text: Export
+            - button "Import" [ref=f717e15315] [cursor=pointer]:
+              - img [ref=f717e15316]
+              - text: Import
+            - button "Reset All" [ref=f717e15319] [cursor=pointer]:
+              - img [ref=f717e15320]
+              - text: Reset All
+        - generic [ref=f717e15323]:
+          - generic [ref=f717e15324]:
+            - heading "Connection" [level=3] [ref=f717e15325]
+            - button "Reset" [ref=f717e15326] [cursor=pointer]:
+              - img [ref=f717e15327]
+              - text: Reset
+          - generic [ref=f717e15330]:
+            - generic [ref=f717e15331]:
+              - generic [ref=f717e15332]:
+                - text: Transport
+                - paragraph [ref=f717e15333]: "Active chat.local transport: Web API Gateway."
+              - textbox [ref=f717e15335]: Web API Gateway
+            - generic [ref=f717e15336]:
+              - generic [ref=f717e15337]:
+                - text: Local API URL
+                - paragraph [ref=f717e15338]: Stored compatibility endpoint; native chat.local does not silently replace IPC with HTTP.
+              - textbox [ref=f717e15340]: http://127.0.0.1:7700
+            - generic [ref=f717e15341]:
+              - generic [ref=f717e15342]:
+                - text: Local WebSocket URL
+                - paragraph [ref=f717e15343]: Stored compatibility endpoint for future remote event transport.
+              - textbox [ref=f717e15345]: ws://127.0.0.1:7700/ws
+            - generic [ref=f717e15346]:
+              - generic [ref=f717e15347]: Test Connection
+              - button "Test Native Bridge" [ref=f717e15349] [cursor=pointer]
+            - generic [ref=f717e15350]:
+              - generic [ref=f717e15351]: Automatic Reconnect
+              - switch [checked] [ref=f717e15353] [cursor=pointer]
+            - generic [ref=f717e15354]:
+              - generic [ref=f717e15355]: Reconnect Delay (ms)
+              - spinbutton [ref=f717e15357]: "3000"
+            - generic [ref=f717e15358]:
+              - generic [ref=f717e15359]: Request Timeout (ms)
+              - spinbutton [ref=f717e15361]: "120000"
+            - generic [ref=f717e15362]:
+              - generic [ref=f717e15363]:
+                - text: Mock Mode
+                - paragraph [ref=f717e15364]: Explicit UI test mode only. It is off by default and never presented as live Floki data.
+              - switch [ref=f717e15366] [cursor=pointer]
+        - generic [ref=f717e15367]:
+          - generic [ref=f717e15368]:
+            - heading "Chat" [level=3] [ref=f717e15369]
+            - button "Reset" [ref=f717e15370] [cursor=pointer]:
+              - img [ref=f717e15371]
+              - text: Reset
+          - generic [ref=f717e15374]:
+            - generic [ref=f717e15375]:
+              - generic [ref=f717e15376]: Stream Responses
+              - switch [checked] [ref=f717e15378] [cursor=pointer]
+            - generic [ref=f717e15379]:
+              - generic [ref=f717e15380]: Show Timestamps
+              - switch [checked] [ref=f717e15382] [cursor=pointer]
+            - generic [ref=f717e15383]:
+              - generic [ref=f717e15384]: Markdown Rendering
+              - switch [checked] [ref=f717e15386] [cursor=pointer]
+            - generic [ref=f717e15387]:
+              - generic [ref=f717e15388]: Compact Messages
+              - switch [ref=f717e15390] [cursor=pointer]
+            - generic [ref=f717e15391]:
+              - generic [ref=f717e15392]: Enter to Send
+              - switch [checked] [ref=f717e15394] [cursor=pointer]
+            - generic [ref=f717e15395]:
+              - generic [ref=f717e15396]: Max Local History
+              - spinbutton [ref=f717e15398]: "500"
+        - generic [ref=f717e15399]:
+          - generic [ref=f717e15400]:
+            - heading "Voice" [level=3] [ref=f717e15401]
+            - button "Reset" [ref=f717e15402] [cursor=pointer]:
+              - img [ref=f717e15403]
+              - text: Reset
+          - generic [ref=f717e15406]:
+            - generic [ref=f717e15407]:
+              - generic [ref=f717e15408]: Microphone Enabled
+              - switch [checked] [ref=f717e15410] [cursor=pointer]
+            - generic [ref=f717e15411]:
+              - generic [ref=f717e15412]: Speaker Enabled
+              - switch [checked] [ref=f717e15414] [cursor=pointer]
+            - generic [ref=f717e15415]:
+              - generic [ref=f717e15416]: Hands-Free Listening
+              - switch [checked] [ref=f717e15418] [cursor=pointer]
+            - generic [ref=f717e15419]:
+              - generic [ref=f717e15420]: Push to Talk
+              - switch [ref=f717e15422] [cursor=pointer]
+            - generic [ref=f717e15423]:
+              - generic [ref=f717e15424]: Wake Word Enabled
+              - switch [checked] [ref=f717e15426] [cursor=pointer]
+            - generic [ref=f717e15427]:
+              - generic [ref=f717e15428]: Wake Phrase
+              - textbox [ref=f717e15430]: Hey Floki
+            - generic [ref=f717e15431]:
+              - generic [ref=f717e15432]: Speech Volume
+              - generic [ref=f717e15434]:
+                - slider [ref=f717e15439]
+                - generic [ref=f717e15440]: "80"
+            - generic [ref=f717e15441]:
+              - generic [ref=f717e15442]: Speech Rate
+              - generic [ref=f717e15444]:
+                - slider [ref=f717e15449]
+                - generic [ref=f717e15450]: "100"
+            - generic [ref=f717e15451]:
+              - generic [ref=f717e15452]: Interruptible Speech
+              - switch [checked] [ref=f717e15454] [cursor=pointer]
+            - generic [ref=f717e15455]:
+              - generic [ref=f717e15456]: Show Partial Transcription
+              - switch [checked] [ref=f717e15458] [cursor=pointer]
+        - generic [ref=f717e15459]:
+          - generic [ref=f717e15460]:
+            - heading "Vision" [level=3] [ref=f717e15461]
+            - button "Reset" [ref=f717e15462] [cursor=pointer]:
+              - img [ref=f717e15463]
+              - text: Reset
+          - generic [ref=f717e15466]:
+            - generic [ref=f717e15467]:
+              - generic [ref=f717e15468]: Show Object Boxes
+              - switch [checked] [ref=f717e15470] [cursor=pointer]
+            - generic [ref=f717e15471]:
+              - generic [ref=f717e15472]: Show Person Boxes
+              - switch [checked] [ref=f717e15474] [cursor=pointer]
+            - generic [ref=f717e15475]:
+              - generic [ref=f717e15476]:
+                - text: Show Face Boxes
+                - paragraph [ref=f717e15477]: Only applies when a real face detector supplies face boxes.
+              - switch [checked] [ref=f717e15479] [cursor=pointer]
+            - generic [ref=f717e15480]:
+              - generic [ref=f717e15481]:
+                - text: Show Recognized Names
+                - paragraph [ref=f717e15482]: Never enables identity recognition by itself; it only controls display of already-authorized names.
+              - switch [checked] [ref=f717e15484] [cursor=pointer]
+            - generic [ref=f717e15485]:
+              - generic [ref=f717e15486]: Show Labels
+              - switch [checked] [ref=f717e15488] [cursor=pointer]
+            - generic [ref=f717e15489]:
+              - generic [ref=f717e15490]: Show Confidence
+              - switch [checked] [ref=f717e15492] [cursor=pointer]
+            - generic [ref=f717e15493]:
+              - generic [ref=f717e15494]: Show Scene Recognition
+              - switch [checked] [ref=f717e15496] [cursor=pointer]
+            - generic [ref=f717e15497]:
+              - generic [ref=f717e15498]: Freshness Threshold (s)
+              - spinbutton [ref=f717e15500]: "30"
+            - generic [ref=f717e15501]:
+              - generic [ref=f717e15502]: Stale Observation Warning
+              - switch [checked] [ref=f717e15504] [cursor=pointer]
+            - generic [ref=f717e15505]:
+              - generic [ref=f717e15506]: Privacy Blackout Default
+              - switch [ref=f717e15508] [cursor=pointer]
+        - generic [ref=f717e15509]:
+          - generic [ref=f717e15510]:
+            - heading "Emotions" [level=3] [ref=f717e15511]
+            - button "Reset" [ref=f717e15512] [cursor=pointer]:
+              - img [ref=f717e15513]
+              - text: Reset
+          - generic [ref=f717e15516]:
+            - generic [ref=f717e15517]:
+              - generic [ref=f717e15518]: Graph Time Range
+              - combobox [ref=f717e15520] [cursor=pointer]:
+                - generic: 5 Minutes
+                - img [ref=f717e15521]
+            - generic [ref=f717e15523]:
+              - generic [ref=f717e15524]: Update Frequency (ms)
+              - spinbutton [ref=f717e15526]: "2000"
+            - generic [ref=f717e15527]:
+              - generic [ref=f717e15528]: Graph Smoothing
+              - generic [ref=f717e15530]:
+                - slider [ref=f717e15535]
+                - generic [ref=f717e15536]: "30"
+        - generic [ref=f717e15537]:
+          - generic [ref=f717e15538]:
+            - heading "Neural Stream" [level=3] [ref=f717e15539]
+            - button "Reset" [ref=f717e15540] [cursor=pointer]:
+              - img [ref=f717e15541]
+              - text: Reset
+          - generic [ref=f717e15544]:
+            - generic [ref=f717e15545]:
+              - generic [ref=f717e15546]: Auto Scroll
+              - switch [checked] [ref=f717e15548] [cursor=pointer]
+            - generic [ref=f717e15549]:
+              - generic [ref=f717e15550]: Maximum Events
+              - spinbutton [ref=f717e15552]: "1000"
+            - generic [ref=f717e15553]:
+              - generic [ref=f717e15554]: Compact View
+              - switch [ref=f717e15556] [cursor=pointer]
+        - generic [ref=f717e15557]:
+          - generic [ref=f717e15558]:
+            - heading "Appearance" [level=3] [ref=f717e15559]
+            - button "Reset" [ref=f717e15560] [cursor=pointer]:
+              - img [ref=f717e15561]
+              - text: Reset
+          - generic [ref=f717e15564]:
+            - generic [ref=f717e15565]:
+              - generic [ref=f717e15566]: Neon Intensity
+              - generic [ref=f717e15568]:
+                - slider [ref=f717e15573]
+                - generic [ref=f717e15574]: "70"
+            - generic [ref=f717e15575]:
+              - generic [ref=f717e15576]: Glow Intensity
+              - generic [ref=f717e15578]:
+                - slider [ref=f717e15583]
+                - generic [ref=f717e15584]: "50"
+            - generic [ref=f717e15585]:
+              - generic [ref=f717e15586]: Animation Level
+              - combobox [ref=f717e15588] [cursor=pointer]:
+                - generic: Normal
+                - img [ref=f717e15589]
+            - generic [ref=f717e15591]:
+              - generic [ref=f717e15592]: Font Size
+              - spinbutton [ref=f717e15594]: "14"
+            - generic [ref=f717e15595]:
+              - generic [ref=f717e15596]: Interface Scale (%)
+              - generic [ref=f717e15598]:
+                - slider [ref=f717e15603]
+                - generic [ref=f717e15604]: "100"
+            - generic [ref=f717e15605]:
+              - generic [ref=f717e15606]: Panel Density
+              - combobox [ref=f717e15608] [cursor=pointer]:
+                - generic: Comfortable
+                - img [ref=f717e15609]
+            - generic [ref=f717e15611]:
+              - generic [ref=f717e15612]: Reduced Motion
+              - switch [ref=f717e15614] [cursor=pointer]
+        - generic [ref=f717e15615]:
+          - generic [ref=f717e15616]:
+            - heading "Latency" [level=3] [ref=f717e15617]
+            - button "Reset" [ref=f717e15618] [cursor=pointer]:
+              - img [ref=f717e15619]
+              - text: Reset
+          - generic [ref=f717e15622]:
+            - generic [ref=f717e15623]:
+              - generic [ref=f717e15624]: First Token Target (ms)
+              - spinbutton [ref=f717e15626]: "500"
+            - generic [ref=f717e15627]:
+              - generic [ref=f717e15628]: First Spoken Audio Target (ms)
+              - spinbutton [ref=f717e15630]: "1500"
+            - generic [ref=f717e15631]:
+              - generic [ref=f717e15632]: Slow Warning Threshold (ms)
+              - spinbutton [ref=f717e15634]: "2000"
+            - generic [ref=f717e15635]:
+              - generic [ref=f717e15636]: Critical Threshold (ms)
+              - spinbutton [ref=f717e15638]: "5000"
+            - generic [ref=f717e15639]:
+              - generic [ref=f717e15640]: Show Detailed Stage Timing
+              - switch [checked] [ref=f717e15642] [cursor=pointer]
+        - generic [ref=f717e15643]:
+          - generic [ref=f717e15644]:
+            - heading "Privacy" [level=3] [ref=f717e15645]
+            - button "Reset" [ref=f717e15646] [cursor=pointer]:
+              - img [ref=f717e15647]
+              - text: Reset
+          - generic [ref=f717e15650]:
+            - generic [ref=f717e15651]:
+              - generic [ref=f717e15652]: Hide Vision by Default
+              - switch [ref=f717e15654] [cursor=pointer]
+            - generic [ref=f717e15655]:
+              - generic [ref=f717e15656]: Hide Recognized Names
+              - switch [ref=f717e15658] [cursor=pointer]
+            - generic [ref=f717e15659]:
+              - generic [ref=f717e15660]: Redact Private Metadata
+              - switch [ref=f717e15662] [cursor=pointer]
+            - generic [ref=f717e15663]:
+              - generic [ref=f717e15664]: Allow Local Export
+              - switch [checked] [ref=f717e15666] [cursor=pointer]
+            - generic [ref=f717e15667]:
+              - generic [ref=f717e15668]:
+                - text: Clear Stored Preferences
+                - paragraph [ref=f717e15669]: Restores YAML-backed interface preferences to defaults.
+              - button "Clear" [ref=f717e15671] [cursor=pointer]
+  - region "Notifications alt+T"

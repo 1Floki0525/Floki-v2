@@ -99,7 +99,7 @@ function run() {
   assert.equal(game.modules.disabled_modules.includes('game_world_eyes'), true);
   assert.equal(game.modules.disabled_modules.includes('game_world_body'), true);
 
-  const cliChat = execFileSync('bash', ['bin/floki-start.sh', 'brain-status', 'chat'], {
+  const cliChat = execFileSync(process.execPath, ['src/brain/core-brain-status.cjs', 'chat'], {
     cwd: ROOT,
     encoding: 'utf8'
   });
@@ -109,7 +109,7 @@ function run() {
   assert.equal(parsedCliChat.active_mode, 'chat');
   assert.equal(parsedCliChat.embodiment.eyes_source, 'usb_webcam');
 
-  const cliGame = execFileSync('bash', ['bin/floki-start.sh', 'brain-status', 'game'], {
+  const cliGame = execFileSync(process.execPath, ['src/brain/core-brain-status.cjs', 'game'], {
     cwd: ROOT,
     encoding: 'utf8'
   });

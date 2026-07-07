@@ -1,38 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
-  Beaker,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   CirclePause,
   CirclePlay,
   Code2,
-  ExternalLink,
+  Cpu,
+  Database,
   FileText,
   FlaskConical,
+  Moon,
   RefreshCw,
   ShieldCheck,
+  Square,
   XCircle
 } from 'lucide-react'
 import flokiAdapter from '@/integrations/floki/adapter'
+import { formatTorontoTime } from '@/lib/time'
 import { toast } from 'sonner'
 
-function stateLabel(value) {
-  return String(value || 'unknown').replaceAll('_', ' ')
-}
-
-function riskClass(level) {
-  if (level === 'critical') return 'text-red-400 border-red-500/30 bg-red-500/10'
-  if (level === 'high') return 'text-orange-400 border-orange-500/30 bg-orange-500/10'
-  if (level === 'medium') return 'text-yellow-300 border-yellow-500/30 bg-yellow-500/10'
-  return 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-}
-
-// Candidates that still need Maker attention belong in the default "Pending"
-// view: those awaiting/within promotion, plus failure states that the Maker has
-// to acknowledge. Everything else (denied / promoted-live / superseded /
-// auto-rolled-back / other terminal states) is display-only History.
 const ACTIVE_STATUSES = new Set([
   'pending_review',
   'approved',
@@ -43,27 +31,57 @@ const ACTIVE_STATUSES = new Set([
   'deployment_failed'
 ])
 
-function isActiveStatus(value) {
-  return ACTIVE_STATUSES.has(String(value || ''))
+function label(value) {
+  return String(value || 'unknown').replaceAll('_', ' ')
 }
 
-// Never render an unbounded list; cap each group and surface a "…N more" note.
-const MAX_RENDERED_CANDIDATES = 200
+function when(value) {
+  if (!value) return 'None'
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? date.toLocaleString() : String(value)
+}
+
+function riskClass(level) {
+  if (level === 'critical') return 'text-red-300 border-red-500/30 bg-red-500/10'
+  if (level === 'high') return 'text-orange-300 border-orange-500/30 bg-orange-500/10'
+  if (level === 'medium') return 'text-yellow-200 border-yellow-500/30 bg-yellow-500/10'
+  return 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
+}
+
+function StatusRow({ name, value, title, accent = '' }) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-1">
+      <span className="text-muted-foreground flex-none">{name}</span>
+      <span className={`font-mono text-right break-all ${accent}`} title={title || String(value || '')}>
+        {value == null || value === '' ? 'None' : value}
+      </span>
+    </div>
+  )
+}
+
+function ProgressBar({ value }) {
+  const numeric = Number(value)
+  const bounded = Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : 0
+  return (
+    <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+      <div className="h-full bg-neon-cyan/70" style={{ width: `${bounded}%` }} />
+    </div>
+  )
+}
 
 export default function SelfImprovementPanel() {
   const [status, setStatus] = useState(null)
   const [candidates, setCandidates] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [detail, setDetail] = useState(null)
-  const [expandedDiff, setExpandedDiff] = useState(false)
+  const [expandedEvidence, setExpandedEvidence] = useState(false)
   const [busy, setBusy] = useState(null)
   const [actionFeedback, setActionFeedback] = useState(null)
-  const [lastRefreshedAt, setLastRefreshedAt] = useState(null)
   const [reviewAction, setReviewAction] = useState(null)
   const [denyReason, setDenyReason] = useState('')
   const [makerObjective, setMakerObjective] = useState('')
   const [candidateView, setCandidateView] = useState('pending')
-  const alertedCandidate = useRef(null)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(null)
   const pollMsRef = useRef(null)
 
   const refresh = useCallback(async () => {
@@ -72,38 +90,30 @@ export default function SelfImprovementPanel() {
       flokiAdapter.getSelfImprovementCandidates()
     ])
     setStatus(nextStatus)
-    setLastRefreshedAt(Date.now())
     setCandidates(Array.isArray(nextCandidates) ? nextCandidates : [])
-    const pending = (nextCandidates || []).find((candidate) => candidate.status === 'pending_review')
-    if (pending && alertedCandidate.current !== pending.id) {
-      alertedCandidate.current = pending.id
-      toast.warning('Floki has a verified self-improvement candidate ready for your review.')
-    }
-    if (!selectedId && pending) setSelectedId(pending.id)
+    setLastRefreshedAt(Date.now())
+    const firstPending = (nextCandidates || []).find((row) => row.status === 'pending_review')
+    setSelectedId((current) => current || firstPending?.id || nextCandidates?.[0]?.id || null)
     return nextStatus
-  }, [selectedId])
+  }, [])
 
   useEffect(() => {
     let active = true
     let timer = null
-
-	    const run = async () => {
-	      try {
-	        const nextStatus = await refresh()
-	        const pollMs = Number(nextStatus?.ui_poll_ms)
-	        if (!Number.isFinite(pollMs) || pollMs <= 0) {
-	          throw new Error('self_improvement.ui_poll_ms is invalid')
-	        }
-	        pollMsRef.current = pollMs
-	        if (active) timer = setTimeout(run, pollMs)
-	      } catch (error) {
-	        if (active) toast.error(`Self-improvement status failed: ${error.message}`)
-	        if (active && Number.isFinite(pollMsRef.current) && pollMsRef.current > 0) {
-	          timer = setTimeout(run, pollMsRef.current)
-	        }
-	      }
-	    }
-
+    const run = async () => {
+      try {
+        const nextStatus = await refresh()
+        const pollMs = Number(nextStatus?.ui_poll_ms)
+        if (!Number.isFinite(pollMs) || pollMs <= 0) throw new Error('self_improvement.ui_poll_ms is invalid')
+        pollMsRef.current = pollMs
+        if (active) timer = setTimeout(run, pollMs)
+      } catch (error) {
+        if (active) {
+          setActionFeedback({ ok: false, message: `Status refresh failed: ${error.message}` })
+          if (Number.isFinite(pollMsRef.current)) timer = setTimeout(run, pollMsRef.current)
+        }
+      }
+    }
     run()
     return () => {
       active = false
@@ -119,7 +129,7 @@ export default function SelfImprovementPanel() {
     }
     flokiAdapter.getSelfImprovementCandidate(selectedId)
       .then((candidate) => { if (active) setDetail(candidate) })
-      .catch((error) => { if (active) toast.error(`Candidate load failed: ${error.message}`) })
+      .catch((error) => { if (active) setActionFeedback({ ok: false, message: error.message }) })
     return () => { active = false }
   }, [selectedId])
 
@@ -128,49 +138,40 @@ export default function SelfImprovementPanel() {
     setDenyReason('')
   }, [detail?.id, detail?.status])
 
-  const pending = useMemo(
-    () => candidates.filter((candidate) => candidate.status === 'pending_review'),
-    [candidates]
-  )
-
-  // Active candidates need Maker action — show oldest first for fair review order.
   const activeCandidates = useMemo(
     () => candidates
-      .filter((candidate) => isActiveStatus(candidate.status))
+      .filter((row) => ACTIVE_STATUSES.has(String(row.status || '')))
       .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))),
     [candidates]
   )
-
-  // History is display-only (denied / promoted / superseded / terminal) — newest first.
   const historyCandidates = useMemo(
     () => candidates
-      .filter((candidate) => !isActiveStatus(candidate.status))
+      .filter((row) => !ACTIVE_STATUSES.has(String(row.status || '')))
       .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
     [candidates]
   )
-
   const shownCandidates = candidateView === 'history' ? historyCandidates : activeCandidates
-  const visibleCandidates = shownCandidates.slice(0, MAX_RENDERED_CANDIDATES)
-  const hiddenCandidateCount = shownCandidates.length - visibleCandidates.length
+  const candidateRenderLimit = Number(status?.ui_limits?.candidate_render_limit)
+  const visibleCandidates = Number.isInteger(candidateRenderLimit) && candidateRenderLimit > 0
+    ? shownCandidates.slice(0, candidateRenderLimit)
+    : []
 
-  const act = useCallback(async (name, action, verify) => {
+  const act = useCallback(async (name, operation, verify) => {
     if (busy) return
     setBusy(name)
-    setActionFeedback({ ok: null, message: `${name} in progress...` })
+    setActionFeedback({ ok: null, message: `${name} in progress…` })
     try {
-      const result = await action()
+      const result = await operation()
       if (result?.ok === false) throw new Error(result.error || `${name} failed`)
       const nextStatus = await refresh()
       const verifiedStatus = result?.status || nextStatus
       if (verify && verify(verifiedStatus, result) !== true) {
         throw new Error(`${name} verification failed`)
       }
-      const message = result?.message || `${name} completed and verified`
+      const message = result?.message || `${name} completed`
       setActionFeedback({ ok: true, message })
       toast.success(message)
-      if (selectedId) {
-        setDetail(await flokiAdapter.getSelfImprovementCandidate(selectedId))
-      }
+      if (selectedId) setDetail(await flokiAdapter.getSelfImprovementCandidate(selectedId))
     } catch (error) {
       const message = `${name} failed: ${error.message}`
       setActionFeedback({ ok: false, message })
@@ -180,32 +181,104 @@ export default function SelfImprovementPanel() {
     }
   }, [busy, refresh, selectedId])
 
-  const manualRefresh = useCallback(async () => {
-    if (busy) return
-    setBusy('Refresh status')
-    setActionFeedback({ ok: null, message: 'Refreshing self-improvement status...' })
-    try {
-      await refresh()
-      setActionFeedback({ ok: true, message: 'Self-improvement status refreshed and verified.' })
-      toast.success('Self-improvement status refreshed')
-    } catch (error) {
-      const message = `Refresh status failed: ${error.message}`
-      setActionFeedback({ ok: false, message })
-      toast.error(message)
-    } finally {
-      setBusy(null)
+  const ensureRsiWorkerReadyForAction = useCallback(async (label) => {
+    let current = await refresh()
+    if (current?.paused === true) {
+      throw new Error('RSI is paused. Press Resume before ' + label + '.')
     }
-  }, [busy, refresh])
+    if (current?.worker_running === true && current?.model_proxy_ready === true) {
+      return current
+    }
 
-  const openLog = useCallback(async (key, label) => {
-    try {
-      const result = await flokiAdapter.openLog(key)
-      if (!result?.ok) throw new Error(`${label} is not available`)
-      toast.success(`Opened ${label}`)
-    } catch (error) {
-      toast.error(`Could not open ${label}: ${error.message}`)
+    const started = await flokiAdapter.startSelfImprovement()
+    if (started?.ok === false) {
+      throw new Error(started.error || started.safeError || 'RSI worker start failed')
     }
-  }, [])
+
+    current = await refresh()
+    if (current?.worker_running !== true || current?.model_proxy_ready !== true) {
+      throw new Error('RSI worker did not become ready after Start RSI')
+    }
+    return current
+  }, [refresh])
+
+  const runCode = useCallback(() => {
+    const trimmedObjective = makerObjective.trim()
+    act(
+      'Run improvement cycle',
+      async () => {
+        await ensureRsiWorkerReadyForAction('Run now')
+        return flokiAdapter.runSelfImprovementNow(trimmedObjective)
+      },
+      (nextStatus, result) => {
+        if (
+          result?.ok === true &&
+          result?.verified === true &&
+          result?.wake_signal_sent === true &&
+          result?.bypass_idle_timer === true &&
+          result?.sandbox_started === true &&
+          result?.marker === 'FLOKI_V2_SELF_IMPROVEMENT_RUN_NOW_IMMEDIATE' &&
+          typeof nextStatus?.current_run_id === 'string' &&
+          nextStatus.current_run_id.length > 0 &&
+          typeof nextStatus?.current_container === 'string' &&
+          nextStatus.current_container.length > 0 &&
+          ['experimenting', 'verifying'].includes(nextStatus?.state)
+        ) {
+          setMakerObjective('')
+          return true
+        }
+        throw new Error('Run now did not start the sandbox immediately')
+      }
+    )
+  }, [act, makerObjective, ensureRsiWorkerReadyForAction])
+
+  const runTraining = useCallback(() => {
+    const trimmedObjective = makerObjective.trim()
+    act(
+      'Run training',
+      async () => {
+        await ensureRsiWorkerReadyForAction('Run training')
+        return flokiAdapter.runSelfImprovementNow(trimmedObjective, 'training')
+      },
+      (nextStatus, result) => {
+        if (
+          result?.ok === true &&
+          result?.verified === true &&
+          nextStatus?.current_run_kind === 'training' &&
+          typeof nextStatus?.current_run_id === 'string' &&
+          nextStatus.current_run_id.length > 0
+        ) {
+          setMakerObjective('')
+          return true
+        }
+        throw new Error('Run training did not start the production training path')
+      }
+    )
+  }, [act, makerObjective, ensureRsiWorkerReadyForAction])
+
+  const abortSandbox = useCallback(() => {
+    act(
+      'Abort sandbox',
+      () => flokiAdapter.abortSelfImprovement('code'),
+      (_next, result) => (
+        result?.ok === true &&
+        result?.verified === true &&
+        result?.stopped === true
+      )
+    )
+  }, [act])
+
+  const abortTraining = useCallback(() => {
+    act(
+      'Abort training',
+      () => flokiAdapter.abortSelfImprovement('training'),
+      (_next, result) => (
+        result?.ok === true &&
+        result?.verified === true &&
+        result?.stopped === true
+      )
+    )
+  }, [act])
 
   const requestApprove = useCallback(() => {
     if (!detail || detail.status !== 'pending_review') return
@@ -215,7 +288,10 @@ export default function SelfImprovementPanel() {
   const confirmApprove = useCallback(() => {
     if (!detail || detail.status !== 'pending_review') return
     setReviewAction(null)
-    act('Approve candidate', () => flokiAdapter.approveSelfImprovement(detail.id))
+    act(
+      'Approve candidate',
+      () => flokiAdapter.approveSelfImprovement(detail.id)
+    )
   }, [act, detail])
 
   const requestDeny = useCallback(() => {
@@ -227,7 +303,10 @@ export default function SelfImprovementPanel() {
     if (!detail || detail.status !== 'pending_review') return
     const reason = denyReason
     setReviewAction(null)
-    act('Deny candidate', () => flokiAdapter.denySelfImprovement(detail.id, reason))
+    act(
+      'Deny candidate',
+      () => flokiAdapter.denySelfImprovement(detail.id, reason)
+    )
   }, [act, denyReason, detail])
 
   const cancelReviewAction = useCallback(() => {
@@ -235,409 +314,379 @@ export default function SelfImprovementPanel() {
     setDenyReason('')
   }, [])
 
+  const canRunCode = status?.controls?.can_run_code === true
+  const canRunTraining = status?.controls?.can_run_training === true
+  const canAbort = status?.controls?.can_abort === true
+  const canStopCode = status?.controls?.can_stop_code === true
+  const canAbortTraining = status?.controls?.can_abort_training === true
+  const workerServiceRunning =
+    status?.controls?.worker_service_running === true ||
+    status?.worker_running === true
+  const workerStopped =
+    Boolean(status) &&
+    workerServiceRunning !== true &&
+    status?.active_run !== true
+  const rsiPaused = status?.paused === true
+  const codeActionAvailable = canRunCode || workerStopped
+  const trainingActionAvailable = canRunTraining || workerStopped
+  const codeSandboxActive = canStopCode || (
+    canAbort && status?.current_run_kind === 'code'
+  )
+  const trainingAbortActive = canAbortTraining || (
+    canAbort && status?.current_run_kind === 'training'
+  )
+  const makerCycleQueued = status?.phase === 'maker_requested_cycle'
+  const progress = status?.training_progress || {}
+  const progressPercent = Number(progress.percent || progress.progress_percent || 0)
+  const nextRem = status?.rem_coordination?.next_rem
+  const errors = Array.isArray(status?.surfaced_errors) ? status.surfaced_errors : []
+  const pauseResumeAvailable = status?.paused
+    ? status?.controls?.can_resume
+    : status?.controls?.can_pause
+  const isAdapter = detail?.candidate_type === 'model_adapter'
+
   return (
-    <section className="rounded-lg border border-neon-cyan/20 bg-card/70 overflow-hidden" data-testid="self-improvement-panel">
-      <div className="p-5 border-b border-border/50">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <FlaskConical className="w-5 h-5 text-neon-cyan" />
+    <section className="h-full min-h-0 flex flex-col overflow-hidden rounded-lg border border-neon-cyan/20 bg-card/70" data-testid="self-improvement-panel">
+      <header className="flex-none px-4 py-3 border-b border-border/50">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <FlaskConical className="w-5 h-5 text-neon-cyan" />
+            <div>
               <h3 className="text-sm font-semibold tracking-wide">Recursive Self-Improvement</h3>
-              {pending.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-orange-500/15 border border-orange-500/30 text-orange-300">
-                  {pending.length} REVIEW
-                </span>
-              )}
+              <p className="text-[10px] text-muted-foreground font-mono">
+                Code sandbox + QLoRA training + nightly REM coordination
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Writable isolated development environment with shell, current web research, MCP, verification, and Maker-only promotion.
-            </p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => openLog('Self-Improvement Worker', 'self-improvement worker log')}
-            className="px-3 py-2 text-xs rounded-md border border-border hover:border-neon-cyan/40 flex items-center gap-2"
-          >
-            <FileText className="w-4 h-4" />
-            Worker log
-          </button>
-          <button
-            type="button"
-            onClick={() => openLog('Self-Improvement Sandbox', 'latest self-improvement sandbox log')}
-            className="px-3 py-2 text-xs rounded-md border border-border hover:border-neon-cyan/40 disabled:opacity-50 flex items-center gap-2"
-          >
-            <FileText className="w-4 h-4" />
-            Sandbox log
-          </button>
-          <button
-            onClick={() => status?.paused
-              ? act(
-                  'Resume worker',
-                  () => flokiAdapter.resumeSelfImprovement(),
-                  (nextStatus) => {
-                    if (nextStatus?.paused === false) return true
-                    throw new Error('Resume verification failed')
-                  }
-                )
-              : act(
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => flokiAdapter.openLog('Self-Improvement Worker')} className="px-2.5 py-1.5 text-xs rounded border border-border hover:border-neon-cyan/40 flex items-center gap-1.5">
+              <FileText className="w-3.5 h-3.5" /> Worker log
+            </button>
+            <button type="button" onClick={() => flokiAdapter.openLog('Self-Improvement Sandbox')} className="px-2.5 py-1.5 text-xs rounded border border-border hover:border-neon-cyan/40 flex items-center gap-1.5">
+              <FileText className="w-3.5 h-3.5" /> Active log
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!workerServiceRunning) {
+                  act(
+                    'Start RSI worker',
+                    () => flokiAdapter.startSelfImprovement(),
+                    (nextStatus, result) => {
+                      if (
+                        result?.ok === true &&
+                        (
+                          result?.verified === true ||
+                          result?.status === 'running' ||
+                          result?.lifecycleState === 'running' ||
+                          result?.status?.worker_running === true
+                        ) &&
+                        nextStatus?.worker_running === true &&
+                        nextStatus?.model_proxy_ready === true
+                      ) return true
+                      throw new Error('Start RSI verification failed')
+                    }
+                  )
+                  return
+                }
+
+                if (rsiPaused) {
+                  act(
+                    'Resume worker',
+                    () => flokiAdapter.resumeSelfImprovement(),
+                    (nextStatus) => {
+                      if (nextStatus?.paused === false) return true
+                      throw new Error('Resume verification failed')
+                    }
+                  )
+                  return
+                }
+
+                act(
                   'Pause worker',
                   () => flokiAdapter.pauseSelfImprovement(),
                   (nextStatus) => {
                     if (nextStatus?.paused === true) return true
                     throw new Error('Pause verification failed')
                   }
-                )}
-            disabled={Boolean(busy) || !status}
-            className="px-3 py-2 text-xs rounded-md border border-border hover:border-neon-cyan/40 disabled:opacity-50 flex items-center gap-2"
-          >
-            {status?.paused ? <CirclePlay className="w-4 h-4" /> : <CirclePause className="w-4 h-4" />}
-            {status?.paused ? 'Resume' : 'Pause'}
-          </button>
-          <button
-            onClick={() => {
-              const trimmedObjective = makerObjective.trim()
-              act(
-                'Run improvement cycle',
-                () => flokiAdapter.runSelfImprovementNow(trimmedObjective),
-                (nextStatus, result) => {
-                  if (
-                    result?.ok === true &&
-                    result?.verified === true &&
-                    result?.wake_signal_sent === true &&
-                    result?.bypass_idle_timer === true &&
-                    result?.sandbox_started === true &&
-                    result?.marker ===
-                      'FLOKI_V2_SELF_IMPROVEMENT_RUN_NOW_IMMEDIATE' &&
-                    typeof nextStatus?.current_run_id === 'string' &&
-                    nextStatus.current_run_id.length > 0 &&
-                    typeof nextStatus?.current_container === 'string' &&
-                    nextStatus.current_container.length > 0 &&
-                    ['experimenting', 'verifying'].includes(nextStatus?.state)
-                  ) {
-                    setMakerObjective('')
-                    return true
-                  }
-                  throw new Error(
-                    'Run now did not start the sandbox immediately'
-                  )
-                }
-              )
-            }}
-            disabled={
-              Boolean(busy) ||
-              status?.worker_running !== true ||
-              status?.model_proxy_ready !== true ||
-              status?.paused === true ||
-              Boolean(status?.current_run_id) ||
-              status?.phase === 'maker_requested_cycle' ||
-              [
-                'queued',
-                'starting',
-                'researching',
-                'experimenting',
-                'verifying',
-                'promoting'
-              ].includes(status?.state)
-            }
-            className="px-3 py-2 text-xs rounded-md border border-neon-cyan/30 bg-neon-cyan/10 hover:bg-neon-cyan/15 disabled:opacity-50 flex items-center gap-2"
-          >
-            <Beaker className="w-4 h-4" />
-            Run now
-          </button>
-          <button
-            onClick={manualRefresh}
-            disabled={Boolean(busy)}
-            className="p-2 rounded-md border border-border hover:border-neon-cyan/40 disabled:opacity-50"
-            aria-label="Refresh self-improvement status"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
+                )
+              }}
+              disabled={
+                Boolean(busy) ||
+                (
+                  workerServiceRunning
+                    ? (rsiPaused ? status?.controls?.can_resume !== true : status?.controls?.can_pause !== true)
+                    : status?.controls?.can_start === false
+                )
+              }
+              className="px-2.5 py-1.5 text-xs rounded border border-border hover:border-neon-cyan/40 disabled:opacity-40 flex items-center gap-1.5"
+            >
+              {!workerServiceRunning || rsiPaused ? <CirclePlay className="w-3.5 h-3.5" /> : <CirclePause className="w-3.5 h-3.5" />}
+              {!workerServiceRunning ? 'Start RSI' : rsiPaused ? 'Resume' : 'Pause'}
+            </button>
+            {codeSandboxActive && (
+              <button type="button" onClick={abortSandbox} disabled={Boolean(busy)} className="px-2.5 py-1.5 text-xs rounded border border-red-500/40 bg-red-500/10 text-red-200 disabled:opacity-40 flex items-center gap-1.5">
+                <Square className="w-3.5 h-3.5" /> Abort sandbox
+              </button>
+            )}
+            {trainingAbortActive && (
+              <button type="button" onClick={abortTraining} disabled={Boolean(busy)} className="px-2.5 py-1.5 text-xs rounded border border-red-500/40 bg-red-500/10 text-red-200 disabled:opacity-40 flex items-center gap-1.5">
+                <Square className="w-3.5 h-3.5" /> Abort training
+              </button>
+            )}
+            <button type="button" onClick={() => act('Refresh status', refresh)} disabled={Boolean(busy)} className="p-1.5 rounded border border-border hover:border-neon-cyan/40 disabled:opacity-40" aria-label="Refresh RSI status">
+              <RefreshCw className="w-4 h-4" />
+            </button>
           </div>
         </div>
-        <div className="mt-4 space-y-1">
-          <label
-            htmlFor="maker-objective"
-            className="text-[10px] font-mono text-muted-foreground tracking-wide"
-          >
+
+        <div className="mt-3 space-y-1">
+          <label htmlFor="maker-objective" className="text-[10px] font-mono text-muted-foreground tracking-wide">
             Experiment objective — optional
           </label>
-          <textarea
-            id="maker-objective"
-            value={makerObjective}
-            onChange={(e) => setMakerObjective(e.target.value)}
-            disabled={
-              Boolean(busy) ||
-              status?.worker_running !== true ||
-              status?.model_proxy_ready !== true ||
-              status?.paused === true ||
-              Boolean(status?.current_run_id) ||
-              status?.phase === 'maker_requested_cycle' ||
-              ['queued', 'starting', 'researching', 'experimenting', 'verifying', 'promoting'].includes(status?.state)
-            }
-            rows={2}
-            placeholder="Leave empty for Floki to inspect himself and choose an experiment. Enter an objective to require Floki to conduct that experiment."
-            className="w-full rounded-md border border-border bg-background/80 px-3 py-2 text-[11px] text-foreground outline-none focus:border-neon-cyan/50 resize-none disabled:opacity-40 placeholder:text-muted-foreground/50"
-          />
-        </div>
-      </div>
-
-      <div className="px-5 pt-4 flex flex-wrap items-center justify-between gap-3">
-        {actionFeedback ? (
-          <div className={`text-xs rounded border px-3 py-2 ${
-            actionFeedback.ok === true
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-              : actionFeedback.ok === false
-                ? 'border-red-500/30 bg-red-500/10 text-red-300'
-                : 'border-neon-cyan/30 bg-neon-cyan/10 text-neon-cyan'
-          }`}>
-            {actionFeedback.message}
-          </div>
-        ) : <span />}
-        <span className="text-[10px] font-mono text-muted-foreground">
-          {lastRefreshedAt ? `Last refreshed ${new Date(lastRefreshedAt).toLocaleTimeString()}` : 'Not refreshed yet'}
-        </span>
-      </div>
-
-      <div className="p-5 grid grid-cols-1 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)] gap-5">
-        <div className="space-y-4">
-          <div className="rounded-md border border-border/60 p-4 space-y-2 text-xs">
-            <div className="flex justify-between gap-3"><span className="text-muted-foreground">State</span><span className="font-mono capitalize">{stateLabel(status?.state)}</span></div>
-            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Phase</span><span className="font-mono text-right capitalize">{stateLabel(status?.phase)}</span></div>
-            {status?.objective_source && (
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Cycle type</span>
-                <span className={`font-mono text-right ${status.objective_source === 'maker_requested' ? 'text-neon-cyan' : 'text-emerald-400'}`}>
-                  {status.objective_source === 'maker_requested' ? 'Maker-requested' : 'Floki-selected'}
-                </span>
-              </div>
-            )}
-            {status?.requested_objective && (
-              <div className="flex justify-between gap-3 mt-1">
-                <span className="text-muted-foreground flex-none">Objective</span>
-                <span className="font-mono text-right text-[10px] truncate max-w-[16rem]" title={status.requested_objective}>{status.requested_objective}</span>
-              </div>
-            )}
-            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Worker</span><span className={status?.worker_running ? 'text-emerald-400' : 'text-red-400'}>{status?.worker_running ? 'Running' : 'Stopped'}</span></div>
-            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Sandbox</span><span className="font-mono truncate max-w-[16rem]">{status?.current_container || 'None'}</span></div>
-            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Last heartbeat</span><span className="font-mono">{status?.last_heartbeat_at ? new Date(status.last_heartbeat_at).toLocaleTimeString() : 'None'}</span></div>
-            {status?.last_error && (
-              <div className="mt-3 p-3 rounded border border-red-500/30 bg-red-500/10 text-red-300 whitespace-pre-wrap break-words">
-                {status.last_error}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <h4 className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono">Candidates</h4>
-              <div className="flex items-center gap-1 rounded-md border border-border/60 p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setCandidateView('pending')}
-                  className={`px-2 py-1 text-[10px] font-mono rounded transition-colors ${
-                    candidateView === 'pending' ? 'bg-neon-cyan/15 text-neon-cyan' : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Pending {activeCandidates.length}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCandidateView('history')}
-                  className={`px-2 py-1 text-[10px] font-mono rounded transition-colors ${
-                    candidateView === 'history' ? 'bg-neon-cyan/15 text-neon-cyan' : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  History {historyCandidates.length}
-                </button>
-              </div>
-            </div>
-            {shownCandidates.length === 0 && (
-              <div className="text-xs text-muted-foreground border border-dashed border-border rounded-md p-4">
-                {candidateView === 'history'
-                  ? 'No past candidates yet.'
-                  : 'No candidate is awaiting your review.'}
-              </div>
-            )}
-            {visibleCandidates.map((candidate) => (
-              <button
-                key={candidate.id}
-                onClick={() => setSelectedId(candidate.id)}
-                className={`w-full text-left rounded-md border p-3 transition-colors ${
-                  selectedId === candidate.id ? 'border-neon-cyan/50 bg-neon-cyan/5' : 'border-border/60 hover:border-border'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-mono truncate">{candidate.id}</span>
-                  <span className="text-[10px] uppercase text-muted-foreground">{stateLabel(candidate.status)}</span>
-                </div>
-                <p className="text-xs mt-2 line-clamp-2">{candidate.objective}</p>
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <textarea
+              id="maker-objective"
+              value={makerObjective}
+              onChange={(event) => setMakerObjective(event.target.value)}
+              rows={2}
+              disabled={Boolean(busy) || makerCycleQueued || (!codeActionAvailable && !trainingActionAvailable)}
+              placeholder="Leave empty for Floki to inspect himself and choose an experiment. Enter an objective to require Floki to conduct that experiment."
+              className="w-full resize-none rounded border border-border bg-background/80 px-3 py-2 text-xs outline-none focus:border-neon-cyan/50 disabled:opacity-40"
+            />
+            <div className="flex items-stretch gap-2">
+              <button type="button" onClick={runCode} disabled={Boolean(busy) || makerCycleQueued || !canRunCode} className="px-3 py-2 text-xs rounded border border-neon-cyan/30 bg-neon-cyan/10 disabled:opacity-40 flex items-center gap-2">
+                <Code2 className="w-4 h-4" /> Run now
               </button>
-            ))}
-            {hiddenCandidateCount > 0 && (
-              <div className="text-[10px] font-mono text-muted-foreground text-center pt-1">
-                …{hiddenCandidateCount} more
-              </div>
-            )}
+              <button type="button" onClick={runTraining} disabled={Boolean(busy) || makerCycleQueued || !canRunTraining} className="px-3 py-2 text-xs rounded border border-violet-500/30 bg-violet-500/10 text-violet-200 disabled:opacity-40 flex items-center gap-2">
+                <Cpu className="w-4 h-4" /> Run training
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="min-w-0">
-          {!detail ? (
-            <div className="h-full min-h-72 rounded-md border border-dashed border-border flex items-center justify-center text-sm text-muted-foreground">
-              Select a candidate to review its evidence and exact patch.
+        <div className="mt-2 flex items-center justify-between gap-3 min-h-7">
+          {actionFeedback ? (
+            <div className={`text-[11px] rounded border px-2.5 py-1 ${
+              actionFeedback.ok === true
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                : actionFeedback.ok === false
+                  ? 'border-red-500/30 bg-red-500/10 text-red-200'
+                  : 'border-neon-cyan/30 bg-neon-cyan/10 text-neon-cyan'
+            }`}>{actionFeedback.message}</div>
+          ) : <span />}
+          <span className="text-[10px] font-mono text-muted-foreground">
+            {lastRefreshedAt ? formatTorontoTime(lastRefreshedAt) : 'Not refreshed'}
+          </span>
+        </div>
+      </header>
+
+      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[22rem_minmax(0,1fr)] overflow-hidden">
+        <aside className="min-h-0 overflow-y-auto border-r border-border/50 p-3 space-y-3">
+          <div className="rounded border border-border/60 p-3 text-[11px]">
+            <StatusRow name="Run kind" value={label(status?.active_run_kind)} accent="text-neon-cyan" />
+            <StatusRow name="State" value={label(status?.state)} />
+            <StatusRow name="Phase" value={label(status?.phase)} />
+            <StatusRow
+              name="Cycle type"
+              value={
+                status?.objective_source === 'maker_requested'
+                  ? 'Maker-requested'
+                  : status?.objective_source
+                    ? 'Floki-selected'
+                    : 'None'
+              }
+              accent={status?.objective_source === 'maker_requested' ? 'text-neon-cyan' : 'text-emerald-300'}
+            />
+            <StatusRow name="Goal" value={status?.current_objective || status?.requested_objective} />
+            <StatusRow name="Role" value={label(status?.active_role)} />
+            <StatusRow name="Tool" value={status?.active_tool} />
+            <StatusRow name="Resource mode" value={label(status?.resource_mode)} />
+            <StatusRow name="GPU owner" value={label(status?.gpu_owner)} accent={status?.gpu_owner ? 'text-violet-200' : ''} />
+          </div>
+
+          <div className="rounded border border-border/60 p-3 text-[11px] space-y-2">
+            <div className="flex items-center gap-2 font-semibold"><Cpu className="w-3.5 h-3.5 text-violet-300" /> Training</div>
+            <StatusRow name="HF state" value={label(status?.hf_state?.mode)} />
+            <StatusRow name="Session" value={status?.hf_state?.session_run_id} />
+            <StatusRow name="Segment" value={status?.hf_state?.segment_number} />
+            <StatusRow name="Container" value={status?.hf_state?.current_container} />
+            <StatusRow name="Checkpoint" value={status?.hf_state?.latest_checkpoint} />
+            <ProgressBar value={progressPercent} />
+            <StatusRow name="Progress" value={progressPercent ? `${progressPercent}%` : label(progress.status)} />
+          </div>
+
+          <div className="rounded border border-border/60 p-3 text-[11px]">
+            <div className="flex items-center gap-2 font-semibold mb-2"><Moon className="w-3.5 h-3.5 text-indigo-300" /> Night cycle</div>
+            <StatusRow
+              name="RSI"
+              value={status?.nightly_cycle?.rsi_paused ? 'Paused' : 'Enabled'}
+              accent={status?.nightly_cycle?.rsi_paused ? 'text-amber-300' : 'text-emerald-300'}
+            />
+            <StatusRow name="REM mode" value={label(status?.nightly_cycle?.rem_mode)} />
+            <StatusRow name="Epoch phase" value={label(status?.nightly_cycle?.epoch_state)} />
+            <StatusRow name="Next action" value={status?.nightly_cycle?.next_action} />
+            <StatusRow name="Epochs done" value={status?.nightly_cycle?.completed_epochs} />
+            <StatusRow name="REM done" value={status?.nightly_cycle?.completed_rem_cycles} />
+            <StatusRow name="Wake at" value={status?.nightly_cycle?.wake_at ? when(status.nightly_cycle.wake_at) : null} />
+            {status?.nightly_cycle?.error ? (
+              <div className="text-[10px] text-red-200 whitespace-pre-wrap break-words mt-1">{String(status.nightly_cycle.error).slice(0, 400)}</div>
+            ) : null}
+          </div>
+
+          <div className="rounded border border-border/60 p-3 text-[11px]">
+            <div className="flex items-center gap-2 font-semibold mb-2"><Moon className="w-3.5 h-3.5 text-indigo-300" /> REM coordination</div>
+            <StatusRow name="Current REM" value={status?.rem_coordination?.current_cycle} />
+            <StatusRow name="Next REM" value={nextRem ? `#${nextRem.cycle_number} · ${when(nextRem.scheduled_at)}` : null} />
+            <StatusRow name="Nightly provider" value={status?.providers?.nightly_rem} />
+            <StatusRow name="Nap provider" value={status?.providers?.manual_nap_rem} />
+            <StatusRow name="Claims complete" value={status?.rem_coordination?.completed_claims} />
+            <StatusRow name="Claim failures" value={status?.rem_coordination?.failed_claims} />
+          </div>
+
+          {status?.night_cycle_simulation ? (
+            <div className="rounded border border-cyan-500/30 bg-cyan-500/5 p-3 text-[11px]">
+              <div className="flex items-center gap-2 font-semibold mb-2 text-neon-cyan"><Moon className="w-3.5 h-3.5" /> Night cycle test (simulation)</div>
+              <StatusRow name="Run" value={status.night_cycle_simulation.run_id} />
+              <StatusRow name="Mode" value={label(status.night_cycle_simulation.mode)} />
+              <StatusRow
+                name="Result"
+                value={status.night_cycle_simulation.proof?.ok === true ? 'PASS' : status.night_cycle_simulation.proof ? 'FAIL' : 'Running'}
+                accent={status.night_cycle_simulation.proof?.ok === true ? 'text-emerald-300' : 'text-amber-300'}
+              />
+              <StatusRow name="Epochs done" value={status.night_cycle_simulation.session?.completed_epochs} />
+              <StatusRow name="REM done" value={status.night_cycle_simulation.session?.rem_cycles_completed ?? status.night_cycle_simulation.rem_cycles_completed} />
+              <StatusRow name="Missed REM" value={status.night_cycle_simulation.rem_cycles_missed} />
+              <StatusRow name="Candidates" value={(status.night_cycle_simulation.candidate_ids || []).length} />
+              <div className="text-[10px] text-muted-foreground mt-1">Isolated state · production night schedule untouched</div>
             </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="rounded-md border border-border/60 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h4 className="text-sm font-semibold">{detail.objective}</h4>
-                    <p className="text-xs text-muted-foreground font-mono mt-1">{detail.id}</p>
-                  </div>
-                  <span className={`px-2 py-1 rounded border text-[10px] uppercase ${riskClass(detail.risk_level)}`}>
-                    {detail.risk_level} risk
-                  </span>
-                </div>
-                <p className="text-sm mt-4 whitespace-pre-wrap">{detail.summary_markdown}</p>
+          ) : null}
+
+          <div className="rounded border border-border/60 p-3 text-[11px]">
+            <div className="flex items-center gap-2 font-semibold mb-2"><Database className="w-3.5 h-3.5 text-emerald-300" /> Loaded models & lineage</div>
+            {(status?.loaded_models || []).length === 0 ? (
+              <div className="text-muted-foreground">No GPU model owner reported.</div>
+            ) : (status.loaded_models || []).map((row, index) => (
+              <div key={`${row.provider}-${index}`} className="mb-2 last:mb-0">
+                <StatusRow name={row.provider} value={row.model || row.purpose} />
+                <div className="text-[10px] text-muted-foreground">{label(row.purpose)}</div>
               </div>
+            ))}
+            <StatusRow name="Active adapter" value={status?.lineage?.active_adapter_id || 'HF master'} />
+            <StatusRow name="Version" value={status?.lineage?.active_version} />
+            <StatusRow name="Rollback" value={status?.lineage?.rollback_target} />
+          </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="rounded-md border border-border/60 p-3">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400 mb-2" />
-                  <div className="text-xs font-semibold">Verification</div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {detail.test_results?.filter((row) => row.ok).length || 0}/{detail.test_results?.length || 0} passed
-                  </div>
-                </div>
-                <div className="rounded-md border border-border/60 p-3">
-                  <Code2 className="w-4 h-4 text-neon-cyan mb-2" />
-                  <div className="text-xs font-semibold">Changed files</div>
-                  <div className="text-xs text-muted-foreground mt-1">{detail.changed_files?.length || 0}</div>
-                </div>
-                <div className="rounded-md border border-border/60 p-3">
-                  <ExternalLink className="w-4 h-4 text-violet-400 mb-2" />
-                  <div className="text-xs font-semibold">Current sources</div>
-                  <div className="text-xs text-muted-foreground mt-1">{detail.research_sources?.length || 0}</div>
-                </div>
-              </div>
-
-              <div className="rounded-md border border-border/60 overflow-hidden">
-                <button
-                  onClick={() => setExpandedDiff((value) => !value)}
-                  className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold hover:bg-secondary/30"
-                >
-                  Exact candidate patch
-                  {expandedDiff ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </button>
-                {expandedDiff && (
-                  <pre className="max-h-[34rem] overflow-auto p-4 text-[11px] leading-5 bg-black/30 border-t border-border/60 whitespace-pre">
-                    {detail.diff}
-                  </pre>
-                )}
-              </div>
-
-              <div className="rounded-md border border-border/60 p-4">
-                <h5 className="text-xs font-semibold mb-2">Risk assessment</h5>
-                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{detail.risk_notes}</p>
-              </div>
-
-              {detail.status === 'pending_review' && (
-                <div className="space-y-3 pt-2">
-                  {reviewAction === 'deny' && (
-                    <div className="rounded-md border border-red-500/30 bg-red-500/10 p-4 space-y-3">
-                      <label className="block text-xs font-semibold text-red-200" htmlFor="self-improvement-deny-reason">
-                        Denial reason
-                      </label>
-                      <textarea
-                        id="self-improvement-deny-reason"
-                        value={denyReason}
-                        onChange={(event) => setDenyReason(event.target.value)}
-                        rows={3}
-                        className="w-full rounded-md border border-red-500/30 bg-background/80 px-3 py-2 text-sm text-foreground outline-none focus:border-red-300"
-                        placeholder="Optional note for Floki's future RSI cycles"
-                      />
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={cancelReviewAction}
-                          disabled={Boolean(busy)}
-                          className="px-3 py-2 rounded-md border border-border text-xs hover:border-red-300 disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={confirmDeny}
-                          disabled={Boolean(busy)}
-                          className="px-3 py-2 rounded-md border border-red-500/30 bg-red-500/15 text-red-200 hover:bg-red-500/20 disabled:opacity-50 flex items-center gap-2 text-xs"
-                        >
-                          <XCircle className="w-4 h-4" />
-                          Confirm deny
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {reviewAction === 'approve' && (
-                    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-3 text-sm">
-                      <p className="text-emerald-100">
-                        Approving {detail.id} will stop chat.local, apply the exact verified patch, run the full release gate, roll back automatically on failure, and reopen the interface.
-                      </p>
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={cancelReviewAction}
-                          disabled={Boolean(busy)}
-                          className="px-3 py-2 rounded-md border border-border text-xs hover:border-emerald-300 disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={confirmApprove}
-                          disabled={Boolean(busy)}
-                          className="px-3 py-2 rounded-md border border-emerald-500/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 flex items-center gap-2 text-xs"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                          Confirm approve
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap justify-end gap-3">
-                    <button
-                      type="button"
-                      onClick={requestDeny}
-                      disabled={Boolean(busy)}
-                      className="px-4 py-2 rounded-md border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/15 disabled:opacity-50 flex items-center gap-2 text-sm"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      Deny
-                    </button>
-                    <button
-                      type="button"
-                      onClick={requestApprove}
-                      disabled={Boolean(busy)}
-                      className="px-4 py-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 disabled:opacity-50 flex items-center gap-2 text-sm"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      Approve and activate
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {detail.status === 'promotion_failed' && (
-                <div className="rounded-md border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300 flex gap-3">
-                  <AlertTriangle className="w-5 h-5 flex-none" />
-                  <span>{detail.failure || 'Promotion failed. The active runtime was not left on an unverified candidate.'}</span>
-                </div>
-              )}
+          {(errors.length > 0 || status?.restoration) && (
+            <div className="rounded border border-red-500/30 bg-red-500/5 p-3 text-[11px]">
+              <div className="flex items-center gap-2 font-semibold text-red-200 mb-2"><AlertTriangle className="w-3.5 h-3.5" /> Errors & restoration</div>
+              {errors.map((error, index) => <div key={index} className="text-red-200 whitespace-pre-wrap break-words mb-2">{String(error)}</div>)}
+              {status?.restoration && <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-[10px] text-muted-foreground">{JSON.stringify(status.restoration, null, 2)}</pre>}
             </div>
           )}
-        </div>
+        </aside>
+
+        <main className="min-h-0 grid grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)] overflow-hidden">
+          <div className="min-h-0 overflow-y-auto border-r border-border/50 p-3">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <h4 className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground font-mono">Candidates</h4>
+              <div className="flex rounded border border-border/60 p-0.5">
+                <button type="button" onClick={() => setCandidateView('pending')} className={`px-2 py-1 text-[10px] rounded ${candidateView === 'pending' ? 'bg-neon-cyan/15 text-neon-cyan' : 'text-muted-foreground'}`}>Pending {activeCandidates.length}</button>
+                <button type="button" onClick={() => setCandidateView('history')} className={`px-2 py-1 text-[10px] rounded ${candidateView === 'history' ? 'bg-neon-cyan/15 text-neon-cyan' : 'text-muted-foreground'}`}>History {historyCandidates.length}</button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {visibleCandidates.map((candidate) => (
+                <button key={candidate.id} type="button" onClick={() => setSelectedId(candidate.id)} className={`w-full text-left rounded border p-3 ${selectedId === candidate.id ? 'border-neon-cyan/50 bg-neon-cyan/5' : 'border-border/60 hover:border-border'}`}>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[11px] font-mono truncate">{candidate.id}</span>
+                    <span className="text-[9px] uppercase text-muted-foreground">{label(candidate.status)}</span>
+                  </div>
+                  <div className="text-[10px] text-violet-200 mt-1">{label(candidate.candidate_type || 'code_patch')}</div>
+                  <p className="text-xs mt-1 line-clamp-3">{candidate.objective}</p>
+                </button>
+              ))}
+              {visibleCandidates.length === 0 && <div className="text-xs text-muted-foreground border border-dashed border-border rounded p-4">No candidates in this view.</div>}
+              {shownCandidates.length > visibleCandidates.length && <div className="text-[10px] text-center text-muted-foreground">…{shownCandidates.length - visibleCandidates.length} more</div>}
+            </div>
+          </div>
+
+          <div className="min-h-0 overflow-y-auto p-4">
+            {!detail ? (
+              <div className="h-full min-h-48 rounded border border-dashed border-border flex items-center justify-center text-sm text-muted-foreground">Select a candidate.</div>
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded border border-border/60 p-4">
+                  <div className="flex flex-wrap justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold">{detail.objective}</h4>
+                      <div className="text-[10px] font-mono text-muted-foreground mt-1">{detail.id} · {label(detail.candidate_type || 'code_patch')}</div>
+                    </div>
+                    <span className={`px-2 py-1 rounded border text-[10px] uppercase ${riskClass(detail.risk_level)}`}>{detail.risk_level || 'unknown'} risk</span>
+                  </div>
+                  <p className="text-sm mt-3 whitespace-pre-wrap">{detail.summary_markdown}</p>
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                  <div className="rounded border border-border/60 p-3"><ShieldCheck className="w-4 h-4 text-emerald-400 mb-1" /><div className="text-[10px]">Tests</div><div className="text-xs text-muted-foreground">{detail.test_results?.filter((row) => row.ok).length || 0}/{detail.test_results?.length || 0}</div></div>
+                  <div className="rounded border border-border/60 p-3"><Code2 className="w-4 h-4 text-neon-cyan mb-1" /><div className="text-[10px]">Files</div><div className="text-xs text-muted-foreground">{detail.changed_files?.length || 0}</div></div>
+                  <div className="rounded border border-border/60 p-3"><Cpu className="w-4 h-4 text-violet-300 mb-1" /><div className="text-[10px]">Adapter</div><div className="text-xs text-muted-foreground break-all">{detail.adapter_id || detail.lineage?.adapter_id || 'N/A'}</div></div>
+                  <div className="rounded border border-border/60 p-3"><Database className="w-4 h-4 text-indigo-300 mb-1" /><div className="text-[10px]">Version</div><div className="text-xs text-muted-foreground">{detail.version || detail.lineage?.version || (detail.base_commit ? String(detail.base_commit).slice(0, 12) : 'N/A')}</div></div>
+                </div>
+
+                <div className="rounded border border-border/60 overflow-hidden">
+                  <button type="button" onClick={() => setExpandedEvidence((value) => !value)} className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold hover:bg-secondary/30">
+                    {isAdapter ? 'Training evidence and lineage' : 'Exact candidate patch'}
+                    {expandedEvidence ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+                  {expandedEvidence && (
+                    <pre className="max-h-[28rem] overflow-auto p-4 text-[11px] leading-5 bg-black/30 border-t border-border/60 whitespace-pre-wrap">
+                      {isAdapter
+                        ? JSON.stringify({
+                            lineage: detail.lineage || null,
+                            metrics: detail.metrics || null,
+                            benchmark_results: detail.benchmark_results || [],
+                            test_results: detail.test_results || []
+                          }, null, 2)
+                        : detail.diff}
+                    </pre>
+                  )}
+                </div>
+
+                {detail.status === 'pending_review' && (
+                  <div className="space-y-3">
+                    {reviewAction === 'deny' && (
+                      <div className="rounded border border-red-500/30 bg-red-500/10 p-3 space-y-2">
+                        <textarea value={denyReason} onChange={(event) => setDenyReason(event.target.value)} rows={3} placeholder="Denial reason for future RSI cycles" className="w-full rounded border border-red-500/30 bg-background/80 px-3 py-2 text-sm outline-none" />
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={cancelReviewAction} className="px-3 py-2 text-xs rounded border border-border">Cancel</button>
+                          <button type="button" onClick={confirmDeny} className="px-3 py-2 text-xs rounded border border-red-500/30 bg-red-500/15 text-red-200 flex items-center gap-2"><XCircle className="w-4 h-4" /> Confirm deny</button>
+                        </div>
+                      </div>
+                    )}
+                    {reviewAction === 'approve' && (
+                      <div className="rounded border border-emerald-500/30 bg-emerald-500/10 p-3">
+                        <p className="text-sm text-emerald-100">
+                          {isAdapter
+                            ? 'Approve this verified adapter candidate and activate it through the guarded model promotion path.'
+                            : 'Approve this exact verified patch and activate it through the guarded deployment path.'}
+                        </p>
+                        <div className="flex justify-end gap-2 mt-3">
+                          <button type="button" onClick={cancelReviewAction} className="px-3 py-2 text-xs rounded border border-border">Cancel</button>
+                          <button type="button" onClick={confirmApprove} className="px-3 py-2 text-xs rounded border border-emerald-500/30 bg-emerald-500/15 text-emerald-200 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Confirm approve</button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={requestDeny} disabled={Boolean(busy)} className="px-4 py-2 text-sm rounded border border-red-500/30 bg-red-500/10 text-red-300 disabled:opacity-40 flex items-center gap-2"><XCircle className="w-4 h-4" /> Deny</button>
+                      <button type="button" onClick={requestApprove} disabled={Boolean(busy)} className="px-4 py-2 text-sm rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 disabled:opacity-40 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Approve and activate</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </main>
       </div>
     </section>
   )

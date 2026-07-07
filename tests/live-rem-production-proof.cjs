@@ -9,7 +9,11 @@ const { runDreamEngineOnce } = require('../src/chat/dream-engine.cjs');
 const { reconcileDreamArchive } = require('../src/chat/dream-archive.cjs');
 
 async function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'floki-live-rem-'));
   const memoryBase = path.join(root, 'memory');

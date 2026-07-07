@@ -8,8 +8,8 @@ const ROOT = path.resolve(__dirname, "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
 const sourceScript = String(packageJson.scripts && packageJson.scripts["test:node24"] || "");
 
-if (process.version !== "v24.17.0") {
-  console.error("FLOKI_CHAT_LOCAL_SUITE_FAIL: Node v24.17.0 is required; actual=" + process.version);
+if (Number(process.versions.node.split('.')[0]) < 24) {
+  console.error("FLOKI_CHAT_LOCAL_SUITE_FAIL: Node 24 or newer is required; actual=" + process.version);
   process.exit(1);
 }
 if (!sourceScript.trim()) {

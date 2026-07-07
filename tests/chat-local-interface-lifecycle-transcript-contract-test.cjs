@@ -53,9 +53,10 @@ function run() {
   assert.match(runtime, /url\.pathname === '\/client-detached'/);
   assert.match(runtime, /url\.pathname === '\/transcript\/clear'/);
   assert.match(runtime, /await liveAudio\.setAwake\(hearingEnabled\)/);
-  assert.match(runtime, /const visionEnabled = awake && state\.client_ready === true/);
+  assert.match(runtime, /const visionEnabled = awake && allGatesPass/);
+  assert.match(runtime, /filter\(\(gate\) => gate !== 'client_ready' && gate !== 'window_visible'\)/);
   assert.match(runtime, /visionReconciler\.reconcile\(visionEnabled/);
-  assert.match(runtime, /state\.client_ready !== true\s*\? 'awaiting_client'/);
+  assert.match(runtime, /hearing_intentionally_suspended: sleeping/);
 
   assert.match(electron, /mainWindow\.show\(\);\s*void runtimeRequest\('POST', '\/client-ready'/s);
   assert.match(electron, /'floki:clear-transcript'/);
@@ -71,7 +72,25 @@ function run() {
   assert.match(config, /attention_followup_interval_ms:/);
 
   assert.match(readme, /personal AI companion and digital-being project/i);
-  assert.match(readme, /chat\.local.*personal AI companion/is);
+  assert.match(
+    readme,
+    /floki-runtime.*personal AI companion/is,
+    'README must describe the shared runtime as Floki\'s companion authority'
+  );
+  assert.match(
+    readme,
+    /floki\.app.*local Electron client/is,
+    'README must describe floki.app as a client of the shared runtime'
+  );
+  assert.match(readme, /bin\/floki-runtime\.sh start/);
+  assert.match(readme, /bin\/floki-runtime\.sh reset/);
+  assert.match(readme, /bin\/floki-app\.sh/);
+  const retiredLauncherName = 'floki-' + 'start.sh';
+  assert.equal(
+    readme.includes(retiredLauncherName),
+    false,
+    'README must not restore the retired launcher'
+  );
   assert.match(readme, /game.*AI friend for games/is);
   assert.doesNotMatch(readme, /Stage 00 - Scaffold Only/);
 
@@ -79,7 +98,7 @@ function run() {
     ok: true,
     marker: 'FLOKI_V2_CHAT_LOCAL_INTERFACE_LIFECYCLE_TRANSCRIPT_PASS',
     complete_spoken_command_settle: true,
-    external_senses_wait_for_visible_interface: true,
+    external_senses_survive_client_detach: true,
     typed_and_spoken_history_restored: true,
     visible_chat_clear_supported: true,
     private_memory_preserved_on_clear: true,

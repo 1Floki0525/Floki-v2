@@ -8,13 +8,16 @@ const {
   readStatus
 } = require('./store.cjs');
 const {
+  abortActiveRun,
   approveCandidate,
   denyCandidate,
   pause,
   resume,
   runNow
 } = require('./promotion.cjs');
-const { stopCurrentContainer } = require('./sandbox.cjs');
+const { stopActiveRunProcess } = require('./sandbox.cjs');
+const { buildSelfImprovementUiStatus } = require('./ui-status.cjs');
+const { assertApprovalToken, appendAudit } = require('./store.cjs');
 
 function createSelfImprovementApi() {
   const config = loadSelfImprovementConfig();
@@ -22,7 +25,7 @@ function createSelfImprovementApi() {
 
   return Object.freeze({
     status() {
-      return readStatus(config);
+      return buildSelfImprovementUiStatus({ config });
     },
     listCandidates() {
       return listCandidates(config);
@@ -42,11 +45,19 @@ function createSelfImprovementApi() {
     resume(token) {
       return resume(token, config);
     },
-    runNow(token, objective) {
-      return runNow(token, objective, config);
+    runNow(token, objective, kind) {
+      return runNow(token, objective, kind, config);
+    },
+    async abort(token, reason, kind) {
+      return abortActiveRun(
+        token,
+        reason,
+        kind,
+        config
+      );
     },
     preempt(reason) {
-      return stopCurrentContainer(reason, config);
+      return stopActiveRunProcess(reason, config);
     }
   });
 }

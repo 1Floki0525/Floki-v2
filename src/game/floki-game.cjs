@@ -43,7 +43,7 @@ function makeStatus() {
   return {
     ok: true,
     marker: 'FLOKI_V2_GAME_MODE_CORE_BRAIN_GUARDED',
-    command: 'floki-start.sh game',
+    command: 'bin/floki-node24-run.sh node src/game/floki-game.cjs --status',
     mode: 'game',
     stage: 'guarded_not_wired_yet',
     config_path: config.source_path,

@@ -1,6 +1,7 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
+const fs = require('node:fs');
 const path = require('node:path');
 
 if (process.platform === 'linux' && process.env.FLOKI_ELECTRON_ENABLE_GPU_SANDBOX !== '1') app.commandLine.appendSwitch('disable-gpu-sandbox');
@@ -8,6 +9,41 @@ if (process.platform === 'linux' && process.env.FLOKI_ELECTRON_ENABLE_GPU_SANDBO
 const APP_ROOT = path.resolve(__dirname, '..');
 const PROJECT_ROOT = path.resolve(APP_ROOT, '..', '..');
 const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
+const APP_ICON = path.join(
+  PROJECT_ROOT,
+  'apps',
+  'assets',
+  'floki-icon.png'
+);
+const APP_READY_FILE = String(process.env.FLOKI_APP_READY_FILE || '').trim();
+
+app.setName('Floki');
+if (process.platform === 'linux') {
+  app.setDesktopName('floki.app.desktop');
+}
+
+function removeAppReadyMarker() {
+  if (!APP_READY_FILE) return;
+  try { fs.rmSync(APP_READY_FILE, { force: true }); } catch (_error) {}
+}
+
+function writeAppReadyMarker(window) {
+  if (!APP_READY_FILE) return;
+  fs.mkdirSync(path.dirname(APP_READY_FILE), { recursive: true, mode: 0o700 });
+  const temp = APP_READY_FILE + '.tmp-' + String(process.pid);
+  fs.writeFileSync(temp, JSON.stringify({
+    marker: 'FLOKI_V2_ELECTRON_WINDOW_READY',
+    pid: process.pid,
+    window_id: window.id,
+    ready_at: new Date().toISOString(),
+    visible: window.isVisible()
+  }, null, 2) + '\n', { mode: 0o600 });
+  fs.renameSync(temp, APP_READY_FILE);
+  console.error(
+    'FLOKI_V2_ELECTRON_WINDOW_READY pid=' + String(process.pid) +
+    ' window_id=' + String(window.id)
+  );
+}
 const { getLiveChatConfig, getVisionConfig, getSelfImprovementConfig } = require(path.join(PROJECT_ROOT, 'src/config/floki-config.cjs'));
 const { runtimePaths } = require(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'));
 const { createMjpegFileStreamServer } = require('./mjpeg-file-stream.cjs');
@@ -25,10 +61,12 @@ const RUN_NOW_REQUEST_TIMEOUT_MS =
 const RUNTIME_URL = 'http://' + runtimeConfig.runtime_host + ':' + String(runtimeConfig.runtime_port);
 const { ensureApprovalToken } = require(path.join(PROJECT_ROOT, 'src/self-improvement/store.cjs'));
 const SELF_IMPROVEMENT_APPROVAL_TOKEN = ensureApprovalToken();
+const SHARED_RUNTIME_CLIENT = process.env.FLOKI_ELECTRON_SHARED_RUNTIME_CLIENT === '1';
 
 let mainWindow = null;
 let requestInFlight = false;
 let mjpegTransport = null;
+let rendererUnresponsiveTimer = null;
 
 const runtimeRequest = createRuntimeRequest({
   base_url: RUNTIME_URL,
@@ -39,6 +77,44 @@ function cleanupMjpeg() {
   if (!mjpegTransport) return;
   mjpegTransport.close();
   mjpegTransport = null;
+}
+
+function clearRendererUnresponsiveTimer() {
+  if (!rendererUnresponsiveTimer) return;
+  clearTimeout(rendererUnresponsiveTimer);
+  rendererUnresponsiveTimer = null;
+}
+
+function armRendererUnresponsiveTimer() {
+  clearRendererUnresponsiveTimer();
+  const graceMs = Math.max(
+    Number(runtimeConfig.runtime_watchdog_request_timeout_ms || 0),
+    Number(runtimeConfig.renderer_unresponsive_grace_ms || 15000)
+  );
+  console.error('FLOKI_V2_ELECTRON_RENDERER_UNRESPONSIVE grace_ms=' + String(graceMs));
+  rendererUnresponsiveTimer = setTimeout(() => {
+    console.error('FLOKI_V2_ELECTRON_RENDERER_CRASH reason=renderer_unresponsive_timeout grace_ms=' + String(graceMs));
+    app.exit(1);
+  }, graceMs);
+  if (typeof rendererUnresponsiveTimer.unref === 'function') rendererUnresponsiveTimer.unref();
+}
+
+function attachRendererLifecycleHandlers(window) {
+  window.on('unresponsive', () => {
+    armRendererUnresponsiveTimer();
+  });
+  window.on('responsive', () => {
+    clearRendererUnresponsiveTimer();
+    console.error('FLOKI_V2_ELECTRON_RENDERER_RECOVERED');
+  });
+  window.webContents.on('render-process-gone', (_event, details = {}) => {
+    clearRendererUnresponsiveTimer();
+    console.error('FLOKI_V2_ELECTRON_RENDERER_CRASH reason=' + String(details.reason || 'unknown') + ' exit_code=' + String(details.exitCode ?? 'unknown'));
+    app.exit(1);
+  });
+  window.webContents.on('child-process-gone', (_event, details = {}) => {
+    console.error('FLOKI_V2_ELECTRON_CHILD_PROCESS_GONE type=' + String(details.type || 'unknown') + ' reason=' + String(details.reason || 'unknown') + ' exit_code=' + String(details.exitCode ?? 'unknown'));
+  });
 }
 
 function startMjpegFileStream() {
@@ -98,8 +174,16 @@ function registerIpc() {
   ipcMain.handle('floki:run-self-improvement-now', async (_event, payload = {}) =>
     runtimeRequest('POST', '/self-improvement/run-now', {
       objective: String(payload.objective || ''),
+      kind: String(payload.kind || 'code'),
       token: SELF_IMPROVEMENT_APPROVAL_TOKEN
     }, RUN_NOW_REQUEST_TIMEOUT_MS)
+  );
+  ipcMain.handle('floki:abort-self-improvement', async (_event, payload = {}) =>
+    runtimeRequest('POST', '/self-improvement/abort', {
+      kind: String(payload.kind || 'code'),
+      reason: String(payload.reason || ''),
+      token: SELF_IMPROVEMENT_APPROVAL_TOKEN
+    })
   );
   ipcMain.handle('floki:get-self-improvement-activity', async (_event, payload = {}) => {
     const params = new URLSearchParams();
@@ -108,6 +192,14 @@ function registerIpc() {
     if (payload.sandbox_cursor != null) params.set('sandbox_cursor', String(payload.sandbox_cursor));
     if (payload.limit != null) params.set('limit', String(payload.limit));
     return runtimeRequest('GET', '/self-improvement/activity?' + params.toString());
+  });
+  ipcMain.handle('floki:get-self-improvement-terminal', async (_event, payload = {}) => {
+    const params = new URLSearchParams();
+    if (payload.cursor != null) params.set('cursor', String(payload.cursor));
+    if (payload.before_cursor != null) params.set('before_cursor', String(payload.before_cursor));
+    if (payload.max_bytes != null) params.set('max_bytes', String(payload.max_bytes));
+    if (payload.source_id) params.set('source_id', String(payload.source_id));
+    return runtimeRequest('GET', '/self-improvement/terminal?' + params.toString());
   });
   ipcMain.handle('floki:get-initial-status', () => runtimeRequest('GET', '/interface/status'));
   ipcMain.handle('floki:get-system-status', () => runtimeRequest('GET', '/interface/services'));
@@ -120,6 +212,30 @@ function registerIpc() {
     requestInFlight = true;
     try { return await runtimeRequest('POST', '/chat', { text }); }
     finally { requestInFlight = false; }
+  });
+  ipcMain.handle('floki:send-voice-utterance', async (_event, payload = {}) => {
+    const base64 = String(payload.base64 || '');
+    if (!base64) throw new Error('voice audio payload is required');
+    if (requestInFlight) throw new Error('Floki is already responding');
+    requestInFlight = true;
+    try {
+      const bytes = Buffer.from(base64, 'base64');
+      const response = await fetch(RUNTIME_URL + '/audio/remote-utterance', {
+        method: 'POST',
+        headers: {
+          'content-type': String(payload.contentType || 'audio/wav'),
+          connection: 'close'
+        },
+        body: bytes,
+        signal: AbortSignal.timeout(Number(runtimeConfig.stream_timeout_ms))
+      });
+      const raw = await response.text();
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (!response.ok) throw new Error(parsed.error || 'runtime HTTP ' + String(response.status));
+      return parsed;
+    } finally {
+      requestInFlight = false;
+    }
   });
   ipcMain.handle('floki:interrupt', () => runtimeRequest('POST', '/interrupt', {}));
   ipcMain.handle('floki:get-vision-frame', () => runtimeRequest('GET', '/interface/vision/frame'));
@@ -138,16 +254,50 @@ function registerIpc() {
   ipcMain.handle('floki:import-settings', (_event, payload = {}) => runtimeRequest('POST', '/interface/settings/import', { settings: payload.settings || {} }));
   ipcMain.handle('floki:push-to-talk', (_event, payload = {}) => runtimeRequest('POST', '/audio/push-to-talk', { active: payload.active === true }));
   ipcMain.handle('floki:control', (_event, payload = {}) => runtimeRequest('POST', '/interface/control/' + encodeURIComponent(String(payload.action || '')), { argument: payload.argument }));
+  ipcMain.handle('floki:control-module', (_event, payload = {}) => {
+    const moduleKey = encodeURIComponent(String(payload.moduleKey || ''));
+    const action = String(payload.action || '') === 'restart' ? 'reset' : String(payload.action || '');
+    return runtimeRequest('POST', '/control/modules/' + moduleKey + '/' + encodeURIComponent(action), {});
+  });
+  ipcMain.handle('floki:client-app-heartbeat', (_event, payload = {}) =>
+    runtimeRequest('POST', '/interface/client-app/heartbeat', {
+      app_key: String(payload.app_key || ''),
+      client_id: String(payload.client_id || ''),
+      session_id: String(payload.session_id || payload.client_id || ''),
+      transport_type: String(payload.transport_type || 'electron-bridge'),
+      healthy: payload.healthy !== false,
+      error: payload.error || null
+    })
+  );
   ipcMain.handle('floki:open-log', async (_event, payload = {}) => {
-    const result = await runtimeRequest('GET', '/interface/log/' + encodeURIComponent(String(payload.service || '')));
-    if (!result.exists || !result.path) throw new Error('The selected backend log is not available.');
-    shell.showItemInFolder(result.path);
-    void shell.openPath(result.path).then((openError) => {
-      if (openError) console.error('FLOKI_V2_LOG_OPEN_FAIL: ' + openError);
-    }).catch((error) => {
-      console.error('FLOKI_V2_LOG_OPEN_FAIL: ' + (error && error.message ? error.message : String(error)));
-    });
-    return { ok: true, file: result.path };
+    const result = await runtimeRequest(
+      'GET',
+      '/interface/log/' +
+        encodeURIComponent(
+          String(payload.service || '')
+        )
+    );
+    if (
+      result?.exists !== true ||
+      typeof result?.text !== 'string'
+    ) {
+      throw new Error(
+        result?.error ||
+        'The selected current-week log is unavailable.'
+      );
+    }
+    return {
+      ok: true,
+      service: String(result.service || payload.service || ''),
+      display_name: result.display_name || null,
+      file_name: result.file_name || null,
+      week: result.week || null,
+      exists: true,
+      text: String(result.text || ''),
+      truncated: result.truncated === true,
+      size_bytes: Number(result.size_bytes || 0),
+      modified_at: result.modified_at || null
+    };
   });
   ipcMain.handle('floki:get-runtime-websocket-url', () => 'ws://' + runtimeConfig.runtime_host + ':' + String(runtimeConfig.runtime_port) + '/ws');
 }
@@ -158,16 +308,47 @@ async function ensureRuntime() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({ width: 1600, height: 1000, minWidth: 1100, minHeight: 720, backgroundColor: '#030712', title: 'Floki Neural Interface', show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } });
+  mainWindow = new BrowserWindow({ width: 1600, height: 1000, minWidth: 1100, minHeight: 720, backgroundColor: '#030712', title: 'Floki Neural Interface', icon: APP_ICON, show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } });
   mainWindow.setMenuBarVisibility(false);
+  if (process.platform === 'linux') mainWindow.setIcon(APP_ICON);
+  attachRendererLifecycleHandlers(mainWindow);
+  const markReadyAfterClientReady = () => writeAppReadyMarker(mainWindow);
   mainWindow.loadFile(DIST_INDEX);
-  mainWindow.once('ready-to-show', () => { mainWindow.show(); void runtimeRequest('POST', '/client-ready', {}).catch((error) => console.error('FLOKI_V2_CLIENT_READY_SIGNAL_FAIL: ' + error.message)); });
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    writeAppReadyMarker(mainWindow);
+    // BrowserWindow.show() is idempotent. The second call preserves the local
+    // static lifecycle contract that /client-ready is emitted immediately after
+    // a visible-window show call, while keeping the ready marker before the
+    // runtime readiness signal for startup supervision.
+    mainWindow.show();
+    void runtimeRequest('POST', '/client-ready', {})
+      .catch((error) => {
+        console.error(
+          'FLOKI_V2_CLIENT_READY_SIGNAL_FAIL: ' +
+          error.message
+        );
+      });
+  });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  mainWindow.on('closed', () => { void runtimeRequest('POST', '/client-detached', {}).catch((error) => console.error('FLOKI_V2_CLIENT_DETACHED_SIGNAL_FAIL: ' + error.message)); mainWindow = null; cleanupMjpeg(); });
+  mainWindow.on('closed', () => {
+    if (!SHARED_RUNTIME_CLIENT) {
+      void runtimeRequest(
+        'POST',
+        '/client-detached',
+        {}
+      ).catch((error) => console.error(
+        'FLOKI_V2_CLIENT_DETACHED_SIGNAL_FAIL: ' +
+        error.message
+      ));
+    }
+    mainWindow = null;
+    cleanupMjpeg();
+  });
 }
 
 app.whenReady().then(async () => {
-  const fs = require('node:fs');
+  removeAppReadyMarker();
   if (!fs.existsSync(DIST_INDEX)) throw new Error(`built interface missing: ${DIST_INDEX}`);
   await ensureRuntime();
   registerIpc();
@@ -176,3 +357,6 @@ app.whenReady().then(async () => {
 }).catch((error) => { console.error('FLOKI_V2_ELECTRON_STARTUP_FAIL: ' + String(error && error.stack ? error.stack : error)); app.exit(1); });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { console.error('FLOKI_V2_ELECTRON_BEFORE_QUIT'); });
+app.on('will-quit', () => { removeAppReadyMarker(); clearRendererUnresponsiveTimer(); console.error('FLOKI_V2_ELECTRON_WILL_QUIT'); });
+app.on('quit', (_event, exitCode) => { console.error('FLOKI_V2_ELECTRON_QUIT code=' + String(exitCode)); });

@@ -1,0 +1,295 @@
+- generic [ref=f714e2]:
+  - generic [ref=f714e3]:
+    - navigation "Main navigation" [ref=f714e4]:
+      - generic [ref=f714e6]:
+        - img [ref=f714e8]
+        - generic [ref=f714e10]:
+          - heading "Floki Neural" [level=1] [ref=f714e11]
+          - paragraph [ref=f714e12]: INTERFACE
+      - generic [ref=f714e13]:
+        - generic [ref=f714e18]: Floki Online
+        - generic [ref=f714e22]: chat.local
+        - generic [ref=f714e26]: Vision
+        - generic [ref=f714e30]: Hearing
+        - generic [ref=f714e34]: Awake
+      - generic [ref=f714e35]:
+        - button "Chat Interface" [ref=f714e36] [cursor=pointer]:
+          - img [ref=f714e37]
+          - generic [ref=f714e39]: Chat Interface
+        - button "Dreams" [ref=f714e40] [cursor=pointer]:
+          - img [ref=f714e41]
+          - generic [ref=f714e51]: Dreams
+        - button "Neural Stream" [ref=f714e52] [cursor=pointer]:
+          - img [ref=f714e53]
+          - generic [ref=f714e55]: Neural Stream
+        - button "RSI Lab" [ref=f714e56] [cursor=pointer]:
+          - img [ref=f714e57]
+          - generic [ref=f714e59]: RSI Lab
+        - button "System" [active] [ref=f714e60] [cursor=pointer]:
+          - img [ref=f714e61]
+          - generic [ref=f714e64]: System
+        - button "Settings" [ref=f714e65] [cursor=pointer]:
+          - img [ref=f714e66]
+          - generic [ref=f714e69]: Settings
+      - button "Collapse navigation" [ref=f714e71] [cursor=pointer]:
+        - img [ref=f714e72]
+    - main [ref=f714e74]:
+      - generic [ref=f714e76]:
+        - heading "System Status" [level=2] [ref=f714e77]
+        - generic [ref=f714e78]:
+          - generic [ref=f714e79]:
+            - generic [ref=f714e80]:
+              - generic [ref=f714e81]:
+                - heading "Floki Core" [level=3] [ref=f714e82]
+                - generic [ref=f714e85]: Running
+              - generic [ref=f714e86]: 0ms
+            - generic [ref=f714e87]:
+              - generic [ref=f714e88]:
+                - generic [ref=f714e89]: Uptime
+                - generic [ref=f714e90]: 0h 6m
+              - generic [ref=f714e91]:
+                - generic [ref=f714e92]: Heartbeat
+                - generic [ref=f714e93]: 356s ago
+              - generic [ref=f714e94]: The authoritative chat.local runtime owns cognition, memory, hearing, sight, sleep, dreams, and interface data.
+            - button "Logs" [ref=f714e96] [cursor=pointer]:
+              - img [ref=f714e97]
+              - text: Logs
+          - generic [ref=f714e100]:
+            - generic [ref=f714e101]:
+              - generic [ref=f714e102]:
+                - heading "Cognition" [level=3] [ref=f714e103]
+                - generic [ref=f714e106]: Running
+              - generic [ref=f714e107]: 0ms
+            - generic [ref=f714e108]:
+              - generic [ref=f714e109]:
+                - generic [ref=f714e110]: Uptime
+                - generic [ref=f714e111]: 0h 6m
+              - generic [ref=f714e112]:
+                - generic [ref=f714e113]: Heartbeat
+                - generic [ref=f714e114]: 0s ago
+              - generic [ref=f714e115]: "Configured model: floki-qwen3.5:4b-32k; runtime session chatruntime_20260701t151613664z_9c1949a25938."
+            - button "Logs" [ref=f714e117] [cursor=pointer]:
+              - img [ref=f714e118]
+              - text: Logs
+          - generic [ref=f714e121]:
+            - generic [ref=f714e122]:
+              - generic [ref=f714e123]:
+                - heading "Vision" [level=3] [ref=f714e124]
+                - generic [ref=f714e127]: Stopped
+              - generic [ref=f714e128]: 0ms
+            - generic [ref=f714e129]:
+              - generic [ref=f714e130]:
+                - generic [ref=f714e131]: Uptime
+                - generic [ref=f714e132]: 0h 0m
+              - generic [ref=f714e133]:
+                - generic [ref=f714e134]: Heartbeat
+                - generic [ref=f714e135]: 1006s ago
+              - generic [ref=f714e136]: Eyes closed · 10.0 FPS · detector stale · scene refreshing.
+            - generic [ref=f714e137]:
+              - button "Restart" [ref=f714e138] [cursor=pointer]:
+                - img [ref=f714e139]
+                - text: Restart
+              - button "Logs" [ref=f714e142] [cursor=pointer]:
+                - img [ref=f714e143]
+                - text: Logs
+          - generic [ref=f714e146]:
+            - generic [ref=f714e147]:
+              - generic [ref=f714e148]:
+                - heading "Hearing" [level=3] [ref=f714e149]
+                - generic [ref=f714e152]: Degraded
+              - generic [ref=f714e153]: 0ms
+            - generic [ref=f714e154]:
+              - generic [ref=f714e155]:
+                - generic [ref=f714e156]: Uptime
+                - generic [ref=f714e157]: 0h 6m
+              - generic [ref=f714e158]:
+                - generic [ref=f714e159]: Heartbeat
+                - generic [ref=f714e160]: 0s ago
+              - generic [ref=f714e161]: Continuous microphone, VAD, Whisper, and wake continuation are owned by the authoritative runtime.
+            - button "Logs" [ref=f714e163] [cursor=pointer]:
+              - img [ref=f714e164]
+              - text: Logs
+          - generic [ref=f714e167]:
+            - generic [ref=f714e168]:
+              - generic [ref=f714e169]:
+                - heading "Speech" [level=3] [ref=f714e170]
+                - generic [ref=f714e173]: Running
+              - generic [ref=f714e174]: 0ms
+            - generic [ref=f714e175]:
+              - generic [ref=f714e176]:
+                - generic [ref=f714e177]: Uptime
+                - generic [ref=f714e178]: 0h 6m
+              - generic [ref=f714e179]:
+                - generic [ref=f714e180]: Heartbeat
+                - generic [ref=f714e181]: 0s ago
+              - generic [ref=f714e182]: Piper playback and self-echo locking are owned by the authoritative runtime.
+            - button "Logs" [ref=f714e184] [cursor=pointer]:
+              - img [ref=f714e185]
+              - text: Logs
+          - generic [ref=f714e188]:
+            - generic [ref=f714e189]:
+              - generic [ref=f714e190]:
+                - heading "Memory" [level=3] [ref=f714e191]
+                - generic [ref=f714e194]: Running
+              - generic [ref=f714e195]: 0ms
+            - generic [ref=f714e196]:
+              - generic [ref=f714e197]:
+                - generic [ref=f714e198]: Uptime
+                - generic [ref=f714e199]: 0h 6m
+              - generic [ref=f714e200]:
+                - generic [ref=f714e201]: Heartbeat
+                - generic [ref=f714e202]: 52745s ago
+              - generic [ref=f714e203]: "Persistent memory and transcript knowledge are attached to the authoritative brain runtime. Knowledge status: FLOKI_V2_KNOWLEDGE_AUTOLOAD_PASS; phase complete; sources 48889; chunks 153663."
+            - button "Logs" [ref=f714e205] [cursor=pointer]:
+              - img [ref=f714e206]
+              - text: Logs
+          - generic [ref=f714e209]:
+            - generic [ref=f714e210]:
+              - generic [ref=f714e211]:
+                - heading "Emotion" [level=3] [ref=f714e212]
+                - generic [ref=f714e215]: Running
+              - generic [ref=f714e216]: 0ms
+            - generic [ref=f714e217]:
+              - generic [ref=f714e218]:
+                - generic [ref=f714e219]: Uptime
+                - generic [ref=f714e220]: 0h 6m
+              - generic [ref=f714e221]:
+                - generic [ref=f714e222]: Heartbeat
+                - generic [ref=f714e223]: 0s ago
+              - generic [ref=f714e224]: Persistent affect state is attached to cognition and the interface.
+            - button "Logs" [ref=f714e226] [cursor=pointer]:
+              - img [ref=f714e227]
+              - text: Logs
+          - generic [ref=f714e230]:
+            - generic [ref=f714e231]:
+              - generic [ref=f714e232]:
+                - heading "Sleep Scheduler" [level=3] [ref=f714e233]
+                - generic [ref=f714e236]: Stopped
+              - generic [ref=f714e237]: 0ms
+            - generic [ref=f714e238]:
+              - generic [ref=f714e239]:
+                - generic [ref=f714e240]: Uptime
+                - generic [ref=f714e241]: 0h 0m
+              - generic [ref=f714e242]:
+                - generic [ref=f714e243]: Heartbeat
+                - generic [ref=f714e244]: 29400s ago
+              - generic [ref=f714e245]: Continuous sleep-cycle scheduler is inactive.
+            - generic [ref=f714e246]:
+              - button "Restart" [ref=f714e247] [cursor=pointer]:
+                - img [ref=f714e248]
+                - text: Restart
+              - button "Logs" [ref=f714e251] [cursor=pointer]:
+                - img [ref=f714e252]
+                - text: Logs
+          - generic [ref=f714e255]:
+            - generic [ref=f714e256]:
+              - generic [ref=f714e257]:
+                - heading "Dream Engine" [level=3] [ref=f714e258]
+                - generic [ref=f714e261]: Stopped
+              - generic [ref=f714e262]: 0ms
+            - generic [ref=f714e263]:
+              - generic [ref=f714e264]:
+                - generic [ref=f714e265]: Uptime
+                - generic [ref=f714e266]: 0h 0m
+              - generic [ref=f714e267]:
+                - generic [ref=f714e268]: Heartbeat
+                - generic [ref=f714e269]: 29400s ago
+              - generic [ref=f714e270]: Dream generation is scheduled by the sleep runtime.
+            - button "Logs" [ref=f714e272] [cursor=pointer]:
+              - img [ref=f714e273]
+              - text: Logs
+          - generic [ref=f714e276]:
+            - generic [ref=f714e277]:
+              - generic [ref=f714e278]:
+                - heading "Authoritative API" [level=3] [ref=f714e279]
+                - generic [ref=f714e282]: Running
+              - generic [ref=f714e283]: 0ms
+            - generic [ref=f714e284]:
+              - generic [ref=f714e285]:
+                - generic [ref=f714e286]: Uptime
+                - generic [ref=f714e287]: 0h 6m
+              - generic [ref=f714e288]:
+                - generic [ref=f714e289]: Heartbeat
+                - generic [ref=f714e290]: 0s ago
+              - generic [ref=f714e291]: All interface tabs use this single chat.local backend.
+            - button "Logs" [ref=f714e293] [cursor=pointer]:
+              - img [ref=f714e294]
+              - text: Logs
+          - generic [ref=f714e297]:
+            - generic [ref=f714e298]:
+              - generic [ref=f714e299]:
+                - heading "Live Event Stream" [level=3] [ref=f714e300]
+                - generic [ref=f714e303]: Running
+              - generic [ref=f714e304]: 0ms
+            - generic [ref=f714e305]:
+              - generic [ref=f714e306]:
+                - generic [ref=f714e307]: Uptime
+                - generic [ref=f714e308]: 0h 6m
+              - generic [ref=f714e309]:
+                - generic [ref=f714e310]: Heartbeat
+                - generic [ref=f714e311]: 0s ago
+              - generic [ref=f714e312]: Transcript, inner experience, status, sleep, and sensory updates are delivered from the authoritative runtime.
+            - generic [ref=f714e314]: Status-only module
+          - generic [ref=f714e315]:
+            - generic [ref=f714e316]:
+              - generic [ref=f714e317]:
+                - heading "Recursive Self-Improvement" [level=3] [ref=f714e318]
+                - generic [ref=f714e321]: Stopped
+              - generic [ref=f714e322]: 0ms
+            - generic [ref=f714e323]:
+              - generic [ref=f714e324]:
+                - generic [ref=f714e325]: Uptime
+                - generic [ref=f714e326]: 8h 33m
+              - generic [ref=f714e327]:
+                - generic [ref=f714e328]: Heartbeat
+                - generic [ref=f714e329]: 1020s ago
+              - generic [ref=f714e330]: Worker stopped · stopped
+            - button "Logs" [ref=f714e332] [cursor=pointer]:
+              - img [ref=f714e333]
+              - text: Logs
+        - generic [ref=f714e336]:
+          - heading "System Controls" [level=3] [ref=f714e337]
+          - generic [ref=f714e338]:
+            - button "Start Chat Mode" [ref=f714e339] [cursor=pointer]:
+              - img [ref=f714e340]
+              - text: Start Chat Mode
+            - button "Stop Chat Mode" [ref=f714e342] [cursor=pointer]:
+              - img [ref=f714e343]
+              - text: Stop Chat Mode
+            - button "Restart Chat Mode" [ref=f714e345] [cursor=pointer]:
+              - img [ref=f714e346]
+              - text: Restart Chat Mode
+            - button "Wake Floki" [ref=f714e349] [cursor=pointer]:
+              - img [ref=f714e350]
+              - text: Wake Floki
+            - button "Request Configured Nap" [ref=f714e356] [cursor=pointer]:
+              - img [ref=f714e357]
+              - text: Request Configured Nap
+            - button "Pause Nightly Scheduler" [ref=f714e359] [cursor=pointer]:
+              - img [ref=f714e360]
+              - text: Pause Nightly Scheduler
+            - button "Resume Nightly Scheduler" [ref=f714e363] [cursor=pointer]:
+              - img [ref=f714e364]
+              - text: Resume Nightly Scheduler
+            - button "Restart Vision" [ref=f714e366] [cursor=pointer]:
+              - img [ref=f714e367]
+              - text: Restart Vision
+            - button "Restart Hearing" [ref=f714e370] [cursor=pointer]:
+              - img [ref=f714e371]
+              - text: Restart Hearing
+            - button "Restart Speech" [ref=f714e374] [cursor=pointer]:
+              - img [ref=f714e375]
+              - text: Restart Speech
+            - button "Interrupt Response" [ref=f714e379] [cursor=pointer]:
+              - img [ref=f714e380]
+              - text: Interrupt Response
+        - generic [ref=f714e384]:
+          - generic [ref=f714e385]:
+            - img [ref=f714e386]
+            - generic [ref=f714e388]:
+              - generic [ref=f714e389]: Recursive Self-Improvement
+              - generic [ref=f714e390]: Worker stopped · stopped
+          - button "Open RSI Lab" [ref=f714e391] [cursor=pointer]:
+            - img [ref=f714e392]
+            - text: Open RSI Lab
+  - region "Notifications alt+T"

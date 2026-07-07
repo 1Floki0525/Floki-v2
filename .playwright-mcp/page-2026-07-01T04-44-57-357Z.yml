@@ -1,0 +1,363 @@
+- generic [active] [ref=f11e1]:
+  - link "Skip to content" [ref=f11e2] [cursor=pointer]:
+    - /url: "#skip-to-content"
+  - main [ref=f11e3]:
+    - banner [ref=f11e4]:
+      - navigation "Primary" [ref=f11e7]:
+        - list [ref=f11e8]:
+          - menu [ref=f11e9]:
+            - link "Home" [ref=f11e10] [cursor=pointer]:
+              - /url: https://navigation.ionos.ca/2.0/navi/CA/track/click?url=https%3A%2F%2Fmy.ionos.ca%2Fproduct-overview&linkid=appswitch.logo&c=CONTROL_PANEL_HOSTING&p=domains&ft=98d34ff0-322c-4784-b899-604733f9e33f
+              - generic [ref=f11e11]: 
+              - button "Open Menu" [ref=f11e12]: Menu
+      - menu [ref=f11e14]:
+        - menu [ref=f11e15]:
+          - generic [ref=f11e17]:
+            - generic: Search for features, domains, and help
+            - generic [ref=f11e18] [cursor=pointer]: 
+            - searchbox "Search for features, domains, and help" [ref=f11e19]
+            - button "Turn on microphone" [ref=f11e20] [cursor=pointer]: 
+      - navigation "Secondary" [ref=f11e22]:
+        - menu [ref=f11e23]:
+          - text:  
+          - menu [ref=f11e24]:
+            - link "World Cup Deals" [ref=f11e25] [cursor=pointer]:
+              - /url: https://navigation.ionos.ca/2.0/navi/CA/track/click?url=https%3A%2F%2Fmy.ionos.ca%2Fspecial-offers%3Fias.campaign%3Dworldcup-26%26campaign%3Dfiller_campaign&linkid=nav.special-offer-a&c=CONTROL_PANEL_HOSTING&p=domains&ft=98d34ff0-322c-4784-b899-604733f9e33f
+              - img [ref=f11e27]
+              - superscript [ref=f11e32]: "%"
+          - menu [ref=f11e33]:
+            - button "Help & contact" [ref=f11e34] [cursor=pointer]:
+              - img [ref=f11e35]
+          - menu [ref=f11e41]:
+            - link "Empty cart" [ref=f11e42] [cursor=pointer]:
+              - /url: https://my.ionos.ca/add-product?utm_source=global_navigation&utm_medium=notification&utm_campaign=cart&utm_content=cp-add-product
+              - img [ref=f11e43]
+          - menu [ref=f11e48]:
+            - button "Open preview of 5 messages" [ref=f11e49] [cursor=pointer]:
+              - img [ref=f11e50]
+              - superscript [ref=f11e55]: 5+
+          - menu [ref=f11e56]:
+            - button "Open my account & logout" [ref=f11e57] [cursor=pointer]:
+              - img [ref=f11e58]
+    - generic [ref=f11e61]:
+      - link "Skip to main content" [ref=f11e62] [cursor=pointer]:
+        - /url: "#top"
+      - button
+      - text:   
+      - generic [ref=f11e64]:
+        - navigation "Navigation" [ref=f11e65]:
+          - link "Home" [ref=f11e66] [cursor=pointer]:
+            - /url: /product-overview
+            - text:  Home
+        - generic [ref=f11e67]:
+          - heading "Domains & SSL" [level=1] [ref=f11e70]
+          - link "Add domain" [ref=f11e73] [cursor=pointer]:
+            - /url: /JumpToNewShopDomains?linkId=ct.btn.domainlist.adddomain.mainaction&itc=6V4H3YUW
+      - generic [ref=f11e76]:
+        - generic [ref=f11e78]:
+          - generic [ref=f11e79]:
+            - group "Filter by" [ref=f11e81]:
+              - generic [ref=f11e82]: Filter by
+              - list [ref=f11e83]:
+                - listitem [ref=f11e84]:
+                  - generic [ref=f11e87]:
+                    - generic [ref=f11e88]: 
+                    - generic [ref=f11e89]: Find domains…
+                    - textbox "Find domains…" [ref=f11e90]
+                    - text: 
+                    - button "Search" [ref=f11e91] [cursor=pointer]: 
+                  - generic [ref=f11e93]: Filter
+                  - combobox "Filter" [ref=f11e96]:
+                    - text: any
+                    - option "All contracts" [selected]
+                    - option "Current contract" [disabled]
+                    - option "- - - - - - - -" [disabled]
+                    - option "107165705 - IONOS Web Hosting Plus"
+                    - option "112780940 - Floki-v2 - IONOS Instant Domain"
+                  - button " All filters" [expanded] [ref=f11e99] [cursor=pointer]
+            - text:  
+          - group "Manage domains" [ref=f11e101]:
+            - generic [ref=f11e102]: Manage domains
+            - generic [ref=f11e104]:
+              - generic [ref=f11e108]: Sort by
+              - combobox "Sort by" [ref=f11e111]:
+                - option "Expiry date"
+                - option "Inactive automatic renewal"
+                - option "Latest first"
+                - option "Alphabetically (A-Z)" [selected]
+                - option "Alphabetically (Z-A)"
+                - option "Requires action first"
+            - table [ref=f11e113]:
+              - rowgroup [ref=f11e121]:
+                - row "Select all Domain Status Expiring Domain Guard Actions" [ref=f11e122]:
+                  - columnheader "Select all" [ref=f11e123]:
+                    - checkbox "Select all" [ref=f11e124]
+                  - columnheader "Domain" [ref=f11e125]
+                  - columnheader "Status" [ref=f11e126]
+                  - columnheader "Expiring" [ref=f11e127]
+                  - columnheader "Domain Guard" [ref=f11e128]
+                  - columnheader "Actions" [ref=f11e129]
+              - rowgroup [ref=f11e130]:
+                - text:  
+                - row "Domain Name flokinexus.org is protected by an SSL certificate. Manage the SSL certificate for flokinexus.org. flokinexus.org Additional domain Domain not in use  Use Your domain 363 Days, 13 hours Domain will automatically be renewed Domain Guard is not active. Enable Domain Guard for flokinexus.org. Browse more actions" [ref=f11e131]:
+                  - cell "Domain Name" [ref=f11e132]:
+                    - checkbox "Domain Name" [ref=f11e133]
+                  - cell "flokinexus.org is protected by an SSL certificate. Manage the SSL certificate for flokinexus.org. flokinexus.org Additional domain" [ref=f11e134]:
+                    - link "flokinexus.org is protected by an SSL certificate. Manage the SSL certificate for flokinexus.org." [ref=f11e135] [cursor=pointer]:
+                      - /url: /domain-ssl/flokinexus.org?__sendingdata=1&linkId=ct.icn.domains.ssl-protected
+                      - img
+                    - link "flokinexus.org" [ref=f11e136] [cursor=pointer]:
+                      - /url: /domain-details/flokinexus.org
+                    - text: Additional domain
+                  - cell "Domain not in use  Use Your domain" [ref=f11e137]:
+                    - text: Domain not in use
+                    - link " Use Your domain" [ref=f11e138] [cursor=pointer]:
+                      - /url: /connect-domain/flokinexus.org?linkId=ct.txt.domainlist.usedomain.statuslink
+                  - cell "363 Days, 13 hours Domain will automatically be renewed" [ref=f11e139]:
+                    - link "363 Days, 13 hours" [ref=f11e140] [cursor=pointer]:
+                      - /url: /domain-transfer/flokinexus.org
+                      - text: 2027-06-29
+                    - tooltip "Domain will automatically be renewed" [ref=f11e141]: 
+                  - cell "Domain Guard is not active. Enable Domain Guard for flokinexus.org." [ref=f11e142]:
+                    - link "Domain Guard is not active. Enable Domain Guard for flokinexus.org." [ref=f11e143] [cursor=pointer]:
+                      - /url: /domain-guard/flokinexus.org?linkId=ct.btn.domainlist.domainguard-activate
+                      - img
+                      - generic: Not active
+                  - cell "Browse more actions" [ref=f11e144]:
+                    - button "Browse more actions" [ref=f11e146] [cursor=pointer]: 
+                - row "Domain Name galactic-family-hub.com is protected by an SSL certificate. Manage the SSL certificate for galactic-family-hub.com. galactic-family-hub.com Additional domain Managed by IONOS Click and Build 361 Days, 13 hours Domain will automatically be renewed Domain Guard is not active. Enable Domain Guard for galactic-family-hub.com. Browse more actions" [ref=f11e147]:
+                  - cell "Domain Name" [ref=f11e148]:
+                    - checkbox "Domain Name" [ref=f11e149]
+                  - cell "galactic-family-hub.com is protected by an SSL certificate. Manage the SSL certificate for galactic-family-hub.com. galactic-family-hub.com Additional domain" [ref=f11e150]:
+                    - link "galactic-family-hub.com is protected by an SSL certificate. Manage the SSL certificate for galactic-family-hub.com." [ref=f11e151] [cursor=pointer]:
+                      - /url: /domain-ssl/galactic-family-hub.com?__sendingdata=1&linkId=ct.icn.domains.ssl-protected
+                      - img
+                    - link "galactic-family-hub.com" [ref=f11e152] [cursor=pointer]:
+                      - /url: /domain-details/galactic-family-hub.com
+                    - text: Additional domain
+                  - cell "Managed by IONOS Click and Build" [ref=f11e153]:
+                    - text: Managed by IONOS
+                    - text: Click and Build
+                  - cell "361 Days, 13 hours Domain will automatically be renewed" [ref=f11e154]:
+                    - link "361 Days, 13 hours" [ref=f11e155] [cursor=pointer]:
+                      - /url: /domain-transfer/galactic-family-hub.com
+                      - text: 2027-06-27
+                    - tooltip "Domain will automatically be renewed" [ref=f11e156]: 
+                  - cell "Domain Guard is not active. Enable Domain Guard for galactic-family-hub.com." [ref=f11e157]:
+                    - link "Domain Guard is not active. Enable Domain Guard for galactic-family-hub.com." [ref=f11e158] [cursor=pointer]:
+                      - /url: /domain-guard/galactic-family-hub.com?linkId=ct.btn.domainlist.domainguard-activate
+                      - img
+                      - generic: Not active
+                  - cell "Browse more actions" [ref=f11e159]:
+                    - button "Browse more actions" [ref=f11e161] [cursor=pointer]: 
+          - group [ref=f11e162]:
+            - generic [ref=f11e163]:
+              - generic [ref=f11e164]: Results per page
+              - combobox "Results per page" [ref=f11e165]:
+                - option "5"
+                - option "10" [selected]
+          - list [ref=f11e167]:
+            - listitem [ref=f11e168]:
+              - button "Common domain actions " [ref=f11e169]
+              - generic [ref=f11e171]:
+                - list [ref=f11e174]:
+                  - listitem [ref=f11e175]:
+                    - button " Connect to webspace" [ref=f11e176] [cursor=pointer]
+                  - listitem [ref=f11e177]:
+                    - button " Forward domain" [ref=f11e178] [cursor=pointer]
+                  - listitem [ref=f11e179]:
+                    - button " Connect to external page" [ref=f11e180] [cursor=pointer]
+                - list [ref=f11e183]:
+                  - listitem [ref=f11e184]:
+                    - button " Renewal & transfer" [ref=f11e185] [cursor=pointer]
+                  - listitem [ref=f11e186]:
+                    - button " Reset domain settings" [ref=f11e187] [cursor=pointer]
+                  - listitem [ref=f11e188]:
+                    - button " Adjust DNS settings" [ref=f11e189] [cursor=pointer]
+        - generic [ref=f11e190]:
+          - complementary "Domains Portfolio" [ref=f11e193]:
+            - generic [ref=f11e195]:
+              - heading "Domains Portfolio" [level=3] [ref=f11e196]
+              - heading "Portfolio" [level=3] [ref=f11e197]
+              - heading "Domains" [level=4] [ref=f11e198]
+              - list [ref=f11e199]:
+                - listitem [ref=f11e200]:
+                  - generic [ref=f11e202]: "2"
+                  - link "Domains" [ref=f11e205] [cursor=pointer]:
+                    - /url: /domains?filter.tld=any&filter.type=domain&filter.contract=any&linkId=ct.txt.domainlist.portfolio.domain
+                - listitem [ref=f11e206]:
+                  - generic [ref=f11e208]: "0"
+                  - link "Subdomains" [ref=f11e211] [cursor=pointer]:
+                    - /url: /domains?filter.tld=any&filter.type=subdomain&filter.contract=any&linkId=ct.txt.domainlist.portfolio.subdomain
+                - listitem [ref=f11e212]:
+                  - generic [ref=f11e214]: "1"
+                  - link "System domain" [ref=f11e217] [cursor=pointer]:
+                    - /url: /domains?filter.tld=any&filter.type=systemdomain&filter.contract=any&linkId=ct.txt.domainlist.portfolio.systemdomain
+                - listitem [ref=f11e218]:
+                  - generic [ref=f11e220]: "0"
+                  - link "Pre-registrations" [ref=f11e223] [cursor=pointer]:
+                    - /url: /domains?filter.tld=any&filter.type=any&filter.contract=any&filter.phase=preregistration&linkId=ct.txt.domainlist.portfolio.preregistration
+              - heading "SSL certificates" [level=4] [ref=f11e224]
+              - generic [ref=f11e228]:
+                - generic [ref=f11e230]: 2 of 2 used
+                - link " Manage" [ref=f11e233] [cursor=pointer]:
+                  - /url: /SSLSelfServiceApp?__sendingdata=1&linkId=ct.link.domainlist.portfolio.SSLCertificates.manage
+            - separator [ref=f11e234]
+            - generic [ref=f11e236]:
+              - heading "Quick links" [level=4] [ref=f11e237]
+              - list [ref=f11e238]:
+                - listitem [ref=f11e239]:
+                  - link " Order domain" [ref=f11e240] [cursor=pointer]:
+                    - /url: /JumpToNewShopDomains?action=SEARCH&startSearch=true&itc=6V4H3YUW&linkId=ct.txt.domainlist.adddomain.order
+                - listitem [ref=f11e241]:
+                  - link " Transfer domain to IONOS" [ref=f11e242] [cursor=pointer]:
+                    - /url: /JumpToNewShopDomains?action=TRANSFER&startSearch=true&linkId=ct.txt.domainlist.adddomain.transfer&itc=SL3NR1RD
+                - listitem [ref=f11e243]:
+                  - link " Create Subdomain" [ref=f11e244] [cursor=pointer]:
+                    - /url: /start-with-domain/add-subdomain?linkId=ct.txt.domainlist.adddomain.subdomain
+                - listitem [ref=f11e245]:
+                  - link " Set up external domain" [ref=f11e246] [cursor=pointer]:
+                    - /url: /connect-x-domain?linkId=ct.txt.domainlist.adddomain.external&currentstep=RESTART
+                - listitem [ref=f11e247]:
+                  - link " Domain exports" [ref=f11e248] [cursor=pointer]:
+                    - /url: /create-domain-export
+                - listitem [ref=f11e249]:
+                  - link " Open API Portal" [ref=f11e250] [cursor=pointer]:
+                    - /url: /jumpto-customer-api?linkId=ct.txt.domainlist.apiportal
+          - paragraph [ref=f11e256]:
+            - button " Quick access" [ref=f11e257] [cursor=pointer]
+            - text: gives you
+            - strong [ref=f11e258]: direct access to over 40 different domain settings
+            - text: . Simply select the domain, choose what you want to do, and get started.
+      - generic [ref=f11e260]:
+        - generic [ref=f11e261]:
+          - heading "Register a domain" [level=3] [ref=f11e262]
+          - generic [ref=f11e263]:
+            - generic [ref=f11e264]:
+              - generic [ref=f11e266]:
+                - generic [ref=f11e267]: 
+                - generic [ref=f11e268]: Find your domain now
+                - textbox "Find your domain now" [ref=f11e269]
+                - text: 
+              - link "Search" [ref=f11e271] [cursor=pointer]:
+                - /url: /JumpToNewShopDomains?linkId=ct.txt.domain-check&action=SEARCH&startSearch=true&utm_source=controlpanel&utm_medium=addproduct_domaincheck&utm_content=domain&itc=E1EN1P78&domains=
+            - paragraph [ref=f11e272]:
+              - link " Domain recommendations" [ref=f11e273] [cursor=pointer]:
+                - /url: /domain-recommendations?linkId=ct.txt.domain-recommendations
+        - heading "Secure further domain names at the best conditions" [level=3] [ref=f11e274]
+      - heading "Secure further domain names at the best conditions" [level=3] [ref=f11e281]
+      - list [ref=f11e288]:
+        - listitem [ref=f11e289]:
+          - button "Recommended help topics " [ref=f11e290]
+          - generic [ref=f11e292]:
+            - list [ref=f11e295]:
+              - listitem [ref=f11e296]:
+                - button "Using Domains" [ref=f11e297] [cursor=pointer]
+              - listitem [ref=f11e298]: Create a website for your domain, connect your domain to a website you already have, or set up email communication for your business using your domain.
+              - listitem [ref=f11e299]:
+                - button "General Information about Domain Usage" [ref=f11e300] [cursor=pointer]
+                - text: ·
+                - button "Connecting a Domain with a Social Media Website" [ref=f11e301] [cursor=pointer]
+                - text: ·
+                - button "Connecting a Domain to Your Webspace" [ref=f11e302] [cursor=pointer]
+                - text: ·
+                - button "Forwarding a Domain" [ref=f11e303] [cursor=pointer]
+            - list [ref=f11e306]:
+              - listitem [ref=f11e307]:
+                - button "Terms and Prices" [ref=f11e308] [cursor=pointer]
+              - listitem [ref=f11e309]: Renew or cancel your domain and get up-to-date invoices and prices.
+              - listitem [ref=f11e310]:
+                - button "Prices and Invoices" [ref=f11e311] [cursor=pointer]
+                - text: ·
+                - button "Terms and Cancellations" [ref=f11e312] [cursor=pointer]
+          - generic [ref=f11e314]:
+            - list [ref=f11e317]:
+              - listitem [ref=f11e318]:
+                - button "Domain Transfers" [ref=f11e319] [cursor=pointer]
+              - listitem [ref=f11e320]: Bring your domains to IONOS, move them between IONOS contracts, or prepare a domain transfer to another provider.
+              - listitem [ref=f11e321]:
+                - button "Transferring Your Domain Within IONOS" [ref=f11e322] [cursor=pointer]
+                - text: ·
+                - button "Transferring Your Domain Away from IONOS to Another Provider" [ref=f11e323] [cursor=pointer]
+            - list [ref=f11e326]:
+              - listitem [ref=f11e327]:
+                - button "DNS Settings" [ref=f11e328] [cursor=pointer]
+              - listitem [ref=f11e329]: Use the IONOS Domain Center to customize the DNS settings of your domains.
+              - listitem [ref=f11e330]:
+                - button "Using Your Own Name Servers" [ref=f11e331] [cursor=pointer]
+                - text: ·
+                - button "DNS Settings" [ref=f11e332] [cursor=pointer]
+                - text: ·
+                - button "Configuring Mail Servers and Other Related Records" [ref=f11e333] [cursor=pointer]
+          - generic:
+            - paragraph
+  - contentinfo [ref=f11e334]:
+    - generic [ref=f11e335]:
+      - generic [ref=f11e336]:
+        - generic [ref=f11e338]:
+          - heading "My IONOS" [level=4] [ref=f11e339]
+          - list [ref=f11e340]:
+            - listitem [ref=f11e341]:
+              - link " Home" [ref=f11e342] [cursor=pointer]:
+                - /url: /product-overview?linkId=ft.nav.home
+            - listitem [ref=f11e343]:
+              - link " My account" [ref=f11e344] [cursor=pointer]:
+                - /url: /account-overview?linkId=ft.nav.my-account
+            - listitem [ref=f11e345]:
+              - link "Discover IONOS" [ref=f11e346] [cursor=pointer]:
+                - /url: /add-product?linkId=ft.nav.discover-ionos&itc=HDS26HW0
+                - img
+                - text: Discover IONOS
+        - generic [ref=f11e347]:
+          - heading "Customer Support" [level=4] [ref=f11e348]
+          - list [ref=f11e349]:
+            - listitem [ref=f11e350]:
+              - link "Help Center" [ref=f11e351] [cursor=pointer]:
+                - /url: /JumpToHelpCenterDirect?linkId=ft.nav.help&direct=%2F
+            - listitem [ref=f11e352]:
+              - link "Contact us / My personal consultant" [ref=f11e353] [cursor=pointer]:
+                - /url: /JumpToCPSupportContact?__sendingdata=1&linkId=ft.nav.contact
+        - generic [ref=f11e354]:
+          - link "Ionos logo" [ref=f11e355] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fabout%2F%3FlinkId%3Dft.nav.logo&__sign=f18a632306136fa072ecf6ba537ba823&__ts=1782881095430
+            - img "Ionos logo" [ref=f11e356]
+          - link "Instagram" [ref=f11e357] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.instagram.com%2Fionos.official&__sign=14d09f890213b22238e9f428afba7845&__ts=1782881095430
+            - img [ref=f11e358]
+          - link "Facebook" [ref=f11e360] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_FB_US&__sign=221d7811710ac6ee35409f7395866f13&__ts=1782881095430
+            - img [ref=f11e361]
+          - link "YouTube" [ref=f11e363] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_YT_US&__sign=7eb826a790b9e4c1f5b9164c4ce5c23e&__ts=1782881095430
+            - img [ref=f11e364]
+          - link "LinkedIn" [ref=f11e366] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fionos.ly%2FIONOS_IN&__sign=0bb4c3784a5706e56c7f7ad4cb32c572&__ts=1782881095430
+            - img [ref=f11e367]
+          - link "TikTok" [ref=f11e369] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.tiktok.com%2F%40ionos.global&__sign=dd9888b7589c71a57fe3f77ad943a898&__ts=1782881095430
+            - img [ref=f11e370]
+      - generic [ref=f11e372]:
+        - generic [ref=f11e374]:
+          - heading "Download the IONOS App" [level=4] [ref=f11e375]
+          - link "Ionos on Google Play" [ref=f11e376]:
+            - /url: https://play.google.com/store/apps/details?id=com.oneandone.ciso.mobile.app.android&referrer=utm_source%3Dcp%26utm_campaign%3Dfooterl
+            - img "Ionos on Google Play" [ref=f11e377]
+        - link "Ionos on the App Store" [ref=f11e379]:
+          - /url: https://apps.apple.com/app/apple-store/id1080444849?pt=119330501&ct=cp.footer&mt=8
+          - img "Ionos on the App Store" [ref=f11e380]
+      - generic [ref=f11e382]:
+        - paragraph [ref=f11e384]:
+          - link "All Systems Operational" [ref=f11e385] [cursor=pointer]:
+            - /url: https://www.ionos-status.ca/?utm_medium=footer&utm_content=none&utm_source=CONTROL_PANEL_HOSTING&utm_campaign=domains&utm_term=no_search
+        - paragraph [ref=f11e387]:
+          - text: © 2026
+          - link "IONOS Inc." [ref=f11e388] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fabout%2F%3FlinkId%3Dft.nav.company&__sign=568f43847c7372654c4b08148bcd55ad&__ts=1782881095430
+        - generic [ref=f11e389]:
+          - link "Privacy policy" [ref=f11e390] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fterms-gtc%2Fterms-privacy%2F%3FlinkId%3Dft.nav.privacy&__sign=2c54369f5f3f830b86133f236e6a4519&__ts=1782881095430
+          - text: "-"
+          - link "T&Cs" [ref=f11e391] [cursor=pointer]:
+            - /url: /deref?link=https%3A%2F%2Fwww.ionos.ca%2Fterms-gtc%2F%3FlinkId%3Dft.nav.terms&__sign=32ef7614fb2565a33637089dea87c5c9&__ts=1782881095430
+  - button "Hey, I’m the AI Assistant of" [ref=f11e392] [cursor=pointer]:
+    - img [ref=f11e393]

@@ -34,7 +34,11 @@ function finiteNumber(value, label) {
 }
 
 function run() {
-  assert.equal(process.version, "v24.17.0", "Node v24.17.0 is required");
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
 
   const chatPath = path.join(cfg.PROJECT_ROOT, "config", "chat.config.yaml");
   assert.equal(fs.existsSync(chatPath), true);

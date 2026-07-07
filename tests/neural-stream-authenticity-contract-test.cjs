@@ -34,6 +34,26 @@ try {
   assert.deepEqual(new Set(events.map((entry) => entry.category)), new Set(['memory', 'emotion', 'intention']));
   assert.equal(events.some((entry) => /without eyes or body/i.test(entry.summary)), false);
   assert.equal(new Set(events.map((entry) => entry.category + ':' + entry.summary.toLowerCase())).size, events.length);
+  assert.equal(events.every((entry) => entry.historical === false), true);
+
+  const continuityApi = createChatLocalInterfaceApi({
+    runtime_dir: path.join(root, 'runtime-continuity'),
+    transcript_options: opts,
+    session_id: 'session-new-with-no-events',
+    status: () => ({ api_ready: true, lifecycle: { is_awake: true } })
+  });
+  const continuityEvents = continuityApi.buildNeuralEvents(50);
+  assert.equal(
+    continuityEvents.length,
+    4,
+    'a new session must show persisted inner continuity instead of a blank stream'
+  );
+  assert.equal(continuityEvents.every((entry) => entry.historical === true), true);
+  assert.equal(
+    continuityEvents.some((entry) => /without eyes or body/i.test(entry.summary)),
+    true,
+    'historical continuity must be authentic persisted data, not placeholders'
+  );
 
   const generated = cognitionInnerEvents({
     safe_thought_summary: 'I am weighing the transcript evidence before answering.',

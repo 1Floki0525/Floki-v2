@@ -1,40 +1,42 @@
-# Floki-v2 Launcher Modes
+# Floki-v2 Runtime and Client Commands
 
-Floki-v2 has two stable runtime entrypoints.
-
-## Terminal chat mode
+Floki-v2 has one system lifecycle authority:
 
 ```bash
-bin/floki-start.sh chat
+bin/floki-runtime.sh start
+bin/floki-runtime.sh status
+bin/floki-runtime.sh reset
+bin/floki-runtime.sh stop
 ```
 
-Purpose:
+`reset` performs the complete verified stop-and-start cycle so source or
+configuration changes take effect without issuing two commands.
 
-- terminal/local conversation
-- memory/personality/identity development
-- qwen cognition once Batch 08 is wired
-- future USB webcam/mic offline senses
+## Local desktop client
 
-## Minecraft game mode
+The Electron client is presentation only. It requires the shared runtime to
+already be ready and never creates or owns a second brain:
 
 ```bash
-bin/floki-start.sh game
+bin/floki-app.sh
 ```
 
-Purpose:
+## Remote clients
 
-- future PaperMC/Minecraft embodiment
-- in-game eyes
-- body/motor control
-- Minecraft action safety
+The website and APK connect to the same shared runtime. They do not start,
+stop, reset, or replace Floki's brain, identity, memory, senses, sleep system,
+or RSI workers.
 
-Current status: guarded placeholder.
+## Developer proofs
 
-`game` exists now so the command contract is stable, but it must not start fake Minecraft behavior before the body/eyes/bridge stage is implemented and live-proofed.
-
-## Smoke proofs
+Read-only or guarded developer proofs call their module entrypoints directly:
 
 ```bash
 npm run proof:chat-shell
 npm run proof:game-entrypoint
+npm run proof:senses
+npm run proof:core-brain-status
 ```
+
+The retired multi-mode launcher is intentionally absent. Runtime lifecycle
+must never be reintroduced outside `bin/floki-runtime.sh`.

@@ -1,5 +1,21 @@
 #!/usr/bin/env bash
 
+
+floki_node_24_or_newer() {
+  local floki_node_version="${1:-}"
+  local floki_node_major
+  if [ -z "$floki_node_version" ]; then
+    command -v node >/dev/null 2>&1 || return 1
+    floki_node_version="$(node -v 2>/dev/null)" || return 1
+  fi
+  floki_node_version="${floki_node_version#v}"
+  floki_node_major="${floki_node_version%%.*}"
+  case "$floki_node_major" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$floki_node_major" -ge 24 ]
+}
+
 ROOT="/media/binary-god/1tb-ssd/Floki-v2"
 TARGET="$ROOT/src/chat/sleep-cycle-scheduler.cjs"
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -20,10 +36,9 @@ cd "$ROOT" || fail "could not enter project root"
 NODE_VERSION="$(bash bin/floki-node24-run.sh node --version 2>/dev/null)" || \
   fail "Node 24 wrapper failed"
 
-case "$NODE_VERSION" in
-  v24.*) ;;
-  *) fail "expected Node 24, got: $NODE_VERSION" ;;
-esac
+if ! floki_node_24_or_newer "$NODE_VERSION"; then
+  fail "expected Node 24 or newer, got: $NODE_VERSION"
+fi
 
 cp "$TARGET" "$BACKUP" || fail "could not create backup"
 

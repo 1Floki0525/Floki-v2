@@ -24,11 +24,11 @@ const COMPONENT_PATHS = Object.freeze([
 
 function componentArgs(root) {
   const resolvedRoot = path.resolve(root);
-  const values = new Set(COMPONENT_PATHS);
-  for (const relative of COMPONENT_PATHS) {
-    values.add(path.join(resolvedRoot, relative));
-  }
-  return values;
+  return new Set(
+    COMPONENT_PATHS.map((relative) =>
+      path.join(resolvedRoot, relative)
+    )
+  );
 }
 
 function readProcSnapshot(procRoot = '/proc') {
@@ -77,23 +77,33 @@ function sshControlMasterOwned(info, options = {}) {
 function ownedProcessIds(processes, root, options = {}) {
   const resolvedRoot = path.resolve(root);
   const args = componentArgs(root);
+  const relativeComponents = new Set(COMPONENT_PATHS);
   const targets = new Set();
   for (const [pid, info] of processes) {
     const normalizedArgs = info.argv.map((arg) => {
-      if (args.has(arg)) return arg;
-      if (arg.startsWith('./') && info.cwd) return path.resolve(info.cwd, arg);
-      if (arg.startsWith('../') && info.cwd) return path.resolve(info.cwd, arg);
+      if (path.isAbsolute(arg)) return path.resolve(arg);
+      if (
+        info.cwd &&
+        (
+          relativeComponents.has(arg) ||
+          arg.startsWith('./') ||
+          arg.startsWith('../')
+        )
+      ) {
+        return path.resolve(info.cwd, arg);
+      }
       return arg;
     });
     const cwdInsideRepo =
       info.cwd === resolvedRoot ||
       (typeof info.cwd === 'string' && info.cwd.startsWith(resolvedRoot + path.sep));
+    const ownsComponent = normalizedArgs.some((arg) => args.has(arg));
     const electronAppLaunch =
       cwdInsideRepo &&
-      normalizedArgs.some((arg) => args.has(arg)) &&
+      ownsComponent &&
       info.argv.includes('.');
     if (
-      normalizedArgs.some((arg) => args.has(arg)) ||
+      ownsComponent ||
       electronAppLaunch ||
       sshControlMasterOwned(info, options)
     ) {

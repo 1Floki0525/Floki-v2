@@ -10,6 +10,9 @@ const {
 } = require('../util/fs-safe.cjs');
 const { getSleepConfig, getDreamConfig } = require('../config/floki-config.cjs');
 const { computeBackoffSeconds } = require('./dream-novelty.cjs');
+const {
+  readDreamEngineControl
+} = require('./dream-engine-control.cjs');
 
 const DEFAULT_STATE_FILE = statePath('chat/sleep/manual-nap-state.json');
 
@@ -58,6 +61,40 @@ function file(options = {}) {
   return options.state_file || DEFAULT_STATE_FILE;
 }
 
+function manualNapDreamEngineControl(options = {}) {
+  if (
+    Object.prototype.hasOwnProperty.call(
+      options,
+      'dream_engine_control'
+    )
+  ) {
+    const provided = options.dream_engine_control || {};
+    return Object.freeze({
+      enabled: provided.enabled !== false,
+      reason: String(
+        provided.reason || 'provided_by_caller'
+      )
+    });
+  }
+
+  const customStateFile = Boolean(
+    options.state_file &&
+    path.resolve(options.state_file) !==
+      path.resolve(DEFAULT_STATE_FILE)
+  );
+  if (customStateFile) {
+    return Object.freeze({
+      enabled: true,
+      reason: 'isolated_state_default_enabled'
+    });
+  }
+
+  return readDreamEngineControl({
+    runtime_dir: options.runtime_dir
+  });
+}
+
+
 function raw(options = {}) {
   return existsSync(file(options)) ? readJsonFileSync(file(options)) : null;
 }
@@ -72,6 +109,7 @@ function buildRemCycles(startedAt, wakeAt, firstOffsetMinutes, intervalMinutes, 
   const wakeMs = new Date(wakeAt).getTime();
   const firstOffsetMs = Number(firstOffsetMinutes) * 60000;
   const intervalMs = Number(intervalMinutes) * 60000;
+  const maxCycles = Number(options.max_rem_cycles ?? Number.POSITIVE_INFINITY);
 
   if (!Number.isFinite(startMs) || !Number.isFinite(wakeMs) || wakeMs <= startMs) {
     throw new Error('manual nap state has invalid start or wake timestamps');
@@ -79,6 +117,9 @@ function buildRemCycles(startedAt, wakeAt, firstOffsetMinutes, intervalMinutes, 
   if (!Number.isFinite(firstOffsetMs) || firstOffsetMs < 0) throw new Error('manual nap first REM offset must be zero or greater');
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
     throw new Error('manual nap REM interval must be positive');
+  }
+  if (!(maxCycles > 0) && maxCycles !== Number.POSITIVE_INFINITY) {
+    throw new Error('manual nap maximum REM cycles must be positive');
   }
 
   const existingByTime = new Map(
@@ -88,7 +129,7 @@ function buildRemCycles(startedAt, wakeAt, firstOffsetMinutes, intervalMinutes, 
   );
 
   const desiredTimes = [];
-  for (let scheduledMs = startMs + firstOffsetMs; scheduledMs < wakeMs; scheduledMs += intervalMs) {
+  for (let scheduledMs = startMs + firstOffsetMs; scheduledMs < wakeMs && desiredTimes.length < maxCycles; scheduledMs += intervalMs) {
     desiredTimes.push(new Date(scheduledMs).toISOString());
   }
 
@@ -130,7 +171,8 @@ function reconcileManualNapState(state, options = {}) {
     state.wake_at,
     cfg.first_rem_offset_minutes,
     cfg.rem_interval_minutes,
-    state.rem_cycles
+    state.rem_cycles,
+    { max_rem_cycles: cfg.max_rem_cycles }
   );
 
   const normalizationChanged = desired.some((cycle, index) => {
@@ -214,7 +256,8 @@ function beginManualNap(options = {}) {
       wakeAt,
       cfg.first_rem_offset_minutes,
       cfg.rem_interval_minutes,
-      []
+      [],
+      { max_rem_cycles: cfg.max_rem_cycles }
     ),
     nightly_schedule_modified: false,
     chat_mode_only: true,
@@ -252,6 +295,9 @@ function wakeManualNap(reason = 'manual_wake', options = {}) {
 }
 
 function claimDueRemCycle(options = {}) {
+  const dreamControl = manualNapDreamEngineControl(options);
+  if (dreamControl.enabled !== true) return null;
+
   const state = readManualNapState(options);
   if (!state || state.active !== true) return null;
 
@@ -333,6 +379,7 @@ module.exports = {
   readManualNapState,
   beginManualNap,
   wakeManualNap,
+  manualNapDreamEngineControl,
   claimDueRemCycle,
   finishRemCycle,
   isDreamQualityRetry

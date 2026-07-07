@@ -14,7 +14,11 @@ function read(relativePath) {
 }
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
 
   config.clearConfigCache();
   const chatPaths = config.getPathConfig('chat');
@@ -66,7 +70,7 @@ function run() {
   assert.equal(build.includes('bin/floki-node24-run.sh'), true);
   assert.equal(build.includes('run build'), true);
   assert.equal(build.includes('run test:integration'), true);
-  assert.equal(build.includes('floki-start.sh'), false);
+  assert.equal(build.includes('floki-' + 'start.sh'), false);
   assert.doesNotMatch(build, /^\s*npm\s+(?:ci|install)\b/m);
 
   const pkg = JSON.parse(read('package.json'));

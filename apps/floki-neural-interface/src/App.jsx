@@ -4,6 +4,7 @@ import { HashRouter, Route, Routes } from 'react-router-dom';
 import { queryClientInstance } from '@/lib/query-client';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import Home from '@/pages/Home';
+import DesktopWidget from '@/pages/DesktopWidget';
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
       <QueryClientProvider client={queryClientInstance}>
         <HashRouter>
           <Routes>
+            <Route path="/desktop-widget" element={<DesktopWidget />} />
             <Route path="*" element={<Home />} />
           </Routes>
         </HashRouter>

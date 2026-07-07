@@ -1,38 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import flokiAdapter from '@/integrations/floki/adapter'
-import { ServiceStatus } from '@/integrations/floki/types'
 import ServiceCard from '@/components/system/ServiceCard'
 import SystemControls from '@/components/system/SystemControls'
 import { FlaskConical, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 
-function selfImprovementService(status) {
-  const failed = status?.state === 'failed' || Boolean(status?.last_error)
-  const running = status?.worker_running === true
-  const state = String(status?.state || 'unknown').replaceAll('_', ' ')
-  const phase = String(status?.phase || '').replaceAll('_', ' ')
+function normalizeServiceRow(service) {
+  if (service?.key !== 'rsi' || service.logKey) return service
   return {
-    name: 'Recursive Self-Improvement',
-    status: failed
-      ? ServiceStatus.DEGRADED
-      : running
-        ? ServiceStatus.RUNNING
-        : ServiceStatus.STOPPED,
-    lastHeartbeat: status?.last_heartbeat_at
-      ? Date.parse(status.last_heartbeat_at)
-      : Date.now(),
-    uptime: status?.started_at
-      ? Math.max(0, Date.now() - Date.parse(status.started_at))
-      : 0,
-    latency: 0,
-    lastError: status?.last_error || null,
-    detail: [
-      running ? 'Worker running' : 'Worker stopped',
-      state,
-      phase
-    ].filter(Boolean).join(' · '),
-    restartAvailable: false,
-    logAvailable: true,
+    ...service,
     logKey: 'Self-Improvement Worker'
   }
 }
@@ -43,19 +19,15 @@ export default function SystemDashboard({ onNavigate }) {
   const pollMsRef = React.useRef(null)
 
   const loadServices = useCallback(async () => {
-    const [next, rsiStatus] = await Promise.all([
-      flokiAdapter.getSystemStatus(),
-      flokiAdapter.getSelfImprovementStatus()
-    ])
-    const pollMs = Number(rsiStatus?.ui_poll_ms)
-    if (!Number.isFinite(pollMs) || pollMs <= 0) {
-      throw new Error('self_improvement.ui_poll_ms is invalid')
-    }
+    const next = await flokiAdapter.getSystemStatus()
+    const webStopped = Array.isArray(next) && next.some((service) => service?.key === 'web_app' && service?.enabled === false)
+    const rsiStatus = await flokiAdapter.getSelfImprovementStatus().catch((error) => {
+      if (webStopped) return null
+      throw error
+    })
+    const pollMs = Number(rsiStatus?.ui_poll_ms || pollMsRef.current || 3000)
     return {
-      rows: [
-        ...(Array.isArray(next) ? next : []),
-        selfImprovementService(rsiStatus)
-      ],
+      rows: Array.isArray(next) ? next.map(normalizeServiceRow) : [],
       pollMs
     }
   }, [])
@@ -106,9 +78,37 @@ export default function SystemDashboard({ onNavigate }) {
     }
   }, [busyAction, refresh])
 
+  const executeModule = useCallback(async (service, action) => {
+    if (!service?.key || !action || busyAction) return
+    const label = `${action === 'reset' ? 'Restart' : action[0].toUpperCase() + action.slice(1)} ${service.name}`
+    const busyKey = `${service.key}:${action}`
+    setBusyAction(busyKey)
+    try {
+      const result = await flokiAdapter.controlModule(service.key, action)
+      if (result?.ok === true && result?.verified === true) {
+        toast.success(result.message || `${label} verified`)
+      } else {
+        toast.error(`${label} failed${result?.error ? `: ${result.error}` : ': lifecycle was not verified'}`)
+      }
+      await refresh()
+    } catch (error) {
+      toast.error(`${label} failed: ${error.message}`)
+    } finally {
+      setBusyAction(null)
+    }
+  }, [busyAction, refresh])
+
+  const handleStart = useCallback((service) => {
+    executeModule(service, 'start')
+  }, [executeModule])
+
+  const handleStop = useCallback((service) => {
+    executeModule(service, 'stop')
+  }, [executeModule])
+
   const handleRestart = useCallback((service) => {
-    execute(service.controlAction, `Restart ${service.name}`)
-  }, [execute])
+    executeModule(service, 'reset')
+  }, [executeModule])
 
   const handleViewLogs = useCallback(async (service) => {
     try {
@@ -124,11 +124,13 @@ export default function SystemDashboard({ onNavigate }) {
     <div className="h-full overflow-y-auto">
       <div className="p-6 max-w-6xl mx-auto space-y-6">
         <h2 className="text-xs font-semibold tracking-[0.2em] uppercase text-neon-cyan/90 font-mono">System Status</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid auto-rows-fr grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {services.map((service) => (
             <ServiceCard
               key={service.name}
               service={service}
+              onStart={handleStart}
+              onStop={handleStop}
               onRestart={handleRestart}
               onViewLogs={handleViewLogs}
             />
@@ -143,7 +145,7 @@ export default function SystemDashboard({ onNavigate }) {
               <div>
                 <div className="text-sm font-semibold">Recursive Self-Improvement</div>
                 {services.length > 0 && (() => {
-                  const rsi = services.find((s) => s.name === 'Recursive Self-Improvement');
+                  const rsi = services.find((s) => s.key === 'rsi');
                   return rsi ? (
                     <div className="text-xs text-muted-foreground mt-0.5">{rsi.detail || 'Self-improvement service'}</div>
                   ) : null;

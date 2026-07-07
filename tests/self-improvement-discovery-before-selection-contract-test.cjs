@@ -56,9 +56,25 @@ for (const [name, args] of [
     `${name} block must use pre_selection_mutation_blocked reason`);
 }
 
-// select_experiment is always allowed
+// Contract updated 2026-07-04: select_experiment is native but evidence-gated.
+// Before the controller-owned evidence readiness categories are satisfied it
+// is refused with a precise recoverable reason, and it opens as soon as
+// readiness is proven with real recorded evidence.
+const preEvidenceSelect = gatePolicy.authorize('select_experiment', {});
+assert.equal(preEvidenceSelect.ok, false,
+  'select_experiment must wait for controller-owned evidence readiness');
+assert.equal(preEvidenceSelect.reason, 'selection_evidence_not_ready');
+gatePolicy.record('get_task_state', {}, { ok: true });
+gatePolicy.record('get_self_context', {}, { ok: true });
+gatePolicy.record('search_source', { query: 'select_experiment' }, { ok: true });
+gatePolicy.record(
+  'read_file',
+  { path: 'src/self-improvement/convergence-policy.cjs' },
+  { ok: true, content: 'function createConvergencePolicy() {}' }
+);
 const selectResult = gatePolicy.authorize('select_experiment', {});
-assert.equal(selectResult.ok, true);
+assert.equal(selectResult.ok, true,
+  'select_experiment must open once evidence readiness is satisfied');
 
 // ── 2. Selection rejection recovery ──────────────────────────────────────────
 
@@ -120,13 +136,14 @@ for (let i = 1; i <= 7; i += 1) {
     `iteration ${i} must not terminate while in discovery phase`);
 }
 
-// Iteration 8 transitions to selection_required — still no termination
+// Iteration 8 remains non-terminal and does not force selection until evidence
+// readiness has been satisfied.
 budgetPolicy.beginIteration(8);
 const stopAtDeadline = budgetPolicy.endIteration();
 assert.equal(stopAtDeadline, null,
-  'iteration 8 (selection deadline) must transition phase but not terminate the cycle');
-assert.equal(budgetPolicy.snapshot().phase, 'selection_required',
-  'phase must transition to selection_required at objective_selection_deadline_iteration');
+  'iteration 8 (selection deadline) must not terminate the cycle');
+assert.equal(budgetPolicy.snapshot().phase, 'discovery',
+  'phase must remain discovery until objective evidence readiness exists');
 
 // Selecting at iteration 8 must still succeed
 budgetPolicy.selectExperiment(experiment());

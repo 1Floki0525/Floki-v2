@@ -1,0 +1,1375 @@
+- generic [ref=f5e2]:
+  - navigation "Main menu":
+    - link "Skip to main content" [ref=f5e3] [cursor=pointer]:
+      - /url: "#wpbody-content"
+    - link "Skip to toolbar" [ref=f5e4] [cursor=pointer]:
+      - /url: "#wp-toolbar"
+    - list [ref=f5e7]:
+      - listitem [ref=f5e8]:
+        - link "Dashboard" [ref=f5e9] [cursor=pointer]:
+          - /url: index.php
+          - generic [ref=f5e10]: 
+          - generic [ref=f5e11]: Dashboard
+        - list [ref=f5e12]:
+          - listitem [ref=f5e13]:
+            - link "Home" [ref=f5e14] [cursor=pointer]:
+              - /url: index.php
+          - listitem [ref=f5e15]:
+            - link "Updates 10" [ref=f5e16] [cursor=pointer]:
+              - /url: update-core.php
+              - text: Updates
+              - generic [ref=f5e17]: "10"
+      - listitem [ref=f5e18]
+      - listitem [ref=f5e20]:
+        - link "Posts" [ref=f5e21] [cursor=pointer]:
+          - /url: edit.php
+          - generic [ref=f5e22]: 
+          - generic [ref=f5e23]: Posts
+        - list [ref=f5e24]:
+          - listitem [ref=f5e25]:
+            - link "All Posts" [ref=f5e26] [cursor=pointer]:
+              - /url: edit.php
+          - listitem [ref=f5e27]:
+            - link "Add Post" [ref=f5e28] [cursor=pointer]:
+              - /url: post-new.php
+          - listitem [ref=f5e29]:
+            - link "Categories" [ref=f5e30] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=category
+          - listitem [ref=f5e31]:
+            - link "Tags" [ref=f5e32] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=post_tag
+      - listitem [ref=f5e33]:
+        - link "Media" [ref=f5e34] [cursor=pointer]:
+          - /url: upload.php
+          - generic [ref=f5e35]: 
+          - generic [ref=f5e36]: Media
+        - list [ref=f5e37]:
+          - listitem [ref=f5e38]:
+            - link "Library" [ref=f5e39] [cursor=pointer]:
+              - /url: upload.php
+          - listitem [ref=f5e40]:
+            - link "Add Media File" [ref=f5e41] [cursor=pointer]:
+              - /url: media-new.php
+      - listitem [ref=f5e42]:
+        - link "Pages" [ref=f5e43] [cursor=pointer]:
+          - /url: edit.php?post_type=page
+          - generic [ref=f5e44]: 
+          - generic [ref=f5e45]: Pages
+        - list [ref=f5e46]:
+          - listitem [ref=f5e47]:
+            - link "All Pages" [ref=f5e48] [cursor=pointer]:
+              - /url: edit.php?post_type=page
+          - listitem [ref=f5e49]:
+            - link "Add Page" [ref=f5e50] [cursor=pointer]:
+              - /url: post-new.php?post_type=page
+      - listitem [ref=f5e51]:
+        - link "Comments 1,000 Comments in moderation" [ref=f5e52] [cursor=pointer]:
+          - /url: edit-comments.php
+          - generic [ref=f5e53]: 
+          - generic [ref=f5e54]:
+            - text: Comments
+            - generic [ref=f5e55]:
+              - text: 1,000
+              - generic [ref=f5e56]: 1,000 Comments in moderation
+      - listitem [ref=f5e57]
+      - listitem [ref=f5e59]:
+        - link "Appearance" [ref=f5e60] [cursor=pointer]:
+          - /url: themes.php
+          - generic [ref=f5e61]: 
+          - generic [ref=f5e62]: Appearance
+        - list [ref=f5e63]:
+          - listitem [ref=f5e64]:
+            - link "Themes 5" [ref=f5e65] [cursor=pointer]:
+              - /url: themes.php
+              - text: Themes
+              - generic [ref=f5e66]: "5"
+          - listitem [ref=f5e67]:
+            - link "Patterns" [ref=f5e68] [cursor=pointer]:
+              - /url: site-editor.php?p=/pattern
+          - listitem [ref=f5e69]:
+            - link "Customize" [ref=f5e70] [cursor=pointer]:
+              - /url: customize.php?return=%2Fwp-admin%2Fplugin-install.php%3Ftab%3Dpopular
+          - listitem [ref=f5e71]:
+            - link "Fonts" [ref=f5e72] [cursor=pointer]:
+              - /url: font-library.php
+          - listitem [ref=f5e73]:
+            - link "Theme File Editor" [ref=f5e74] [cursor=pointer]:
+              - /url: theme-editor.php
+      - listitem [ref=f5e75]:
+        - link "Floki Access" [ref=f5e76] [cursor=pointer]:
+          - /url: admin.php?page=floki-access
+          - generic [ref=f5e77]: 
+          - generic [ref=f5e78]: Floki Access
+        - list [ref=f5e79]:
+          - listitem [ref=f5e80]:
+            - link "Floki Access" [ref=f5e81] [cursor=pointer]:
+              - /url: admin.php?page=floki-access
+          - listitem [ref=f5e82]:
+            - link "Applications" [ref=f5e83] [cursor=pointer]:
+              - /url: admin.php?page=floki-access-applications
+      - listitem [ref=f5e84]:
+        - link "Plugins 5" [ref=f5e85] [cursor=pointer]:
+          - /url: plugins.php
+          - generic [ref=f5e86]: 
+          - generic [ref=f5e87]:
+            - text: Plugins
+            - generic [ref=f5e88]: "5"
+        - list [ref=f5e89]:
+          - listitem [ref=f5e90]:
+            - link "Installed Plugins" [ref=f5e91] [cursor=pointer]:
+              - /url: plugins.php
+          - listitem [ref=f5e92]:
+            - link "Add Plugin" [ref=f5e93] [cursor=pointer]:
+              - /url: plugin-install.php
+          - listitem [ref=f5e94]:
+            - link "Plugin File Editor" [ref=f5e95] [cursor=pointer]:
+              - /url: plugin-editor.php
+      - listitem [ref=f5e96]:
+        - link "Users" [ref=f5e97] [cursor=pointer]:
+          - /url: users.php
+          - generic [ref=f5e98]: 
+          - generic [ref=f5e99]: Users
+        - list [ref=f5e100]:
+          - listitem [ref=f5e101]:
+            - link "All Users" [ref=f5e102] [cursor=pointer]:
+              - /url: users.php
+          - listitem [ref=f5e103]:
+            - link "Add User" [ref=f5e104] [cursor=pointer]:
+              - /url: user-new.php
+          - listitem [ref=f5e105]:
+            - link "Profile" [ref=f5e106] [cursor=pointer]:
+              - /url: profile.php
+      - listitem [ref=f5e107]:
+        - link "Tools" [ref=f5e108] [cursor=pointer]:
+          - /url: tools.php
+          - generic [ref=f5e109]: 
+          - generic [ref=f5e110]: Tools
+        - list [ref=f5e111]:
+          - listitem [ref=f5e112]:
+            - link "Available Tools" [ref=f5e113] [cursor=pointer]:
+              - /url: tools.php
+          - listitem [ref=f5e114]:
+            - link "Import" [ref=f5e115] [cursor=pointer]:
+              - /url: import.php
+          - listitem [ref=f5e116]:
+            - link "Export" [ref=f5e117] [cursor=pointer]:
+              - /url: export.php
+          - listitem [ref=f5e118]:
+            - link "Site Health" [ref=f5e119] [cursor=pointer]:
+              - /url: site-health.php
+          - listitem [ref=f5e120]:
+            - link "Export Personal Data" [ref=f5e121] [cursor=pointer]:
+              - /url: export-personal-data.php
+          - listitem [ref=f5e122]:
+            - link "Erase Personal Data" [ref=f5e123] [cursor=pointer]:
+              - /url: erase-personal-data.php
+          - listitem [ref=f5e124]:
+            - link "WP Reset" [ref=f5e125] [cursor=pointer]:
+              - /url: tools.php?page=wp-reset
+      - listitem [ref=f5e126]:
+        - link "Settings" [ref=f5e127] [cursor=pointer]:
+          - /url: options-general.php
+          - generic [ref=f5e128]: 
+          - generic [ref=f5e129]: Settings
+        - list [ref=f5e130]:
+          - listitem [ref=f5e131]:
+            - link "General" [ref=f5e132] [cursor=pointer]:
+              - /url: options-general.php
+          - listitem [ref=f5e133]:
+            - link "Connectors" [ref=f5e134] [cursor=pointer]:
+              - /url: options-connectors.php
+          - listitem [ref=f5e135]:
+            - link "Writing" [ref=f5e136] [cursor=pointer]:
+              - /url: options-writing.php
+          - listitem [ref=f5e137]:
+            - link "Reading" [ref=f5e138] [cursor=pointer]:
+              - /url: options-reading.php
+          - listitem [ref=f5e139]:
+            - link "Discussion" [ref=f5e140] [cursor=pointer]:
+              - /url: options-discussion.php
+          - listitem [ref=f5e141]:
+            - link "Media" [ref=f5e142] [cursor=pointer]:
+              - /url: options-media.php
+          - listitem [ref=f5e143]:
+            - link "Permalinks" [ref=f5e144] [cursor=pointer]:
+              - /url: options-permalink.php
+          - listitem [ref=f5e145]:
+            - link "Privacy" [ref=f5e146] [cursor=pointer]:
+              - /url: options-privacy.php
+      - listitem [ref=f5e147]:
+        - button "Collapse Main menu" [expanded] [ref=f5e148] [cursor=pointer]:
+          - generic [ref=f5e150]: Collapse Menu
+  - generic [ref=f5e151]:
+    - generic [ref=f5e152]:
+      - navigation "Toolbar":
+        - menu:
+          - group [ref=f5e153]:
+            - menuitem "About WordPress" [ref=f5e154] [cursor=pointer]:
+              - generic [ref=f5e156]: About WordPress
+          - group [ref=f5e157]:
+            - menuitem "GalacticFamilyHub" [ref=f5e158] [cursor=pointer]
+          - group [ref=f5e159]:
+            - menuitem "10 updates available" [ref=f5e160] [cursor=pointer]:
+              - generic [ref=f5e162]: "10"
+              - generic [ref=f5e163]: 10 updates available
+          - group [ref=f5e164]:
+            - menuitem "Ctrl+K Open command palette" [ref=f5e165] [cursor=pointer]:
+              - generic [ref=f5e167]:
+                - text: Ctrl+K
+                - generic [ref=f5e168]: Open command palette
+          - group [ref=f5e169]:
+            - menuitem "1,000 Comments in moderation" [ref=f5e170] [cursor=pointer]:
+              - generic [ref=f5e172]: 1,000
+              - generic [ref=f5e173]: 1,000 Comments in moderation
+          - group [ref=f5e174]:
+            - menuitem "New" [ref=f5e175] [cursor=pointer]:
+              - generic [ref=f5e177]: New
+        - menu [ref=f5e178]:
+          - group [ref=f5e179]:
+            - menuitem "Howdy, Galact_Admin" [ref=f5e180] [cursor=pointer]
+    - main [ref=f5e181]:
+      - generic [ref=f5e182]:
+        - button "Help" [ref=f5e185] [cursor=pointer]
+        - generic [ref=f5e186]:
+          - heading "Add Plugins" [level=1] [ref=f5e187]
+          - button "Upload Plugin" [ref=f5e188] [cursor=pointer]
+          - heading "Filter plugins list" [level=2] [ref=f5e189]
+          - paragraph [ref=f5e190]:
+            - text: Plugins extend and expand the functionality of WordPress. You may install plugins from the
+            - link "WordPress Plugin Directory" [ref=f5e191] [cursor=pointer]:
+              - /url: https://wordpress.org/plugins/
+            - text: right on this page, or upload a plugin in .zip format by clicking the button above.
+          - generic [ref=f5e192]:
+            - list [ref=f5e193]:
+              - listitem [ref=f5e194]:
+                - link "Featured" [ref=f5e195] [cursor=pointer]:
+                  - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=featured
+              - listitem [ref=f5e196]:
+                - link "Popular" [ref=f5e197] [cursor=pointer]:
+                  - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=popular
+              - listitem [ref=f5e198]:
+                - link "Recommended" [ref=f5e199] [cursor=pointer]:
+                  - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=recommended
+              - listitem [ref=f5e200]:
+                - link "Favorites" [ref=f5e201] [cursor=pointer]:
+                  - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=favorites
+            - generic [ref=f5e202]:
+              - generic [ref=f5e203]: Search Plugins
+              - searchbox "Search Plugins" [ref=f5e204]
+              - generic [ref=f5e205]: "Search plugins by:"
+              - combobox "Search plugins by:" [ref=f5e206] [cursor=pointer]:
+                - option "Keyword" [selected]
+                - option "Author"
+                - option "Tag"
+          - generic [ref=f5e207]:
+            - generic [ref=f5e208]:
+              - heading "Plugins list navigation" [level=2] [ref=f5e209]
+              - generic [ref=f5e210]:
+                - text: 62,501 items
+                - generic [ref=f5e211]:
+                  - generic [ref=f5e212]: «
+                  - generic [ref=f5e213]: ‹
+                  - generic [ref=f5e214]:
+                    - generic [ref=f5e215]: Current Page
+                    - textbox "Current Page" [ref=f5e216]: "1"
+                    - generic [ref=f5e217]: of 1,737
+                  - link "Next page" [ref=f5e218] [cursor=pointer]:
+                    - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=popular&paged=2
+                    - generic [ref=f5e219]: Next page
+                    - text: ›
+                  - link "Last page" [ref=f5e220] [cursor=pointer]:
+                    - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=popular&paged=1737
+                    - generic [ref=f5e221]: Last page
+                    - text: »
+            - generic [ref=f5e222]:
+              - heading "Plugins list" [level=2] [ref=f5e223]
+              - generic [ref=f5e224]:
+                - generic [ref=f5e225]:
+                  - generic [ref=f5e226]:
+                    - heading "Elementor Website Builder – more than just a page builder" [level=3] [ref=f5e228]:
+                      - link "Elementor Website Builder – more than just a page builder" [ref=f5e229] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=elementor&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e231]:
+                      - listitem [ref=f5e232]:
+                        - button "Install Elementor Website Builder – more than just a page builder 4.1.4 now" [ref=f5e233] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e234]:
+                        - link "More information about Elementor Website Builder – more than just a page builder 4.1.4" [ref=f5e235] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=elementor&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e236]:
+                      - paragraph [ref=f5e237]: "The Elementor Website Builder has it all: drag and drop page builder, Atomic Editor, pixel perfect design, global and reusable style systems, mobile r …"
+                      - paragraph [ref=f5e238]:
+                        - generic [ref=f5e239]:
+                          - text: By
+                          - link "Elementor" [ref=f5e240] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/elemntor/
+                  - generic [ref=f5e241]:
+                    - generic [ref=f5e242]:
+                      - generic [ref=f5e244]: 4.5 rating based on 7,271 ratings
+                      - text: (7,271)
+                    - generic [ref=f5e250]:
+                      - strong [ref=f5e251]: "Last Updated:"
+                      - text: 1 week ago
+                    - generic [ref=f5e252]: 10+ Million Active Installations
+                    - generic [ref=f5e254]:
+                      - strong [ref=f5e255]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e256]:
+                  - generic [ref=f5e257]:
+                    - heading "Yoast SEO – Advanced SEO with real-time guidance and built-in AI" [level=3] [ref=f5e259]:
+                      - link "Yoast SEO – Advanced SEO with real-time guidance and built-in AI" [ref=f5e260] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wordpress-seo&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e262]:
+                      - listitem [ref=f5e263]:
+                        - button "Install Yoast SEO – Advanced SEO with real-time guidance and built-in AI 27.9 now" [ref=f5e264] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e265]:
+                        - link "More information about Yoast SEO – Advanced SEO with real-time guidance and built-in AI 27.9" [ref=f5e266] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wordpress-seo&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e267]:
+                      - paragraph [ref=f5e268]: Improve your SEO with real-time feedback, schema, and clear guidance. Upgrade for AI tools, Google Docs integration, and 24/7 support, no hidden fees.
+                      - paragraph [ref=f5e269]:
+                        - generic [ref=f5e270]:
+                          - text: By
+                          - link "Yoast" [ref=f5e271] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/yoast/
+                  - generic [ref=f5e272]:
+                    - generic [ref=f5e273]:
+                      - generic [ref=f5e275]: 5.0 rating based on 27,811 ratings
+                      - text: (27,811)
+                    - generic [ref=f5e281]:
+                      - strong [ref=f5e282]: "Last Updated:"
+                      - text: 1 week ago
+                    - generic [ref=f5e283]: 10+ Million Active Installations
+                    - generic [ref=f5e285]:
+                      - strong [ref=f5e286]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e287]:
+                  - generic [ref=f5e288]:
+                    - heading "Contact Form 7" [level=3] [ref=f5e290]:
+                      - link "Contact Form 7" [ref=f5e291] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=contact-form-7&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e293]:
+                      - listitem [ref=f5e294]:
+                        - button "Install Contact Form 7 6.1.6 now" [ref=f5e295] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e296]:
+                        - link "More information about Contact Form 7 6.1.6" [ref=f5e297] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=contact-form-7&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e298]:
+                      - paragraph [ref=f5e299]: Just another contact form plugin. Simple but flexible.
+                      - paragraph [ref=f5e300]:
+                        - generic [ref=f5e301]:
+                          - text: By
+                          - link "Rock Lobster Inc." [ref=f5e302] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/rocklobsterinc/
+                  - generic [ref=f5e303]:
+                    - generic [ref=f5e304]:
+                      - generic [ref=f5e306]: 4.0 rating based on 2,173 ratings
+                      - text: (2,173)
+                    - generic [ref=f5e312]:
+                      - strong [ref=f5e313]: "Last Updated:"
+                      - text: 2 months ago
+                    - generic [ref=f5e314]: 10+ Million Active Installations
+                    - generic [ref=f5e316]:
+                      - strong [ref=f5e317]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e318]:
+                  - generic [ref=f5e319]:
+                    - heading "Classic Editor" [level=3] [ref=f5e321]:
+                      - link "Classic Editor" [ref=f5e322] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=classic-editor&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e324]:
+                      - listitem [ref=f5e325]:
+                        - button "Install Classic Editor 1.7.0 now" [ref=f5e326] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e327]:
+                        - link "More information about Classic Editor 1.7.0" [ref=f5e328] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=classic-editor&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e329]:
+                      - paragraph [ref=f5e330]: Enables the previous "classic" editor and the old-style Edit Post screen with TinyMCE, Meta Boxes, etc. Supports all plugins that extend this screen.
+                      - paragraph [ref=f5e331]:
+                        - generic [ref=f5e332]:
+                          - text: By
+                          - link "WordPress.org" [ref=f5e333] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/wordpressdotorg/
+                  - generic [ref=f5e334]:
+                    - generic [ref=f5e335]:
+                      - generic [ref=f5e337]: 5.0 rating based on 1,242 ratings
+                      - text: (1,242)
+                    - generic [ref=f5e343]:
+                      - strong [ref=f5e344]: "Last Updated:"
+                      - text: 1 month ago
+                    - generic [ref=f5e345]: 9+ Million Active Installations
+                    - generic [ref=f5e347]:
+                      - strong [ref=f5e348]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e349]:
+                  - generic [ref=f5e350]:
+                    - heading "LiteSpeed Cache" [level=3] [ref=f5e352]:
+                      - link "LiteSpeed Cache" [ref=f5e353] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=litespeed-cache&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e355]:
+                      - listitem [ref=f5e356]:
+                        - button "Install LiteSpeed Cache 7.8.1 now" [ref=f5e357] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e358]:
+                        - link "More information about LiteSpeed Cache 7.8.1" [ref=f5e359] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=litespeed-cache&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e360]:
+                      - paragraph [ref=f5e361]: "All-in-one unbeatable acceleration & PageSpeed improvement: caching, image/CSS/JS optimization..."
+                      - paragraph [ref=f5e362]:
+                        - generic [ref=f5e363]:
+                          - text: By
+                          - link "LiteSpeed Technologies" [ref=f5e364] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/litespeedtech/
+                  - generic [ref=f5e365]:
+                    - generic [ref=f5e366]:
+                      - generic [ref=f5e368]: 5.0 rating based on 2,759 ratings
+                      - text: (2,759)
+                    - generic [ref=f5e374]:
+                      - strong [ref=f5e375]: "Last Updated:"
+                      - text: 3 months ago
+                    - generic [ref=f5e376]: 7+ Million Active Installations
+                    - generic [ref=f5e377]: Untested with your version of WordPress
+                - generic [ref=f5e378]:
+                  - generic [ref=f5e379]:
+                    - heading "WooCommerce" [level=3] [ref=f5e381]:
+                      - link "WooCommerce" [ref=f5e382] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=woocommerce&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e384]:
+                      - listitem [ref=f5e385]:
+                        - button "Update WooCommerce 10.9.1 now" [ref=f5e386] [cursor=pointer]: Update Now
+                      - listitem [ref=f5e387]:
+                        - link "More information about WooCommerce 10.9.1" [ref=f5e388] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=woocommerce&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e389]:
+                      - paragraph [ref=f5e390]: Everything you need to launch an online store in days and keep it growing for years. From your first sale to millions in revenue, Woo is with you.
+                      - paragraph [ref=f5e391]:
+                        - generic [ref=f5e392]:
+                          - text: By
+                          - link "Automattic" [ref=f5e393] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/automattic/
+                  - generic [ref=f5e394]:
+                    - generic [ref=f5e395]:
+                      - generic [ref=f5e397]: 4.5 rating based on 4,806 ratings
+                      - text: (4,806)
+                    - generic [ref=f5e403]:
+                      - strong [ref=f5e404]: "Last Updated:"
+                      - text: 7 days ago
+                    - generic [ref=f5e405]: 7+ Million Active Installations
+                    - generic [ref=f5e407]:
+                      - strong [ref=f5e408]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e409]:
+                  - generic [ref=f5e410]:
+                    - 'heading "Akismet Anti-spam: Spam Protection" [level=3] [ref=f5e412]':
+                      - 'link "Akismet Anti-spam: Spam Protection" [ref=f5e413] [cursor=pointer]':
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=akismet&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e415]:
+                      - listitem [ref=f5e416]:
+                        - 'button "Update Akismet Anti-spam: Spam Protection 5.7 now" [ref=f5e417] [cursor=pointer]': Update Now
+                      - listitem [ref=f5e418]:
+                        - 'link "More information about Akismet Anti-spam: Spam Protection 5.7" [ref=f5e419] [cursor=pointer]':
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=akismet&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e420]:
+                      - paragraph [ref=f5e421]: The best anti-spam protection to block spam comments and spam in a contact form. The most trusted antispam solution for WordPress and WooCommerce.
+                      - paragraph [ref=f5e422]:
+                        - generic [ref=f5e423]:
+                          - text: By
+                          - link "Automattic" [ref=f5e424] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/automattic/
+                  - generic [ref=f5e425]:
+                    - generic [ref=f5e426]:
+                      - generic [ref=f5e428]: 4.5 rating based on 1,184 ratings
+                      - text: (1,184)
+                    - generic [ref=f5e434]:
+                      - strong [ref=f5e435]: "Last Updated:"
+                      - text: 2 months ago
+                    - generic [ref=f5e436]: 6+ Million Active Installations
+                    - generic [ref=f5e438]:
+                      - strong [ref=f5e439]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e440]:
+                  - generic [ref=f5e441]:
+                    - heading "WPForms – AI Form Builder for WordPress – Contact Forms, Payment Forms, Survey Form, Quiz & More" [level=3] [ref=f5e443]:
+                      - link "WPForms – AI Form Builder for WordPress – Contact Forms, Payment Forms, Survey Form, Quiz & More" [ref=f5e444] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wpforms-lite&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e446]:
+                      - listitem [ref=f5e447]:
+                        - button "Install WPForms – AI Form Builder for WordPress – Contact Forms, Payment Forms, Survey Form, Quiz & More 1.10.2.1 now" [ref=f5e448] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e449]:
+                        - link "More information about WPForms – AI Form Builder for WordPress – Contact Forms, Payment Forms, Survey Form, Quiz & More 1.10.2.1" [ref=f5e450] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wpforms-lite&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e451]:
+                      - paragraph [ref=f5e452]: The best WordPress contact form plugin. Drag & Drop form builder to create beautiful contact forms, payment forms, & other custom forms.
+                      - paragraph [ref=f5e453]:
+                        - generic [ref=f5e454]:
+                          - text: By
+                          - link "Syed Balkhi" [ref=f5e455] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/smub/
+                  - generic [ref=f5e456]:
+                    - generic [ref=f5e457]:
+                      - generic [ref=f5e459]: 5.0 rating based on 14,349 ratings
+                      - text: (14,349)
+                    - generic [ref=f5e465]:
+                      - strong [ref=f5e466]: "Last Updated:"
+                      - text: 6 days ago
+                    - generic [ref=f5e467]: 5+ Million Active Installations
+                    - generic [ref=f5e469]:
+                      - strong [ref=f5e470]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e471]:
+                  - generic [ref=f5e472]:
+                    - heading "Site Kit by Google – Analytics, Search Console, AdSense, Speed" [level=3] [ref=f5e474]:
+                      - link "Site Kit by Google – Analytics, Search Console, AdSense, Speed" [ref=f5e475] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=google-site-kit&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e477]:
+                      - listitem [ref=f5e478]:
+                        - button "Install Site Kit by Google – Analytics, Search Console, AdSense, Speed 1.182.0 now" [ref=f5e479] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e480]:
+                        - link "More information about Site Kit by Google – Analytics, Search Console, AdSense, Speed 1.182.0" [ref=f5e481] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=google-site-kit&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e482]:
+                      - paragraph [ref=f5e483]: Site Kit is a one-stop solution for WordPress users to use everything Google has to offer to make them successful on the web.
+                      - paragraph [ref=f5e484]:
+                        - generic [ref=f5e485]:
+                          - text: By
+                          - link "Google" [ref=f5e486] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/google/
+                  - generic [ref=f5e487]:
+                    - generic [ref=f5e488]:
+                      - generic [ref=f5e490]: 4.0 rating based on 1,007 ratings
+                      - text: (1,007)
+                    - generic [ref=f5e496]:
+                      - strong [ref=f5e497]: "Last Updated:"
+                      - text: 2 days ago
+                    - generic [ref=f5e498]: 5+ Million Active Installations
+                    - generic [ref=f5e500]:
+                      - strong [ref=f5e501]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e502]:
+                  - generic [ref=f5e503]:
+                    - heading "All-in-One WP Migration and Backup" [level=3] [ref=f5e505]:
+                      - link "All-in-One WP Migration and Backup" [ref=f5e506] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=all-in-one-wp-migration&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e508]:
+                      - listitem [ref=f5e509]:
+                        - button "Install All-in-One WP Migration and Backup 7.106 now" [ref=f5e510] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e511]:
+                        - link "More information about All-in-One WP Migration and Backup 7.106" [ref=f5e512] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=all-in-one-wp-migration&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e513]:
+                      - paragraph [ref=f5e514]: "Trusted by 60M+ sites: The gold standard for WordPress migration and backup. Migrate, backup, and restore your WordPress site with one click."
+                      - paragraph [ref=f5e515]:
+                        - generic [ref=f5e516]:
+                          - text: By
+                          - link "ServMask" [ref=f5e517] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/servmask/
+                  - generic [ref=f5e518]:
+                    - generic [ref=f5e519]:
+                      - generic [ref=f5e521]: 4.5 rating based on 7,655 ratings
+                      - text: (7,655)
+                    - generic [ref=f5e527]:
+                      - strong [ref=f5e528]: "Last Updated:"
+                      - text: 1 week ago
+                    - generic [ref=f5e529]: 5+ Million Active Installations
+                    - generic [ref=f5e531]:
+                      - strong [ref=f5e532]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e533]:
+                  - generic [ref=f5e534]:
+                    - heading "Wordfence Security – Firewall, Malware Scan, and Login Security" [level=3] [ref=f5e536]:
+                      - link "Wordfence Security – Firewall, Malware Scan, and Login Security" [ref=f5e537] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wordfence&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e539]:
+                      - listitem [ref=f5e540]:
+                        - button "Install Wordfence Security – Firewall, Malware Scan, and Login Security 8.2.2 now" [ref=f5e541] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e542]:
+                        - link "More information about Wordfence Security – Firewall, Malware Scan, and Login Security 8.2.2" [ref=f5e543] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wordfence&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e544]:
+                      - paragraph [ref=f5e545]: Firewall, Malware Scanner, Two Factor Auth, and Comprehensive Security Features, powered by our 24-hour team. Make security a priority with Wordfence.
+                      - paragraph [ref=f5e546]:
+                        - generic [ref=f5e547]:
+                          - text: By
+                          - link "Mark Maunder" [ref=f5e548] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/mmaunder/
+                  - generic [ref=f5e549]:
+                    - generic [ref=f5e550]:
+                      - generic [ref=f5e552]: 4.5 rating based on 4,938 ratings
+                      - text: (4,938)
+                    - generic [ref=f5e558]:
+                      - strong [ref=f5e559]: "Last Updated:"
+                      - text: 2 months ago
+                    - generic [ref=f5e560]: 5+ Million Active Installations
+                    - generic [ref=f5e562]:
+                      - strong [ref=f5e563]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e564]:
+                  - generic [ref=f5e565]:
+                    - heading "WP Mail SMTP by WPForms – The Most Popular SMTP and Email Log Plugin" [level=3] [ref=f5e567]:
+                      - link "WP Mail SMTP by WPForms – The Most Popular SMTP and Email Log Plugin" [ref=f5e568] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wp-mail-smtp&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e570]:
+                      - listitem [ref=f5e571]:
+                        - button "Install WP Mail SMTP by WPForms – The Most Popular SMTP and Email Log Plugin 4.9.0 now" [ref=f5e572] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e573]:
+                        - link "More information about WP Mail SMTP by WPForms – The Most Popular SMTP and Email Log Plugin 4.9.0" [ref=f5e574] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wp-mail-smtp&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e575]:
+                      - paragraph [ref=f5e576]: "Make email delivery easy for WordPress. Connect with SMTP, Gmail, Outlook, SendGrid, Mailgun, SES, Zoho, + more. Rated #1 WordPress SMTP Email plugin."
+                      - paragraph [ref=f5e577]:
+                        - generic [ref=f5e578]:
+                          - text: By
+                          - link "Syed Balkhi" [ref=f5e579] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/smub/
+                  - generic [ref=f5e580]:
+                    - generic [ref=f5e581]:
+                      - generic [ref=f5e583]: 5.0 rating based on 5,147 ratings
+                      - text: (5,147)
+                    - generic [ref=f5e589]:
+                      - strong [ref=f5e590]: "Last Updated:"
+                      - text: 6 days ago
+                    - generic [ref=f5e591]: 4+ Million Active Installations
+                    - generic [ref=f5e593]:
+                      - strong [ref=f5e594]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e595]:
+                  - generic [ref=f5e596]:
+                    - heading "Rank Math SEO – AI SEO Tools to Dominate SEO Rankings" [level=3] [ref=f5e598]:
+                      - link "Rank Math SEO – AI SEO Tools to Dominate SEO Rankings" [ref=f5e599] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=seo-by-rank-math&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e601]:
+                      - listitem [ref=f5e602]:
+                        - button "Install Rank Math SEO – AI SEO Tools to Dominate SEO Rankings 1.0.273 now" [ref=f5e603] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e604]:
+                        - link "More information about Rank Math SEO – AI SEO Tools to Dominate SEO Rankings 1.0.273" [ref=f5e605] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=seo-by-rank-math&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e606]:
+                      - paragraph [ref=f5e607]: Grow your organic traffic and AI visibility with powerful SEO tools, XML sitemaps, Schema automation, and built-in AI SEO, all in one place.
+                      - paragraph [ref=f5e608]:
+                        - generic [ref=f5e609]:
+                          - text: By
+                          - link "Rank Math SEO" [ref=f5e610] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/rankmath/
+                  - generic [ref=f5e611]:
+                    - generic [ref=f5e612]:
+                      - generic [ref=f5e614]: 5.0 rating based on 7,453 ratings
+                      - text: (7,453)
+                    - generic [ref=f5e620]:
+                      - strong [ref=f5e621]: "Last Updated:"
+                      - text: 1 day ago
+                    - generic [ref=f5e622]: 4+ Million Active Installations
+                    - generic [ref=f5e624]:
+                      - strong [ref=f5e625]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e626]:
+                  - generic [ref=f5e627]:
+                    - heading "Yoast Duplicate Post" [level=3] [ref=f5e629]:
+                      - link "Yoast Duplicate Post" [ref=f5e630] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=duplicate-post&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e632]:
+                      - listitem [ref=f5e633]:
+                        - button "Install Yoast Duplicate Post 4.7 now" [ref=f5e634] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e635]:
+                        - link "More information about Yoast Duplicate Post 4.7" [ref=f5e636] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=duplicate-post&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e637]:
+                      - paragraph [ref=f5e638]: The go-to tool for cloning posts and pages, including the powerful Rewrite & Republish feature.
+                      - paragraph [ref=f5e639]:
+                        - generic [ref=f5e640]:
+                          - text: By
+                          - link "Yoast" [ref=f5e641] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/yoast/
+                  - generic [ref=f5e642]:
+                    - generic [ref=f5e643]:
+                      - generic [ref=f5e645]: 4.5 rating based on 538 ratings
+                      - text: (538)
+                    - generic [ref=f5e651]:
+                      - strong [ref=f5e652]: "Last Updated:"
+                      - text: 1 week ago
+                    - generic [ref=f5e653]: 4+ Million Active Installations
+                    - generic [ref=f5e655]:
+                      - strong [ref=f5e656]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e657]:
+                  - generic [ref=f5e658]:
+                    - 'heading "UpdraftPlus: WP Backup & Migration Plugin" [level=3] [ref=f5e660]':
+                      - 'link "UpdraftPlus: WP Backup & Migration Plugin" [ref=f5e661] [cursor=pointer]':
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=updraftplus&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e663]:
+                      - listitem [ref=f5e664]:
+                        - 'button "Install UpdraftPlus: WP Backup & Migration Plugin 1.26.5 now" [ref=f5e665] [cursor=pointer]': Install Now
+                      - listitem [ref=f5e666]:
+                        - 'link "More information about UpdraftPlus: WP Backup & Migration Plugin 1.26.5" [ref=f5e667] [cursor=pointer]':
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=updraftplus&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e668]:
+                      - paragraph [ref=f5e669]: Backup, restore or migrate your WordPress website to another host or domain. Schedule backups or run manually. Migrate in minutes.
+                      - paragraph [ref=f5e670]:
+                        - generic [ref=f5e671]:
+                          - text: By
+                          - link "David Anderson / Team Updraft" [ref=f5e672] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/davidanderson/
+                  - generic [ref=f5e673]:
+                    - generic [ref=f5e674]:
+                      - generic [ref=f5e676]: 5.0 rating based on 8,559 ratings
+                      - text: (8,559)
+                    - generic [ref=f5e682]:
+                      - strong [ref=f5e683]: "Last Updated:"
+                      - text: 4 weeks ago
+                    - generic [ref=f5e684]: 3+ Million Active Installations
+                    - generic [ref=f5e686]:
+                      - strong [ref=f5e687]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e688]:
+                  - generic [ref=f5e689]:
+                    - heading "Duplicate Page" [level=3] [ref=f5e691]:
+                      - link "Duplicate Page" [ref=f5e692] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=duplicate-page&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e694]:
+                      - listitem [ref=f5e695]:
+                        - button "Install Duplicate Page 4.5.9 now" [ref=f5e696] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e697]:
+                        - link "More information about Duplicate Page 4.5.9" [ref=f5e698] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=duplicate-page&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e699]:
+                      - paragraph [ref=f5e700]: Duplicate Posts, Pages and Custom Posts easily using single click
+                      - paragraph [ref=f5e701]:
+                        - generic [ref=f5e702]:
+                          - text: By
+                          - link "mndpsingh287" [ref=f5e703] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/mndpsingh287/
+                  - generic [ref=f5e704]:
+                    - generic [ref=f5e705]:
+                      - generic [ref=f5e707]: 5.0 rating based on 467 ratings
+                      - text: (467)
+                    - generic [ref=f5e713]:
+                      - strong [ref=f5e714]: "Last Updated:"
+                      - text: 2 months ago
+                    - generic [ref=f5e715]: 3+ Million Active Installations
+                    - generic [ref=f5e716]: Untested with your version of WordPress
+                - generic [ref=f5e717]:
+                  - generic [ref=f5e718]:
+                    - heading "Really Simple Security – Simple and Performant Security (formerly Really Simple SSL)" [level=3] [ref=f5e720]:
+                      - link "Really Simple Security – Simple and Performant Security (formerly Really Simple SSL)" [ref=f5e721] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=really-simple-ssl&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e723]:
+                      - listitem [ref=f5e724]:
+                        - button "Install Really Simple Security – Simple and Performant Security (formerly Really Simple SSL) 9.6.0 now" [ref=f5e725] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e726]:
+                        - link "More information about Really Simple Security – Simple and Performant Security (formerly Really Simple SSL) 9.6.0" [ref=f5e727] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=really-simple-ssl&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e728]:
+                      - paragraph [ref=f5e729]: Easily improve site security with WordPress Hardening, Two-Factor Authentication (2FA), Login Protection, Vulnerability Detection and SSL certificate.
+                      - paragraph [ref=f5e730]:
+                        - generic [ref=f5e731]:
+                          - text: By
+                          - link "Really Simple Plugins" [ref=f5e732] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/reallysimpleplugins/
+                  - generic [ref=f5e733]:
+                    - generic [ref=f5e734]:
+                      - generic [ref=f5e736]: 5.0 rating based on 8,849 ratings
+                      - text: (8,849)
+                    - generic [ref=f5e742]:
+                      - strong [ref=f5e743]: "Last Updated:"
+                      - text: 2 weeks ago
+                    - generic [ref=f5e744]: 3+ Million Active Installations
+                    - generic [ref=f5e746]:
+                      - strong [ref=f5e747]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e748]:
+                  - generic [ref=f5e749]:
+                    - heading "Jetpack – WP Security, Backup, Speed, & Growth" [level=3] [ref=f5e751]:
+                      - link "Jetpack – WP Security, Backup, Speed, & Growth" [ref=f5e752] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=jetpack&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e754]:
+                      - listitem [ref=f5e755]:
+                        - button "Install Jetpack – WP Security, Backup, Speed, & Growth 15.9.1 now" [ref=f5e756] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e757]:
+                        - link "More information about Jetpack – WP Security, Backup, Speed, & Growth 15.9.1" [ref=f5e758] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=jetpack&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e759]:
+                      - paragraph [ref=f5e760]: Improve your WP security with powerful one-click tools like backup, WAF, and malware scan. Includes free tools like stats, CDN and social sharing.
+                      - paragraph [ref=f5e761]:
+                        - generic [ref=f5e762]:
+                          - text: By
+                          - link "Automattic" [ref=f5e763] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/automattic/
+                  - generic [ref=f5e764]:
+                    - generic [ref=f5e765]:
+                      - generic [ref=f5e767]: 4.0 rating based on 2,401 ratings
+                      - text: (2,401)
+                    - generic [ref=f5e773]:
+                      - strong [ref=f5e774]: "Last Updated:"
+                      - text: 1 week ago
+                    - generic [ref=f5e775]: 3+ Million Active Installations
+                    - generic [ref=f5e777]:
+                      - strong [ref=f5e778]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e779]:
+                  - generic [ref=f5e780]:
+                    - heading "Hostinger Tools" [level=3] [ref=f5e782]:
+                      - link "Hostinger Tools" [ref=f5e783] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=hostinger&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e785]:
+                      - listitem [ref=f5e786]:
+                        - button "Install Hostinger Tools 3.0.70 now" [ref=f5e787] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e788]:
+                        - link "More information about Hostinger Tools 3.0.70" [ref=f5e789] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=hostinger&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e790]:
+                      - paragraph [ref=f5e791]: Simplified WordPress management. Manage site info, maintenance, security, & redirects.
+                      - paragraph [ref=f5e792]:
+                        - generic [ref=f5e793]:
+                          - text: By
+                          - link "Hostinger" [ref=f5e794] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/hostinger/
+                  - generic [ref=f5e795]:
+                    - generic [ref=f5e796]:
+                      - generic [ref=f5e798]: 3.5 rating based on 40 ratings
+                      - text: (40)
+                    - generic [ref=f5e804]:
+                      - strong [ref=f5e805]: "Last Updated:"
+                      - text: 5 days ago
+                    - generic [ref=f5e806]: 3+ Million Active Installations
+                    - generic [ref=f5e807]: Untested with your version of WordPress
+                - generic [ref=f5e808]:
+                  - generic [ref=f5e809]:
+                    - heading "WPCode – Insert Headers and Footers + Custom Code Snippets – WordPress Code Manager" [level=3] [ref=f5e811]:
+                      - link "WPCode – Insert Headers and Footers + Custom Code Snippets – WordPress Code Manager" [ref=f5e812] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=insert-headers-and-footers&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e814]:
+                      - listitem [ref=f5e815]:
+                        - button "Install WPCode – Insert Headers and Footers + Custom Code Snippets – WordPress Code Manager 2.3.6 now" [ref=f5e816] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e817]:
+                        - link "More information about WPCode – Insert Headers and Footers + Custom Code Snippets – WordPress Code Manager 2.3.6" [ref=f5e818] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=insert-headers-and-footers&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e819]:
+                      - paragraph [ref=f5e820]: Easily add code snippets in WordPress. Insert header & footer scripts, add PHP code snippets with conditional logic, insert ads pixel code, and more.
+                      - paragraph [ref=f5e821]:
+                        - generic [ref=f5e822]:
+                          - text: By
+                          - link "Syed Balkhi" [ref=f5e823] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/smub/
+                  - generic [ref=f5e824]:
+                    - generic [ref=f5e825]:
+                      - generic [ref=f5e827]: 5.0 rating based on 1,828 ratings
+                      - text: (1,828)
+                    - generic [ref=f5e833]:
+                      - strong [ref=f5e834]: "Last Updated:"
+                      - text: 1 month ago
+                    - generic [ref=f5e835]: 3+ Million Active Installations
+                    - generic [ref=f5e837]:
+                      - strong [ref=f5e838]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e839]:
+                  - generic [ref=f5e840]:
+                    - heading "All in One SEO – Powerful SEO Plugin to Boost SEO Rankings & Increase Traffic" [level=3] [ref=f5e842]:
+                      - link "All in One SEO – Powerful SEO Plugin to Boost SEO Rankings & Increase Traffic" [ref=f5e843] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=all-in-one-seo-pack&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e845]:
+                      - listitem [ref=f5e846]:
+                        - button "Install All in One SEO – Powerful SEO Plugin to Boost SEO Rankings & Increase Traffic 4.9.9 now" [ref=f5e847] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e848]:
+                        - link "More information about All in One SEO – Powerful SEO Plugin to Boost SEO Rankings & Increase Traffic 4.9.9" [ref=f5e849] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=all-in-one-seo-pack&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e850]:
+                      - paragraph [ref=f5e851]: AIOSEO is the most powerful WordPress SEO plugin. Improve SEO rankings and traffic with comprehensive SEO tools and smart AI SEO optimizations!
+                      - paragraph [ref=f5e852]:
+                        - generic [ref=f5e853]:
+                          - text: By
+                          - link "Syed Balkhi" [ref=f5e854] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/smub/
+                  - generic [ref=f5e855]:
+                    - generic [ref=f5e856]:
+                      - generic [ref=f5e858]: 4.5 rating based on 5,152 ratings
+                      - text: (5,152)
+                    - generic [ref=f5e864]:
+                      - strong [ref=f5e865]: "Last Updated:"
+                      - text: 7 days ago
+                    - generic [ref=f5e866]: 3+ Million Active Installations
+                    - generic [ref=f5e868]:
+                      - strong [ref=f5e869]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e870]:
+                  - generic [ref=f5e871]:
+                    - heading "Redirection" [level=3] [ref=f5e873]:
+                      - link "Redirection" [ref=f5e874] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=redirection&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e876]:
+                      - listitem [ref=f5e877]:
+                        - button "Install Redirection 5.8.0 now" [ref=f5e878] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e879]:
+                        - link "More information about Redirection 5.8.0" [ref=f5e880] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=redirection&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e881]:
+                      - paragraph [ref=f5e882]: Manage 301 redirects, track 404 errors, and improve your site. No knowledge of Apache or Nginx required.
+                      - paragraph [ref=f5e883]:
+                        - generic [ref=f5e884]:
+                          - text: By
+                          - link "John Godley" [ref=f5e885] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/johnny5/
+                  - generic [ref=f5e886]:
+                    - generic [ref=f5e887]:
+                      - generic [ref=f5e889]: 4.5 rating based on 700 ratings
+                      - text: (700)
+                    - generic [ref=f5e895]:
+                      - strong [ref=f5e896]: "Last Updated:"
+                      - text: 2 weeks ago
+                    - generic [ref=f5e897]: 2+ Million Active Installations
+                    - generic [ref=f5e899]:
+                      - strong [ref=f5e900]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e901]:
+                  - generic [ref=f5e902]:
+                    - heading "WordPress Importer" [level=3] [ref=f5e904]:
+                      - link "WordPress Importer" [ref=f5e905] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wordpress-importer&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e907]:
+                      - listitem [ref=f5e908]:
+                        - button "Install WordPress Importer 0.9.5 now" [ref=f5e909] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e910]:
+                        - link "More information about WordPress Importer 0.9.5" [ref=f5e911] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wordpress-importer&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e912]:
+                      - paragraph [ref=f5e913]: Import posts, pages, comments, custom fields, categories, tags and more from a WordPress export file.
+                      - paragraph [ref=f5e914]:
+                        - generic [ref=f5e915]:
+                          - text: By
+                          - link "WordPress.org" [ref=f5e916] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/wordpressdotorg/
+                  - generic [ref=f5e917]:
+                    - generic [ref=f5e918]:
+                      - generic [ref=f5e920]: 3.0 rating based on 327 ratings
+                      - text: (327)
+                    - generic [ref=f5e926]:
+                      - strong [ref=f5e927]: "Last Updated:"
+                      - text: 8 months ago
+                    - generic [ref=f5e928]: 2+ Million Active Installations
+                    - generic [ref=f5e929]: Untested with your version of WordPress
+                - generic [ref=f5e930]:
+                  - generic [ref=f5e931]:
+                    - heading "MonsterInsights – Google Analytics Dashboard for WordPress (Website Stats Made Easy)" [level=3] [ref=f5e933]:
+                      - link "MonsterInsights – Google Analytics Dashboard for WordPress (Website Stats Made Easy)" [ref=f5e934] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=google-analytics-for-wordpress&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e936]:
+                      - listitem [ref=f5e937]:
+                        - button "Install MonsterInsights – Google Analytics Dashboard for WordPress (Website Stats Made Easy) 10.2.2 now" [ref=f5e938] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e939]:
+                        - link "More information about MonsterInsights – Google Analytics Dashboard for WordPress (Website Stats Made Easy) 10.2.2" [ref=f5e940] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=google-analytics-for-wordpress&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e941]:
+                      - paragraph [ref=f5e942]: The best free Google Analytics plugin for WordPress. See how visitors find and use your website so you can grow your business with powerful analytics.
+                      - paragraph [ref=f5e943]:
+                        - generic [ref=f5e944]:
+                          - text: By
+                          - link "chriscct7" [ref=f5e945] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/chriscct7/
+                  - generic [ref=f5e946]:
+                    - generic [ref=f5e947]:
+                      - generic [ref=f5e949]: 4.5 rating based on 3,143 ratings
+                      - text: (3,143)
+                    - generic [ref=f5e955]:
+                      - strong [ref=f5e956]: "Last Updated:"
+                      - text: 1 month ago
+                    - generic [ref=f5e957]: 2+ Million Active Installations
+                    - generic [ref=f5e959]:
+                      - strong [ref=f5e960]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e961]:
+                  - generic [ref=f5e962]:
+                    - heading "Classic Widgets" [level=3] [ref=f5e964]:
+                      - link "Classic Widgets" [ref=f5e965] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=classic-widgets&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e967]:
+                      - listitem [ref=f5e968]:
+                        - button "Install Classic Widgets 0.3 now" [ref=f5e969] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e970]:
+                        - link "More information about Classic Widgets 0.3" [ref=f5e971] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=classic-widgets&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e972]:
+                      - paragraph [ref=f5e973]: Enables the previous "classic" widgets settings screens in Appearance - Widgets and the Customizer. Disables the block editor from managing widgets.
+                      - paragraph [ref=f5e974]:
+                        - generic [ref=f5e975]:
+                          - text: By
+                          - link "Tonya Mork" [ref=f5e976] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/hellofromtonya/
+                  - generic [ref=f5e977]:
+                    - generic [ref=f5e978]:
+                      - generic [ref=f5e980]: 5.0 rating based on 271 ratings
+                      - text: (271)
+                    - generic [ref=f5e986]:
+                      - strong [ref=f5e987]: "Last Updated:"
+                      - text: 7 months ago
+                    - generic [ref=f5e988]: 2+ Million Active Installations
+                    - generic [ref=f5e989]: Untested with your version of WordPress
+                - generic [ref=f5e990]:
+                  - generic [ref=f5e991]:
+                    - heading "Ultimate Addons for Elementor" [level=3] [ref=f5e993]:
+                      - link "Ultimate Addons for Elementor" [ref=f5e994] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=header-footer-elementor&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e996]:
+                      - listitem [ref=f5e997]:
+                        - button "Install Ultimate Addons for Elementor 2.9.0 now" [ref=f5e998] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e999]:
+                        - link "More information about Ultimate Addons for Elementor 2.9.0" [ref=f5e1000] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=header-footer-elementor&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e1001]:
+                      - paragraph [ref=f5e1002]: Powerful Elementor addon with advanced Elementor widgets, templates, WooCommerce widgets & Header-Footer builder to build professional websites fa …
+                      - paragraph [ref=f5e1003]:
+                        - generic [ref=f5e1004]:
+                          - text: By
+                          - link "Brainstorm Force" [ref=f5e1005] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/brainstormforce/
+                  - generic [ref=f5e1006]:
+                    - generic [ref=f5e1007]:
+                      - generic [ref=f5e1009]: 5.0 rating based on 2,521 ratings
+                      - text: (2,521)
+                    - generic [ref=f5e1015]:
+                      - strong [ref=f5e1016]: "Last Updated:"
+                      - text: 1 day ago
+                    - generic [ref=f5e1017]: 2+ Million Active Installations
+                    - generic [ref=f5e1019]:
+                      - strong [ref=f5e1020]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e1021]:
+                  - generic [ref=f5e1022]:
+                    - heading "WPS Hide Login" [level=3] [ref=f5e1024]:
+                      - link "WPS Hide Login" [ref=f5e1025] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wps-hide-login&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e1027]:
+                      - listitem [ref=f5e1028]:
+                        - button "Install WPS Hide Login 1.9.18 now" [ref=f5e1029] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e1030]:
+                        - link "More information about WPS Hide Login 1.9.18" [ref=f5e1031] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=wps-hide-login&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e1032]:
+                      - paragraph [ref=f5e1033]: Change wp-login.php to anything you want.
+                      - paragraph [ref=f5e1034]:
+                        - generic [ref=f5e1035]:
+                          - text: By
+                          - link "Remy Perona" [ref=f5e1036] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/tabrisrp/
+                  - generic [ref=f5e1037]:
+                    - generic [ref=f5e1038]:
+                      - generic [ref=f5e1040]: 5.0 rating based on 2,110 ratings
+                      - text: (2,110)
+                    - generic [ref=f5e1046]:
+                      - strong [ref=f5e1047]: "Last Updated:"
+                      - text: 6 months ago
+                    - generic [ref=f5e1048]: 2+ Million Active Installations
+                    - generic [ref=f5e1049]: Untested with your version of WordPress
+                - generic [ref=f5e1050]:
+                  - generic [ref=f5e1051]:
+                    - heading "Advanced Custom Fields (ACF®)" [level=3] [ref=f5e1053]:
+                      - link "Advanced Custom Fields (ACF®)" [ref=f5e1054] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=advanced-custom-fields&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e1056]:
+                      - listitem [ref=f5e1057]:
+                        - button "Install Advanced Custom Fields (ACF®) 6.8.5 now" [ref=f5e1058] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e1059]:
+                        - link "More information about Advanced Custom Fields (ACF®) 6.8.5" [ref=f5e1060] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=advanced-custom-fields&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e1061]:
+                      - paragraph [ref=f5e1062]: ACF helps customize WordPress with powerful, professional and intuitive fields. Proudly powering over 2 million sites, WordPress developers love ACF.
+                      - paragraph [ref=f5e1063]:
+                        - generic [ref=f5e1064]:
+                          - text: By
+                          - link "WP Engine" [ref=f5e1065] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/wpengine/
+                  - generic [ref=f5e1066]:
+                    - generic [ref=f5e1067]:
+                      - generic [ref=f5e1069]: 4.5 rating based on 1,437 ratings
+                      - text: (1,437)
+                    - generic [ref=f5e1075]:
+                      - strong [ref=f5e1076]: "Last Updated:"
+                      - text: 23 hours ago
+                    - generic [ref=f5e1077]: 2+ Million Active Installations
+                    - generic [ref=f5e1079]:
+                      - strong [ref=f5e1080]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e1081]:
+                  - generic [ref=f5e1082]:
+                    - heading "Essential Addons for Elementor – Popular Elementor Templates & Widgets" [level=3] [ref=f5e1084]:
+                      - link "Essential Addons for Elementor – Popular Elementor Templates & Widgets" [ref=f5e1085] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=essential-addons-for-elementor-lite&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e1087]:
+                      - listitem [ref=f5e1088]:
+                        - button "Install Essential Addons for Elementor – Popular Elementor Templates & Widgets 6.6.9 now" [ref=f5e1089] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e1090]:
+                        - link "More information about Essential Addons for Elementor – Popular Elementor Templates & Widgets 6.6.9" [ref=f5e1091] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=essential-addons-for-elementor-lite&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e1092]:
+                      - paragraph [ref=f5e1093]: Elementor addon offering 110+ widgets and templates — Elementor Gallery, Slider, Form, Post Grid, Menu, Accordion, WooCommerce & more.
+                      - paragraph [ref=f5e1094]:
+                        - generic [ref=f5e1095]:
+                          - text: By
+                          - link "WPDeveloper" [ref=f5e1096] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/wpdevteam/
+                  - generic [ref=f5e1097]:
+                    - generic [ref=f5e1098]:
+                      - generic [ref=f5e1100]: 5.0 rating based on 4,081 ratings
+                      - text: (4,081)
+                    - generic [ref=f5e1106]:
+                      - strong [ref=f5e1107]: "Last Updated:"
+                      - text: 1 week ago
+                    - generic [ref=f5e1108]: 2+ Million Active Installations
+                    - generic [ref=f5e1110]:
+                      - strong [ref=f5e1111]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e1112]:
+                  - generic [ref=f5e1113]:
+                    - heading "Advanced Editor Tools" [level=3] [ref=f5e1115]:
+                      - link "Advanced Editor Tools" [ref=f5e1116] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=tinymce-advanced&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e1118]:
+                      - listitem [ref=f5e1119]:
+                        - button "Install Advanced Editor Tools 5.9.2 now" [ref=f5e1120] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e1121]:
+                        - link "More information about Advanced Editor Tools 5.9.2" [ref=f5e1122] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=tinymce-advanced&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e1123]:
+                      - paragraph [ref=f5e1124]: Extends and enhances the block editor (Gutenberg) and the classic editor (TinyMCE).
+                      - paragraph [ref=f5e1125]:
+                        - generic [ref=f5e1126]:
+                          - text: By
+                          - link "Andrew Ozz" [ref=f5e1127] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/azaozz/
+                  - generic [ref=f5e1128]:
+                    - generic [ref=f5e1129]:
+                      - generic [ref=f5e1131]: 4.5 rating based on 354 ratings
+                      - text: (354)
+                    - generic [ref=f5e1137]:
+                      - strong [ref=f5e1138]: "Last Updated:"
+                      - text: 7 months ago
+                    - generic [ref=f5e1139]: 1+ Million Active Installations
+                    - generic [ref=f5e1140]: Untested with your version of WordPress
+                - generic [ref=f5e1141]:
+                  - generic [ref=f5e1142]:
+                    - heading "Starter Templates – AI-Powered Templates for Elementor & Gutenberg" [level=3] [ref=f5e1144]:
+                      - link "Starter Templates – AI-Powered Templates for Elementor & Gutenberg" [ref=f5e1145] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=astra-sites&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e1147]:
+                      - listitem [ref=f5e1148]:
+                        - button "Install Starter Templates – AI-Powered Templates for Elementor & Gutenberg 4.6.3 now" [ref=f5e1149] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e1150]:
+                        - link "More information about Starter Templates – AI-Powered Templates for Elementor & Gutenberg 4.6.3" [ref=f5e1151] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=astra-sites&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e1152]:
+                      - paragraph [ref=f5e1153]: The growing library of 300+ ready-to-use templates that work with all WordPress themes including Astra, Hello, OceanWP, GeneratePress and more
+                      - paragraph [ref=f5e1154]:
+                        - generic [ref=f5e1155]:
+                          - text: By
+                          - link "Brainstorm Force" [ref=f5e1156] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/brainstormforce/
+                  - generic [ref=f5e1157]:
+                    - generic [ref=f5e1158]:
+                      - generic [ref=f5e1160]: 5.0 rating based on 4,743 ratings
+                      - text: (4,743)
+                    - generic [ref=f5e1166]:
+                      - strong [ref=f5e1167]: "Last Updated:"
+                      - text: 1 week ago
+                    - generic [ref=f5e1168]: 1+ Million Active Installations
+                    - generic [ref=f5e1170]:
+                      - strong [ref=f5e1171]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e1172]:
+                  - generic [ref=f5e1173]:
+                    - heading "ElementsKit Elementor Addons – Advanced Widgets & Templates Addons for Elementor" [level=3] [ref=f5e1175]:
+                      - link "ElementsKit Elementor Addons – Advanced Widgets & Templates Addons for Elementor" [ref=f5e1176] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=elementskit-lite&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e1178]:
+                      - listitem [ref=f5e1179]:
+                        - button "Install ElementsKit Elementor Addons – Advanced Widgets & Templates Addons for Elementor 3.9.10 now" [ref=f5e1180] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e1181]:
+                        - link "More information about ElementsKit Elementor Addons – Advanced Widgets & Templates Addons for Elementor 3.9.10" [ref=f5e1182] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=elementskit-lite&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e1183]:
+                      - paragraph [ref=f5e1184]: Join millions who empower their websites with ElementsKit Elementor Addons. Get templates, & 100+ widgets like header-footer, mega menu, custom widget
+                      - paragraph [ref=f5e1185]:
+                        - generic [ref=f5e1186]:
+                          - text: By
+                          - link "Roxnor" [ref=f5e1187] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/roxnor/
+                  - generic [ref=f5e1188]:
+                    - generic [ref=f5e1189]:
+                      - generic [ref=f5e1191]: 5.0 rating based on 2,020 ratings
+                      - text: (2,020)
+                    - generic [ref=f5e1197]:
+                      - strong [ref=f5e1198]: "Last Updated:"
+                      - text: 6 hours ago
+                    - generic [ref=f5e1199]: 1+ Million Active Installations
+                    - generic [ref=f5e1201]:
+                      - strong [ref=f5e1202]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e1203]:
+                  - generic [ref=f5e1204]:
+                    - heading "Limit Login Attempts Security – Login Security, 2FA, Firewall, Brute Force Prevention" [level=3] [ref=f5e1206]:
+                      - link "Limit Login Attempts Security – Login Security, 2FA, Firewall, Brute Force Prevention" [ref=f5e1207] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=limit-login-attempts-reloaded&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e1209]:
+                      - listitem [ref=f5e1210]:
+                        - button "Install Limit Login Attempts Security – Login Security, 2FA, Firewall, Brute Force Prevention 3.3.2 now" [ref=f5e1211] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e1212]:
+                        - link "More information about Limit Login Attempts Security – Login Security, 2FA, Firewall, Brute Force Prevention 3.3.2" [ref=f5e1213] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=limit-login-attempts-reloaded&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e1214]:
+                      - paragraph [ref=f5e1215]: WordPress login security with brute force protection, Two-factor authentication (2FA/MFA), firewall, IP/country blocking, and login monitoring
+                      - paragraph [ref=f5e1216]:
+                        - generic [ref=f5e1217]:
+                          - text: By
+                          - link "WPChef" [ref=f5e1218] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/wpchefgadget/
+                  - generic [ref=f5e1219]:
+                    - generic [ref=f5e1220]:
+                      - generic [ref=f5e1222]: 5.0 rating based on 1,464 ratings
+                      - text: (1,464)
+                    - generic [ref=f5e1228]:
+                      - strong [ref=f5e1229]: "Last Updated:"
+                      - text: 1 week ago
+                    - generic [ref=f5e1230]: 1+ Million Active Installations
+                    - generic [ref=f5e1232]:
+                      - strong [ref=f5e1233]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e1234]:
+                  - generic [ref=f5e1235]:
+                    - 'heading "MC4WP: Mailchimp for WordPress" [level=3] [ref=f5e1237]':
+                      - 'link "MC4WP: Mailchimp for WordPress" [ref=f5e1238] [cursor=pointer]':
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=mailchimp-for-wp&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e1240]:
+                      - listitem [ref=f5e1241]:
+                        - 'button "Install MC4WP: Mailchimp for WordPress 4.13.1 now" [ref=f5e1242] [cursor=pointer]': Install Now
+                      - listitem [ref=f5e1243]:
+                        - 'link "More information about MC4WP: Mailchimp for WordPress 4.13.1" [ref=f5e1244] [cursor=pointer]':
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=mailchimp-for-wp&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e1245]:
+                      - paragraph [ref=f5e1246]: "The #1 Mailchimp plugin for WordPress. Allows you to add a multitude of newsletter sign-up methods to your site."
+                      - paragraph [ref=f5e1247]:
+                        - generic [ref=f5e1248]:
+                          - text: By
+                          - link "Danny van Kooten" [ref=f5e1249] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/dvankooten/
+                  - generic [ref=f5e1250]:
+                    - generic [ref=f5e1251]:
+                      - generic [ref=f5e1253]: 5.0 rating based on 1,497 ratings
+                      - text: (1,497)
+                    - generic [ref=f5e1259]:
+                      - strong [ref=f5e1260]: "Last Updated:"
+                      - text: 1 week ago
+                    - generic [ref=f5e1261]: 1+ Million Active Installations
+                    - generic [ref=f5e1263]:
+                      - strong [ref=f5e1264]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e1265]:
+                  - generic [ref=f5e1266]:
+                    - heading "Loco Translate" [level=3] [ref=f5e1268]:
+                      - link "Loco Translate" [ref=f5e1269] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=loco-translate&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e1271]:
+                      - listitem [ref=f5e1272]:
+                        - button "Install Loco Translate 2.8.5 now" [ref=f5e1273] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e1274]:
+                        - link "More information about Loco Translate 2.8.5" [ref=f5e1275] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=loco-translate&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e1276]:
+                      - paragraph [ref=f5e1277]: Translate WordPress plugins and themes directly in your browser. Versatile PO file editor with integrated AI translation providers.
+                      - paragraph [ref=f5e1278]:
+                        - generic [ref=f5e1279]:
+                          - text: By
+                          - link "Tim W" [ref=f5e1280] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/timwhitlock/
+                  - generic [ref=f5e1281]:
+                    - generic [ref=f5e1282]:
+                      - generic [ref=f5e1284]: 5.0 rating based on 450 ratings
+                      - text: (450)
+                    - generic [ref=f5e1290]:
+                      - strong [ref=f5e1291]: "Last Updated:"
+                      - text: 1 month ago
+                    - generic [ref=f5e1292]: 1+ Million Active Installations
+                    - generic [ref=f5e1294]:
+                      - strong [ref=f5e1295]: Compatible
+                      - text: with your version of WordPress
+                - generic [ref=f5e1296]:
+                  - generic [ref=f5e1297]:
+                    - heading "Disable Comments – Remove Comments & Stop Spam [Multi-Site Support]" [level=3] [ref=f5e1299]:
+                      - link "Disable Comments – Remove Comments & Stop Spam [Multi-Site Support]" [ref=f5e1300] [cursor=pointer]:
+                        - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=disable-comments&TB_iframe=true&width=600&height=550
+                    - list [ref=f5e1302]:
+                      - listitem [ref=f5e1303]:
+                        - button "Install Disable Comments – Remove Comments & Stop Spam [Multi-Site Support] 2.7.0 now" [ref=f5e1304] [cursor=pointer]: Install Now
+                      - listitem [ref=f5e1305]:
+                        - link "More information about Disable Comments – Remove Comments & Stop Spam [Multi-Site Support] 2.7.0" [ref=f5e1306] [cursor=pointer]:
+                          - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=plugin-information&plugin=disable-comments&TB_iframe=true&width=600&height=550
+                          - text: More Details
+                    - generic [ref=f5e1307]:
+                      - paragraph [ref=f5e1308]: Allows administrators to globally disable comments on their site. Comments can be disabled according to post type. Multisite friendly.
+                      - paragraph [ref=f5e1309]:
+                        - generic [ref=f5e1310]:
+                          - text: By
+                          - link "WPDeveloper" [ref=f5e1311] [cursor=pointer]:
+                            - /url: https://profiles.wordpress.org/wpdevteam/
+                  - generic [ref=f5e1312]:
+                    - generic [ref=f5e1313]:
+                      - generic [ref=f5e1315]: 4.5 rating based on 278 ratings
+                      - text: (278)
+                    - generic [ref=f5e1321]:
+                      - strong [ref=f5e1322]: "Last Updated:"
+                      - text: 2 months ago
+                    - generic [ref=f5e1323]: 1+ Million Active Installations
+                    - generic [ref=f5e1325]:
+                      - strong [ref=f5e1326]: Compatible
+                      - text: with your version of WordPress
+            - generic [ref=f5e1328]:
+              - text: 62,501 items
+              - generic [ref=f5e1329]:
+                - generic [ref=f5e1330]: «
+                - generic [ref=f5e1331]: ‹
+                - generic [ref=f5e1332]: Current Page
+                - generic [ref=f5e1334]: 1 of 1,737
+                - link "Next page" [ref=f5e1335] [cursor=pointer]:
+                  - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=popular&paged=2
+                  - generic [ref=f5e1336]: Next page
+                  - text: ›
+                - link "Last page" [ref=f5e1337] [cursor=pointer]:
+                  - /url: https://galactic-family-hub.com/wp-admin/plugin-install.php?tab=popular&paged=1737
+                  - generic [ref=f5e1338]: Last page
+                  - text: »
+  - contentinfo [ref=f5e1339]:
+    - paragraph [ref=f5e1340]:
+      - generic [ref=f5e1341]:
+        - text: Thank you for creating with
+        - link "WordPress" [ref=f5e1342] [cursor=pointer]:
+          - /url: https://wordpress.org/
+        - text: .
+    - paragraph [ref=f5e1343]: Version 7.0

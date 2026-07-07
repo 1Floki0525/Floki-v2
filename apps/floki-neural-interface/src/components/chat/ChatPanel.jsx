@@ -200,6 +200,79 @@ export default function ChatPanel({ flokiStatus }) {
     }
   }, [isResponding, syncTranscript])
 
+  const playReplyAudio = useCallback(async (blob) => {
+    if (!blob) return
+    const url = URL.createObjectURL(blob)
+    try {
+      const audio = new Audio(url)
+      await audio.play()
+      audio.addEventListener('ended', () => URL.revokeObjectURL(url), { once: true })
+    } catch (error) {
+      URL.revokeObjectURL(url)
+      throw error
+    }
+  }, [])
+
+  const handleVoiceAudio = useCallback(async (audioBlob) => {
+    if (isResponding) {
+      toast.warning('Floki is already responding. Interrupt the active response first.')
+      return
+    }
+    const flokiMsgId = crypto.randomUUID()
+    const clientTurnStartedAt = Date.now()
+    setMessages((previous) => [
+      ...previous,
+      {
+        ...createChatMessage({ id: flokiMsgId, role: 'assistant', content: '', isStreaming: true, timestamp: clientTurnStartedAt + 1 }),
+        optimistic: true,
+        clientTurnStartedAt,
+      },
+    ])
+    setIsResponding(true)
+    const controller = new AbortController()
+    abortRef.current = controller
+    try {
+      const result = await flokiAdapter.sendVoiceUtterance({
+        audioBlob,
+        signal: controller.signal,
+        onStateChange: setFlokiState,
+        onToken: (content) => {
+          setMessages((previous) => previous.map((message) =>
+            message.id === flokiMsgId ? { ...message, content } : message
+          ))
+        },
+        onLatency: (latency) => {
+          setMessages((previous) => previous.map((message) =>
+            message.id === flokiMsgId ? { ...message, latency } : message
+          ))
+        },
+        onError: (error) => {
+          setMessages((previous) => previous.map((message) =>
+            message.id === flokiMsgId
+              ? { ...message, content: `Error: ${error.message}`, isStreaming: false }
+              : message
+          ))
+          setFlokiState(FlokiState.ERROR)
+        },
+        onComplete: (content, latency) => {
+          setMessages((previous) => previous.map((message) =>
+            message.id === flokiMsgId
+              ? { ...message, content, latency, isStreaming: false, optimistic: true }
+              : message
+          ))
+        },
+      })
+      if (result.replyAudioBlob) await playReplyAudio(result.replyAudioBlob)
+      await syncTranscript()
+    } catch (error) {
+      if (error?.name !== 'AbortError') toast.error(error.message)
+    } finally {
+      setIsResponding(false)
+      setFlokiState(FlokiState.IDLE)
+      abortRef.current = null
+    }
+  }, [isResponding, playReplyAudio, syncTranscript])
+
   const handleRegenerate = useCallback((assistantMessage) => { const index = messages.findIndex((message) => message.id === assistantMessage.id); for (let cursor = index - 1; cursor >= 0; cursor -= 1) { if (messages[cursor].role === 'user' && String(messages[cursor].content || '').trim()) { void handleSend(messages[cursor].content); return; } } toast.error('No preceding user message is available to regenerate.'); }, [handleSend, messages]);
 
   const handleInterrupt = useCallback(() => {
@@ -279,7 +352,13 @@ export default function ChatPanel({ flokiStatus }) {
           </button>
         )}
       </div>
-      <MessageComposer onSend={handleSend} onInterrupt={handleInterrupt} isFlokiResponding={isResponding} />
+      <MessageComposer
+        onSend={handleSend}
+        onInterrupt={handleInterrupt}
+        onVoiceAudio={handleVoiceAudio}
+        onVoiceError={(error) => toast.error(error.message)}
+        isFlokiResponding={isResponding}
+      />
     </div>
   )
 }

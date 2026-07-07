@@ -29,7 +29,11 @@ function assertNoRuntimeHardcoding() {
 }
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
 
   const vision = getVisionConfig('chat');
   assert.equal(vision.target_capture_fps, 40);
@@ -60,7 +64,17 @@ function run() {
 
   assertNoRuntimeHardcoding();
 
-  console.log(JSON.stringify({
+  
+  // FLOKI_VISION_SOURCE_ROUTER_MULTIMODAL_SERVER_ASSERTS_V2
+  const serviceSource = fs.readFileSync(path.join(PROJECT_ROOT, 'src/vision/chat-webcam-vision-service.cjs'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(PROJECT_ROOT, 'src/model/hf_cognition_server.py'), 'utf8');
+  assert.ok(serviceSource.includes('image_sent_to_language_model: true'));
+  assert.ok(serverSource.includes('normalize_content_part'));
+  assert.ok(serverSource.includes('image_url'));
+  assert.ok(serverSource.includes('decode_data_url_image'));
+
+
+console.log(JSON.stringify({
     ok: true,
     marker: 'FLOKI_V2_VISION_SOURCE_ROUTER_PASS',
     chat_mode_uses_webcam_eyes: true,

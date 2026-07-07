@@ -8,7 +8,11 @@ function sleep(ms) {
 }
 
 async function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
 
   // Helpers that capture every call and completion.
   function makeService() {

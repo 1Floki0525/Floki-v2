@@ -16,7 +16,7 @@ function parseJsonFromStdout(stdout) {
 }
 
 function run() {
-  const result = spawnSync('bash', ['bin/floki-start.sh', 'senses-smoke'], {
+  const result = spawnSync(process.execPath, ['src/senses/offline-senses.cjs', '--smoke'], {
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 30000

@@ -5,7 +5,11 @@ const assert = require('node:assert/strict');
 const { buildGameVisionSourceStatus } = require('../src/vision/game-vision-source.cjs');
 
 function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
   const status = buildGameVisionSourceStatus();
 
   assert.equal(status.ok, true);

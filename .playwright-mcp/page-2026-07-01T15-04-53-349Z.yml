@@ -1,0 +1,82 @@
+- generic [ref=f712e2]:
+  - generic [ref=f712e3]:
+    - navigation "Main navigation" [ref=f712e4]:
+      - generic [ref=f712e6]:
+        - img [ref=f712e8]
+        - generic [ref=f712e10]:
+          - heading "Floki Neural" [level=1] [ref=f712e11]
+          - paragraph [ref=f712e12]: INTERFACE
+      - generic [ref=f712e13]:
+        - generic [ref=f712e18]: Floki Online
+        - generic [ref=f712e22]: chat.local
+        - generic [ref=f712e26]: Vision
+        - generic [ref=f712e30]: Hearing
+        - generic [ref=f712e34]: Awake
+      - generic [ref=f712e35]:
+        - button "Chat Interface" [ref=f712e36] [cursor=pointer]:
+          - img [ref=f712e37]
+          - generic [ref=f712e39]: Chat Interface
+        - button "Dreams" [ref=f712e40] [cursor=pointer]:
+          - img [ref=f712e41]
+          - generic [ref=f712e51]: Dreams
+        - button "Neural Stream" [ref=f712e52] [cursor=pointer]:
+          - img [ref=f712e53]
+          - generic [ref=f712e55]: Neural Stream
+        - button "RSI Lab" [ref=f712e56] [cursor=pointer]:
+          - img [ref=f712e57]
+          - generic [ref=f712e59]: RSI Lab
+        - button "System" [active] [ref=f712e60] [cursor=pointer]:
+          - img [ref=f712e61]
+          - generic [ref=f712e64]: System
+        - button "Settings" [ref=f712e65] [cursor=pointer]:
+          - img [ref=f712e66]
+          - generic [ref=f712e69]: Settings
+      - button "Collapse navigation" [ref=f712e71] [cursor=pointer]:
+        - img [ref=f712e72]
+    - main [ref=f712e74]:
+      - generic [ref=f712e257]:
+        - heading "System Status" [level=2] [ref=f712e258]
+        - generic [ref=f712e259]:
+          - heading "System Controls" [level=3] [ref=f712e260]
+          - generic [ref=f712e261]:
+            - button "Start Chat Mode" [ref=f712e262] [cursor=pointer]:
+              - img [ref=f712e263]
+              - text: Start Chat Mode
+            - button "Stop Chat Mode" [ref=f712e265] [cursor=pointer]:
+              - img [ref=f712e266]
+              - text: Stop Chat Mode
+            - button "Restart Chat Mode" [ref=f712e268] [cursor=pointer]:
+              - img [ref=f712e269]
+              - text: Restart Chat Mode
+            - button "Wake Floki" [ref=f712e272] [cursor=pointer]:
+              - img [ref=f712e273]
+              - text: Wake Floki
+            - button "Request Configured Nap" [ref=f712e279] [cursor=pointer]:
+              - img [ref=f712e280]
+              - text: Request Configured Nap
+            - button "Pause Nightly Scheduler" [ref=f712e282] [cursor=pointer]:
+              - img [ref=f712e283]
+              - text: Pause Nightly Scheduler
+            - button "Resume Nightly Scheduler" [ref=f712e286] [cursor=pointer]:
+              - img [ref=f712e287]
+              - text: Resume Nightly Scheduler
+            - button "Restart Vision" [ref=f712e289] [cursor=pointer]:
+              - img [ref=f712e290]
+              - text: Restart Vision
+            - button "Restart Hearing" [ref=f712e293] [cursor=pointer]:
+              - img [ref=f712e294]
+              - text: Restart Hearing
+            - button "Restart Speech" [ref=f712e297] [cursor=pointer]:
+              - img [ref=f712e298]
+              - text: Restart Speech
+            - button "Interrupt Response" [ref=f712e302] [cursor=pointer]:
+              - img [ref=f712e303]
+              - text: Interrupt Response
+        - generic [ref=f712e307]:
+          - generic [ref=f712e308]:
+            - img [ref=f712e309]
+            - generic [ref=f712e312]: Recursive Self-Improvement
+          - button "Open RSI Lab" [ref=f712e313] [cursor=pointer]:
+            - img [ref=f712e314]
+            - text: Open RSI Lab
+  - region "Notifications alt+T"

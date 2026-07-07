@@ -30,6 +30,7 @@ for (const key of [
   'failed_lookup_limit',
   'max_no_change_iterations',
   'focused_verification_failure_limit',
+  'focused_repair_no_progress_iteration_limit',
   'research_corpus_catalog_relative_path',
   'research_corpus_search_default_limit',
   'research_corpus_search_max_limit',
@@ -63,7 +64,8 @@ const policy = createConvergencePolicy({
   search_only_streak_limit: 3,
   failed_lookup_limit: 2,
   max_no_change_iterations: 2,
-  focused_verification_failure_limit: 4
+  focused_verification_failure_limit: 4,
+  focused_repair_no_progress_iteration_limit: 6
 }, (type, detail) => events.push({ type, detail }));
 
 policy.beginIteration(1);
@@ -166,7 +168,8 @@ const mutationFirstPolicy = createConvergencePolicy({
   search_only_streak_limit: 3,
   failed_lookup_limit: 2,
   max_no_change_iterations: 2,
-  focused_verification_failure_limit: 4
+  focused_verification_failure_limit: 4,
+  focused_repair_no_progress_iteration_limit: 6
 }, (type, detail) => mutationFirstEvents.push({ type, detail }));
 mutationFirstPolicy.beginIteration(2);
 const preSelectionWrite = mutationFirstPolicy.authorize(
@@ -247,7 +250,8 @@ for (const token of [
   'compactConversation',
   'convergencePolicy.feedback',
   'validateExperimentTargetFiles',
-  'think: MODEL_THINKING_ENABLED',
+  'think: thinkingEnabled',
+  'MODEL_THINKING_ENABLED',
   'selectionAnchorMessage',
   'selection_anchor_reminder'
 ]) {
@@ -306,9 +310,10 @@ assert.match(
   sandbox,
   /research_corpus_catalog_relative_path:\s*config\.research_corpus_catalog_relative_path/
 );
-assert.match(
+assert.doesNotMatch(
   sandbox,
-  /iteration_wall_clock_budget_ms:\s*\n?\s*config\.iteration_wall_clock_budget_ms/
+  /iteration_wall_clock_budget_ms/,
+  'run-level wall-clock budgets were removed by the condition-driven execution contract'
 );
 assert.match(
   sandbox,
@@ -339,14 +344,14 @@ const generatedAgentConfig = agentConfig(
   resolvedConfig
 );
 for (const key of [
-  'iteration_wall_clock_budget_ms',
   'environment_check_command_timeout_ms',
   'shell_command_progress_interval_ms',
   'model_thinking_enabled',
   'agent_message_history_max_chars',
   'agent_recent_message_count',
   'agent_ollama_request_max_attempts',
-  'agent_ollama_request_retry_backoff_ms'
+  'agent_ollama_request_retry_backoff_ms',
+  'occupied_candidate_statuses'
 ]) {
   assert.equal(
     generatedAgentConfig[key],

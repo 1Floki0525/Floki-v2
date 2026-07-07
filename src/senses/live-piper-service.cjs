@@ -47,6 +47,7 @@ function createLivePiperService(options = {}) {
   function voiceSettings() { return getInterfaceSettings('chat').voice; }
   function applyOutputVolume() { const volume = Math.max(0, Math.min(100, Number(voiceSettings().speechVolume || 80))); const wpctl = commandPath('wpctl'); if (wpctl) { spawnSync(wpctl, ['set-volume', '@DEFAULT_AUDIO_SINK@', String(volume / 100)], { encoding: 'utf8' }); return 'wpctl'; } const pactl = commandPath('pactl'); if (pactl) { spawnSync(pactl, ['set-sink-volume', '@DEFAULT_SINK@', String(volume) + '%'], { encoding: 'utf8' }); return 'pactl'; } return null; }
   const state = {
+    enabled: true,
     ready: false,
     speaking: false,
     piper_cli_ready: false,
@@ -132,6 +133,7 @@ function createLivePiperService(options = {}) {
   }
 
   async function speak(text, metadata = {}) {
+    if (state.enabled !== true) return Object.freeze({ ok: true, skipped: true, reason: 'speech_module_stopped' });
     if (voiceSettings().speakerEnabled !== true) return Object.freeze({ ok: true, skipped: true, reason: 'speaker_disabled_in_yaml' });
     if (state.speaking) throw new Error('Piper is already speaking');
     state.speaking = true;
@@ -140,7 +142,13 @@ function createLivePiperService(options = {}) {
     if (typeof options.on_speaking_change === 'function') await options.on_speaking_change(true);
     let synthesis = null;
     try {
-      synthesis = await synthesize(text, metadata); state.last_first_audio_at = nowIso(); applyOutputVolume(); activeSpeechController = new AbortController();
+      synthesis = await synthesize(text, metadata);
+      if (state.enabled !== true) {
+        return Object.freeze({ ok: true, skipped: true, reason: 'speech_module_stopped_after_synthesis' });
+      }
+      state.last_first_audio_at = nowIso();
+      applyOutputVolume();
+      activeSpeechController = new AbortController();
       const playback = await runPlaybackWithVoiceLockAsync(synthesis.output_file, {
         output_id: metadata.utterance_id || synthesis.output_file,
         text_hash: metadata.text_hash || 'live_piper_' + String(text.length)
@@ -163,9 +171,45 @@ function createLivePiperService(options = {}) {
     }
   }
 
-  function interrupt() { if (voiceSettings().interruptibleSpeech !== true) return Object.freeze({ ok: false, interrupted: false, reason: 'interruptible_speech_disabled' }); const active = Boolean(activeSpeechController); if (activeSpeechController) activeSpeechController.abort(); return Object.freeze({ ok: true, interrupted: active }); }
+  function interrupt(options = {}) {
+    const force = options && options.force === true;
+    if (!force && voiceSettings().interruptibleSpeech !== true) {
+      return Object.freeze({
+        ok: false,
+        interrupted: false,
+        reason: 'interruptible_speech_disabled'
+      });
+    }
+    const active = Boolean(activeSpeechController);
+    if (activeSpeechController) activeSpeechController.abort();
+    return Object.freeze({
+      ok: true,
+      interrupted: active,
+      forced: force
+    });
+  }
+
+  function setEnabled(enabled) {
+    const next = enabled === true;
+    const changed = state.enabled !== next;
+    state.enabled = next;
+    const interruption = !next
+      ? interrupt({ force: true })
+      : Object.freeze({
+          ok: true,
+          interrupted: false,
+          forced: false
+        });
+    return Object.freeze({
+      ok: true,
+      changed,
+      enabled: state.enabled,
+      interruption,
+      status: status()
+    });
+  }
   refreshReadiness();
-  return Object.freeze({ status, refreshReadiness, synthesize, speak, interrupt });
+  return Object.freeze({ status, refreshReadiness, synthesize, speak, interrupt, setEnabled });
 }
 
 module.exports = {

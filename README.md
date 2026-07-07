@@ -8,9 +8,10 @@ The project is designed around one persistent individual named **Floki** rather 
 
 Floki-v2 has two main operating modes:
 
-### `chat.local` — personal AI companion
+### `floki-runtime` and `floki.app` — personal AI companion
 
-`chat.local` runs Floki as a private desktop companion through the Floki Neural Interface.
+`floki-runtime` owns Floki's shared long-lived brain and all system services.
+`floki.app` is the local Electron client for that already-running shared runtime.
 
 While awake, the intended production workflow gives Floki:
 
@@ -30,10 +31,17 @@ While awake, the intended production workflow gives Floki:
 
 Typed and spoken input are required to use the same authoritative long-lived brain and memory state. Camera and microphone services are lifecycle-controlled and should only become active after the desktop interface is ready and Floki is awake.
 
-Start the local companion with:
+Start the shared runtime, then open the local client:
 
 ```bash
-bin/floki-start.sh chat.local
+bin/floki-runtime.sh start
+bin/floki-app.sh
+```
+
+Apply source or configuration changes with one complete lifecycle command:
+
+```bash
+bin/floki-runtime.sh reset
 ```
 
 ### `game` — AI friend for games
@@ -42,10 +50,10 @@ Game mode is intended to let the same persistent Floki identity play games with 
 
 The long-term design is for game perception and embodiment to connect to the same brain, memory, emotion, relationship, personality, and belief systems used by companion mode.
 
-Start game mode with:
+Run the guarded game entrypoint proof directly:
 
 ```bash
-bin/floki-start.sh game
+bin/floki-node24-run.sh node src/game/floki-game.cjs --status
 ```
 
 Game embodiment remains under active development and is intentionally isolated from the current `chat.local` repair work.
@@ -75,12 +83,12 @@ The brain is organized as cooperating modules inspired by functional brain regio
 - `brain/frontal` — cognition and response planning;
 - `brain/broca` — public language and spoken-response shaping.
 
-The production `chat.local` workflow is centered on:
+The production shared-runtime workflow is centered on:
 
 ```text
 Floki Neural Interface
         ↓
-authoritative chat.local runtime
+authoritative floki-runtime
         ├── one persistent core brain
         ├── typed-input path
         ├── continuous hearing path
@@ -139,16 +147,22 @@ Run the full project test suite:
 npm test
 ```
 
-Check the running companion workflow:
+Check the shared runtime:
 
 ```bash
-bash bin/floki-chat-status.sh
+bin/floki-runtime.sh status
 ```
 
-Stop the local companion workflow:
+Reset the complete runtime after source or configuration changes:
 
 ```bash
-bash bin/floki-chat-stop.sh
+bin/floki-runtime.sh reset
+```
+
+Stop the complete runtime:
+
+```bash
+bin/floki-runtime.sh stop
 ```
 
 ## Current development status
@@ -157,7 +171,7 @@ Floki-v2 is an active implementation, not a scaffold-only repository.
 
 The repository currently contains real brain modules, persistent memory and affect systems, local cognition, live microphone and vision services, local speech output, the Electron/React Neural Interface, sleep scheduling, REM state, dream generation, and extensive contract tests.
 
-The `chat.local` workflow is still being stabilized for production-quality conversational latency, complete spoken-utterance capture, truthful live sensory answers, transcript continuity, lifecycle ordering, and clean service recovery. Static tests do not replace live verification with the real microphone, camera, local models, speaker, and desktop interface.
+The shared `floki-runtime` workflow is still being stabilized for production-quality conversational latency, complete spoken-utterance capture, truthful live sensory answers, transcript continuity, lifecycle ordering, and clean service recovery. Static tests do not replace live verification with the real microphone, camera, local models, speaker, and desktop interface.
 
 ## Repository boundaries
 

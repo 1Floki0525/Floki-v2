@@ -6,6 +6,7 @@ const http = require('node:http');
 const path = require('node:path');
 const readline = require('node:readline');
 const { spawn, spawnSync } = require('node:child_process');
+const { createPtySession } = require('./pty-session.cjs');
 
 const CONFIG_FILE = process.env.FLOKI_RSI_CONFIG_FILE;
 if (typeof CONFIG_FILE !== 'string' || CONFIG_FILE.trim() === '') {
@@ -47,6 +48,7 @@ function requireArray(name) {
 }
 
 const WORKSPACE = requireString('workspace_path');
+const WORKSPACE_REAL = fs.realpathSync.native(WORKSPACE);
 const OUTBOX = requireString('outbox_path');
 const SELF_CONTEXT = requireString('self_context_path');
 const RUN_ID = requireString('run_id');
@@ -66,8 +68,9 @@ const AGENT_MESSAGE_HISTORY_MAX_CHARS =
   requireNumber('agent_message_history_max_chars');
 const AGENT_RECENT_MESSAGE_COUNT =
   requireNumber('agent_recent_message_count');
-const MAX_ITERATIONS = requireNumber('max_agent_iterations');
 const MAX_COMMAND_MS = requireNumber('max_command_ms');
+const DEPENDENCY_INSTALL_TIMEOUT_MS =
+  requireNumber('dependency_install_timeout_ms');
 const MAX_CHANGED_FILES = requireNumber('max_changed_files');
 const MAX_PATCH_BYTES = requireNumber('max_patch_bytes');
 const VERIFICATION = requireArray('verification_commands');
@@ -83,6 +86,12 @@ const GIT_SHOW_BUFFER_BYTES = requireNumber('agent_git_show_buffer_bytes');
 const COMMAND_AUDIT_MAX_CHARS = requireNumber('agent_command_audit_max_chars');
 const TOOL_RESULT_MAX_CHARS = requireNumber('agent_tool_result_max_chars');
 const TERMINAL_PREVIEW_MAX_CHARS = requireNumber('agent_terminal_preview_max_chars');
+const TERMINAL_STREAM_FILE_NAME = requireString('terminal_stream_file_name');
+const TERMINAL_STREAM_MAX_BYTES = requireNumber('terminal_stream_max_bytes');
+const TERMINAL_SENTINEL_GRACE_MS = requireNumber('terminal_sentinel_grace_ms');
+const TERMINAL_INTERRUPT_GRACE_MS = requireNumber('terminal_interrupt_grace_ms');
+const PTY_ROWS = requireNumber('pty_rows');
+const PTY_COLS = requireNumber('pty_cols');
 const TEST_OUTPUT_TAIL_CHARS = requireNumber('agent_test_output_tail_chars');
 const MIN_COMMAND_TIMEOUT_MS = requireNumber('agent_min_command_timeout_ms');
 const ENVIRONMENT_CHECK_TIMEOUT_MS =
@@ -97,6 +106,12 @@ const HTTP_ACCEPT = requireString('agent_http_accept');
 const AGENT_HOME_PATH = requireString('agent_home_path');
 const NPM_CACHE_PATH = requireString('agent_npm_cache_path');
 const PIP_CACHE_PATH = requireString('agent_pip_cache_path');
+const PERSISTENT_DEPENDENCY_CACHE_ROOT =
+  requireString('persistent_dependency_cache_root');
+const PERSISTENT_DEPENDENCY_CACHE_MARKER_FILE =
+  requireString('persistent_dependency_cache_marker_file');
+const DEPENDENCY_FINGERPRINT_ALGORITHM =
+  requireString('dependency_fingerprint_algorithm');
 const BROWSER_COMMAND = requireString('browser_command');
 const BROWSER_PROFILE_ROOT = requireString('browser_profile_root');
 const BROWSER_PROFILE_PREFIX = requireString('browser_profile_prefix');
@@ -140,6 +155,7 @@ const DEPENDENCY_INSTALL_UNLOCKED_COMMAND = requireString('dependency_install_un
 const INTERFACE_PROJECT_PATH = requireString('interface_project_path');
 const SNAPSHOT_EVIDENCE_SUBDIR = requireString('snapshot_evidence_subdir');
 const SNAPSHOT_RUNTIME_EVIDENCE_FILE_NAME = requireString('snapshot_runtime_evidence_file_name');
+const OCCUPIED_CANDIDATE_STATUSES = requireString('occupied_candidate_statuses');
 const SELF_CONTEXT_MANIFEST_FILE_NAME =
   requireString('self_context_manifest_file_name');
 const SELF_CONTEXT_INDEX_FILE_NAME =
@@ -160,18 +176,30 @@ const RESEARCH_CORPUS_SEARCH_MAX_LIMIT =
   requireNumber('research_corpus_search_max_limit');
 const RESEARCH_CORPUS_FETCH_MAX_CHARS =
   requireNumber('research_corpus_fetch_max_chars');
-const ITERATION_WALL_CLOCK_BUDGET_MS =
-  requireNumber('iteration_wall_clock_budget_ms');
+const MODEL_TURN_DEADLINE_MS =
+  requireNumber('model_turn_deadline_ms');
+const NO_SAFE_CANDIDATE_FILE_NAME =
+  requireString('no_safe_candidate_file_name');
+const RUN_FAILURE_FILE_NAME =
+  requireString('run_failure_file_name');
+const IMPLEMENTATION_WRITE_DEADLINE_MS =
+  requireNumber('implementation_write_deadline_ms');
+const IMPLEMENTATION_NO_PROGRESS_DEADLINE_MS =
+  requireNumber('implementation_no_progress_deadline_ms');
+const FOCUSED_REPAIR_NO_PROGRESS_DEADLINE_MS =
+  requireNumber('focused_repair_no_progress_deadline_ms');
 const OLLAMA_REQUEST_MAX_ATTEMPTS =
   requireNumber('agent_ollama_request_max_attempts');
 const OLLAMA_REQUEST_RETRY_BACKOFF_MS =
   requireNumber('agent_ollama_request_retry_backoff_ms');
 
 let shutdownSignal = null;
+let agentPtySession = null;
 function exitForShutdown(signal) {
   if (shutdownSignal) return;
   shutdownSignal = signal;
   try {
+    closeAgentPtySession('signal_' + signal);
     fs.writeSync(2, JSON.stringify({
       ok: true,
       marker: 'FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_PREEMPTED',
@@ -188,6 +216,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
 
 const runRoot = path.join(OUTBOX, RUN_ID + '.working');
 const finalRoot = path.join(OUTBOX, RUN_ID);
+const terminalStreamFile = path.join(runRoot, TERMINAL_STREAM_FILE_NAME);
 // Flat file in OUTBOX root — persists even when exitNoCandidate deletes runRoot
 const agentMemoryOutboxFile = path.join(OUTBOX, RUN_ID + '-memory-writes.jsonl');
 fs.rmSync(runRoot, { recursive: true, force: true });
@@ -204,6 +233,9 @@ let finalized = false;
 let consecutiveModelTurnFailures = 0;
 let verifiedPatchSha = null;
 let verifiedChangedFiles = [];
+// Set when the model's evidence-backed no-safe-candidate decision has been
+// validated and persisted; the main loop then ends the cycle explicitly.
+let noSafeCandidateAccepted = null;
 
 const taskState = {
   marker: 'FLOKI_V2_SELF_IMPROVEMENT_TASK_STATE',
@@ -228,8 +260,6 @@ const taskState = {
   test_results: [],
   verification_status: 'not_started',
   model_retry_state: { consecutive_failures: 0 },
-  remaining_iteration_budget: MAX_ITERATIONS,
-  remaining_wall_clock_budget_ms: ITERATION_WALL_CLOCK_BUDGET_MS,
   candidate_status: 'none',
   next_required_action: 'select_experiment',
   last_successful_action: null,
@@ -237,30 +267,25 @@ const taskState = {
   updated_at: null
 };
 
-// Load prior denial reasons once at startup so they're available in select_experiment
-const deniedCandidates = (() => {
+// Load the full prior-candidate history once at startup so the selection
+// boundary can reject duplicates of occupied (in-flight) work and offer revision
+// constraints for denied work. previous_candidate_outcomes carries every status.
+const priorCandidateOutcomes = (() => {
   try {
     const evidence = JSON.parse(fs.readFileSync(
       path.join(WORKSPACE, SNAPSHOT_EVIDENCE_SUBDIR, SNAPSHOT_RUNTIME_EVIDENCE_FILE_NAME),
       'utf8'
     ));
-    return (evidence.previous_candidate_outcomes || [])
-      .filter(c => c.status === 'denied' && c.denial_reason);
+    return Array.isArray(evidence.previous_candidate_outcomes)
+      ? evidence.previous_candidate_outcomes
+      : [];
   } catch (_) { return []; }
 })();
 
-function objectiveSimilarityScore(a, b) {
-  const words = s => new Set(
-    String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ')
-      .split(/\s+/).filter(w => w.length > 4)
-  );
-  const wa = words(a);
-  const wb = words(b);
-  if (wa.size === 0 || wb.size === 0) return 0;
-  let shared = 0;
-  for (const w of wa) if (wb.has(w)) shared++;
-  return shared / Math.min(wa.size, wb.size);
-}
+// Duplicate experiment proposals already rejected during THIS run, tracked so the
+// model cannot repeatedly resubmit the same rejected proposal before any
+// candidate exists. Treated as occupied work alongside the persisted history.
+const inRunRejectedProposals = [];
 
 const { createConvergencePolicy } = require(
   path.join(WORKSPACE, 'src/self-improvement/convergence-policy.cjs')
@@ -277,6 +302,32 @@ const {
   searchResearchCorpus
 } = require(
   path.join(WORKSPACE, 'src/self-improvement/research-corpus.cjs')
+);
+const {
+  isOccupiedStatus,
+  classifyExperimentAgainstPriors,
+  validateDeniedRevisionPlan
+} = require(
+  path.join(WORKSPACE, 'src/self-improvement/candidate-dedup.cjs')
+);
+const {
+  isRepairPhase,
+  selectActiveTools,
+  selectRepairTools,
+  buildFocusedRepairContext,
+  buildDeniedRevisionContext
+} = require(
+  path.join(WORKSPACE, 'src/self-improvement/focused-repair.cjs')
+);
+const {
+  dependencyManifestRequiresNodeModules
+} = require(
+  path.join(WORKSPACE, 'src/self-improvement/dependency-manifest.cjs')
+);
+const {
+  assertRealPathInsideRoot
+} = require(
+  path.join(WORKSPACE, 'src/self-improvement/workspace-guard.cjs')
 );
 const convergencePolicy = createConvergencePolicy(CONFIG, audit);
 const researchCorpus = loadResearchCorpus(
@@ -315,7 +366,10 @@ function audit(type, detail) {
     marker: 'FLOKI_V2_SELF_IMPROVEMENT_AGENT_AUDIT',
     created_at: nowIso(),
     type,
-    detail
+    detail: {
+      run_id: RUN_ID,
+      ...(detail && typeof detail === 'object' ? detail : { value: detail })
+    }
   });
   const auditFile = fs.existsSync(path.dirname(commandAuditFile))
     ? commandAuditFile
@@ -376,30 +430,24 @@ function compactConversation(messages) {
 function selectionAnchorMessage() {
   const snapshot = convergencePolicy.snapshot();
   if (snapshot.selected_experiment) return null;
-  const selectionRequired =
-    snapshot.phase === 'selection_required' ||
-    snapshot.phase === 'implementation_required';
-  if (selectionRequired) {
-    return (
-      'selected_experiment is still null and the selection deadline has been reached. ' +
-      'Call select_experiment now using the evidence you have gathered. Use an existing ' +
-      'repository file as the target. Baseline evidence may honestly state what the ' +
-      'current source lacks; the focused test will verify the improvement. ' +
-      'Do not use placeholder measurements such as X=VALUE, Y=VALUE, TODO, TBD, or ' +
-      'uppercase metric tokens.'
-    );
-  }
+  const evidence = snapshot.autonomous_selection_evidence || {};
+  const missingEvidence = Object.entries({
+    task_state: 'get_task_state',
+    self_context: 'get_self_context or search_self_memory',
+    repository_evidence:
+      'list_repository, search_source, inspect_symbol, corpus_search, or corpus_fetch',
+    source_file: 'read_file on a real source/config/test file'
+  })
+    .filter(([key]) => evidence[key] !== true)
+    .map(([key, tool]) => key + ' via ' + tool);
+  if (missingEvidence.length === 0) return null;
   return (
-    'selected_experiment is null. Investigate the codebase, runtime evidence, and ' +
-    'self-context before calling select_experiment. Use get_task_state, get_self_context, ' +
-    'search_self_memory, list_repository, search_source, inspect_symbol, read_file, ' +
-    'corpus_search, and research tools freely. When you have gathered sufficient evidence, ' +
-    'call select_experiment with one bounded objective, falsifiable hypothesis, baseline ' +
-    'evidence, existing target file, measurable success metric, focused test, and expected ' +
-    'follow-on value. This is a planning anchor, not Maker approval. Do not use placeholder ' +
-    'measurements such as X=VALUE, Y=VALUE, TODO, TBD, or uppercase metric tokens.'
+    'Autonomous experiment selection remains blocked by controller-owned ' +
+    'evidence readiness. Gather the missing evidence: ' +
+    missingEvidence.join('; ') + '. Do not edit or verify before selection.'
   );
 }
+
 
 function preSelectionInvalidToolFeedback(name) {
   return (
@@ -425,6 +473,233 @@ function selectExperimentCorrectionFeedback(result) {
     'A valid baseline can say the current source/test contract lacks the capability.'
   );
 }
+
+function selectionEvidenceEnvelope(messages, readiness) {
+  const recentContext = messages.slice(-12).map((entry) => ({
+    role: entry?.role || null,
+    tool_name: entry?.tool_name || null,
+    content: truncate(String(entry?.content || ''), TOOL_RESULT_MAX_CHARS)
+  }));
+  return {
+    marker: 'FLOKI_V2_AUTONOMOUS_SELECTION_EVIDENCE_READY',
+    objective_source: OBJECTIVE_SOURCE,
+    requested_objective: MAKER_OBJECTIVE,
+    current_objective:
+      taskState.current_objective ||
+      REQUESTED_OBJECTIVE ||
+      DEFAULT_OBJECTIVE,
+    task_state: taskState,
+    autonomous_selection_evidence:
+      readiness.autonomous_selection_evidence || null,
+    recent_context: recentContext
+  };
+}
+
+function parseStructuredSelection(message = {}) {
+  const raw = String(message.content || '').trim();
+  if (!raw) {
+    throw new Error(
+      'schema-constrained selection returned empty content'
+    );
+  }
+  let args;
+  try {
+    args = JSON.parse(raw);
+  } catch (error) {
+    const wrapped = new Error(
+      'schema-constrained selection returned invalid JSON: ' +
+      error.message
+    );
+    wrapped.code = 'EUPSTREAM_PARSE';
+    throw wrapped;
+  }
+  if (!args || Array.isArray(args) || typeof args !== 'object') {
+    throw new Error(
+      'schema-constrained selection must return one experiment object'
+    );
+  }
+  return args;
+}
+
+async function runAutonomousSelectionTransaction(
+  messages,
+  progressDeadlines,
+  iteration
+) {
+  const readiness = convergencePolicy.snapshot();
+  audit('autonomous_selection_transaction_started', {
+    iteration,
+    autonomous_selection_ready:
+      readiness.autonomous_selection_ready === true,
+    evidence: readiness.autonomous_selection_evidence || null,
+    protocol: 'ollama_json_schema'
+  });
+
+  const selectionMessages = [
+    {
+      role: 'system',
+      content:
+        'Decide between exactly two structured outcomes based on the supplied ' +
+        'evidence. Either select one bounded, measurable Floki-v2 ' +
+        'self-improvement experiment (decision: "experiment", with the complete ' +
+        'objective, hypothesis, baseline_evidence, target_files, ' +
+        'success_metric, focused_test, and expected_follow_on_value fields), or ' +
+        'decide that no safe candidate currently exists (decision: ' +
+        '"no_safe_candidate", with a detailed_reason, at least three concrete ' +
+        'evidence_findings, and at least two considered_alternatives each with ' +
+        'a rejection_reason). Preserve the Maker objective exactly when ' +
+        'objective_source is maker_requested.'
+    },
+    {
+      role: 'user',
+      content: JSON.stringify(
+        selectionEvidenceEnvelope(messages, readiness)
+      )
+    }
+  ];
+
+  progressDeadlines.heartbeat({
+    event: 'model_turn_start',
+    current_tool: 'selection_model_turn'
+  });
+
+  let message;
+  try {
+    message = await ollamaChat(
+      selectionMessages,
+      [],
+      {
+        format: selectionDecisionSchema,
+        compact: false
+      }
+    );
+  } catch (error) {
+    audit('autonomous_selection_transaction_failed', {
+      iteration,
+      protocol: 'ollama_json_schema',
+      error: error.stack || error.message
+    });
+    messages.push({
+      role: 'user',
+      content:
+        'The schema-constrained experiment-selection transaction failed: ' +
+        String(error.message || error) + '.'
+    });
+    return false;
+  } finally {
+    progressDeadlines.heartbeat({
+      event: 'model_turn_result',
+      current_tool: null
+    });
+  }
+
+  let args;
+  try {
+    args = parseStructuredSelection(message);
+  } catch (error) {
+    audit('autonomous_selection_transaction_failed', {
+      iteration,
+      protocol: 'ollama_json_schema',
+      error: error.stack || error.message
+    });
+    messages.push({
+      role: 'user',
+      content:
+        'The schema-constrained experiment-selection response was invalid: ' +
+        String(error.message || error) + '.'
+    });
+    return false;
+  }
+
+  // The structured decision explicitly supports both outcomes. A
+  // no_safe_candidate decision routes through the same evidence-contract
+  // validation as the report_no_safe_candidate tool.
+  if (String(args.decision || '').trim() === 'no_safe_candidate') {
+    progressDeadlines.recordToolStart('report_no_safe_candidate');
+    let decisionResult;
+    try {
+      decisionResult = await executeTool('report_no_safe_candidate', args);
+    } catch (error) {
+      decisionResult = { ok: false, error: error.stack || error.message };
+    }
+    convergencePolicy.record('report_no_safe_candidate', args, decisionResult);
+    progressDeadlines.recordToolResult('report_no_safe_candidate', decisionResult);
+    if (decisionResult?.ok === true) {
+      audit('autonomous_selection_no_safe_candidate_accepted', {
+        iteration,
+        protocol: 'ollama_json_schema'
+      });
+      return true;
+    }
+    audit('autonomous_selection_no_safe_candidate_rejected', {
+      iteration,
+      protocol: 'ollama_json_schema',
+      error: decisionResult?.error || null
+    });
+    messages.push({
+      role: 'user',
+      content:
+        'The no_safe_candidate decision was rejected: ' +
+        String(decisionResult?.error || 'validation failed') +
+        '. Either provide the complete no-safe-candidate evidence contract ' +
+        'or select one bounded, measurable experiment.'
+    });
+    return false;
+  }
+
+  progressDeadlines.recordToolStart('select_experiment');
+  let result;
+  try {
+    result = await executeTool('select_experiment', args);
+  } catch (error) {
+    result = { ok: false, error: error.stack || error.message };
+  }
+  convergencePolicy.record('select_experiment', args, result);
+  progressDeadlines.recordToolResult('select_experiment', result);
+
+  if (result?.ok !== true) {
+    audit('autonomous_selection_transaction_rejected', {
+      iteration,
+      protocol: 'ollama_json_schema',
+      error: result?.error || result?.reason || null,
+      target_files: Array.isArray(args?.target_files)
+        ? args.target_files
+        : [],
+      focused_test: args?.focused_test || null
+    });
+    messages.push({
+      role: 'user',
+      content: selectExperimentCorrectionFeedback(result)
+    });
+    return false;
+  }
+
+  audit('autonomous_selection_transaction_succeeded', {
+    iteration,
+    protocol: 'ollama_json_schema',
+    selected_experiment: result.experiment || null
+  });
+
+  if (!convergencePolicy.snapshot().implementation_started) {
+    const startResult = convergencePolicy.startImplementation();
+    audit('implementation_auto_started_after_selection', {
+      iteration,
+      marker: startResult.marker || null,
+      selected_experiment:
+        convergencePolicy.snapshot().selected_experiment,
+      selection_protocol: 'ollama_json_schema'
+    });
+  }
+
+  messages.push({
+    role: 'user',
+    content:
+      'The controller recorded the model-selected experiment and activated ' +
+      'implementation. Make the bounded source and focused-test changes now.'
+  });
+  return true;
+}
+
 
 function gitCapture(args) {
   const result = spawnSync('git', args, {
@@ -483,22 +758,468 @@ function workspaceFingerprint() {
   return hash.digest('hex');
 }
 
-function finishWithoutCandidate(reason, error = null) {
-  const detail = {
-    reason: String(reason || 'no_verified_candidate'),
-    error: error ? String(error.stack || error.message || error) : null,
-    convergence: convergencePolicy.snapshot()
+// Every cycle ends in exactly one explicit outcome: a verified pending_review
+// candidate, an evidence-backed no-safe-candidate decision, a preemption, or a
+// real persisted failure. There is no other successful exit.
+
+function publishRunOutcomeRoot() {
+  // Close the real PTY while its stream still lives under runRoot, then move
+  // the complete immutable run outcome (including terminal.pty) atomically.
+  closeAgentPtySession('run_outcome_published');
+  if (!fs.existsSync(runRoot)) return;
+  fs.rmSync(finalRoot, { recursive: true, force: true });
+  fs.renameSync(runRoot, finalRoot);
+}
+
+function validateNoSafeCandidateDecision(args = {}) {
+  const detailedReason = String(args.detailed_reason || '').trim();
+  if (detailedReason.length < 40) {
+    throw new Error(
+      'report_no_safe_candidate requires a detailed_reason explaining why no ' +
+      'bounded, measurable improvement is currently safe (at least 40 chars)'
+    );
+  }
+  const findings = Array.isArray(args.evidence_findings)
+    ? args.evidence_findings.map((row) => String(row || '').trim()).filter(Boolean)
+    : [];
+  if (findings.length < 3) {
+    throw new Error(
+      'report_no_safe_candidate requires at least three concrete evidence ' +
+      'findings from real tool results'
+    );
+  }
+  const alternatives = Array.isArray(args.considered_alternatives)
+    ? args.considered_alternatives.map((row) => ({
+        alternative: String(row?.alternative || '').trim(),
+        rejection_reason: String(row?.rejection_reason || '').trim()
+      }))
+    : [];
+  if (
+    alternatives.length < 2 ||
+    alternatives.some((row) => !row.alternative || !row.rejection_reason)
+  ) {
+    throw new Error(
+      'report_no_safe_candidate requires at least two considered alternatives, ' +
+      'each with the reason it was rejected'
+    );
+  }
+  return { detailed_reason: detailedReason, evidence_findings: findings, considered_alternatives: alternatives };
+}
+
+function finishWithNoSafeCandidate(decision) {
+  const convergence = convergencePolicy.snapshot();
+  const lastFocused = focusedTestResults.length > 0
+    ? focusedTestResults[focusedTestResults.length - 1]
+    : null;
+  const record = {
+    marker: 'FLOKI_V2_SELF_IMPROVEMENT_NO_SAFE_CANDIDATE',
+    run_id: RUN_ID,
+    created_at: nowIso(),
+    detailed_reason: decision.detailed_reason,
+    evidence_findings: decision.evidence_findings,
+    considered_alternatives: decision.considered_alternatives,
+    evidence_readiness_complete:
+      convergence.autonomous_selection_ready === true,
+    evidence: convergence.autonomous_selection_evidence || null,
+    phase: convergence.phase,
+    selected_experiment: convergence.selected_experiment || null,
+    target_files: convergence.selected_experiment?.target_files || [],
+    focused_test_state: lastFocused
+      ? { runs: focusedTestResults.length, last_ok: lastFocused.ok === true }
+      : null,
+    verification_state: {
+      runs: testResults.length,
+      all_passed:
+        testResults.length > 0 && testResults.every((row) => row.ok === true)
+    },
+    write_count: convergence.write_count,
+    iteration: convergence.iteration,
+    elapsed_ms:
+      typeof sandboxStartedAtMs === 'number'
+        ? Date.now() - sandboxStartedAtMs
+        : null,
+    convergence
   };
-  audit('no_candidate', detail);
-  fs.rmSync(runRoot, { recursive: true, force: true });
+  fs.writeFileSync(
+    path.join(runRoot, NO_SAFE_CANDIDATE_FILE_NAME),
+    JSON.stringify(record, null, 2) + '\n'
+  );
+  audit('no_safe_candidate', record);
+  writeTaskState({
+    candidate_status: 'no_safe_candidate',
+    last_successful_action: 'report_no_safe_candidate',
+    next_required_action: 'none'
+  });
+  publishRunOutcomeRoot();
   console.log(JSON.stringify({
     ok: true,
     no_candidate: true,
     marker: 'FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_NO_CANDIDATE',
-    reason: detail.reason
+    reason: 'no_safe_candidate'
   }, null, 2));
-  return detail;
+  return record;
 }
+
+// A real failure: persist the actual error and exit non-zero. Never converted
+// into a successful no-candidate result.
+function finishWithFailure(reason, error = null) {
+  const convergence = convergencePolicy.snapshot();
+  const record = {
+    marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_FAILURE',
+    run_id: RUN_ID,
+    created_at: nowIso(),
+    reason: String(reason || 'run_failed'),
+    error: error ? String(error.stack || error.message || error) : null,
+    phase: convergence.phase,
+    iteration: convergence.iteration,
+    write_count: convergence.write_count,
+    selected_experiment: convergence.selected_experiment || null,
+    elapsed_ms:
+      typeof sandboxStartedAtMs === 'number'
+        ? Date.now() - sandboxStartedAtMs
+        : null,
+    convergence
+  };
+  try {
+    fs.writeFileSync(
+      path.join(runRoot, RUN_FAILURE_FILE_NAME),
+      JSON.stringify(record, null, 2) + '\n'
+    );
+    audit('run_failed', record);
+    writeTaskState({
+      candidate_status: 'failed',
+      last_error: record.reason + (record.error ? ': ' + record.error : ''),
+      next_required_action: 'none'
+    });
+    publishRunOutcomeRoot();
+  } catch (persistError) {
+    console.error(JSON.stringify({
+      ok: false,
+      marker: 'FLOKI_V2_SELF_IMPROVEMENT_RUN_FAILURE_PERSIST_FAIL',
+      error: persistError.stack || persistError.message
+    }, null, 2));
+  }
+  console.error(JSON.stringify({
+    ok: false,
+    marker: 'FLOKI_V2_SELF_IMPROVEMENT_SANDBOX_FAIL',
+    reason: record.reason,
+    error: record.error
+  }, null, 2));
+  process.exit(1);
+}
+
+let sandboxStartedAtMs = null;
+
+function roleForPhase(phase) {
+  switch (String(phase || '')) {
+    case 'discovery':
+      return 'discovery';
+    case 'selection_required':
+    case 'experiment_selected':
+      return 'experiment selection';
+    case 'implementing':
+    case 'implementation_required':
+      return 'implementation';
+    case 'repairing':
+      return 'repair';
+    case 'focused_verified':
+      return 'focused verification';
+    case 'verified':
+      return 'full verification';
+    default:
+      return phase ? String(phase) : 'unknown';
+  }
+}
+
+function resourceModeForTool(name) {
+  const tool = String(name || '');
+  if (!tool) return 'idle';
+  if (tool === 'model_turn' || tool === 'selection_model_turn') {
+    return 'cognition/model inference';
+  }
+  if (
+    tool === 'read_file' ||
+    tool === 'write_file' ||
+    tool === 'apply_patch' ||
+    tool === 'show_diff' ||
+    tool === 'git_status' ||
+    tool === 'list_repository' ||
+    tool === 'search_source' ||
+    tool === 'inspect_symbol' ||
+    tool === 'get_task_state' ||
+    tool === 'update_task_state' ||
+    tool === 'get_self_context' ||
+    tool === 'search_self_memory'
+  ) {
+    return 'filesystem/I/O';
+  }
+  if (
+    tool === 'web_search' ||
+    tool === 'web_fetch' ||
+    tool === 'browser_fetch' ||
+    tool === 'github_search' ||
+    tool === 'arxiv_search' ||
+    tool === 'crossref_search' ||
+    tool === 'context7_resolve_library' ||
+    tool === 'context7_query_docs'
+  ) {
+    return 'network/research';
+  }
+  return 'CPU/tool execution';
+}
+
+function createProgressDeadlines() {
+  let selectedAtMs = null;
+  let implementationStartedAtMs = null;
+  let lastSuccessfulProgressAtMs = null;
+  let lastWriteAtMs = null;
+  let currentTool = null;
+
+  function snapshot(extra = {}) {
+    const convergence = convergencePolicy.snapshot();
+    return Object.freeze({
+      run_id: RUN_ID,
+      generation: 1,
+      phase: convergence.phase,
+      iteration: convergence.iteration,
+      selected_experiment:
+        convergence.selected_experiment?.objective || null,
+      write_count: convergence.write_count,
+      last_write_time:
+        lastWriteAtMs === null
+          ? null
+          : new Date(lastWriteAtMs).toISOString(),
+      last_write_iteration: convergence.last_write_iteration,
+      current_tool: currentTool,
+      current_role: roleForPhase(convergence.phase),
+      resource_mode: currentTool ? resourceModeForTool(currentTool) : 'idle',
+      gpu_owner: currentTool === 'model_turn' || currentTool === 'selection_model_turn'
+        ? 'self-improvement/cognition'
+        : null,
+      telemetry_observed_at: nowIso(),
+      last_successful_progress_time:
+        lastSuccessfulProgressAtMs === null
+          ? null
+          : new Date(lastSuccessfulProgressAtMs).toISOString(),
+      elapsed_ms:
+        sandboxStartedAtMs === null ? null : Date.now() - sandboxStartedAtMs,
+      ...extra
+    });
+  }
+
+  function refreshFromConvergence() {
+    const convergence = convergencePolicy.snapshot();
+    if (convergence.selected_experiment && selectedAtMs === null) {
+      selectedAtMs = Date.now();
+    }
+    if (convergence.implementation_started && implementationStartedAtMs === null) {
+      implementationStartedAtMs = Date.now();
+    }
+    return convergence;
+  }
+
+  function markProgress(kind) {
+    const now = Date.now();
+    lastSuccessfulProgressAtMs = now;
+    if (kind === 'write') lastWriteAtMs = now;
+    // Real progress clears prior stall corrections so a later, unrelated
+    // stall gets its own corrective turn before ever becoming a failure.
+    stallCorrections.clear();
+  }
+
+  function recordToolStart(name) {
+    currentTool = name || null;
+    audit('progress_heartbeat', snapshot({ event: 'tool_start' }));
+    writeTerminalActivity('tool started', name || 'unknown');
+  }
+
+  function recordToolResult(name, result) {
+    const convergence = refreshFromConvergence();
+    const changed =
+      (name === 'write_file' || name === 'apply_patch') &&
+      result?.workspace_changed === true;
+    if (changed) markProgress('write');
+    if (name === 'run_focused_test') markProgress('focused_test');
+    if (name === 'run_verification' && result?.ok === true) {
+      markProgress('verification');
+    }
+    currentTool = null;
+    audit('progress_heartbeat', snapshot({
+      event: 'tool_result',
+      tool: name || null,
+      tool_ok: result?.ok === undefined ? null : result.ok === true,
+      convergence_phase: convergence.phase
+    }));
+    if (result?.ok === false) {
+      writeTerminalActivity('tool failed', name || 'unknown');
+    } else {
+      writeTerminalActivity('tool completed', name || 'unknown');
+    }
+  }
+
+  // Stall guards are YAML-driven safety limits, not success conditions. The
+  // first trip of a guard issues one explicit corrective turn and restarts
+  // that guard's window; a second trip of the same guard is a real, persisted
+  // run failure. There is no run-level wall-clock or iteration budget: an
+  // actively progressing run continues until a candidate is verified, an
+  // evidence-backed no-safe-candidate decision is accepted, the Maker pauses
+  // or aborts, or runtime stop/reset preempts it.
+  const stallCorrections = new Map();
+
+  function stallCheck() {
+    const now = Date.now();
+    const convergence = refreshFromConvergence();
+    const trips = [];
+    if (
+      selectedAtMs !== null &&
+      convergence.write_count <= 0 &&
+      now - (stallCorrections.get('implementation_write_stalled') || selectedAtMs) >
+        IMPLEMENTATION_WRITE_DEADLINE_MS
+    ) {
+      trips.push({
+        kind: 'implementation_write_stalled',
+        guidance:
+          'No structured apply_patch or write_file change has been made since ' +
+          'selection. Make the smallest real workspace change to a selected ' +
+          'target file now, or call report_no_safe_candidate with the complete ' +
+          'evidence contract if the evidence shows no safe change exists.'
+      });
+    }
+    if (
+      implementationStartedAtMs !== null &&
+      convergence.phase !== 'repairing' &&
+      now - Math.max(
+        lastSuccessfulProgressAtMs || implementationStartedAtMs,
+        stallCorrections.get('implementation_progress_stalled') || 0
+      ) > IMPLEMENTATION_NO_PROGRESS_DEADLINE_MS
+    ) {
+      trips.push({
+        kind: 'implementation_progress_stalled',
+        guidance:
+          'No successful progress (write, focused test, or verification) has ' +
+          'occurred within the stall window. Continue the selected experiment ' +
+          'with the next concrete action now.'
+      });
+    }
+    if (
+      convergence.phase === 'repairing' &&
+      now - Math.max(
+        lastSuccessfulProgressAtMs || implementationStartedAtMs || now,
+        stallCorrections.get('focused_repair_progress_stalled') || 0
+      ) > FOCUSED_REPAIR_NO_PROGRESS_DEADLINE_MS
+    ) {
+      trips.push({
+        kind: 'focused_repair_progress_stalled',
+        guidance:
+          'The focused repair has made no progress within the stall window. ' +
+          'Re-read the failing test and the production source, make the ' +
+          'smallest correct repair, and rerun the exact focused test now.'
+      });
+    }
+    if (trips.length === 0) return null;
+    const trip = trips[0];
+    if (!stallCorrections.has(trip.kind)) {
+      stallCorrections.set(trip.kind, now);
+      audit('stall_correction_issued', {
+        kind: trip.kind,
+        iteration: convergence.iteration,
+        phase: convergence.phase,
+        write_count: convergence.write_count
+      });
+      return Object.freeze({ kind: trip.kind, corrective: true, guidance: trip.guidance });
+    }
+    return Object.freeze({ kind: trip.kind, corrective: false });
+  }
+
+  function heartbeat(extra = {}) {
+    if (Object.prototype.hasOwnProperty.call(extra, 'current_tool')) {
+      currentTool = extra.current_tool;
+    }
+    const row = snapshot(extra);
+    audit('progress_heartbeat', row);
+    if (extra.event === 'iteration_start') {
+      writeTerminalActivity('autonomous cycle', 'iteration ' + String(row.iteration || 0));
+    } else if (extra.event === 'model_turn_start') {
+      writeTerminalActivity('cognition', 'model turn started');
+    } else if (extra.event === 'model_turn_result') {
+      writeTerminalActivity('cognition', 'model turn completed');
+    }
+  }
+
+  return Object.freeze({
+    heartbeat,
+    recordToolResult,
+    recordToolStart,
+    stallCheck
+  });
+}
+
+function ensureAgentPtySession() {
+  if (agentPtySession) return agentPtySession;
+  agentPtySession = createPtySession({
+    stream_file: terminalStreamFile,
+    cwd: WORKSPACE,
+    env: {
+      ...process.env,
+      HOME: AGENT_HOME_PATH,
+      npm_config_cache: NPM_CACHE_PATH,
+      NPM_CONFIG_CACHE: NPM_CACHE_PATH,
+      PIP_CACHE_DIR: PIP_CACHE_PATH
+    },
+    rows: PTY_ROWS,
+    cols: PTY_COLS,
+    stream_max_bytes: TERMINAL_STREAM_MAX_BYTES,
+    output_max_bytes: SHELL_OUTPUT_BUFFER_BYTES,
+    sentinel_grace_ms: TERMINAL_SENTINEL_GRACE_MS,
+    interrupt_grace_ms: TERMINAL_INTERRUPT_GRACE_MS,
+    shell_command: 'bash --noprofile --norc -i',
+    prompt: '\\u@\\h:${PWD}$ ',
+    on_event(type, detail) {
+      if (type === 'stream_chunk') return;
+      audit('pty_' + type, detail);
+    }
+  });
+  audit('pty_session_created', {
+    stream_file: terminalStreamFile,
+    rows: PTY_ROWS,
+    cols: PTY_COLS
+  });
+  return agentPtySession;
+}
+
+function closeAgentPtySession(reason = 'agent_exit') {
+  if (!agentPtySession) return;
+  const session = agentPtySession;
+  agentPtySession = null;
+  session.close(reason);
+}
+
+function safeTerminalActivityToken(value) {
+  return String(value || '')
+    .replace(/[^a-zA-Z0-9._:/ -]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
+function writeTerminalActivity(kind, detail = '') {
+  const safeKind = safeTerminalActivityToken(kind);
+  const safeDetail = safeTerminalActivityToken(detail);
+  if (!safeKind) return false;
+  try {
+    return ensureAgentPtySession().writeActivity(
+      safeKind + (safeDetail ? ' · ' + safeDetail : '')
+    );
+  } catch (error) {
+    audit('terminal_activity_write_failed', {
+      kind: safeKind,
+      error: error.message
+    });
+    return false;
+  }
+}
+
+process.once('exit', () => closeAgentPtySession('agent_exit'));
 
 function shell(command, timeoutMs = MAX_COMMAND_MS, options = {}) {
   const identity = String(options.identity || (command || '').slice(0, 80));
@@ -516,126 +1237,82 @@ function shell(command, timeoutMs = MAX_COMMAND_MS, options = {}) {
     err.code = 'SHELL_CANCELLED';
     throw err;
   }
+
+  const identityTimeoutMs =
+    identity === 'interface_install' || identity === 'root_install'
+      ? DEPENDENCY_INSTALL_TIMEOUT_MS
+      : timeoutMs;
+  const deadline = Math.max(
+    MIN_COMMAND_TIMEOUT_MS,
+    Math.min(
+      Number(identityTimeoutMs) || MAX_COMMAND_MS,
+      MAX_COMMAND_MS
+    )
+  );
   const workspaceBefore = workspaceFingerprint();
   const started = Date.now();
-  const child = spawn('bash', ['-lc', command], {
-    cwd: WORKSPACE,
-    env: {
-      ...process.env,
-      HOME: AGENT_HOME_PATH,
-      npm_config_cache: NPM_CACHE_PATH,
-      PIP_CACHE_DIR: PIP_CACHE_PATH
-    },
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-  const stdoutChunks = [];
-  const stderrChunks = [];
-  let totalStdoutBytes = 0;
-  let totalStderrBytes = 0;
-  let cancelled = false;
-  let cancelReason = null;
-  let timedOut = false;
-  let resolved = false;
-  const deadline = Math.max(MIN_COMMAND_TIMEOUT_MS, Math.min(Number(timeoutMs) || MAX_COMMAND_MS, MAX_COMMAND_MS));
 
   function recordProgress(reason) {
     audit('shell_progress', {
       command: identity,
       reason,
-      elapsed_ms: Date.now() - started,
-      cancelled,
-      timed_out: timedOut
+      elapsed_ms: Date.now() - started
     });
   }
 
-  const progressTimer = setInterval(() => recordProgress('interval'), progressIntervalMs);
+  const progressTimer = setInterval(
+    () => recordProgress('interval'),
+    progressIntervalMs
+  );
   recordProgress('start');
 
-  const sigkillTimer = setTimeout(() => {
-    if (resolved) return;
-    timedOut = true;
-    cancelReason = 'configured_timeout';
-    try { child.kill('SIGTERM'); } catch (_error) {}
-    setTimeout(() => {
-      if (!resolved) {
-        try { child.kill('SIGKILL'); } catch (_error) {}
-      }
-    }, 5000);
-  }, deadline);
-
-  if (cancelOnSignal) {
-    cancelOnSignal.addEventListener('abort', () => {
-      if (resolved) return;
-      cancelled = true;
-      cancelReason = 'caller_aborted';
-      try { child.kill('SIGTERM'); } catch (_error) {}
-    }, { once: true });
-  }
-
-  child.stdout.on('data', (chunk) => {
-    const buffer = Buffer.from(chunk);
-    totalStdoutBytes += buffer.length;
-    if (totalStdoutBytes > SHELL_OUTPUT_BUFFER_BYTES) {
-      stdoutChunks.push(buffer.slice(0, SHELL_OUTPUT_BUFFER_BYTES - (totalStdoutBytes - buffer.length)));
-    } else {
-      stdoutChunks.push(buffer);
-    }
-  });
-  child.stderr.on('data', (chunk) => {
-    const buffer = Buffer.from(chunk);
-    totalStderrBytes += buffer.length;
-    if (totalStderrBytes > SHELL_OUTPUT_BUFFER_BYTES) {
-      stderrChunks.push(buffer.slice(0, SHELL_OUTPUT_BUFFER_BYTES - (totalStderrBytes - buffer.length)));
-    } else {
-      stderrChunks.push(buffer);
-    }
-  });
-
-  return new Promise((resolve, reject) => {
-    function finalize(exitCode, signal) {
-      if (resolved) return;
-      resolved = true;
-      clearInterval(progressTimer);
-      clearTimeout(sigkillTimer);
-      const workspaceAfter = workspaceFingerprint();
-      const record = {
-        command,
-        identity,
-        status: exitCode,
-        signal: signal || null,
-        duration_ms: Date.now() - started,
-        cancelled,
-        timed_out: timedOut,
-        cancel_reason: cancelReason,
-        workspace_before: workspaceBefore,
-        workspace_after: workspaceAfter,
-        workspace_changed:
-          workspaceBefore !== null &&
-          workspaceAfter !== null &&
-          workspaceBefore !== workspaceAfter,
-        stdout: truncate(Buffer.concat(stdoutChunks).toString('utf8'), COMMAND_AUDIT_MAX_CHARS),
-        stderr: truncate(Buffer.concat(stderrChunks).toString('utf8'), COMMAND_AUDIT_MAX_CHARS)
-      };
-      audit('shell_end', record);
-      resolve(record);
-    }
-    child.once('error', (error) => {
-      if (resolved) return;
-      resolved = true;
-      clearInterval(progressTimer);
-      clearTimeout(sigkillTimer);
-      audit('shell_end', {
-        command: identity,
-        status: -1,
-        signal: null,
-        duration_ms: Date.now() - started,
-        error: error.message,
-        cancelled,
-        timed_out: timedOut
-      });
-      reject(error);
+  return ensureAgentPtySession().run(String(command || ''), {
+    timeout_ms: deadline,
+    signal: cancelOnSignal
+  }).then((result) => {
+    clearInterval(progressTimer);
+    const workspaceAfter = workspaceFingerprint();
+    const record = {
+      command,
+      identity,
+      status: result.status,
+      signal: null,
+      duration_ms: result.duration_ms,
+      cancelled: result.cancelled === true,
+      timed_out: result.timed_out === true,
+      cancel_reason: result.cancelled === true
+        ? 'caller_aborted'
+        : result.timed_out === true
+          ? 'configured_timeout'
+          : null,
+      workspace_before: workspaceBefore,
+      workspace_after: workspaceAfter,
+      workspace_changed:
+        workspaceBefore !== null &&
+        workspaceAfter !== null &&
+        workspaceBefore !== workspaceAfter,
+      stdout: truncate(result.stdout, COMMAND_AUDIT_MAX_CHARS),
+      stderr: truncate(result.stderr, COMMAND_AUDIT_MAX_CHARS),
+      pty_merged_output: result.pty_merged_output === true,
+      pty_generation: result.pty_generation,
+      pty_replaced: result.pty_replaced === true,
+      terminal_stream_file: terminalStreamFile,
+      shell_pwd: result.pwd || null,
+      output_truncated: result.output_truncated === true
+    };
+    audit('shell_end', record);
+    return record;
+  }, (error) => {
+    clearInterval(progressTimer);
+    audit('shell_end', {
+      command: identity,
+      status: -1,
+      signal: null,
+      duration_ms: Date.now() - started,
+      error: error.message,
+      terminal_stream_file: terminalStreamFile
     });
-    child.once('close', (code, signal) => finalize(code, signal));
+    throw error;
   });
 }
 
@@ -1121,21 +1798,38 @@ function ollamaRequest(method, requestPath, payload = null, options = {}) {
   });
 }
 
-async function ollamaChat(messages, tools) {
-  compactConversation(messages);
-  const payload = await ollamaRequest('POST', OLLAMA_CHAT_PATH, {
+async function ollamaChat(messages, tools, options = {}) {
+  if (options.compact !== false) compactConversation(messages);
+  const thinkingEnabled = Object.prototype.hasOwnProperty.call(options, 'think')
+    ? options.think
+    : MODEL_THINKING_ENABLED;
+  const temperature = Object.prototype.hasOwnProperty.call(options, 'temperature')
+    ? options.temperature
+    : MODEL_TEMPERATURE;
+  const requestPayload = {
     model: MODEL,
     messages,
-    tools,
     stream: OLLAMA_STREAM,
-    think: MODEL_THINKING_ENABLED,
+    think: thinkingEnabled,
     keep_alive: MODEL_KEEP_ALIVE,
     options: {
-      temperature: MODEL_TEMPERATURE,
+      temperature,
       top_p: MODEL_TOP_P,
       num_ctx: CONTEXT_WINDOW
     }
-  });
+  };
+  if (Array.isArray(tools) && tools.length > 0) {
+    requestPayload.tools = tools;
+  }
+  if (options.format && typeof options.format === 'object') {
+    requestPayload.format = options.format;
+  }
+  const payload = await ollamaRequest(
+    'POST',
+    OLLAMA_CHAT_PATH,
+    requestPayload,
+    options
+  );
   const message = payload.message || {};
   audit('model_turn', {
     prompt_eval_count: Number(payload.prompt_eval_count || 0),
@@ -1145,10 +1839,14 @@ async function ollamaChat(messages, tools) {
     tool_call_count: Array.isArray(message.tool_calls)
       ? message.tool_calls.length
       : 0,
-    thinking_enabled: MODEL_THINKING_ENABLED
+    thinking_enabled: thinkingEnabled,
+    temperature,
+    response_contract:
+      requestPayload.format ? 'json_schema' : 'native_tool_call'
   });
   return message;
 }
+
 
 const selectExperimentTool = {
   type: 'function',
@@ -1165,6 +1863,16 @@ const selectExperimentTool = {
         success_metric: { type: 'string' },
         focused_test: { type: 'string', description: 'Shell command to run for focused verification. MUST start with an executable: node, bash, npm, python3, pytest, npx, make, etc. Example: "node tests/foo-contract-test.cjs" or "bash bin/floki-node24-run.sh node tests/foo.cjs". Do NOT put a test name, prose description, or quoted string — only a runnable command. Use focused_test_description for any explanation.' },
         focused_test_description: { type: 'string', description: 'Optional human-readable explanation of what this focused test verifies. Put prose, test names, and descriptions here — not in focused_test.' },
+        denial_revision_plan: {
+          type: 'object',
+          description: 'Required only when revisiting Maker-denied work. State the denial requirement, the implementation change, and how the focused test changes so the denial is actually addressed.',
+          properties: {
+            denial_requirement: { type: 'string' },
+            implementation_change: { type: 'string' },
+            focused_test_change: { type: 'string' }
+          },
+          required: ['denial_requirement', 'implementation_change', 'focused_test_change']
+        },
         expected_follow_on_value: { type: 'string' }
       },
       required: [
@@ -1180,8 +1888,83 @@ const selectExperimentTool = {
   }
 };
 
+const selectExperimentSchema = Object.freeze({
+  ...selectExperimentTool.function.parameters,
+  additionalProperties: false
+});
+
+// Structured selection decision: the model must either produce a complete
+// experiment (the full select_experiment contract plus decision:"experiment")
+// or a complete evidence-backed no-safe-candidate decision. A bare decision
+// field is never sufficient; runtime validation enforces the full contract of
+// whichever branch was chosen.
+const selectionDecisionSchema = Object.freeze({
+  type: 'object',
+  properties: {
+    decision: { type: 'string', enum: ['experiment', 'no_safe_candidate'] },
+    ...selectExperimentTool.function.parameters.properties,
+    detailed_reason: { type: 'string' },
+    evidence_findings: { type: 'array', items: { type: 'string' } },
+    considered_alternatives: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          alternative: { type: 'string' },
+          rejection_reason: { type: 'string' }
+        },
+        required: ['alternative', 'rejection_reason']
+      }
+    }
+  },
+  required: ['decision']
+});
+
+const reportNoSafeCandidateTool = {
+  type: 'function',
+  function: {
+    name: 'report_no_safe_candidate',
+    description:
+      'End this cycle with an explicit evidence-backed decision that no bounded, ' +
+      'measurable improvement is currently safe to attempt. Only valid after the ' +
+      'complete evidence readiness contract is satisfied. Requires a detailed ' +
+      'reason, at least three concrete evidence findings from real tool results, ' +
+      'and at least two considered alternatives with the reason each was rejected. ' +
+      'Never use this to hide a software error, tool failure, or transport failure.',
+    parameters: {
+      type: 'object',
+      properties: {
+        detailed_reason: { type: 'string' },
+        evidence_findings: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'At least three concrete findings from real evidence.'
+        },
+        considered_alternatives: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              alternative: { type: 'string' },
+              rejection_reason: { type: 'string' }
+            },
+            required: ['alternative', 'rejection_reason']
+          },
+          description: 'At least two alternatives and why each was rejected.'
+        }
+      },
+      required: [
+        'detailed_reason',
+        'evidence_findings',
+        'considered_alternatives'
+      ]
+    }
+  }
+};
+
 const tools = [
   selectExperimentTool,
+  reportNoSafeCandidateTool,
   {
     type: 'function',
     function: {
@@ -1618,10 +2401,49 @@ const preSelectionTools = tools.filter(
   (t) => !PRE_SELECTION_BLOCKED_NAMES.has(t.function?.name)
 );
 
+// Bounded tool surface during focused-test repair: inspect and edit the real
+// source/test files and rerun the focused test only. Generic shell, full
+// verification, and finalize_candidate are withheld until the focused test
+// passes, so the decision path cannot be simulated outside the failing test.
+const repairTools = selectRepairTools(tools, (t) => t.function?.name);
+
+// Accept valid model-selected sandbox paths (for example /workspace/tests/x.cjs
+// or the real in-container workspace path /home/floki/Floki-v2/src/x.cjs) and
+// normalize them to safe workspace-relative paths. Host paths, traversal, and
+// any other absolute path are rejected by the callers' containment checks.
+const MODEL_PATH_PREFIXES = (() => {
+  const prefixes = new Set(['/workspace', WORKSPACE, WORKSPACE_REAL]);
+  const legacy = String(process.env.FLOKI_LEGACY_WORKSPACE_PATH || '').trim();
+  if (legacy && legacy.startsWith('/')) prefixes.add(legacy);
+  return Array.from(prefixes).filter(Boolean);
+})();
+
+function normalizeModelPath(value) {
+  let text = String(value || '').trim().replaceAll('\\', '/');
+  for (const prefix of MODEL_PATH_PREFIXES) {
+    if (text === prefix) return '.';
+    if (text.startsWith(prefix + '/')) {
+      return text.slice(prefix.length).replace(/^\/+/, '');
+    }
+  }
+  return text;
+}
+
 function resolveWorkspacePath(relative) {
-  const value = path.resolve(WORKSPACE, String(relative || ''));
+  const normalized = normalizeModelPath(relative);
+  const value = path.resolve(WORKSPACE, normalized);
   if (value !== WORKSPACE && !value.startsWith(WORKSPACE + path.sep)) {
     throw new Error('path escapes sandbox workspace');
+  }
+  // Symlink escape guard: the realpath of an existing target must also stay
+  // inside the workspace realpath.
+  let probe = value;
+  while (probe !== WORKSPACE && !fs.existsSync(probe)) {
+    probe = path.dirname(probe);
+  }
+  const real = fs.realpathSync.native(probe);
+  if (real !== WORKSPACE_REAL && !real.startsWith(WORKSPACE_REAL + path.sep)) {
+    throw new Error('path escapes sandbox workspace through a symlink');
   }
   return value;
 }
@@ -1786,11 +2608,7 @@ function isAllowedExperimentTarget(clean) {
 }
 
 function assertRealPathInsideWorkspace(absolute, label) {
-  const real = fs.realpathSync(absolute);
-  if (real !== WORKSPACE && !real.startsWith(WORKSPACE + path.sep)) {
-    throw new Error(label + ' escapes workspace through symlink');
-  }
-  return real;
+  return assertRealPathInsideRoot(WORKSPACE_REAL, absolute, label);
 }
 
 function validateExperimentTargetFiles(args = {}) {
@@ -1803,10 +2621,13 @@ function validateExperimentTargetFiles(args = {}) {
 
   let existingFiles = 0;
   const normalized = targetFiles.map((relative) => {
-    if (path.isAbsolute(relative)) {
+    // Valid model-selected sandbox absolute paths (/workspace/..., the real
+    // in-container workspace path) normalize to workspace-relative paths;
+    // any other absolute path is rejected.
+    const portable = normalizeModelPath(relative);
+    if (path.isAbsolute(portable)) {
       throw new Error('experiment target must be workspace-relative: ' + relative);
     }
-    const portable = relative.replaceAll('\\', '/');
     const clean = path.posix.normalize(portable);
     if (clean === '..' || clean.startsWith('../')) {
       throw new Error('experiment target escapes workspace: ' + relative);
@@ -1846,10 +2667,10 @@ function validateExperimentEvidence(args = {}) {
     hypothesis,
     baselineEvidence
   ].join('\n');
-  if (/\bEAI_AGAIN\b/i.test(combinedClaim) &&
-      /\bHTTP\s+(?:status\s+)?(?:code\s+)?123\b/i.test(combinedClaim)) {
+  if (/\bE[A-Z0-9_]{2,}\b/.test(combinedClaim) &&
+      /\bHTTP\s+(?:status\s+)?(?:code\s+)?\d{3}\b/i.test(combinedClaim)) {
     throw new Error(
-      'select_experiment must not describe EAI_AGAIN as HTTP status code 123; EAI_AGAIN is a Node/libuv error code, so use measured code/status evidence from the target file or focused test'
+      'select_experiment must not describe runtime error codes as HTTP status codes; use measured code/status evidence from the target file or focused test'
     );
   }
   const percentageClaim =
@@ -1889,7 +2710,7 @@ function validateExperimentEvidence(args = {}) {
 }
 
 const KNOWN_RUNTIME_ERROR_CODE_PATTERN =
-  /\b(?:EAI_AGAIN|EPIPE|ECONNRESET|ETIMEDOUT)\b/g;
+  /\bE[A-Z0-9_]{2,}\b/g;
 const PLACEHOLDER_MEASUREMENT_PATTERN =
   /\b(?:PLACEHOLDER|TBD|TODO)\b/i;
 const PLACEHOLDER_ASSIGNMENT_PATTERN =
@@ -1991,6 +2812,38 @@ function shellFocusedTestRejection(command) {
 
 async function executeTool(name, args) {
   switch (name) {
+    case 'report_no_safe_candidate': {
+      const readiness = convergencePolicy.snapshot();
+      if (readiness.autonomous_selection_ready !== true) {
+        return {
+          ok: false,
+          error:
+            'report_no_safe_candidate requires complete evidence readiness ' +
+            '(task state, self-context, repository evidence, and a real ' +
+            'source file must all have been inspected first)',
+          autonomous_selection_evidence:
+            readiness.autonomous_selection_evidence || null
+        };
+      }
+      let decision;
+      try {
+        decision = validateNoSafeCandidateDecision(args);
+      } catch (error) {
+        return { ok: false, error: error.message };
+      }
+      const record = finishWithNoSafeCandidate(decision);
+      noSafeCandidateAccepted = {
+        ok: true,
+        no_candidate: true,
+        evidence_backed: true,
+        record
+      };
+      return {
+        ok: true,
+        marker: 'FLOKI_V2_SELF_IMPROVEMENT_NO_SAFE_CANDIDATE_ACCEPTED',
+        run_id: RUN_ID
+      };
+    }
     case 'shell': {
       const rejected = shellFocusedTestRejection(args.command);
       if (rejected) {
@@ -2006,10 +2859,7 @@ async function executeTool(name, args) {
     case 'get_task_state':
       return {
         ok: true,
-        task_state: writeTaskState({
-          remaining_iteration_budget:
-            Math.max(0, MAX_ITERATIONS - convergencePolicy.snapshot().iteration)
-        }),
+        task_state: writeTaskState({}),
         convergence: convergencePolicy.snapshot()
       };
     case 'update_task_state': {
@@ -2330,65 +3180,59 @@ async function executeTool(name, args) {
             );
           }
         }
-        // Detect similarity to denied candidates and inject revision constraints.
-        // Do NOT hard-block — the agent must be able to revise denied work.
-        // Hard-blocking causes no_candidate when the agent tries to address a denial.
-        const proposedObj = String(validated.objective || '');
-        const proposedHyp = String(validated.hypothesis || '');
-        const proposedFiles = new Set(
-          (Array.isArray(validated.target_files) ? validated.target_files : [])
-            .map(f => String(f).trim().toLowerCase())
-            .filter(Boolean)
+        // Reject duplicates of occupied (in-flight) work and apply revision
+        // constraints for denied work, using the shared production classifier
+        // over the full prior-candidate history plus this run's already-rejected
+        // proposals. A rejection feeds the in-run correction loop (the model
+        // retries select_experiment with a materially different proposal); the
+        // cycle is NOT terminated. Denied work stays revisable.
+        const priorsForDedup = priorCandidateOutcomes.concat(inRunRejectedProposals);
+        const dedup = classifyExperimentAgainstPriors(
+          validated,
+          priorsForDedup,
+          {
+            ...CONFIG,
+            occupied_candidate_statuses: OCCUPIED_CANDIDATE_STATUSES
+          }
         );
         let revisionConstraint = null;
-        for (const denied of deniedCandidates) {
-          const wordSim = objectiveSimilarityScore(proposedObj, denied.objective);
-          const deniedFiles = new Set(
-            (Array.isArray(denied.target_files) ? denied.target_files : [])
-              .map(f => String(f).trim().toLowerCase())
-              .filter(Boolean)
-          );
-          const overlap = proposedFiles.size > 0 && deniedFiles.size > 0
-            ? [...proposedFiles].filter(f => deniedFiles.has(f)).length
-            : 0;
-          const overlapRatio = overlap > 0
-            ? overlap / Math.min(proposedFiles.size, deniedFiles.size)
-            : 0;
-          const isSimilar = wordSim >= 0.65 || (overlapRatio >= 0.8 && wordSim >= 0.35);
-          if (!isSimilar) continue;
-          // Check if the agent is re-proposing the same hypothesis that was denied.
-          const hypSim = denied.hypothesis
-            ? objectiveSimilarityScore(proposedHyp, String(denied.hypothesis))
-            : 0;
-          if (hypSim >= 0.70) {
-            // Same objective AND same hypothesis — this is a straight repeat.
-            throw new Error(
-              'This experiment repeats the same objective AND approach as a Maker-denied candidate ' +
-              '(' + denied.id + ').\n\n' +
-              'Denial reason:\n' + denied.denial_reason + '\n\n' +
-              (denied.changes_diff
-                ? 'Previous diff (what was tried — do NOT repeat this):\n```diff\n' +
-                  denied.changes_diff.slice(0, 3000) + '\n```\n\n'
-                : '') +
-              'You MUST change your hypothesis and implementation approach, not just rephrase the objective. ' +
-              'Address every specific issue the Maker raised before re-submitting.'
-            );
+        if (dedup.decision === 'reject') {
+          inRunRejectedProposals.push({
+            id: 'in-run-rejected',
+            status: 'pending_review',
+            objective: validated.objective,
+            hypothesis: validated.hypothesis,
+            target_files: validated.target_files,
+            focused_test: validated.focused_test
+          });
+          audit('select_experiment_duplicate_rejected', {
+            matched_id: dedup.matchedId || null,
+            matched_status: dedup.matchedStatus || null,
+            kind: dedup.kind
+          });
+          throw new Error(dedup.reason);
+        }
+        if (dedup.decision === 'revise') {
+          const revisionValidation = validateDeniedRevisionPlan(dedup, validated);
+          if (revisionValidation.ok !== true) {
+            throw new Error(revisionValidation.reason);
           }
-          // Similar objective but different approach — allow revision, inject denial context.
           revisionConstraint = {
-            revising_denied: denied.id,
-            denial_reason: denied.denial_reason,
-            changes_diff: denied.changes_diff || null
+            revising_denied: dedup.matchedId,
+            denial_reason: dedup.denialReason,
+            changes_diff: dedup.changesDiff || null,
+            plan: revisionValidation.plan
           };
           audit('select_experiment_revision_mode', {
-            similar_to_denied: denied.id,
-            word_sim: wordSim,
-            overlap_ratio: overlapRatio,
-            hyp_sim: hypSim
+            similar_to_denied: dedup.matchedId,
+            kind: dedup.kind,
+            denial_revision_plan: revisionValidation.plan
           });
-          break;
         }
-        const selected = convergencePolicy.selectExperiment(validated);
+        const selected = convergencePolicy.selectExperiment({
+          ...validated,
+          revision_constraint: revisionConstraint
+        });
         if (selected.ok === true) {
           writeTaskState({
             selected_experiment: selected.experiment,
@@ -2758,6 +3602,12 @@ async function finalizeCandidate(args) {
     risk_level: String(args.risk_level || 'high'),
     risk_notes: String(args.risk_notes || ''),
     base_commit: baseCommit,
+    // Truthful revision/version metadata for code candidates: the sandbox
+    // baseline commit this patch applies to, plus any denied-revision lineage.
+    version: baseCommit ? String(baseCommit).slice(0, 12) : null,
+    revision_of_denied_candidate:
+      convergence.selected_experiment?.revision_constraint?.revising_denied ||
+      null,
     changed_files: changedFiles,
     before_hashes: beforeHashes,
     after_hashes: afterHashes,
@@ -2786,6 +3636,7 @@ async function finalizeCandidate(args) {
     last_successful_action: 'finalize_candidate',
     next_required_action: 'await_maker_review'
   });
+  closeAgentPtySession('candidate_finalized');
   fs.rmSync(finalRoot, { recursive: true, force: true });
   fs.renameSync(runRoot, finalRoot);
   finalized = true;
@@ -2829,6 +3680,215 @@ function shellQuote(value) {
   return "'" + String(value).replace(/'/g, "'\"'\"'") + "'";
 }
 
+function dependencyInputFingerprint(projectDir) {
+  const hash = crypto.createHash(DEPENDENCY_FINGERPRINT_ALGORITHM);
+  let files = 0;
+  for (const name of ['package.json', 'package-lock.json']) {
+    const file = path.join(projectDir, name);
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) continue;
+    hash.update(name);
+    hash.update('\0');
+    hash.update(fs.readFileSync(file));
+    hash.update('\0');
+    files += 1;
+  }
+  if (files === 0) {
+    throw new Error('dependency fingerprint has no package manifest: ' + projectDir);
+  }
+  return hash.digest('hex');
+}
+
+// dependencyManifestRequiresNodeModules is imported from
+// src/self-improvement/dependency-manifest.cjs (extracted, behavior-identical).
+
+function readDependencyCacheMarker(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (_error) {
+    return null;
+  }
+}
+
+function dependencyCacheEntryValid(marker, expected) {
+  if (!marker || typeof marker !== 'object') return false;
+  if (marker.marker !== 'FLOKI_V2_RSI_PERSISTENT_DEPENDENCY_CACHE') return false;
+  if (marker.fingerprint !== expected.fingerprint) return false;
+  if (marker.project !== expected.project) return false;
+  if (marker.empty_tree === true) return true;
+  if (!fs.existsSync(expected.node_modules)) return false;
+  if (!fs.statSync(expected.node_modules).isDirectory()) return false;
+  return fs.existsSync(path.join(expected.node_modules, '.package-lock.json'));
+}
+
+function replaceDependencyLink(workspaceNodeModules, cacheNodeModules) {
+  fs.rmSync(workspaceNodeModules, { recursive: true, force: true });
+  fs.symlinkSync(cacheNodeModules, workspaceNodeModules, 'dir');
+  const linkedReal = fs.realpathSync.native(workspaceNodeModules);
+  const cacheReal = fs.realpathSync.native(cacheNodeModules);
+  if (linkedReal !== cacheReal) {
+    throw new Error(
+      'persistent dependency link verification failed: ' +
+      workspaceNodeModules
+    );
+  }
+}
+
+async function ensurePersistentDependencyTree(
+  projectRelativePath,
+  cacheLabel,
+  commandIdentity
+) {
+  const projectDir = projectRelativePath === '.'
+    ? WORKSPACE
+    : path.join(WORKSPACE, projectRelativePath);
+  const packageFile = path.join(projectDir, 'package.json');
+  if (!fs.existsSync(packageFile)) {
+    return Object.freeze({
+      ok: true,
+      skipped: true,
+      reason: 'package_manifest_absent',
+      project: projectRelativePath
+    });
+  }
+
+  const lockFile = path.join(projectDir, 'package-lock.json');
+  const installCommand = fs.existsSync(lockFile)
+    ? DEPENDENCY_INSTALL_LOCKED_COMMAND
+    : DEPENDENCY_INSTALL_UNLOCKED_COMMAND;
+  const fingerprint = dependencyInputFingerprint(projectDir);
+  const cacheDir = path.join(
+    PERSISTENT_DEPENDENCY_CACHE_ROOT,
+    cacheLabel,
+    fingerprint
+  );
+  const cacheNodeModules = path.join(cacheDir, 'node_modules');
+  const markerFile = path.join(
+    cacheDir,
+    PERSISTENT_DEPENDENCY_CACHE_MARKER_FILE
+  );
+  const workspaceNodeModules = path.join(projectDir, 'node_modules');
+  const marker = readDependencyCacheMarker(markerFile);
+
+  if (dependencyCacheEntryValid(marker, {
+    fingerprint,
+    project: projectRelativePath,
+    node_modules: cacheNodeModules
+  })) {
+    if (marker.empty_tree === true) {
+      fs.rmSync(workspaceNodeModules, { recursive: true, force: true });
+    } else {
+      replaceDependencyLink(workspaceNodeModules, cacheNodeModules);
+    }
+    const result = Object.freeze({
+      ok: true,
+      cache_hit: true,
+      empty_tree: marker.empty_tree === true,
+      project: projectRelativePath,
+      fingerprint,
+      cache_dir: cacheDir
+    });
+    audit('dependency_cache_hit', result);
+    console.log(
+      '[deps] ' + cacheLabel +
+      ' cache hit — package installation skipped'
+    );
+    return result;
+  }
+
+  fs.mkdirSync(PERSISTENT_DEPENDENCY_CACHE_ROOT, {
+    recursive: true,
+    mode: 0o700
+  });
+  fs.rmSync(workspaceNodeModules, { recursive: true, force: true });
+  const install = await shell(
+    'cd ' + shellQuote(projectRelativePath) + ' && ' + installCommand,
+    DEPENDENCY_INSTALL_TIMEOUT_MS,
+    {
+      identity: commandIdentity,
+      progress_interval_ms: SHELL_PROGRESS_INTERVAL_MS
+    }
+  );
+  if (install.timed_out === true) {
+    throw new Error(
+      cacheLabel +
+      ' dependency installation timed out after ' +
+      String(DEPENDENCY_INSTALL_TIMEOUT_MS) +
+      ' ms'
+    );
+  }
+  if (install.status !== 0) {
+    throw new Error(
+      cacheLabel + ' dependency installation failed with status ' +
+      String(install.status)
+    );
+  }
+  const dependencyTreePresent =
+    fs.existsSync(workspaceNodeModules) &&
+    fs.statSync(workspaceNodeModules).isDirectory();
+  const emptyTree = !dependencyTreePresent;
+  if (
+    emptyTree &&
+    dependencyManifestRequiresNodeModules(projectDir)
+  ) {
+    throw new Error(
+      cacheLabel +
+      ' declares installable packages but npm produced no node_modules'
+    );
+  }
+
+  const staging = cacheDir + '.tmp-' + String(process.pid);
+  fs.rmSync(staging, { recursive: true, force: true });
+  fs.mkdirSync(staging, { recursive: true, mode: 0o700 });
+  if (dependencyTreePresent) {
+    fs.cpSync(
+      workspaceNodeModules,
+      path.join(staging, 'node_modules'),
+      {
+        recursive: true,
+        force: true,
+        preserveTimestamps: true
+      }
+    );
+  }
+  fs.writeFileSync(
+    path.join(staging, PERSISTENT_DEPENDENCY_CACHE_MARKER_FILE),
+    JSON.stringify({
+      marker: 'FLOKI_V2_RSI_PERSISTENT_DEPENDENCY_CACHE',
+      project: projectRelativePath,
+      fingerprint,
+      empty_tree: emptyTree,
+      created_at: nowIso()
+    }, null, 2) + '\n',
+    { mode: 0o600 }
+  );
+  fs.rmSync(cacheDir, { recursive: true, force: true });
+  fs.renameSync(staging, cacheDir);
+  if (dependencyTreePresent) {
+    replaceDependencyLink(workspaceNodeModules, cacheNodeModules);
+  } else {
+    fs.rmSync(workspaceNodeModules, { recursive: true, force: true });
+  }
+
+  const result = Object.freeze({
+    ok: true,
+    cache_hit: false,
+    seeded: true,
+    empty_tree: emptyTree,
+    project: projectRelativePath,
+    fingerprint,
+    cache_dir: cacheDir
+  });
+  audit('dependency_cache_seeded', result);
+  console.log(
+    emptyTree
+      ? '[deps] ' + cacheLabel +
+        ' has no declared packages — valid empty dependency tree cached'
+      : '[deps] ' + cacheLabel +
+        ' cache seeded — future unchanged runs skip package installation'
+  );
+  return result;
+}
+
 async function main() {
   await ollamaRequest('GET', MODEL_PROXY_HEALTH_PATH);
   const environmentCheck = [
@@ -2858,35 +3918,16 @@ async function main() {
     );
   }
 
-  const rootInstall = fs.existsSync(
-    path.join(WORKSPACE, 'package-lock.json')
-  )
-    ? DEPENDENCY_INSTALL_LOCKED_COMMAND
-    : DEPENDENCY_INSTALL_UNLOCKED_COMMAND;
-
-  const interfaceDir = path.join(WORKSPACE, INTERFACE_PROJECT_PATH);
-  const interfaceInstall = fs.existsSync(
-    path.join(interfaceDir, 'package-lock.json')
-  )
-    ? DEPENDENCY_INSTALL_LOCKED_COMMAND
-    : DEPENDENCY_INSTALL_UNLOCKED_COMMAND;
-
-  const rootDeps = await shell(rootInstall, MAX_COMMAND_MS, { identity: 'root_install', progress_interval_ms: SHELL_PROGRESS_INTERVAL_MS });
-  if (rootDeps.status !== 0) {
-    throw new Error('root dependency installation failed');
-  }
-
-  if (fs.existsSync(path.join(interfaceDir, 'package.json'))) {
-    const uiDeps = await shell(
-      'cd ' + shellQuote(INTERFACE_PROJECT_PATH) +
-      ' && ' + interfaceInstall,
-      MAX_COMMAND_MS,
-      { identity: 'interface_install', progress_interval_ms: SHELL_PROGRESS_INTERVAL_MS }
-    );
-    if (uiDeps.status !== 0) {
-      throw new Error('interface dependency installation failed');
-    }
-  }
+  const rootInstall = await ensurePersistentDependencyTree(
+    '.',
+    'root',
+    'root_install'
+  );
+  const interfaceInstall = await ensurePersistentDependencyTree(
+    INTERFACE_PROJECT_PATH,
+    'interface',
+    'interface_install'
+  );
 
   const objective = REQUESTED_OBJECTIVE || DEFAULT_OBJECTIVE;
 
@@ -2936,6 +3977,8 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
 
   // Load prior denial reasons from snapshot evidence so the agent sees them immediately.
   let denialHistoryBlock = '';
+  // Occupied / in-flight candidates the agent must not duplicate.
+  let occupiedHistoryBlock = '';
   try {
     const evidencePath = path.join(
       WORKSPACE,
@@ -2943,6 +3986,24 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       SNAPSHOT_RUNTIME_EVIDENCE_FILE_NAME
     );
     const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+    const occupied = (evidence.previous_candidate_outcomes || [])
+      .filter(c => isOccupiedStatus(c.status));
+    if (occupied.length > 0) {
+      occupiedHistoryBlock =
+        'IN-FLIGHT / OCCUPIED CANDIDATES — these are already claimed work awaiting the Maker review boundary. ' +
+        'Do NOT select an experiment that materially duplicates any of them (same objective and hypothesis, ' +
+        'or the same target files and focused test). Choose materially different work:\n\n' +
+        occupied.map(c =>
+          `Candidate: ${c.id}\n` +
+          `Status: ${c.status}\n` +
+          `Objective: ${c.objective}` +
+          (c.hypothesis ? `\nHypothesis: ${c.hypothesis}` : '') +
+          (Array.isArray(c.target_files) && c.target_files.length > 0
+            ? `\nTarget files: ${c.target_files.join(', ')}`
+            : '')
+        ).join('\n\n---\n\n') +
+        '\n\n';
+    }
     const denied = (evidence.previous_candidate_outcomes || [])
       .filter(c => c.status === 'denied' && c.denial_reason);
     if (denied.length > 0) {
@@ -2977,19 +4038,48 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
     { role: 'system', content: system },
     {
       role: 'user',
-      content: denialHistoryBlock + (OBJECTIVE_SOURCE === 'maker_requested'
+      content: occupiedHistoryBlock + denialHistoryBlock + (OBJECTIVE_SOURCE === 'maker_requested'
         ? `Maker objective:\n${MAKER_OBJECTIVE}\n\nGather evidence to identify the target files, baseline state, and test approach for this specific objective. Use get_task_state, get_self_context, search_self_memory, list_repository, search_source, inspect_symbol, read_file, and research tools. When you have sufficient evidence, call select_experiment with this exact objective. select_experiment.objective must match the Maker objective exactly after trimming. Selection is not Maker approval — after selection, the full isolated-sandbox read, write, shell, package-install, build, test, web search, web fetch, GitHub, arXiv, corpus, and documentation access is available.`
         : `Working objective guidance:\n${objective}\n\nInvestigate the codebase, runtime evidence, and self-context before calling select_experiment. Use get_task_state, get_self_context, search_self_memory, list_repository, search_source, inspect_symbol, read_file, corpus_search, and research tools freely. When evidence is sufficient, call select_experiment with a concrete bounded objective, falsifiable hypothesis, baseline evidence, existing target file, measurable success metric, and focused test. Selection is not Maker approval — after selection, the full isolated-sandbox read, write, shell, package-install, build, test, web search, web fetch, GitHub, arXiv, corpus, and documentation access is available.`)
     }
   ];
 
-  const iterationBudgetMs = ITERATION_WALL_CLOCK_BUDGET_MS;
-  const iterationStartedAt = Date.now();
+  sandboxStartedAtMs = Date.now();
+  const progressDeadlines = createProgressDeadlines();
 
-  for (let iteration = 0; iteration < MAX_ITERATIONS && !finalized; iteration += 1) {
+  // Condition-driven execution: the loop has no iteration cap and no run-level
+  // wall clock. It ends only through candidate finalization, an accepted
+  // evidence-backed no-safe-candidate decision, preemption (SIGTERM), or a
+  // real persisted failure.
+  for (let iteration = 0; !finalized; iteration += 1) {
     convergencePolicy.beginIteration(iteration + 1);
-    if (Date.now() - iterationStartedAt > iterationBudgetMs) {
-      throw new Error('agent iteration wall-clock budget exceeded: ' + iterationBudgetMs + 'ms');
+    progressDeadlines.heartbeat({ event: 'iteration_start' });
+    if (noSafeCandidateAccepted) {
+      return noSafeCandidateAccepted;
+    }
+    const stall = progressDeadlines.stallCheck();
+    if (stall) {
+      if (!stall.corrective) {
+        return finishWithFailure(stall.kind);
+      }
+      messages.push({ role: 'user', content: stall.guidance });
+    }
+    const selectionReadinessSnapshot = convergencePolicy.snapshot();
+    if (
+      !selectionReadinessSnapshot.selected_experiment &&
+      selectionReadinessSnapshot.autonomous_selection_ready === true
+    ) {
+      const selected = await runAutonomousSelectionTransaction(
+        messages,
+        progressDeadlines,
+        iteration + 1
+      );
+      if (selected) continue;
+      if (noSafeCandidateAccepted) {
+        return noSafeCandidateAccepted;
+      }
+      convergencePolicy.endIteration();
+      continue;
     }
     const selectionMessage = selectionAnchorMessage();
     if (selectionMessage) {
@@ -3001,33 +4091,80 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       });
     }
     const convergenceSnapshot = convergencePolicy.snapshot();
-    const activeTools = convergenceSnapshot.selected_experiment
-      ? tools
-      : convergenceSnapshot.phase === 'selection_required'
-        ? [selectExperimentTool]
-        : preSelectionTools;
+    // Single source of truth for the per-phase tool surface (shared with the
+    // contract test). During focused-test repair this returns the bounded repair
+    // surface so the agent fixes the real source or test instead of simulating
+    // the decision path or jumping to verification/finalize.
+    const activeTools = selectActiveTools(convergenceSnapshot, {
+      allTools: tools,
+      preSelectionTools,
+      selectExperimentTool,
+      reportNoSafeCandidateTool,
+      repairTools
+    });
+    const activeRevisionConstraint =
+      convergenceSnapshot.selected_experiment &&
+      convergenceSnapshot.selected_experiment.revision_constraint;
+    if (activeRevisionConstraint) {
+      messages.push({
+        role: 'system',
+        content: buildDeniedRevisionContext(activeRevisionConstraint)
+      });
+    }
+    // Reinject the exact failing focused-test command + output every repair turn
+    // so the model always has the failure context regardless of compaction.
+    if (
+      isRepairPhase(convergenceSnapshot.phase) &&
+      focusedTestResults.length > 0 &&
+      focusedTestResults[focusedTestResults.length - 1].ok !== true
+    ) {
+      messages.push({
+        role: 'user',
+        content: buildFocusedRepairContext(
+          focusedTestResults[focusedTestResults.length - 1],
+          (convergenceSnapshot.selected_experiment &&
+            convergenceSnapshot.selected_experiment.target_files) || [],
+          activeRevisionConstraint || null
+        )
+      });
+    }
     let message;
+    const modelTurnController = new AbortController();
+    const modelTurnTimer = setTimeout(
+      () => modelTurnController.abort(new Error('model_turn_deadline_exceeded')),
+      MODEL_TURN_DEADLINE_MS
+    );
     try {
-      message = await ollamaChat(messages, activeTools);
+      progressDeadlines.heartbeat({
+        event: 'model_turn_start',
+        current_tool: 'model_turn'
+      });
+      message = await ollamaChat(messages, activeTools, {
+        signal: modelTurnController.signal
+      });
       consecutiveModelTurnFailures = 0;
     } catch (error) {
+      // A model-turn deadline trip is a transport safety limit: retry with
+      // the selected experiment preserved. Exhausted retries and
+      // non-retryable transport errors are real failures — never a
+      // fabricated no-candidate success.
+      const turnDeadlineTripped = modelTurnController.signal.aborted;
       consecutiveModelTurnFailures += 1;
       audit('model_turn_failure', {
         iteration: iteration + 1,
         consecutive_failures: consecutiveModelTurnFailures,
         max_failures: Math.max(1, Math.floor(OLLAMA_REQUEST_MAX_ATTEMPTS)),
-        retryable: isRetryableModelError(error),
+        deadline_tripped: turnDeadlineTripped,
+        retryable: turnDeadlineTripped || isRetryableModelError(error),
         error: error.stack || error.message
       });
       if (
-        !isRetryableModelError(error) ||
+        (!turnDeadlineTripped && !isRetryableModelError(error)) ||
         consecutiveModelTurnFailures >=
           Math.max(1, Math.floor(OLLAMA_REQUEST_MAX_ATTEMPTS))
       ) {
-        return finishWithoutCandidate(
-          'transient_model_failure_budget_exhausted',
-          error
-        );
+        clearTimeout(modelTurnTimer);
+        return finishWithFailure('model_transport_failure', error);
       }
       await new Promise((resolve) => setTimeout(
         resolve,
@@ -3041,18 +4178,18 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
           'state without restarting discovery.'
       });
       continue;
+    } finally {
+      clearTimeout(modelTurnTimer);
     }
+    progressDeadlines.heartbeat({
+      event: 'model_turn_result',
+      current_tool: null
+    });
     messages.push(message);
     const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
     if (calls.length === 0) {
-      const noToolStopReason = convergencePolicy.recordNoToolTurn();
-      if (noToolStopReason) {
-        return finishWithoutCandidate(noToolStopReason);
-      }
-      const noToolConvergenceStopReason = convergencePolicy.endIteration();
-      if (noToolConvergenceStopReason) {
-        return finishWithoutCandidate(noToolConvergenceStopReason);
-      }
+      convergencePolicy.recordNoToolTurn();
+      convergencePolicy.endIteration();
       messages.push({
         role: 'user',
         content: convergencePolicy.feedback() || convergencePolicy.guidance()
@@ -3066,6 +4203,7 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
         try { args = JSON.parse(args); } catch (_error) { args = {}; }
       }
       let result;
+      progressDeadlines.recordToolStart(name);
       const authorization = convergencePolicy.authorize(name, args);
       const preSelectionInvalidTool =
         !convergencePolicy.snapshot().selected_experiment &&
@@ -3081,6 +4219,10 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
         }
       }
       convergencePolicy.record(name, args, result);
+      progressDeadlines.recordToolResult(name, result);
+      if (noSafeCandidateAccepted) {
+        return noSafeCandidateAccepted;
+      }
       if (name === 'select_experiment' && result?.ok !== true) {
         audit('select_experiment_rejected', {
           iteration: iteration + 1,
@@ -3155,10 +4297,7 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       printSandboxPass();
       return { ok: true, candidate_id: RUN_ID };
     }
-    const convergenceStopReason = convergencePolicy.endIteration();
-    if (convergenceStopReason) {
-      return finishWithoutCandidate(convergenceStopReason);
-    }
+    convergencePolicy.endIteration();
     const convergenceFeedback = convergencePolicy.feedback();
     if (convergenceFeedback) {
       messages.push({
@@ -3167,14 +4306,10 @@ ${OBJECTIVE_SOURCE === 'maker_requested'
       });
     }
   }
-
-  if (!finalized) {
-    return finishWithoutCandidate('agent_iteration_limit_reached');
-  }
-  printSandboxPass();
 }
 
 main().catch((error) => {
+  closeAgentPtySession('fatal_error');
   audit('fatal', { error: error.stack || error.message });
   console.error(JSON.stringify({
     ok: false,

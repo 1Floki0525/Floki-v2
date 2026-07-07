@@ -10,6 +10,14 @@ const {
 } = require('../util/fs-safe.cjs');
 const { PROJECT_ROOT: ROOT, getPathConfig, getSleepConfig } = require('../config/floki-config.cjs');
 const { runSleepCycleTick, loadSleepCycleState } = require('./sleep-cycle.cjs');
+const { getProductionNightlyTrainingCoordinator } = require('../self-improvement/training/training-scheduler.cjs');
+const {
+  loadFreshSelfImprovementConfig,
+  loadSelfImprovementConfig
+} = require('../self-improvement/config.cjs');
+const {
+  readDreamEngineControl
+} = require('./dream-engine-control.cjs');
 
 const SCHEDULER_CONFIG = getSleepConfig('chat');
 const SCHEDULER_TICK_MS = Number(SCHEDULER_CONFIG.scheduler_tick_ms);
@@ -128,28 +136,126 @@ function isRecoverableDreamQualityError(error) {
   );
 }
 
+
+function isRecoverableNightlyRemError(error) {
+  const message = String(error && error.message ? error.message : error);
+  return message.startsWith('FLOKI_NIGHTLY_REM_') ||
+    message.startsWith('FLOKI_HF_REM_') ||
+    message.startsWith('FLOKI_V2_HF_REM_');
+}
+
+function automaticNightlyCoordinatorEnabled(
+  config = loadSelfImprovementConfig()
+) {
+  return (
+    config.training_enabled === true &&
+    config.nightly_training_enabled === true &&
+    config.nightly_training_provider === 'huggingface' &&
+    config.nightly_rem_provider === 'huggingface'
+  );
+}
+
+function rsiPauseSentinelPresent(config = loadSelfImprovementConfig()) {
+  try {
+    return fs.existsSync(
+      path.join(config.runtime_root, config.pause_file_name)
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
 async function runSchedulerIteration(options = {}) {
   const paths = schedulerPaths(options);
   ensureDirSync(paths.runtime_dir);
   const tickRunner = options.tick_runner || runSleepCycleTick;
+  const dreamControl = readDreamEngineControl({
+    runtime_dir: paths.runtime_dir
+  });
   const env = {
     ...process.env,
     ...(options.env || {}),
     FLOKI_ALLOW_SLEEP_CYCLE: '1',
-    FLOKI_ALLOW_DREAM_ENGINE: '1'
+    FLOKI_ALLOW_DREAM_ENGINE:
+      dreamControl.enabled === true ? '1' : '0'
   };
+  const selfImprovementConfig =
+    options.self_improvement_config || loadFreshSelfImprovementConfig();
+  const trainingCoordinator =
+    Object.prototype.hasOwnProperty.call(options, 'training_coordinator')
+      ? options.training_coordinator
+      : (automaticNightlyCoordinatorEnabled(selfImprovementConfig)
+          ? getProductionNightlyTrainingCoordinator()
+          : null);
+  const rsiPaused =
+    Object.prototype.hasOwnProperty.call(options, 'rsi_paused')
+      ? options.rsi_paused === true
+      : rsiPauseSentinelPresent(selfImprovementConfig);
+  let nightlyTrainingError = null;
+  if (trainingCoordinator) {
+    try {
+      await trainingCoordinator.beforeTick({
+        env,
+        now: options.now || new Date(),
+        rsi_paused: rsiPaused
+      });
+    } catch (error) {
+      nightlyTrainingError = error.stack || error.message;
+    }
+  }
+  // REM ownership for this tick. The RSI pause sentinel and a terminally
+  // failed nightly session both hand REM back to the fixed 10-minute
+  // wall-clock schedule; only healthy enabled nighttime training keeps
+  // the epoch-triggered schedule.
+  const remMode =
+    trainingCoordinator && typeof trainingCoordinator.remMode === 'function'
+      ? trainingCoordinator.remMode({
+          now: options.now || new Date(),
+          rsi_paused: rsiPaused
+        })
+      : (trainingCoordinator ? 'epoch_triggered' : 'wall_clock');
+  const epochTriggeredRem = remMode === 'epoch_triggered';
 
-  writeHeartbeat(paths, { phase: 'tick_start' });
+  writeHeartbeat(paths, {
+    phase: 'tick_start',
+    dream_engine_enabled: dreamControl.enabled === true,
+    dream_engine_generation: dreamControl.generation,
+    dream_engine_control_file:
+      dreamControl.control_file || null,
+    rsi_paused: rsiPaused,
+    rem_mode: remMode,
+    nightly_training_error: nightlyTrainingError
+  });
   const refresh = setInterval(() => {
     writeHeartbeat(paths, { phase: 'tick_running' });
   }, SCHEDULER_HEARTBEAT_REFRESH_MS);
 
   let tick;
   try {
-    tick = await tickRunner({
+    const tickOptions = {
       env,
-      write_report: options.write_report !== false
-    });
+      runtime_dir: paths.runtime_dir,
+      dream_engine_control: dreamControl,
+      write_report: options.write_report !== false,
+      nightly_epoch_triggered_rem: epochTriggeredRem
+    };
+    // Explicit clock/state overrides let an isolated harness (daytime night
+    // cycle simulation, contract tests) drive the same production tick with
+    // simulated timestamps and scoped state files. Production service runs
+    // never set these, so default behavior is unchanged.
+    if (options.now) tickOptions.now = options.now;
+    if (options.state_file) tickOptions.state_file = options.state_file;
+    if (options.events_file) tickOptions.events_file = options.events_file;
+    if (options.report_file) tickOptions.report_file = options.report_file;
+    if (options.dream_options) tickOptions.dream_options = options.dream_options;
+    if (typeof options.dream_runner === 'function') {
+      tickOptions.dream_runner = options.dream_runner;
+    }
+    if (trainingCoordinator && epochTriggeredRem) {
+      tickOptions.dream_runner = (dreamOptions) =>
+        trainingCoordinator.runNightlyRem(dreamOptions);
+    }
+    tick = await tickRunner(tickOptions);
   } catch (error) {
     if (isRecoverableDreamQualityError(error)) {
       const record = Object.freeze({
@@ -173,6 +279,31 @@ async function runSchedulerIteration(options = {}) {
         last_tick_completed_at: record.tick_completed_at
       });
 
+      return record;
+    }
+
+
+    if (isRecoverableNightlyRemError(error)) {
+      const record = Object.freeze({
+        ok: true,
+        marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_NIGHTLY_REM_RETRY_QUEUED',
+        pid: process.pid,
+        degraded: true,
+        dream_generated: false,
+        nightly_rem_error: error.stack || error.message,
+        nightly_training_error: nightlyTrainingError,
+        tick_completed_at: new Date().toISOString(),
+        chat_mode_only: true,
+        game_mode_started: false
+      });
+      writeRuntimeRecord(paths.status_file, record);
+      writeHeartbeat(paths, {
+        phase: 'idle_after_nightly_rem_retry_queued',
+        degraded: true,
+        nightly_rem_error: record.nightly_rem_error,
+        nightly_training_error: nightlyTrainingError,
+        last_tick_completed_at: record.tick_completed_at
+      });
       return record;
     }
 
@@ -202,7 +333,22 @@ async function runSchedulerIteration(options = {}) {
     throw new Error('sleep cycle tick did not return an ok result');
   }
 
-  const state = loadSleepCycleState();
+  if (trainingCoordinator) {
+    try {
+      await trainingCoordinator.afterTick({
+        env,
+        tick,
+        now: options.now || new Date(),
+        rsi_paused: rsiPaused
+      });
+    } catch (error) {
+      nightlyTrainingError = error.stack || error.message;
+    }
+  }
+
+  const state = loadSleepCycleState(
+    options.state_file ? { state_file: options.state_file } : {}
+  );
   const record = Object.freeze({
     ok: true,
     marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_TICK_PASS',
@@ -212,7 +358,17 @@ async function runSchedulerIteration(options = {}) {
     within_sleep_window: tick.within_sleep_window === true,
     sleep_cycle_active: tick.sleep_cycle_active === true,
     dreams_generated_this_tick: Number(tick.dreams_generated_this_tick || 0),
+    dream_engine_enabled: dreamControl.enabled === true,
+    dream_engine_generation: dreamControl.generation,
+    dream_generation_suspended:
+      tick.dream_generation_suspended === true,
+    dream_engine_control_file:
+      dreamControl.control_file || null,
     current_sleep_date: state ? state.current_sleep_date : null,
+    nightly_training_enabled: Boolean(trainingCoordinator),
+    rsi_paused: rsiPaused,
+    rem_mode: remMode,
+    nightly_training_error: nightlyTrainingError,
     chat_mode_only: true,
     game_mode_started: false
   });
@@ -221,7 +377,14 @@ async function runSchedulerIteration(options = {}) {
   writeHeartbeat(paths, {
     phase: 'idle',
     last_tick_completed_at: record.tick_completed_at,
-    last_tick_marker: record.tick_marker
+    last_tick_marker: record.tick_marker,
+    dream_engine_enabled: dreamControl.enabled === true,
+    dream_engine_generation: dreamControl.generation,
+    dream_engine_control_file:
+      dreamControl.control_file || null,
+    rsi_paused: rsiPaused,
+    rem_mode: remMode,
+    nightly_training_error: nightlyTrainingError
   });
   return record;
 }
@@ -301,6 +464,8 @@ function cleanupSchedulerProcess(pid, paths, timeoutMs) {
 async function runSchedulerService(options = {}) {
   const paths = schedulerPaths(options);
   ensureDirSync(paths.runtime_dir);
+  const injectedCoordinator =
+    Object.prototype.hasOwnProperty.call(options, 'training_coordinator');
 
   const existingPid = readPid(paths.pid_file);
   if (existingPid && existingPid !== process.pid && processIsAlive(existingPid)) {
@@ -329,7 +494,12 @@ async function runSchedulerService(options = {}) {
 
   try {
     while (!stopping) {
-      await runSchedulerIteration({ ...options, ...paths });
+      // The coordinator (and the RSI pause sentinel) are re-evaluated on
+      // every iteration so live pause/enable controls take effect without
+      // a scheduler restart. An explicitly injected coordinator is kept.
+      const iterationOptions = { ...options, ...paths };
+      if (!injectedCoordinator) delete iterationOptions.training_coordinator;
+      await runSchedulerIteration(iterationOptions);
       await waitForNextTick(SCHEDULER_TICK_MS, () => stopping);
     }
   } catch (error) {
@@ -344,6 +514,28 @@ async function runSchedulerService(options = {}) {
     });
     throw error;
   } finally {
+    const shutdownCoordinator = injectedCoordinator
+      ? options.training_coordinator
+      : (automaticNightlyCoordinatorEnabled(loadFreshSelfImprovementConfig())
+          ? getProductionNightlyTrainingCoordinator()
+          : null);
+    if (shutdownCoordinator) {
+      try {
+        await shutdownCoordinator.shutdown({
+          reason: 'sleep_scheduler_service_stop'
+        });
+      } catch (error) {
+        writeRuntimeRecord(paths.status_file, {
+          ok: false,
+          marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_TRAINING_SHUTDOWN_ERROR',
+          pid: process.pid,
+          error: error.stack || error.message,
+          stopped_at: new Date().toISOString(),
+          chat_mode_only: true,
+          game_mode_started: false
+        });
+      }
+    }
     const currentPid = readPid(paths.pid_file);
     if (currentPid === process.pid) fs.rmSync(paths.pid_file, { force: true });
   }
@@ -420,6 +612,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  automaticNightlyCoordinatorEnabled,
+  rsiPauseSentinelPresent,
   ROOT,
   SCHEDULER_TICK_MS,
   SCHEDULER_HEARTBEAT_STALE_MS,

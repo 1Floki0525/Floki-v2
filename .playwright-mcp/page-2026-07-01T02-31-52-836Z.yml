@@ -1,0 +1,342 @@
+- generic [ref=f8e2]:
+  - navigation "Main menu":
+    - link "Skip to main content" [ref=f8e3] [cursor=pointer]:
+      - /url: "#wpbody-content"
+    - link "Skip to toolbar" [ref=f8e4] [cursor=pointer]:
+      - /url: "#wp-toolbar"
+    - list [ref=f8e7]:
+      - listitem [ref=f8e8]:
+        - link "Dashboard" [ref=f8e9] [cursor=pointer]:
+          - /url: index.php
+          - generic [ref=f8e10]: 
+          - generic [ref=f8e11]: Dashboard
+        - list [ref=f8e12]:
+          - listitem [ref=f8e13]: Dashboard
+          - listitem [ref=f8e14]:
+            - link "Home" [ref=f8e15] [cursor=pointer]:
+              - /url: index.php
+          - listitem [ref=f8e16]:
+            - link "Updates 10" [ref=f8e17] [cursor=pointer]:
+              - /url: update-core.php
+              - text: Updates
+              - generic [ref=f8e18]: "10"
+      - listitem [ref=f8e19]
+      - listitem [ref=f8e21]:
+        - link "Posts" [ref=f8e22] [cursor=pointer]:
+          - /url: edit.php
+          - generic [ref=f8e23]: 
+          - generic [ref=f8e24]: Posts
+        - list [ref=f8e25]:
+          - listitem [ref=f8e26]: Posts
+          - listitem [ref=f8e27]:
+            - link "All Posts" [ref=f8e28] [cursor=pointer]:
+              - /url: edit.php
+          - listitem [ref=f8e29]:
+            - link "Add Post" [ref=f8e30] [cursor=pointer]:
+              - /url: post-new.php
+          - listitem [ref=f8e31]:
+            - link "Categories" [ref=f8e32] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=category
+          - listitem [ref=f8e33]:
+            - link "Tags" [ref=f8e34] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=post_tag
+      - listitem [ref=f8e35]:
+        - link "Media" [ref=f8e36] [cursor=pointer]:
+          - /url: upload.php
+          - generic [ref=f8e37]: 
+          - generic [ref=f8e38]: Media
+        - list [ref=f8e39]:
+          - listitem [ref=f8e40]: Media
+          - listitem [ref=f8e41]:
+            - link "Library" [ref=f8e42] [cursor=pointer]:
+              - /url: upload.php
+          - listitem [ref=f8e43]:
+            - link "Add Media File" [ref=f8e44] [cursor=pointer]:
+              - /url: media-new.php
+      - listitem [ref=f8e45]:
+        - link "Pages" [ref=f8e46] [cursor=pointer]:
+          - /url: edit.php?post_type=page
+          - generic [ref=f8e47]: 
+          - generic [ref=f8e48]: Pages
+        - list [ref=f8e49]:
+          - listitem [ref=f8e50]: Pages
+          - listitem [ref=f8e51]:
+            - link "All Pages" [ref=f8e52] [cursor=pointer]:
+              - /url: edit.php?post_type=page
+          - listitem [ref=f8e53]:
+            - link "Add Page" [ref=f8e54] [cursor=pointer]:
+              - /url: post-new.php?post_type=page
+      - listitem [ref=f8e55]:
+        - link "Comments 1,000 Comments in moderation" [ref=f8e56] [cursor=pointer]:
+          - /url: edit-comments.php
+          - generic [ref=f8e57]: 
+          - generic [ref=f8e58]:
+            - text: Comments
+            - generic [ref=f8e59]:
+              - text: 1,000
+              - generic [ref=f8e60]: 1,000 Comments in moderation
+      - listitem [ref=f8e61]
+      - listitem [ref=f8e63]:
+        - link "Appearance" [ref=f8e64] [cursor=pointer]:
+          - /url: themes.php
+          - generic [ref=f8e65]: 
+          - generic [ref=f8e66]: Appearance
+        - list [ref=f8e67]:
+          - listitem [ref=f8e68]: Appearance
+          - listitem [ref=f8e69]:
+            - link "Themes 5" [ref=f8e70] [cursor=pointer]:
+              - /url: themes.php
+              - text: Themes
+              - generic [ref=f8e71]: "5"
+          - listitem [ref=f8e72]:
+            - link "Patterns" [ref=f8e73] [cursor=pointer]:
+              - /url: site-editor.php?p=/pattern
+          - listitem [ref=f8e74]:
+            - link "Customize" [ref=f8e75] [cursor=pointer]:
+              - /url: customize.php?return=%2Fwp-admin%2Foptions-permalink.php
+          - listitem [ref=f8e76]:
+            - link "Fonts" [ref=f8e77] [cursor=pointer]:
+              - /url: font-library.php
+          - listitem [ref=f8e78]:
+            - link "Theme File Editor" [ref=f8e79] [cursor=pointer]:
+              - /url: theme-editor.php
+      - listitem [ref=f8e80]:
+        - link "Floki Access" [ref=f8e81] [cursor=pointer]:
+          - /url: admin.php?page=floki-access
+          - generic [ref=f8e82]: 
+          - generic [ref=f8e83]: Floki Access
+        - list [ref=f8e84]:
+          - listitem [ref=f8e85]: Floki Access
+          - listitem [ref=f8e86]:
+            - link "Floki Access" [ref=f8e87] [cursor=pointer]:
+              - /url: admin.php?page=floki-access
+          - listitem [ref=f8e88]:
+            - link "Applications" [ref=f8e89] [cursor=pointer]:
+              - /url: admin.php?page=floki-access-applications
+      - listitem [ref=f8e90]:
+        - link "Plugins 5" [ref=f8e91] [cursor=pointer]:
+          - /url: plugins.php
+          - generic [ref=f8e92]: 
+          - generic [ref=f8e93]:
+            - text: Plugins
+            - generic [ref=f8e94]: "5"
+        - list [ref=f8e95]:
+          - listitem [ref=f8e96]:
+            - text: Plugins
+            - generic [ref=f8e97]: "5"
+          - listitem [ref=f8e98]:
+            - link "Installed Plugins" [ref=f8e99] [cursor=pointer]:
+              - /url: plugins.php
+          - listitem [ref=f8e100]:
+            - link "Add Plugin" [ref=f8e101] [cursor=pointer]:
+              - /url: plugin-install.php
+          - listitem [ref=f8e102]:
+            - link "Plugin File Editor" [ref=f8e103] [cursor=pointer]:
+              - /url: plugin-editor.php
+      - listitem [ref=f8e104]:
+        - link "Users" [ref=f8e105] [cursor=pointer]:
+          - /url: users.php
+          - generic [ref=f8e106]: 
+          - generic [ref=f8e107]: Users
+        - list [ref=f8e108]:
+          - listitem [ref=f8e109]: Users
+          - listitem [ref=f8e110]:
+            - link "All Users" [ref=f8e111] [cursor=pointer]:
+              - /url: users.php
+          - listitem [ref=f8e112]:
+            - link "Add User" [ref=f8e113] [cursor=pointer]:
+              - /url: user-new.php
+          - listitem [ref=f8e114]:
+            - link "Profile" [ref=f8e115] [cursor=pointer]:
+              - /url: profile.php
+      - listitem [ref=f8e116]:
+        - link "Tools" [ref=f8e117] [cursor=pointer]:
+          - /url: tools.php
+          - generic [ref=f8e118]: 
+          - generic [ref=f8e119]: Tools
+        - list [ref=f8e120]:
+          - listitem [ref=f8e121]: Tools
+          - listitem [ref=f8e122]:
+            - link "Available Tools" [ref=f8e123] [cursor=pointer]:
+              - /url: tools.php
+          - listitem [ref=f8e124]:
+            - link "Import" [ref=f8e125] [cursor=pointer]:
+              - /url: import.php
+          - listitem [ref=f8e126]:
+            - link "Export" [ref=f8e127] [cursor=pointer]:
+              - /url: export.php
+          - listitem [ref=f8e128]:
+            - link "Site Health" [ref=f8e129] [cursor=pointer]:
+              - /url: site-health.php
+          - listitem [ref=f8e130]:
+            - link "Export Personal Data" [ref=f8e131] [cursor=pointer]:
+              - /url: export-personal-data.php
+          - listitem [ref=f8e132]:
+            - link "Erase Personal Data" [ref=f8e133] [cursor=pointer]:
+              - /url: erase-personal-data.php
+          - listitem [ref=f8e134]:
+            - link "WP Reset" [ref=f8e135] [cursor=pointer]:
+              - /url: tools.php?page=wp-reset
+      - listitem [ref=f8e136]:
+        - link "Settings" [ref=f8e137] [cursor=pointer]:
+          - /url: options-general.php
+          - generic [ref=f8e138]: 
+          - generic [ref=f8e139]: Settings
+        - list [ref=f8e140]:
+          - listitem [ref=f8e141]: Settings
+          - listitem [ref=f8e142]:
+            - link "General" [ref=f8e143] [cursor=pointer]:
+              - /url: options-general.php
+          - listitem [ref=f8e144]:
+            - link "Connectors" [ref=f8e145] [cursor=pointer]:
+              - /url: options-connectors.php
+          - listitem [ref=f8e146]:
+            - link "Writing" [ref=f8e147] [cursor=pointer]:
+              - /url: options-writing.php
+          - listitem [ref=f8e148]:
+            - link "Reading" [ref=f8e149] [cursor=pointer]:
+              - /url: options-reading.php
+          - listitem [ref=f8e150]:
+            - link "Discussion" [ref=f8e151] [cursor=pointer]:
+              - /url: options-discussion.php
+          - listitem [ref=f8e152]:
+            - link "Media" [ref=f8e153] [cursor=pointer]:
+              - /url: options-media.php
+          - listitem [ref=f8e154]:
+            - link "Permalinks" [ref=f8e155] [cursor=pointer]:
+              - /url: options-permalink.php
+          - listitem [ref=f8e156]:
+            - link "Privacy" [ref=f8e157] [cursor=pointer]:
+              - /url: options-privacy.php
+      - listitem [ref=f8e158]:
+        - button "Expand Main menu" [ref=f8e159] [cursor=pointer]
+  - generic [ref=f8e161]:
+    - generic [ref=f8e162]:
+      - navigation "Toolbar":
+        - menu:
+          - group [ref=f8e163]:
+            - menuitem "About WordPress" [ref=f8e164] [cursor=pointer]:
+              - generic [ref=f8e166]: About WordPress
+          - group [ref=f8e167]:
+            - menuitem "GalacticFamilyHub" [ref=f8e168] [cursor=pointer]
+          - group [ref=f8e169]:
+            - menuitem "10 updates available" [ref=f8e170] [cursor=pointer]:
+              - generic [ref=f8e172]: "10"
+              - generic [ref=f8e173]: 10 updates available
+          - group [ref=f8e174]:
+            - menuitem "Ctrl+K Open command palette" [ref=f8e175] [cursor=pointer]:
+              - generic [ref=f8e177]:
+                - text: Ctrl+K
+                - generic [ref=f8e178]: Open command palette
+          - group [ref=f8e179]:
+            - menuitem "1,000 Comments in moderation" [ref=f8e180] [cursor=pointer]:
+              - generic [ref=f8e182]: 1,000
+              - generic [ref=f8e183]: 1,000 Comments in moderation
+          - group [ref=f8e184]:
+            - menuitem "New" [ref=f8e185] [cursor=pointer]:
+              - generic [ref=f8e187]: New
+        - menu [ref=f8e188]:
+          - group [ref=f8e189]:
+            - menuitem "Howdy, Galact_Admin" [ref=f8e190] [cursor=pointer]
+    - main [ref=f8e191]:
+      - generic [ref=f8e192]:
+        - button "Help" [ref=f8e195] [cursor=pointer]
+        - generic [ref=f8e196]:
+          - heading "Permalink Settings" [level=1] [ref=f8e197]
+          - generic [ref=f8e198]:
+            - paragraph [ref=f8e199]:
+              - text: WordPress offers you the ability to create a custom URL structure for your permalinks and archives. Custom URL structures can improve the aesthetics, usability, and forward-compatibility of your links. A
+              - link "number of tags are available" [ref=f8e200] [cursor=pointer]:
+                - /url: https://wordpress.org/documentation/article/customize-permalinks/
+              - text: ", and here are some examples to get you started."
+            - heading "Common Settings" [level=2] [ref=f8e201]
+            - paragraph [ref=f8e202]:
+              - text: Select the permalink structure for your website. Including the
+              - code [ref=f8e203]: "%postname%"
+              - text: tag makes links easy to understand, and can help your posts rank higher in search engines.
+            - text: Permalink structure
+            - group "Permalink structure" [ref=f8e204]:
+              - generic [ref=f8e205]: Permalink structure
+              - generic [ref=f8e206]:
+                - radio "Plain" [ref=f8e207] [cursor=pointer]
+                - generic [ref=f8e208]:
+                  - generic [ref=f8e209]: Plain
+                  - paragraph [ref=f8e210]:
+                    - code [ref=f8e211]: https://galactic-family-hub.com/?p=123
+              - generic [ref=f8e212]:
+                - radio "Day and name" [checked] [ref=f8e213] [cursor=pointer]
+                - generic [ref=f8e214]:
+                  - generic [ref=f8e215]: Day and name
+                  - paragraph [ref=f8e216]:
+                    - code [ref=f8e217]: https://galactic-family-hub.com/2026/07/01/sample-post/
+              - generic [ref=f8e218]:
+                - radio "Month and name" [ref=f8e219] [cursor=pointer]
+                - generic [ref=f8e220]:
+                  - generic [ref=f8e221]: Month and name
+                  - paragraph [ref=f8e222]:
+                    - code [ref=f8e223]: https://galactic-family-hub.com/2026/07/sample-post/
+              - generic [ref=f8e224]:
+                - radio "Numeric" [ref=f8e225] [cursor=pointer]
+                - generic [ref=f8e226]:
+                  - generic [ref=f8e227]: Numeric
+                  - paragraph [ref=f8e228]:
+                    - code [ref=f8e229]: https://galactic-family-hub.com/archives/123
+              - generic [ref=f8e230]:
+                - radio "Post name" [ref=f8e231] [cursor=pointer]
+                - generic [ref=f8e232]:
+                  - generic [ref=f8e233]: Post name
+                  - paragraph [ref=f8e234]:
+                    - code [ref=f8e235]: https://galactic-family-hub.com/sample-post/
+              - generic [ref=f8e236]:
+                - radio "Custom Structure" [ref=f8e237] [cursor=pointer]
+                - generic [ref=f8e238]:
+                  - generic [ref=f8e239]: Custom Structure
+                  - paragraph [ref=f8e240]:
+                    - generic [ref=f8e241]: Customize permalink structure by selecting available tags
+                    - generic [ref=f8e242]:
+                      - code [ref=f8e243]: https://galactic-family-hub.com
+                      - textbox "Customize permalink structure by selecting available tags" [ref=f8e244]: /%year%/%monthnum%/%day%/%postname%/
+                  - group "Available tags:" [ref=f8e247]:
+                    - generic [ref=f8e248]: "Available tags:"
+                    - list [ref=f8e249]:
+                      - listitem [ref=f8e250]:
+                        - button "year (already used in permalink structure)" [pressed] [ref=f8e251] [cursor=pointer]: "%year%"
+                      - listitem [ref=f8e252]:
+                        - button "monthnum (already used in permalink structure)" [pressed] [ref=f8e253] [cursor=pointer]: "%monthnum%"
+                      - listitem [ref=f8e254]:
+                        - button "day (already used in permalink structure)" [pressed] [ref=f8e255] [cursor=pointer]: "%day%"
+                      - listitem [ref=f8e256]:
+                        - button "hour (Hour of the day, for example 15.)" [ref=f8e257] [cursor=pointer]: "%hour%"
+                      - listitem [ref=f8e258]:
+                        - button "minute (Minute of the hour, for example 43.)" [ref=f8e259] [cursor=pointer]: "%minute%"
+                      - listitem [ref=f8e260]:
+                        - button "second (Second of the minute, for example 33.)" [ref=f8e261] [cursor=pointer]: "%second%"
+                      - listitem [ref=f8e262]:
+                        - button "post_id (The unique ID of the post, for example 423.)" [ref=f8e263] [cursor=pointer]: "%post_id%"
+                      - listitem [ref=f8e264]:
+                        - button "postname (already used in permalink structure)" [pressed] [ref=f8e265] [cursor=pointer]: "%postname%"
+                      - listitem [ref=f8e266]:
+                        - button "category (Category slug. Nested sub-categories appear as nested directories in the URL.)" [ref=f8e267] [cursor=pointer]: "%category%"
+                      - listitem [ref=f8e268]:
+                        - button "author (A sanitized version of the author name.)" [ref=f8e269] [cursor=pointer]: "%author%"
+            - heading "Optional" [level=2] [ref=f8e270]
+            - paragraph [ref=f8e271]:
+              - text: If you like, you may enter custom structures for your category and tag URLs here. For example, using
+              - code [ref=f8e272]: topics
+              - text: as your category base would make your category links like
+              - code [ref=f8e273]: https://galactic-family-hub.com/topics/uncategorized/
+              - text: . If you leave these blank the defaults will be used.
+            - text: Category base
+            - textbox "Category base" [ref=f8e274]
+            - text: Tag base
+            - textbox "Tag base" [ref=f8e275]
+            - paragraph [ref=f8e276]:
+              - button "Save Changes" [ref=f8e277] [cursor=pointer]
+  - contentinfo [ref=f8e278]:
+    - paragraph [ref=f8e279]:
+      - generic [ref=f8e280]:
+        - text: Thank you for creating with
+        - link "WordPress" [ref=f8e281] [cursor=pointer]:
+          - /url: https://wordpress.org/
+        - text: .
+    - paragraph [ref=f8e282]: Version 7.0

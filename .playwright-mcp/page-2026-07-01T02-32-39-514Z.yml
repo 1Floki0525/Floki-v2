@@ -1,0 +1,5 @@
+- generic [ref=f11e4]:
+  - generic [ref=f11e6]: "!"
+  - heading "UI Render Error" [level=2] [ref=f11e7]
+  - paragraph [ref=f11e8]: Floki Electron settings bridge is unavailable
+  - button "Dismiss" [ref=f11e9] [cursor=pointer]

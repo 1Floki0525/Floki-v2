@@ -1,60 +1,59 @@
-'use strict';
+"use strict";
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
+const read = (relative) =>
+  fs.readFileSync(path.join(ROOT, relative), 'utf8');
 
-function read(relativePath) {
-  return fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
-}
+assert.equal(
+  Number(process.versions.node.split('.')[0]) >= 24,
+  true,
+  'Node 24 or newer is required'
+);
 
-function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+const start = read('bin/floki-sleep-scheduler-start.sh');
+const stop = read('bin/floki-sleep-scheduler-stop.sh');
+const status = read('bin/floki-sleep-scheduler-status.sh');
+const runtime = read('bin/floki-runtime.sh');
+const scheduler = read('src/chat/sleep-cycle-scheduler.cjs');
+const sleepCycle = read('src/chat/sleep-cycle.cjs');
 
-  const start = read('bin/floki-sleep-scheduler-start.sh');
-  const stop = read('bin/floki-sleep-scheduler-stop.sh');
-  const status = read('bin/floki-sleep-scheduler-status.sh');
-  const entry = read('bin/floki-start.sh');
-  const scheduler = read('src/chat/sleep-cycle-scheduler.cjs');
-  const sleepCycle = read('src/chat/sleep-cycle.cjs');
+assert.match(start, /nvm use 24/);
+assert.match(status, /nvm use 24/);
+assert.match(start, /sleep-cycle-scheduler\.cjs --service/);
+assert.match(stop, /sleep-cycle-scheduler\.cjs/);
 
-  assert.equal(start.includes('nvm use 24'), true);
-  assert.equal(status.includes('nvm use 24'), true);
-  assert.equal(start.includes('sleep-cycle-scheduler.cjs --service'), true);
-  assert.equal(stop.includes('sleep-cycle-scheduler.cjs'), true);
-  assert.equal(entry.includes('sleep-start'), true);
-  assert.equal(entry.includes('sleep-stop'), true);
-  assert.equal(entry.includes('sleep-status'), true);
-  assert.equal(entry.includes('start_sleep_scheduler'), true);
-  assert.equal(entry.includes('export FLOKI_ALLOW_SLEEP_CYCLE=1'), true);
-  assert.equal(scheduler.includes('FLOKI_ALLOW_DREAM_ENGINE: \'1\''), true);
-  assert.equal(scheduler.includes('await runSchedulerIteration'), true);
-  assert.equal(sleepCycle.includes('rem_dream_' + 'failed'), false);
-  assert.equal(sleepCycle.includes("status: 'failed'"), false);
+const runtimeStart = runtime.slice(
+  runtime.indexOf('  start)'),
+  runtime.indexOf('  stop)')
+);
+const runtimeStop = runtime.slice(
+  runtime.indexOf('  stop)'),
+  runtime.indexOf('  restart|reset)')
+);
+assert.match(runtimeStart, /floki-sleep-scheduler-start\.sh/);
+assert.match(runtimeStop, /floki-sleep-scheduler-stop\.sh/);
+assert.match(runtimeStart, /run_helper_if_present/);
 
-  console.log(JSON.stringify({
-    ok: true,
-    marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_SCRIPTS_PASS',
-    node_24_only: true,
-    chat_starts_scheduler: true,
-    independent_start_stop_status: true,
-    no_terminal_dream_failure_path: true,
-    chat_mode_only: true,
-    game_mode_started: false
-  }, null, 2));
-}
+assert.match(scheduler, /readDreamEngineControl/);
+assert.match(
+  scheduler,
+  /dreamControl\.enabled === true \? '1' : '0'/
+);
+assert.match(scheduler, /await runSchedulerIteration/);
+assert.equal(sleepCycle.includes('rem_dream_' + 'failed'), false);
+assert.equal(sleepCycle.includes("status: 'failed'"), false);
 
-try {
-  run();
-} catch (error) {
-  console.error(JSON.stringify({
-    ok: false,
-    marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_SCRIPTS_ERROR',
-    error: error.message,
-    chat_mode_only: true,
-    game_mode_started: false
-  }, null, 2));
-  process.exit(1);
-}
+console.log(JSON.stringify({
+  ok: true,
+  marker: 'FLOKI_V2_SLEEP_CYCLE_SCHEDULER_SCRIPTS_PASS',
+  node_24_only: true,
+  runtime_starts_scheduler: true,
+  runtime_stops_scheduler: true,
+  sole_runtime_authority: true,
+  no_terminal_dream_failure_path: true,
+  live_services_started_by_test: false
+}, null, 2));

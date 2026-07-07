@@ -12,6 +12,9 @@ const {
 } = require('../util/fs-safe.cjs');
 const { appendJsonlSync } = require('../util/jsonl.cjs');
 const { runDreamEngineOnce } = require('./dream-engine.cjs');
+const {
+  readDreamEngineControl
+} = require('./dream-engine-control.cjs');
 const { computeBackoffSeconds } = require('./dream-novelty.cjs');
 const { runPreRemMemoryPreparation } = require('./pre-rem-memory-preparation.cjs');
 
@@ -26,6 +29,8 @@ function getSleepDefaults(mode) {
     end_hhmm: cfg.end_hhmm,
     idle_resume_seconds: cfg.idle_resume_seconds,
     rem_interval_minutes: cfg.rem_interval_minutes,
+    rem_catchup_grace_minutes: cfg.rem_catchup_grace_minutes,
+    rem_max_dispatch_per_tick: cfg.rem_max_dispatch_per_tick,
     rem_offsets_minutes: cfg.rem_offsets_minutes
   });
 }
@@ -36,6 +41,8 @@ const sleepStartFallback = DEFAULTS.start_hhmm;
 const sleepEndFallback = DEFAULTS.end_hhmm;
 const DEFAULT_IDLE_RESUME_SECONDS = DEFAULTS.idle_resume_seconds;
 const DEFAULT_REM_INTERVAL_MINUTES = DEFAULTS.rem_interval_minutes;
+const DEFAULT_REM_CATCHUP_GRACE_MINUTES = DEFAULTS.rem_catchup_grace_minutes;
+const DEFAULT_REM_MAX_DISPATCH_PER_TICK = DEFAULTS.rem_max_dispatch_per_tick;
 
 function isDreamQualityRetry(error) {
   return String(error && error.message || error).startsWith('DREAM_QUALITY_CONTRACT_REJECTED_AFTER_');
@@ -201,6 +208,9 @@ function isWithinSleepWindow(date, options = {}) {
 }
 
 function buildRemSchedule(sleepWindow, options = {}) {
+  if (options.nightly_epoch_triggered_rem === true) {
+    return Object.freeze([]);
+  }
   const startMs = new Date(sleepWindow.start_at).getTime();
   const endMs = new Date(sleepWindow.end_at).getTime();
   const explicitOffsets = Array.isArray(options.rem_offsets_minutes)
@@ -266,6 +276,35 @@ function sameRemSchedule(left, right) {
 function reconcileRemSchedule(state, sleepWindow, options = {}) {
   if (!state || !Array.isArray(state.rem_cycles)) return state;
 
+  if (options.nightly_epoch_triggered_rem === true) {
+    // Epoch-triggered REM owns dispatch; drop only unclaimed wall-clock
+    // cycles and keep completed/in-flight history durable.
+    const kept = state.rem_cycles.filter(
+      (cycle) => cycle &&
+        (cycle.status === 'complete' || cycle.status === 'dreaming')
+    );
+    if (
+      state.rem_trigger === 'completed_training_epoch' &&
+      state.rem_interval_minutes == null &&
+      kept.length === state.rem_cycles.length
+    ) {
+      return state;
+    }
+    return Object.freeze({
+      ...state,
+      timezone: sleepWindow.timezone,
+      sleep_window_start: sleepWindow.start_at,
+      sleep_window_end: sleepWindow.end_at,
+      rem_interval_minutes: null,
+      rem_trigger: 'completed_training_epoch',
+      rem_cycles: kept.map((cycle, index) => Object.freeze({
+        ...cycle,
+        cycle_number: index + 1
+      })),
+      rem_schedule_reconciled_at: nowDate(options).toISOString()
+    });
+  }
+
   const desired = buildRemSchedule(sleepWindow, options);
   const intervalMinutes = Number(
     options.rem_interval_minutes || DEFAULT_REM_INTERVAL_MINUTES
@@ -273,7 +312,8 @@ function reconcileRemSchedule(state, sleepWindow, options = {}) {
 
   if (
     sameRemSchedule(state.rem_cycles, desired) &&
-    Number(state.rem_interval_minutes || intervalMinutes) === intervalMinutes
+    Number(state.rem_interval_minutes || intervalMinutes) === intervalMinutes &&
+    state.rem_trigger !== 'completed_training_epoch'
   ) {
     return state;
   }
@@ -308,7 +348,8 @@ function reconcileRemSchedule(state, sleepWindow, options = {}) {
     timezone: sleepWindow.timezone,
     sleep_window_start: sleepWindow.start_at,
     sleep_window_end: sleepWindow.end_at,
-    rem_interval_minutes: intervalMinutes,
+    rem_interval_minutes: options.nightly_epoch_triggered_rem === true ? null : intervalMinutes,
+    rem_trigger: options.nightly_epoch_triggered_rem === true ? 'completed_training_epoch' : 'fixed_schedule',
     rem_cycles: merged,
     rem_schedule_reconciled_at: nowDate(options).toISOString()
   });
@@ -321,6 +362,42 @@ function stateFile(options = {}) {
 function eventsFile(options = {}) {
   return options.events_file || DEFAULT_EVENTS_FILE;
 }
+
+function dreamEngineControlForTick(options = {}) {
+  if (
+    Object.prototype.hasOwnProperty.call(
+      options,
+      'dream_engine_control'
+    )
+  ) {
+    const provided = options.dream_engine_control || {};
+    return Object.freeze({
+      enabled: provided.enabled !== false,
+      reason: String(
+        provided.reason || 'provided_by_caller'
+      ),
+      control_file: provided.control_file || null
+    });
+  }
+
+  const customStateFile = (
+    options.state_file &&
+    path.resolve(options.state_file) !==
+      path.resolve(DEFAULT_STATE_FILE)
+  );
+  if (customStateFile) {
+    return Object.freeze({
+      enabled: true,
+      reason: 'isolated_state_default_enabled',
+      control_file: null
+    });
+  }
+
+  return readDreamEngineControl({
+    runtime_dir: options.runtime_dir
+  });
+}
+
 
 function createSleepCycleState(options = {}) {
   const now = nowDate(options);
@@ -340,7 +417,8 @@ function createSleepCycleState(options = {}) {
     last_user_activity_at: null,
     last_transition_at: createdAt,
     idle_resume_seconds: schedule.idle_resume_seconds,
-    rem_interval_minutes: schedule.rem_interval_minutes,
+    rem_interval_minutes: options.nightly_epoch_triggered_rem === true ? null : schedule.rem_interval_minutes,
+    rem_trigger: options.nightly_epoch_triggered_rem === true ? 'completed_training_epoch' : 'fixed_schedule',
     rem_cycles: buildRemSchedule(window, options),
     resumed_after_interruption_count: 0,
     chat_mode_only: true,
@@ -724,14 +802,124 @@ async function runSleepCycleTick(options = {}) {
     }
   }
 
+  const dreamControl = dreamEngineControlForTick(options);
+  if (dreamControl.enabled !== true) {
+    if (stateDirty) saveSleepCycleState(state, options);
+    const suspendedStatus = Object.freeze({
+      ok: true,
+      marker: 'FLOKI_V2_SLEEP_CYCLE_CONTRACT_PASS',
+      sleep_cycle_active: true,
+      sleep_window_start: state.sleep_window_start,
+      sleep_window_end: state.sleep_window_end,
+      within_sleep_window: true,
+      rem_cycles_total: state.rem_cycles.length,
+      rem_cycles_completed: countCycles(state, 'complete'),
+      rem_cycles_pending: countCycles(state, 'pending'),
+      interrupted_now: interruptedNow,
+      resumed_after_idle: resumedAfterIdle,
+      idle_resume_seconds: state.idle_resume_seconds,
+      pre_rem_memory_consolidation:
+        state.pre_rem_memory_consolidation || null,
+      dream_engine_enabled: false,
+      dream_generation_suspended: true,
+      dream_engine_control_reason:
+        dreamControl.reason || null,
+      dream_engine_control_file:
+        dreamControl.control_file || null,
+      dreams_generated_this_tick: 0,
+      dream_files_written: [],
+      chat_mode_only: true,
+      game_mode_started: false
+    });
+    return Object.freeze({
+      ...suspendedStatus,
+      report_file:
+        writeSleepCycleReport(suspendedStatus, options)
+    });
+  }
+
   const preRem = await ensurePreRemMemoryConsolidation(state, options);
   state = preRem.state;
   const dreamRunner = options.dream_runner || runDreamEngineOnce;
   let dreamsGenerated = 0;
+  const nowMs = now.getTime();
+  const catchupGraceMinutes = Number(
+    options.rem_catchup_grace_minutes != null
+      ? options.rem_catchup_grace_minutes
+      : DEFAULT_REM_CATCHUP_GRACE_MINUTES
+  );
+  const catchupGraceMs = Number.isFinite(catchupGraceMinutes)
+    ? catchupGraceMinutes * 60000
+    : Infinity;
+  const maxDispatchPerTick = Number(
+    options.rem_max_dispatch_per_tick != null
+      ? options.rem_max_dispatch_per_tick
+      : DEFAULT_REM_MAX_DISPATCH_PER_TICK
+  );
 
   for (let cycleIndex = 0; cycleIndex < state.rem_cycles.length; cycleIndex += 1) {
     const cycle = state.rem_cycles[cycleIndex];
-    if (cycle.status !== 'pending' || new Date(cycle.scheduled_at) > now || (cycle.next_retry_at && new Date(cycle.next_retry_at) > now)) {
+    const scheduledMs = Date.parse(String(cycle && cycle.scheduled_at || ''));
+    const retryMs = cycle && cycle.next_retry_at
+      ? Date.parse(String(cycle.next_retry_at))
+      : NaN;
+
+    if (
+      !cycle ||
+      cycle.status !== 'pending' ||
+      !Number.isFinite(scheduledMs) ||
+      scheduledMs > nowMs ||
+      (Number.isFinite(retryMs) && retryMs > nowMs)
+    ) {
+      continue;
+    }
+
+    // Truthful bounded catch-up (2026-07-06 policy): a due slot the scheduler
+    // never serviced and that is now overdue by more than the catch-up grace is
+    // marked 'missed' instead of dispatching a backlog dream. Combined with the
+    // per-tick dispatch cap below, this keeps at most rem_max_dispatch_per_tick
+    // dreams per tick and never floods the night with skipped-slot dreams.
+    const overdueMs = nowMs - scheduledMs;
+    const neverAttempted =
+      !Number(cycle.dream_attempt_count) &&
+      !Number(cycle.quality_retry_count) &&
+      !cycle.dreaming_started_at;
+    if (neverAttempted && overdueMs > catchupGraceMs) {
+      const missedAt = now.toISOString();
+      const missedCycle = Object.freeze({
+        ...cycle,
+        status: 'missed',
+        stage: 'missed',
+        missed_reason: 'scheduler_unavailable_within_catchup_grace',
+        missed_at: missedAt,
+        last_transition_at: missedAt
+      });
+      state = Object.freeze({
+        ...state,
+        rem_cycles: state.rem_cycles.map((item, index) =>
+          index === cycleIndex ? missedCycle : item
+        ),
+        last_transition_at: missedAt
+      });
+      saveSleepCycleState(state, options);
+      appendSleepEvent({
+        type: 'rem_cycle_missed',
+        rem_cycle_number: cycle.cycle_number,
+        scheduled_at: cycle.scheduled_at,
+        missed_reason: 'scheduler_unavailable_within_catchup_grace',
+        missed_at: missedAt,
+        at: missedAt
+      }, options);
+      stateDirty = false;
+      continue;
+    }
+
+    if (
+      Number.isFinite(maxDispatchPerTick) &&
+      dreamsGenerated >= maxDispatchPerTick
+    ) {
+      // Per-tick dispatch cap reached: leave the remaining due slot(s) pending
+      // so they dispatch on the next wall-clock tick rather than flooding now.
       continue;
     }
 
@@ -744,9 +932,12 @@ async function runSleepCycleTick(options = {}) {
       dreaming_process_pid: process.pid,
       last_transition_at: transitionAt
     });
+
     state = Object.freeze({
       ...state,
-      rem_cycles: state.rem_cycles.map((item, index) => index === cycleIndex ? dreamingCycle : item),
+      rem_cycles: state.rem_cycles.map((item, index) =>
+        index === cycleIndex ? dreamingCycle : item
+      ),
       last_transition_at: transitionAt
     });
     saveSleepCycleState(state, options);
@@ -755,6 +946,7 @@ async function runSleepCycleTick(options = {}) {
       rem_cycle_number: cycle.cycle_number,
       dreaming_started_at: transitionAt,
       dreaming_process_pid: process.pid,
+      scheduled_at: cycle.scheduled_at,
       at: transitionAt
     }, options);
 
@@ -783,7 +975,9 @@ async function runSleepCycleTick(options = {}) {
       });
       state = Object.freeze({
         ...state,
-        rem_cycles: state.rem_cycles.map((item, index) => index === cycleIndex ? requeuedCycle : item),
+        rem_cycles: state.rem_cycles.map((item, index) =>
+          index === cycleIndex ? requeuedCycle : item
+        ),
         last_transition_at: errorAt,
         last_architecture_error_at: errorAt,
         last_architecture_error: error.message
@@ -819,7 +1013,9 @@ async function runSleepCycleTick(options = {}) {
       });
       state = Object.freeze({
         ...state,
-        rem_cycles: state.rem_cycles.map((item, index) => index === cycleIndex ? requeuedCycle : item),
+        rem_cycles: state.rem_cycles.map((item, index) =>
+          index === cycleIndex ? requeuedCycle : item
+        ),
         last_transition_at: errorAt,
         last_quality_retry_at: errorAt,
         last_quality_retry: dream.last_error || dream.marker,
@@ -853,7 +1049,9 @@ async function runSleepCycleTick(options = {}) {
       });
       state = Object.freeze({
         ...state,
-        rem_cycles: state.rem_cycles.map((item, index) => index === cycleIndex ? requeuedCycle : item),
+        rem_cycles: state.rem_cycles.map((item, index) =>
+          index === cycleIndex ? requeuedCycle : item
+        ),
         last_transition_at: errorAt,
         last_architecture_error_at: errorAt,
         last_architecture_error: error.message
@@ -883,7 +1081,9 @@ async function runSleepCycleTick(options = {}) {
     });
     state = Object.freeze({
       ...state,
-      rem_cycles: state.rem_cycles.map((item, index) => index === cycleIndex ? completedCycle : item),
+      rem_cycles: state.rem_cycles.map((item, index) =>
+        index === cycleIndex ? completedCycle : item
+      ),
       last_transition_at: completedAt,
       last_architecture_error_at: null,
       last_architecture_error: null
@@ -910,10 +1110,13 @@ async function runSleepCycleTick(options = {}) {
     rem_cycles_total: state.rem_cycles.length,
     rem_cycles_completed: countCycles(state, 'complete'),
     rem_cycles_pending: countCycles(state, 'pending'),
+    rem_cycles_missed: countCycles(state, 'missed'),
     interrupted_now: interruptedNow,
     resumed_after_idle: resumedAfterIdle,
     idle_resume_seconds: state.idle_resume_seconds,
     pre_rem_memory_consolidation: state.pre_rem_memory_consolidation || null,
+    dream_engine_enabled: true,
+    dream_generation_suspended: false,
     dreams_generated_this_tick: dreamsGenerated,
     dream_files_written: dreamFilesWritten,
     chat_mode_only: true,
@@ -955,6 +1158,8 @@ module.exports = {
   sleepEndFallback,
   DEFAULT_IDLE_RESUME_SECONDS,
   DEFAULT_REM_INTERVAL_MINUTES,
+  DEFAULT_REM_CATCHUP_GRACE_MINUTES,
+  DEFAULT_REM_MAX_DISPATCH_PER_TICK,
   sleepCycleAllowed,
   sleepCycleGuardStatus,
   getSleepWindowForDate,
@@ -971,6 +1176,7 @@ module.exports = {
   shouldResumeSleepAfterIdle,
   recordWakeActivityIfSleeping,
   ensurePreRemMemoryConsolidation,
+  dreamEngineControlForTick,
   runSleepCycleTick,
   printSleepCycleProof
 };

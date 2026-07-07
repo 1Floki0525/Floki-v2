@@ -21,9 +21,9 @@ game mode
 ## Commands
 
 ```bash
-bin/floki-start.sh senses
-bin/floki-start.sh senses-smoke
-bin/floki-start.sh senses-status
+bin/floki-node24-run.sh node src/senses/offline-senses.cjs
+bin/floki-node24-run.sh node src/senses/offline-senses.cjs --smoke
+bin/floki-node24-run.sh node src/senses/offline-senses.cjs --status
 ```
 
 ## Current behavior
@@ -42,7 +42,7 @@ This stage does not:
 - capture webcam frames
 - record microphone audio
 - transcribe speech
-- call qwen3-vl
+- call the local HF vision model
 - claim live chat-world sight
 - claim live chat-world hearing
 - touch Minecraft

@@ -1,0 +1,11 @@
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+.cxx/
+*.iml
+.idea/
+*.hprof
+*/build/
+mobile-auth.local.properties

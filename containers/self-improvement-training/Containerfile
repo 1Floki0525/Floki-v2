@@ -1,0 +1,57 @@
+# Floki-v2 RSI QLoRA training container.
+# All operational values are mandatory and supplied from authoritative chat YAML.
+
+ARG BASE_CUDA_IMAGE
+FROM ${BASE_CUDA_IMAGE}
+
+ARG PYTHON_PACKAGES
+ARG TORCH_PACKAGES
+ARG TORCH_INDEX_URL
+ARG TRAINING_VENV_PATH
+ARG APT_PACKAGES
+ARG TRAINING_WORKDIR
+ARG TRAINING_ENTRYPOINT
+ARG TRAINING_SCRIPT_PATH
+ARG REM_INFERENCE_SCRIPT_PATH
+ARG DEBIAN_FRONTEND_VALUE
+ARG PIP_NO_CACHE_DIR_VALUE
+ARG HF_HUB_OFFLINE_VALUE
+ARG TRANSFORMERS_OFFLINE_VALUE
+
+ENV DEBIAN_FRONTEND=${DEBIAN_FRONTEND_VALUE} \
+    PIP_NO_CACHE_DIR=${PIP_NO_CACHE_DIR_VALUE} \
+    HF_HUB_OFFLINE=${HF_HUB_OFFLINE_VALUE} \
+    TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE_VALUE} \
+    HF_HUB_DISABLE_PROGRESS_BARS=1 \
+    TRANSFORMERS_NO_ADVISORY_WARNINGS=1 \
+    PATH=${TRAINING_VENV_PATH}/bin:${PATH}
+
+RUN test -n "${PYTHON_PACKAGES}" \
+    && test -n "${TORCH_PACKAGES}" \
+    && test -n "${TORCH_INDEX_URL}" \
+    && test -n "${TRAINING_VENV_PATH}" \
+    && test -n "${APT_PACKAGES}" \
+    && test -n "${TRAINING_WORKDIR}" \
+    && test -n "${TRAINING_ENTRYPOINT}" \
+    && test -n "${TRAINING_SCRIPT_PATH}" \
+    && test -n "${REM_INFERENCE_SCRIPT_PATH}" \
+    && test -n "${DEBIAN_FRONTEND_VALUE}" \
+    && test -n "${PIP_NO_CACHE_DIR_VALUE}" \
+    && test -n "${HF_HUB_OFFLINE_VALUE}" \
+    && test -n "${TRANSFORMERS_OFFLINE_VALUE}" \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ${APT_PACKAGES} \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv "${TRAINING_VENV_PATH}" \
+    && "${TRAINING_VENV_PATH}/bin/python" -m pip install --upgrade pip setuptools wheel \
+    && "${TRAINING_VENV_PATH}/bin/python" -m pip install \
+      --index-url "${TORCH_INDEX_URL}" ${TORCH_PACKAGES} \
+    && "${TRAINING_VENV_PATH}/bin/python" -m pip install ${PYTHON_PACKAGES} \
+    && "${TRAINING_VENV_PATH}/bin/python" -c \
+      "import torch; assert torch.version.cuda, 'CUDA-enabled PyTorch is required'; print(torch.__version__, torch.version.cuda)"
+
+WORKDIR ${TRAINING_WORKDIR}
+
+COPY train_qlora.py ${TRAINING_SCRIPT_PATH}
+COPY rem_inference.py ${REM_INFERENCE_SCRIPT_PATH}

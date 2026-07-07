@@ -9,7 +9,11 @@ const { runChatVisionInference } = require('../src/vision/chat-vision-inference.
 const { getModelConfig, getVisionConfig } = require('../src/config/floki-config.cjs');
 
 async function run() {
-  assert.equal(process.version.startsWith('v24.'), true, 'Node 24 is required');
+  assert.equal(
+    Number(process.versions.node.split('.')[0]) >= 24,
+    true,
+    'Node 24 or newer is required'
+  );
   const vision = getVisionConfig('chat');
   const models = getModelConfig('chat');
   const transcriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'floki-chat-vision-'));
@@ -73,7 +77,19 @@ async function run() {
     /private thought|reasoning marker/
   );
 
-  console.log(JSON.stringify({
+  
+  // FLOKI_CHAT_VISION_IMAGE_CONTENT_SOURCE_ASSERTS_V2
+  const serviceSource = fs.readFileSync(path.join(path.resolve(__dirname, '..'), 'src/vision/chat-webcam-vision-service.cjs'), 'utf8');
+  const callBlock = serviceSource.match(/async function callVisionModel\(frameBuffer, options = \{\}\) \{[\s\S]*?\n\}\n\nfunction isAbortError/);
+  assert.ok(callBlock, 'callVisionModel block must be present before isAbortError');
+  assert.ok(/messages:\s*\[[\s\S]*content:\s*\[[\s\S]*type:\s*'image'[\s\S]*type:\s*'text'/m.test(callBlock[0]));
+  assert.ok(callBlock[0].includes('requireConfiguredVisionLanguageModel(models)'));
+  assert.ok(callBlock[0].includes('buildConfiguredGenerationOptions(config)'));
+  assert.equal(/\/api\/generate/.test(callBlock[0]), false);
+  assert.equal(/ollama|qwen3|qwen3-vl|omen|127\.0\.0\.1|localhost:11434|localhost:11436|:7711/i.test(callBlock[0]), false);
+
+
+console.log(JSON.stringify({
     ok: true,
     marker: 'FLOKI_V2_CHAT_VISION_INFERENCE_CONTRACT_PASS',
     frame_capture_run_now: true,
