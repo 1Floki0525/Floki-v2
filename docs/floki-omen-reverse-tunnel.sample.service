@@ -1,21 +1,4 @@
-[Unit]
-Description=Floki reverse SSH tunnel to Omen gateway
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/ssh -NT \
-  -o BatchMode=yes \
-  -o ExitOnForwardFailure=yes \
-  -o ServerAliveInterval=30 \
-  -o ServerAliveCountMax=3 \
-  -o TCPKeepAlive=yes \
-  -R 127.0.0.1:17701:127.0.0.1:7710 \
-  -R 127.0.0.1:17702:127.0.0.1:7700 \
-  chris-mccoll
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=default.target
+# FLOKI OMEN TUNNEL REMOVED
+#
+# Omen is web hosting only.
+# Vision/model/camera tunnels are disabled by architecture.

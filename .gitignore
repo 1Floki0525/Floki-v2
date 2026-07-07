@@ -72,3 +72,5 @@ apps/Floki-mobile-app/*.jks
 apps/Floki-mobile-app/*.keystore
 
 /.claude/
+# Local web app deploy bundles generated outside source control
+/floki-neural-web-app-*.zip

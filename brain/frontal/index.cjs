@@ -3,7 +3,8 @@
 const { createModuleContract, validateModuleContract } = require('../../src/brain/module-contract.cjs');
 const { createBrainOutput, makeFailureOutput } = require('../../src/brain/brain-output-schema.cjs');
 const models = require('../../src/config/model-config.cjs');
-const { generateJson, generateJsonStream, rejectPrivateReasoningMarkers } = require('../../src/model/ollama-client.cjs');
+const { generateJson, generateJsonStream } = require('../../src/model/cognition-client.cjs');
+const { rejectPrivateReasoningMarkers } = require('../../src/model/ollama-client.cjs');
 const { extractCompletedFirstPublicField } = require('../../src/chat/public-response-stream.cjs');
 const { appendJsonlSync } = require('../../src/util/jsonl.cjs');
 const { statePath } = require('../../src/util/fs-safe.cjs');
@@ -486,6 +487,7 @@ async function runCognition(context, options = {}) {
     let accumulated = '';
 
     const primaryInput = {
+      provider: config.provider,
       endpoint: config.endpoint,
       model: config.model,
       prompt,

@@ -42,7 +42,7 @@ This stage does not:
 - capture webcam frames
 - record microphone audio
 - transcribe speech
-- call qwen3-vl
+- call the local HF vision model
 - claim live chat-world sight
 - claim live chat-world hearing
 - touch Minecraft
