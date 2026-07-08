@@ -6,7 +6,7 @@ The project is designed around one persistent individual named **Floki** rather 
 
 ## Purpose
 
-Floki-v2 has two main operating modes:
+Floki-v2 has one main operating mode:
 
 ### `chat.local` — personal AI companion
 
@@ -33,33 +33,8 @@ Typed and spoken input are required to use the same authoritative long-lived bra
 Start the local companion with:
 
 ```bash
-bin/floki-start.sh chat.local
+floki.app
 ```
-
-### `game` — AI friend for games
-
-Game mode is intended to let the same persistent Floki identity play games with the user as an AI friend rather than creating a separate personality for each game.
-
-The long-term design is for game perception and embodiment to connect to the same brain, memory, emotion, relationship, personality, and belief systems used by companion mode.
-
-Start game mode with:
-
-```bash
-bin/floki-start.sh game
-```
-
-Game embodiment remains under active development and is intentionally isolated from the current `chat.local` repair work.
-
-## Core design principles
-
-- **One Floki:** typed chat, spoken chat, sight, hearing, memory, emotion, sleep, and games must converge on one authoritative brain.
-- **Local-first:** cognition, speech recognition, vision, and speech output are designed to run locally without requiring cloud AI services.
-- **Persistent identity:** memories, personality, emotions, beliefs, relationships, and dreams survive process restarts.
-- **Grounded perception:** Floki must distinguish current sensory evidence from memory, inference, media, dreams, and user-provided facts.
-- **No fabricated sight or hearing:** when current sensory evidence is unavailable, Floki must report that honestly rather than inventing an observation.
-- **YAML authority:** adjustable runtime settings belong in YAML and are loaded through the project configuration layer.
-- **Node 24 only:** project scripts and tests require Node.js 24.
-- **Privacy:** raw microphone recordings and webcam frames are temporary processing data and are not intended to become permanent personal-history files.
 
 ## Architecture overview
 
@@ -96,17 +71,15 @@ The public repository tracks sanitized configuration templates:
 
 ```text
 config/chat.config.yaml.temp
-config/game.config.yaml.temp
 ```
 
 Create private working copies after cloning:
 
 ```bash
 cp config/chat.config.yaml.temp config/chat.config.yaml
-cp config/game.config.yaml.temp config/game.config.yaml
 ```
 
-The working `config/chat.config.yaml` and `config/game.config.yaml` files are ignored by Git so personal paths and machine-specific settings are not published. Floki still loads those working files at runtime through the existing configuration layer.
+The working `config/chat.config.yaml` files are ignored by Git so personal paths and machine-specific settings are not published. Floki still loads those working files at runtime through the existing configuration layer.
 
 The lightweight YAML parser is map-only. Use keyed maps instead of YAML arrays. Production source must not hardcode adjustable values such as model names, ports, device paths, wake phrases, timing values, thresholds, sleep schedules, speech settings, or personal storage paths.
 
