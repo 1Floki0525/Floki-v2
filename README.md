@@ -8,9 +8,9 @@ The project is designed around one persistent individual named **Floki** rather 
 
 Floki-v2 has one main operating mode:
 
-### `chat.local` — personal AI companion
+### `floki.runtime` — personal AI companion
 
-`chat.local` runs Floki as a private desktop companion through the Floki Neural Interface.
+`floki.runtime` runs Floki as a private desktop companion through the Floki Neural Interface.
 
 While awake, the intended production workflow gives Floki:
 
@@ -70,16 +70,16 @@ authoritative chat.local runtime
 The public repository tracks sanitized configuration templates:
 
 ```text
-config/chat.config.yaml.temp
+config/runtime.config.yaml.temp
 ```
 
 Create private working copies after cloning:
 
 ```bash
-cp config/chat.config.yaml.temp config/chat.config.yaml
+cp config/runtime.config.yaml.temp config/runtime.config.yaml
 ```
 
-The working `config/chat.config.yaml` files are ignored by Git so personal paths and machine-specific settings are not published. Floki still loads those working files at runtime through the existing configuration layer.
+The working `config/runtime.config.yaml` files are ignored by Git so personal paths and machine-specific settings are not published. Floki still loads those working files at runtime through the existing configuration layer.
 
 The lightweight YAML parser is map-only. Use keyed maps instead of YAML arrays. Production source must not hardcode adjustable values such as model names, ports, device paths, wake phrases, timing values, thresholds, sleep schedules, speech settings, or personal storage paths.
 
@@ -130,13 +130,13 @@ Floki-v2 is an active implementation, not a scaffold-only repository.
 
 The repository currently contains real brain modules, persistent memory and affect systems, local cognition, live microphone and vision services, local speech output, the Electron/React Neural Interface, sleep scheduling, REM state, dream generation, and extensive contract tests.
 
-The `chat.local` workflow is still being stabilized for production-quality conversational latency, complete spoken-utterance capture, truthful live sensory answers, transcript continuity, lifecycle ordering, and clean service recovery. Static tests do not replace live verification with the real microphone, camera, local models, speaker, and desktop interface.
+The `floki.runtime` workflow is still being stabilized for production-quality conversational latency, complete spoken-utterance capture, truthful live sensory answers, transcript continuity, lifecycle ordering, and clean service recovery. Static tests do not replace live verification with the real microphone, camera, local models, speaker, and desktop interface.
 
 ## Repository boundaries
 
 - Runtime-generated state belongs under `state/` and is not source code.
 - Model weights, virtual environments, build output, raw audio, and temporary camera frames should not be committed.
-- Minecraft or other game-specific embodiment must not be introduced into `chat.local` unless a shared abstraction explicitly requires it.
+- Minecraft or other game-specific embodiment must not be introduced into `floki.runtime` unless a shared abstraction explicitly requires it.
 - Personal memories and private runtime data must not be published with the source repository.
 
 ## License
